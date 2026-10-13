@@ -7,8 +7,14 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
+#include <QPoint>
 #include <QRect>
 #include <QUrl>
+
+#if defined(_WIN32)
+#include "platform/win/shell_context_menu.hpp"
+#include <windows.h>
+#endif
 
 namespace starfish::ui {
 
@@ -100,6 +106,20 @@ void FenceView::paintEvent(QPaintEvent* event)
 
 void FenceView::mousePressEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::RightButton) {
+        // Right-click selects the item under the cursor and shows the Windows
+        // shell context menu for it. The single path (mousePressEvent) covers
+        // both a real Qt window and a desktop-hosted surface that posts
+        // QMouseEvent(RightButton) from its own WndProc: a QContextMenuEvent
+        // would only fire from the platform, not from a posted event.
+        const int index = itemAt(event->pos());
+        if (index >= 0)
+            m_grid.selectOnly(index);
+        update();
+        emit contentChanged();
+        showContextMenuForIndex(index, event->globalPosition().toPoint());
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
         return;
@@ -132,6 +152,26 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     if (!target.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(target));
     emit itemActivated(index);
+}
+
+void FenceView::showContextMenuForIndex(int index, const QPoint& globalPos)
+{
+#if defined(_WIN32)
+    if (index < 0 || index >= m_grid.items().size())
+        return;
+    // Prefer the resolved target for the menu (so "Open with", "Run as
+    // administrator" and friends act on what the user actually meant to
+    // launch); fall back to the desktop path for plain files / folders.
+    const core::DesktopItem& item = m_grid.items().at(index);
+    const QString path = !item.targetPath.isEmpty() ? item.targetPath : item.path;
+    if (path.isEmpty())
+        return;
+    starfish::platform::win::ShellContextMenu::showForPath(
+        path, globalPos, reinterpret_cast<void*>(::GetForegroundWindow()));
+#else
+    Q_UNUSED(index);
+    Q_UNUSED(globalPos);
+#endif
 }
 
 } // namespace starfish::ui

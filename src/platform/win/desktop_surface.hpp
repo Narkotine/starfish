@@ -131,6 +131,7 @@ private:
 
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;
+    bool m_rightDown = false;
 
     // Builds a QMouseEvent from a surface mouse message and posts it to the
     // input target (see setInputTarget). Coordinates are client-local, which

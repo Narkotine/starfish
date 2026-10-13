@@ -469,6 +469,18 @@ void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
     // fence is rendered at (0,0) of the frame, and the surface has no border.
     const QPointF pos(static_cast<qreal>(GET_X_LPARAM(lParam)),
                       static_cast<qreal>(GET_Y_LPARAM(lParam)));
+    // Translate the client position to screen coordinates. Posted QMouseEvents
+    // need a real screen position so widgets that pop up a menu (the shell
+    // context menu on right-click) can place it under the actual cursor; using
+    // `pos, pos` would put the menu at the top-left of the primary monitor.
+    QPointF screenPos = pos;
+    if (m_hwnd) {
+        RECT r{};
+        if (::GetWindowRect(toHwnd(m_hwnd), &r))
+            screenPos = QPointF(static_cast<qreal>(r.left) + pos.x(),
+                                static_cast<qreal>(r.top) + pos.y());
+    }
+
     const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
 
     QEvent::Type type = QEvent::None;
@@ -494,17 +506,36 @@ void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
         buttons = Qt::LeftButton;
         m_leftDown = true;
         break;
+    case WM_RBUTTONDOWN:
+        type = QEvent::MouseButtonPress;
+        button = Qt::RightButton;
+        buttons = Qt::RightButton;
+        m_rightDown = true;
+        break;
+    case WM_RBUTTONUP:
+        type = QEvent::MouseButtonRelease;
+        button = Qt::RightButton;
+        buttons = Qt::NoButton;
+        m_rightDown = false;
+        break;
+    case WM_RBUTTONDBLCLK:
+        type = QEvent::MouseButtonDblClick;
+        button = Qt::RightButton;
+        buttons = Qt::RightButton;
+        m_rightDown = true;
+        break;
     case WM_MOUSEMOVE:
         type = QEvent::MouseMove;
         button = Qt::NoButton;
-        buttons = m_leftDown ? Qt::LeftButton : Qt::NoButton;
+        buttons = (m_leftDown ? Qt::LeftButton : Qt::NoButton)
+                  | (m_rightDown ? Qt::RightButton : Qt::NoButton);
         break;
     default:
         return;
     }
 
     // Posted, not sent: the WndProc must not re-enter the Qt event loop.
-    auto* event = new QMouseEvent(type, pos, pos, button, buttons, mods);
+    auto* event = new QMouseEvent(type, pos, screenPos, button, buttons, mods);
     QCoreApplication::postEvent(m_inputTarget, event);
 }
 
@@ -645,11 +676,15 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP:
     case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
     case WM_MOUSEMOVE:
         // Input is owned by the surface's WndProc; it is forwarded to the Qt
-        // widget rendered into this surface so selection and double-click work
-        // on the live desktop (T-005). The message is also passed to
-        // DefWindowProc, which has nothing to do for these on a layered child.
+        // widget rendered into this surface so selection, double-click and the
+        // right-click shell context menu (T-006) work on the live desktop. The
+        // message is also passed to DefWindowProc, which has nothing to do for
+        // these on a layered child.
         forwardMouse(message, lParam);
         return false;
 

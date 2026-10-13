@@ -52,6 +52,11 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
+    // Pops the Windows shell context menu for the item at `index` (-1 = empty
+    // area, nothing is shown). Implemented in the .cpp so the shell headers
+    // stay out of the widget header. `globalPos` is screen coordinates.
+    void showContextMenuForIndex(int index, const QPoint& globalPos);
+
     static constexpr int kTitleBarHeight = 30;
     static constexpr int kCornerRadius = 10;
     static constexpr int kPadding = 12;

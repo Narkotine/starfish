@@ -19,6 +19,7 @@
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
+#include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
 #include "ui/fence_view.hpp"
 #include "version.h"
@@ -516,6 +517,12 @@ int main(int argc, char* argv[])
         QStringLiteral("With --render-probe --surface: push frames via UpdateLayeredWindow "
                        "with per-pixel alpha (T-017) instead of the opaque WM_PAINT blit, "
                        "and render the fence translucent so the wallpaper shows through."));
+    const QCommandLineOption contextMenuVerbsOption(
+        QStringLiteral("context-menu-verbs"),
+        QStringLiteral("Enumerate the verbs the Windows shell would put in the right-click "
+                       "context menu for this path and print them. Non-interactive: proves "
+                       "the IContextMenu pipeline (T-006) without showing a popup."),
+        QStringLiteral("path"));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -534,6 +541,7 @@ int main(int argc, char* argv[])
     parser.addOption(surfaceOption);
     parser.addOption(withDesktopItemsOption);
     parser.addOption(pixelAlphaOption);
+    parser.addOption(contextMenuVerbsOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -595,6 +603,46 @@ int main(int argc, char* argv[])
                                         .arg(icons.cachedCount());
         }
         return 0;
+    }
+
+    if (parser.isSet(contextMenuVerbsOption)) {
+#if defined(_WIN32)
+        const QString path = parser.value(contextMenuVerbsOption);
+        if (path.isEmpty()) {
+            qCWarning(lc) << "--context-menu-verbs needs a path";
+            return 2;
+        }
+        const QStringList verbs =
+            starfish::platform::win::ShellContextMenu::menuVerbs(path);
+        // Mirror the result to a file: this is a diagnostic, and on Windows a
+        // GUI-subsystem exe's stderr is not reliably captured by every caller
+        // (PowerShell `*> file`, some sandboxes). A file is the one channel
+        // that always works, and it makes the diagnostic scriptable.
+        const QString mirrorPath = QStringLiteral("build/context_menu_verbs.txt");
+        QFile mirror(mirrorPath);
+        if (mirror.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            QTextStream out(&mirror);
+            out << path << '\n' << verbs.size() << '\n';
+            for (const QString& verb : verbs)
+                out << verb << '\n';
+        }
+        if (verbs.isEmpty()) {
+            qCWarning(lc).noquote()
+                << QStringLiteral("no verbs resolved for %1 (path missing or not a file?)")
+                       .arg(path);
+            return 3;
+        }
+        qCInfo(lc).noquote()
+            << QStringLiteral("%1 context menu verb(s) for %2:")
+                       .arg(verbs.size())
+                       .arg(path);
+        for (const QString& verb : verbs)
+            qCInfo(lc).noquote() << QStringLiteral("  - %1").arg(verb);
+        return 0;
+#else
+        qCWarning(lc) << "--context-menu-verbs is Windows-only";
+        return 1;
+#endif
     }
 
     if (parser.isSet(renderProbeOption)) {

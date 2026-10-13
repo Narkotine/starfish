@@ -12,6 +12,7 @@ qt_add_executable(starfish WIN32
     platform/win/desktop_surface.cpp
     platform/win/desktop_scanner.cpp
     platform/win/shell_icon_cache.cpp
+    platform/win/shell_context_menu.cpp
     ui/fence_view.cpp
     ui/icon_grid.cpp
 )
