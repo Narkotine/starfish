@@ -25,3 +25,6 @@ experiments/out/
 .workbuddy-ai/
 .cursor/
 .claude/
+
+# aqtinstall (local Qt/MinGW toolchain)
+aqtinstall.log

@@ -24,3 +24,17 @@ target_include_directories(test_starfish_zorder PRIVATE
 target_link_libraries(test_starfish_zorder PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_zorder COMMAND test_starfish_zorder)
+
+# Desktop entry ordering / merging: the pure half of T-004, no Win32 involved.
+add_executable(test_starfish_desktop_item
+    test_desktop_item.cpp
+    ../src/core/desktop_item.cpp
+)
+
+target_include_directories(test_starfish_desktop_item PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_desktop_item PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_desktop_item COMMAND test_starfish_desktop_item)

@@ -22,15 +22,24 @@ namespace starfish::platform::win {
 // docs/technique.md:
 //
 //   1. create a frameless top-level window               (Qt::Window)
-//   2. SetParent(hwnd, Progman); add WS_CHILD, drop WS_POPUP
-//   3. ex-style: drop WS_EX_TOPMOST, add WS_EX_LAYERED, then
-//      SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
-//   4. SetWindowPos(hwnd, SHELLDLL_DefView, ...)         -> just below the icons
+//   2. make Qt itself want WS_EX_LAYERED, then SetParent(hwnd, Progman) and
+//      add WS_CHILD / drop WS_POPUP
+//   3. SetWindowPos(hwnd, SHELLDLL_DefView, ...)         -> just below the icons
 //
 // The layered flag is MANDATORY. On recent Windows 11 builds a non-layered
 // child of Progman is not composited by DWM: IsWindowVisible() is true and the
 // z-order is correct, yet nothing is drawn -- a silent failure that cost two
 // sessions (see ADR-4).
+//
+// Two Qt-specific traps, both measured in session 7 (ADR-4):
+//   * Qt *removes* WS_EX_LAYERED shortly after attach() unless the widget's
+//     opacity is below 1.0, and Windows then refuses to add it back to a
+//     cross-process child -- silently (SetWindowLongPtr returns 0, GetLastError
+//     stays 0). attach() therefore asks for a hair under full opacity and
+//     verifies the flag instead of setting it.
+//   * Qt no longer blits its backing store into the native window once that
+//     window is a child of Progman, so the hosted window stays blank on screen.
+//     The placement below is correct; the rendering path is still open (T-020).
 //
 // Two safety nets keep the placement honest:
 //   * WM_WINDOWPOSCHANGING is rewritten on the fly so that Qt (or anything

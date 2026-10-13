@@ -18,18 +18,23 @@
 │  ├─ IconGrid       grille d'icônes d'une zone      │
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
 │  ├─ LayoutStore    lecture/écriture JSON atomique  │
-│  ├─ ShellBridge    icônes, menu contextuel, DnD    │
+│  ├─ DesktopScanner lecture du dossier Bureau       │
+│  ├─ ShellIconCache icônes shell (image list)       │
+│  ├─ ShellBridge    menu contextuel, DnD            │
 │  └─ Tray/Settings  réglages, hotkeys (F-033)       │
 └────────────────────────────────────────────────────┘
      │ dépend de
      ▼
   Windows API : Progman / SHELLDLL_DefView (placement,
-  ADR-4), SHELL32 (SHGetFileInfo, SHChangeNotify),
-  ole32 (IContextMenu, CF_HDROP), per-monitor DPI v2,
+  ADR-4), SHELL32 (SHGetKnownFolderPath, SHGetFileInfo,
+  SHGetImageList, SHChangeNotify), ole32 (IShellLink,
+  IContextMenu, CF_HDROP), per-monitor DPI v2,
   RegisterHotKey
 ```
 
-- **DesktopHost** (`src/platform/win/desktop_host.{hpp,cpp}`) : seul point d'entrée vers le placement bureau (parentage sous `Progman`, z-order sous `SHELLDLL_DefView`, flag layered, masquage des icônes natives). Implémenté en Phase 1 (T-016).
+- **DesktopHost** (`src/platform/win/desktop_host.{hpp,cpp}`) : seul point d'entrée vers le placement bureau (parentage sous `Progman`, z-order sous `SHELLDLL_DefView`, flag layered, masquage des icônes natives). Implémenté en Phase 1 (T-016) ; le rendu effectif des zones est encore ouvert (ADR-4, finding 3).
+- **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
+- **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
 - **LayoutStore** : seule source de vérité pour « quelle icône dans quelle zone, où ». Format JSON versionné (voir §5). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
 - **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
@@ -80,6 +85,18 @@ Z-order à recalculer sur `WM_SETTINGCHANGE`, changement de résolution et redé
 - **Limite connue — transparence par pixel** : `SetLayeredWindowAttributes(alpha=255)` compose la fenêtre de façon uniforme. Un fond de zone translucide laissant voir le papier peint exige `UpdateLayeredWindow` (rendu Qt → `QImage` → push par pixels), non implémenté. `DesktopHost::setWindowAlpha()` n'offre pour l'instant qu'une opacité **uniforme** de toute la fenêtre.
 - **Coordonnées** : `attach()` attend un `QRect` en coordonnées client de `Progman`, qui coïncident avec l'écran principal en mono-écran ; le décalage multi-écran est du ressort de T-014.
 
+**⚠️ Findings session 7 (2026-10-13) — le portage Qt est piégé sur deux points.** Mesures faites avec la toolchain locale (voir §6), sur la machine de dev, Fences 6 actif :
+
+1. **Qt retire `WS_EX_LAYERED` juste après `attach()`.** `QWindowsWindow::setWindowLayered()` calcule
+   `needsLayered = (WindowTransparentForInput) || (hasAlpha && frameless) || opacity < 1.0`
+   et **supprime** le flag dès que c'est faux. Une fenêtre Qt opaque (opacité 1.0) perd donc le flag quelques millisecondes après le reparentage → retour à l'échec silencieux de la session 5. Mesuré : `ex 0x80000` après `SetParent`, `ex 0x0` au premier tour de boucle d'événements.
+   **Correctif retenu** : appeler `QWidget::setWindowOpacity(0.99)` avant `show()`, ce qui place Qt lui-même du côté « needs layered » ; l'alpha réel est ensuite remis à 255 par `SetLayeredWindowAttributes`. Coût : si Qt réapplique son opacité, l'alpha vaut 252/255 — invisible.
+
+2. **Windows refuse d'ajouter `WS_EX_LAYERED` après le reparentage, silencieusement.** Sur une fenêtre `WS_CHILD` de `Progman` (fenêtre d'un autre processus), `SetWindowLongPtrW(hwnd, GWL_EXSTYLE, …)` retourne 0, laisse `GetLastError` à 0 et **ne change pas le style**. `GWL_STYLE` continue de fonctionner — d'où le diagnostic trompeur « z-order correct, rien à l'écran ». À l'inverse, le **retrait** du flag passe. Conséquence : `attach()` ne doit jamais tenter d'*ajouter* le flag ; il le vérifie (`qCCritical` si absent) et laisse Qt le poser. `UpdateLayeredWindow` échoue aussi sur cette fenêtre (`ERROR_INVALID_PARAMETER`, 87) — la voie T-017 « transparence par pixel » est donc **bloquée en l'état** sur une fenêtre enfant cross-process.
+
+3. **Bloqueur ouvert — Qt ne peint pas dans la fenêtre hébergée.** Le placement est désormais exact (`--dump` pendant la démo : `DefView[0] / SysListView32[1] / SysHeader32[2] / Qt683QWindowIcon[3] 80,80 480x320 / WorkerW[4]`, layered, alpha 255), mais **rien n'apparaît** : capture avant/après identique (`diff bbox = None`). Mesures : `PrintWindow` renvoie une image vide (`centrePixel = 0x0`) alors que `QWidget::grab()` produit bien un 480×320 peint ; `repaint()`, `hide()/show()` et `WA_Mapped` (vrai) ne changent rien. Autrement dit Qt ne fait plus le blit du backing store vers le HWND dès que celui-ci est enfant d'un parent étranger. Le spike Win32 pur, lui, rend correctement avec la même séquence (**96,6 %** de pixels dans la zone, contrôle rejoué en session 7) : la technique de placement reste valide, c'est le chemin de rendu Qt qui lâche.
+   **Piste recommandée** : dissocier surface et rendu — une fenêtre Win32 brute hébergée (séquence prouvée) qui blitte sur `WM_PAINT` une image produite par Qt (offscreen `QImage`/`QWidget::grab()`). À trancher (voir §7 et T-020).
+
 ### ADR-5 — Persistance JSON versionné
 Exemple (§) : lisible, diff-able, exportable (F-028). Écriture atomique (fichier temporaire + `ReplaceFile`). Emplacement : `%APPDATA%/StarFish/`.
 
@@ -91,8 +108,12 @@ Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Le
 | Besoin | API / technique |
 |---|---|
 | Masquer les icônes natives | Basculer `HideIcons` (`HKCU\...\Explorer\Advanced`) ou styler la fenêtre `SHELLDLL_DefView` ; rendre le basculement instantané et réversible — **implémenté** : `DesktopHost::setIconsHidden()` (`ShowWindow` sur DefView, aucune écriture registre) |
-| Z-order bureau | Enfant de `Progman`, **`WS_EX_LAYERED` obligatoire**, inséré sous `SHELLDLL_DefView` (ADR-4) — **implémenté** : `DesktopHost::attach()` |
-| Icônes système | `SHGetFileInfo` + cache `IImageList` (`SHGetImageList`) |
+| Z-order bureau | Enfant de `Progman`, **`WS_EX_LAYERED` obligatoire**, inséré sous `SHELLDLL_DefView` (ADR-4) — **implémenté** : `DesktopHost::attach()` ; ⚠️ rendu effectif encore ouvert (ADR-4, finding 3) |
+| Dossiers du Bureau | `SHGetKnownFolderPath(FOLDERID_Desktop / FOLDERID_PublicDesktop)` + `QDir` — **implémenté** : `DesktopScanner::scan()` (T-004) |
+| Nom d'affichage Shell | `SHGetFileInfo(SHGFI_DISPLAYNAME)` (retire l'extension pour les types connus) — **implémenté** (T-004) |
+| Cible d'un raccourci | `IShellLinkW` + `IPersistFile` pour `.lnk` ; lecture INI (`QSettings`) pour `.url` — **implémenté** (T-004) |
+| Attributs caché/système | `GetFileAttributesW` (`FILE_ATTRIBUTE_HIDDEN`/`SYSTEM`) — **implémenté** (T-004) |
+| Icônes système | `SHGetFileInfo(SHGFI_SYSICONINDEX)` + `SHGetImageList(SHIL_*)` + `IImageList::GetIcon` → `QImage::fromHICON` ; repli `SHGFI_ICON` ; cache par (chemin, taille) — **implémenté** : `ShellIconCache` (T-004). Mesuré : 84/84 icônes résolues à 48 px **et** 256 px |
 | Notifications de changement du bureau | `SHChangeNotify` / `ReadDirectoryChangesW` sur le dossier Bureau |
 | Menu contextuel | `IContextMenu` (shell) — phase 2 |
 | Glisser-déposer sortant | `CF_HDROP` via OLE (phase 2) |
@@ -135,14 +156,18 @@ Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jam
 
 ## 6. Build, packaging, qualité
 
-- **Build** : CMake ≥ 3.24, Qt 6.8, compilateur MSVC 2022 (ou MinGWw64 en secours).
+- **Build** : CMake ≥ 3.24, Qt 6.8, compilateur MSVC 2022 (cible de référence, celle de la CI). **Toolchain locale de développement** (depuis la session 7, la machine de dev n'a ni MSVC ni Qt) : Qt 6.8.3 `win64_mingw` + MinGW 13.1.0, installés sans droits admin via `aqtinstall` dans `C:/Users/<user>/Qt` — voir `devlog/2026-10-13.md` session 7 pour les commandes exactes. Le code compile proprement sur les deux ; MSVC reste la cible publiée.
+  - Portabilité : MinGW-w64 déclare `IID_IImageList` mais ne fournit aucun symbole dans ses bibliothèques d'import → l'IID est défini localement dans `shell_icon_cache.cpp` (valeur reprise du SDK). MSVC utilise le symbole du SDK.
 - **CI** : GitHub Actions `windows-latest` → configure/build + tests unitaires (`RuleEngine`, `LayoutStore`) à chaque PR.
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
-- **Tests** : unitaires pour la logique pure (règles, sérialisation) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
+- **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
 
 ## 7. Ce qui reste à trancher
 
+- **Chemin de rendu des zones hébergées** (bloquant Phase 1, T-020) : Qt ne blitte plus dans la fenêtre native une fois celle-ci enfant de `Progman` (ADR-4, finding 3). Options : (a) surface Win32 brute hébergée qui blitte sur `WM_PAINT` une image rendue par Qt (offscreen) — piste recommandée ; (b) faire peindre Qt dans le HWND via un `QWindow`/`QPaintEngine` natif ; (c) créer la surface hors de Qt et n'utiliser Qt que pour le rendu offscreen. À trancher avec la conséquence sur ADR-2 (Qt Widgets).
+- **Transparence par pixel** (T-017) : `UpdateLayeredWindow` échoue sur une fenêtre enfant cross-process (err 87) — le fond translucide d'une zone devra passer par la surface retenue en T-020.
 - Stratégie de renommage inline (F2) vs menu shell uniquement.
 - Comportement Peek quand aucune zone n'est définie.
 - Format exact des hotkeys configurables (JSON dans les réglages).

@@ -6,7 +6,9 @@
 
 ## État du projet
 
-**Phase 1 — Fondations.** Squelette Qt qui démarre, `DesktopHost` (placement des zones sur le bureau, ADR-4) et `RuleEngine`/`JsonStore` en place ; build **non vérifié en local** (pas de compilateur ni de Qt sur la machine de dev), la CI fait foi.
+**Phase 1 — Fondations.** Squelette Qt qui démarre, `DesktopHost` (placement des zones sur le bureau, ADR-4), `DesktopScanner`/`ShellIconCache` (lecture du Bureau + icônes shell) et `RuleEngine`/`JsonStore` en place. Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas).
+
+⚠️ **Le placement des zones est correct mais leur rendu est encore ouvert** : Qt ne blitte plus dans la fenêtre native une fois celle-ci enfant de `Progman` (`TODO.md` T-020, `docs/technique.md` ADR-4 et §7).
 
 - Prix de référence du produit original : abonnement annuel à partir de ~10 $ USD (Stardock, consulté le 2026-10-13). StarFish sera gratuit, open source, local-first, sans télémétrie.
 
@@ -46,7 +48,15 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-La CI GitHub Actions (`.github/workflows/ci.yml`) construit et teste automatiquement sur `windows-latest`. Le build local n'est **pas encore vérifié** (pas de compilateur ni de Qt sur la machine de dev au 2026-10-13) — la validation passe par la CI au premier push.
+La CI GitHub Actions (`.github/workflows/ci.yml`) construit et teste automatiquement sur `windows-latest` (MSVC). Le build local est validé depuis le 2026-10-13 avec **Qt 6.8.3 `win64_mingw` + MinGW 13.1.0**, installés sans droits administrateur via `aqtinstall` (la machine de dev n'a pas MSVC) :
+
+```bash
+python -m aqt install-qt windows desktop 6.8.3 win64_mingw -O C:/Qt
+python -m aqt install-tool windows desktop tools_mingw1310 qt.tools.win64_mingw1310 -O C:/Qt
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/mingw_64
+```
+
+Détail et portabilité : `docs/technique.md` §6.
 
 ### Lancer
 
@@ -54,11 +64,15 @@ Sans argument, le binaire démarre et se termine immédiatement (utilisable en C
 
 ```bash
 starfish --dump                 # hiérarchie Progman / SHELLDLL_DefView, puis quitte
+starfish --list-desktop         # contenu du Bureau tel que le Shell le voit, puis quitte
+starfish --list-desktop --icons --icon-size 48 --icon-dump out/icons
 starfish --host-demo            # affiche une zone vide sur le bureau pendant 10 s
 starfish --host-demo --seconds 30 --hide-icons
 ```
 
-`--host-demo` journalise le verdict de placement (`below icon layer` attendu) — mais **le z-order seul ne prouve rien** (ADR-4) : confirmer visuellement que la zone est au-dessus du papier peint et sous les icônes.
+Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.
+
+`--host-demo` journalise le verdict de placement (`below icon layer` attendu) — mais **le z-order seul ne prouve rien** (ADR-4) : confirmer visuellement que la zone est au-dessus du papier peint et sous les icônes, **avec le bureau réellement visible** (une fenêtre maximisée au premier plan donne un faux négatif).
 
 ### Expérimentations
 

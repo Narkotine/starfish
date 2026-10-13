@@ -8,7 +8,7 @@
 | T-002 | `git init`, CMake + Qt 6.8, arborescence `src/`, `.gitignore`, CI minimale | 1 | P0 | ✅ |
 | T-003 | Placement bureau : fenêtre sous la couche d'icônes (spike, ADR-4) | 1 | P0 | ✅ |
 | T-016 | Portage C++/Qt du spike : `DesktopHost` (Progman + z-order, **`WS_EX_LAYERED` obligatoire**, `WM_SETTINGCHANGE`) | 1 | P0 | ✅ |
-| T-004 | Lecture du dossier Bureau + icônes shell (`SHGetFileInfo`, cache image list) | 1 | P0 | ⬜ |
+| T-004 | Lecture du dossier Bureau + icônes shell (`SHGetFileInfo`, cache image list) | 1 | P0 | ✅ |
 | T-005 | Rendu des icônes du bureau dans une zone (taille, libellé, sélection, double-clic) | 2 | P0 | ⬜ |
 | T-006 | Glisser-déposer interne (dans/entre zones) + menu contextuel shell + DnD `CF_HDROP` | 2 | P0 | ⬜ |
 | T-007 | Cycle de vie des zones : créer / déplacer / redimensionner / supprimer + aimantation | 3 | P0 | ⬜ |
@@ -25,6 +25,7 @@
 
 _(à ajouter ici au fil de l'eau, puis à répartir par phase)_
 
-- **T-017** (Phase 2, P1) — Transparence par pixel des zones : `UpdateLayeredWindow` (rendu Qt → `QImage` → push) pour laisser voir le papier peint à travers un fond `#RRGGBBAA`. Aujourd'hui `DesktopHost::setWindowAlpha()` n'offre qu'une opacité uniforme de la fenêtre entière.
+- **T-017** (Phase 2, P1) — Transparence par pixel des zones : `UpdateLayeredWindow` (rendu Qt → `QImage` → push) pour laisser voir le papier peint à travers un fond `#RRGGBBAA`. Aujourd'hui `DesktopHost::setWindowAlpha()` n'offre qu'une opacité uniforme de la fenêtre entière. ⚠️ Mesuré en session 7 : `UpdateLayeredWindow` échoue (`ERROR_INVALID_PARAMETER`) sur une fenêtre enfant cross-process — la voie passe par la surface retenue en T-020.
 - **T-018** (Phase 1, P1) — Valider manuellement le redémarrage d'Explorer : les zones sont enfants de `Progman` et meurent avec lui ; vérifier que `desktopReacquired()` + `attach()` les recréent sans crash Qt (`taskkill /f /im explorer.exe`, relance).
 - **T-019** (Phase 1, P2) — Vérifier que le comportement de `--host-demo` tient avec Fences 6 actif **et** arrêté (les deux configurations n'ont été mesurées qu'avec le spike Python).
+- **T-020** (Phase 1, P0, **bloquante**) — Rendu des zones hébergées. Constat mesuré (session 7) : le placement est exact (`DefView[0] / SysListView32[1] / SysHeader32[2] / Qt683QWindowIcon[3] / WorkerW[4]`, layered, alpha 255) mais **rien n'est dessiné** — Qt ne blitte plus son backing store dans le HWND dès que celui-ci est enfant de `Progman` (`PrintWindow` vide, `grab()` correct, `repaint()`/`hide()/show()` sans effet). Le spike Win32 pur rend correctement (96,6 % de pixels) : la technique de placement n'est pas en cause. Piste recommandée : surface Win32 brute hébergée qui blitte sur `WM_PAINT` une image produite par Qt hors écran. Décision d'architecture → `docs/technique.md` §7.

@@ -19,6 +19,19 @@ namespace {
 
 QLoggingCategory lc("starfish.desktop");
 
+// Qt only maintains WS_EX_LAYERED while it believes the window needs it:
+// QWindowsWindow::setWindowLayered() computes
+//   needsLayered = WindowTransparentForInput || (hasAlpha && frameless) || opacity < 1
+// and *removes* the flag whenever that turns false -- which it does right after
+// we reparent the window to Progman. A window created with a plain opacity of
+// 1.0 therefore loses WS_EX_LAYERED a few milliseconds after attach(), and on
+// this build Windows refuses to add the flag back to a cross-process child
+// (SetWindowLongPtr returns 0, GetLastError stays 0, the style is untouched).
+// Asking Qt for a hair under full opacity keeps its own bookkeeping on the
+// "needs layered" side; the real alpha is then set to 255 explicitly below.
+// See ADR-4.
+constexpr qreal kHostedOpacity = 0.99;
+
 inline HWND toHwnd(quintptr handle)
 {
     return reinterpret_cast<HWND>(handle);
@@ -159,6 +172,9 @@ bool DesktopHost::attach(QWidget* window, const QRect& rect)
     // 1. Frameless top-level window with a real HWND.
     window->setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     window->setAttribute(Qt::WA_NativeWindow, true);
+    // Make Qt itself request WS_EX_LAYERED, and keep requesting it (see
+    // kHostedOpacity above). Must happen before show().
+    window->setWindowOpacity(kHostedOpacity);
     window->setGeometry(rect);
     window->show(); // spike order: create -> show -> reparent -> place
 
@@ -168,7 +184,28 @@ bool DesktopHost::attach(QWidget* window, const QRect& rect)
         return false;
     }
 
-    // 2. Reparent to the icon host and become a child window.
+    // 2. Layered -- MANDATORY (ADR-4) -- and never topmost.
+    //
+    //    Qt has just set WS_EX_LAYERED for us (opacity < 1); we only correct
+    //    the alpha back to fully opaque, which SetLayeredWindowAttributes does
+    //    fine on an already-layered window. Never try to *add* the flag here:
+    //    once the window is a WS_CHILD of Progman -- a window owned by Explorer
+    //    -- Windows silently refuses SetWindowLongPtr(GWL_EXSTYLE), leaving the
+    //    z-order correct but the window uncomposited and invisible. That silent
+    //    failure is the C++/Qt form of the session-4 false positive (ADR-4).
+    const LONG_PTR exStyle = ::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & ~WS_EX_TOPMOST;
+    if (exStyle != ::GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
+        ::SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
+    if (!(::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED)) {
+        qCCritical(lc) << "attach: WS_EX_LAYERED missing before reparenting -- the window will not "
+                          "be composited by DWM (invisible, see ADR-4)";
+    }
+    if (!::SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
+        qCWarning(lc) << "attach: SetLayeredWindowAttributes failed, error"
+                      << ::GetLastError() << "- the window may not be composited at all";
+    }
+
+    // 3. Reparent to the icon host and become a child window.
     if (!::SetParent(hwnd, toHwnd(m_iconHost))) {
         qCWarning(lc) << "attach: SetParent failed, error" << ::GetLastError();
         return false;
@@ -176,12 +213,16 @@ bool DesktopHost::attach(QWidget* window, const QRect& rect)
     const LONG_PTR style = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
     ::SetWindowLongPtrW(hwnd, GWL_STYLE, (style | WS_CHILD) & ~WS_POPUP);
 
-    // 3. Layered (mandatory, see ADR-4) and never topmost.
-    const LONG_PTR ex = (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & ~WS_EX_TOPMOST) | WS_EX_LAYERED;
-    ::SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    if (!::SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
-        qCWarning(lc) << "attach: SetLayeredWindowAttributes failed, error"
-                      << ::GetLastError() << "- the window may not be composited at all";
+    // The layered flag has to survive the reparenting; check it explicitly
+    // because the failure mode is completely silent (see step 2).
+    const LONG_PTR exAfter = ::GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (!(exAfter & WS_EX_LAYERED)) {
+        qCCritical(lc) << "attach: WS_EX_LAYERED lost during reparenting -- the window will not be "
+                          "composited by DWM (invisible, see ADR-4)";
+    } else {
+        qCInfo(lc).noquote() << QStringLiteral("layered: alpha 255, ex-style 0x%1 after "
+                                               "reparenting")
+                                    .arg(hex(static_cast<quintptr>(exAfter)), 0, 16);
     }
 
     Hosted hosted;
