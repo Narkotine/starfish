@@ -13,7 +13,7 @@
 ```
 ┌────────────────────────────────────────────────────┐
 │ Application (Qt, thread UI)                        │
-│  ├─ DesktopHost    héberge les zones sur WorkerW   │
+│  ├─ DesktopHost    héberge les zones sur le bureau │
 │  ├─ FenceView      rendu + interaction d'une zone  │
 │  ├─ IconGrid       grille d'icônes d'une zone      │
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
@@ -23,14 +23,16 @@
 └────────────────────────────────────────────────────┘
      │ dépend de
      ▼
-  Windows API : WorkerW, SHELL32 (SHGetFileInfo,
-  SHChangeNotify), ole32 (IContextMenu, CF_HDROP),
-  per-monitor DPI v2, RegisterHotKey
+  Windows API : Progman / SHELLDLL_DefView (placement,
+  ADR-4), SHELL32 (SHGetFileInfo, SHChangeNotify),
+  ole32 (IContextMenu, CF_HDROP), per-monitor DPI v2,
+  RegisterHotKey
 ```
 
+- **DesktopHost** (`src/platform/win/desktop_host.{hpp,cpp}`) : seul point d'entrée vers le placement bureau (parentage sous `Progman`, z-order sous `SHELLDLL_DefView`, flag layered, masquage des icônes natives). Implémenté en Phase 1 (T-016).
 - **LayoutStore** : seule source de vérité pour « quelle icône dans quelle zone, où ». Format JSON versionné (voir §5). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
-- **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable.
+- **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
 
 ## 3. Décisions techniques
 
@@ -69,6 +71,15 @@ Technique initialement envisagée (WorkerW) **invalide sur Windows 11 récent** 
 **Bonus mesuré :** masquer les icônes natives = `ShowWindow(SW_HIDE)` sur la `SHELLDLL_DefView` (réversible, pas d'écriture registre sur ce build).
 Z-order à recalculer sur `WM_SETTINGCHANGE`, changement de résolution et redémarrage d'Explorer.
 
+**Portage C++/Qt (T-016)** — `src/platform/win/desktop_host.{hpp,cpp}`, classe `DesktopHost` :
+- Séquence Qt : widget sans décoration (`Qt::Window | Qt::FramelessWindowHint`) → `show()` (ordre du spike : créer → montrer → re-parenter → placer) → `winId()` → `SetParent` → `WS_CHILD` sans `WS_POPUP` → `WS_EX_LAYERED` + `SetLayeredWindowAttributes(255)` → `SetWindowPos(hwnd, DefView, …)`.
+- **Garde `WM_WINDOWPOSCHANGING`** : tout changement de z-order visant une de nos fenêtres voit son `hwndInsertAfter` réécrit en `SHELLDLL_DefView`. C'est ce qui empêche Qt (`show()`, redimensionnement, activation) de remonter la fenêtre au-dessus des icônes.
+- **Watchdog 2 s au lieu des broadcasts** : une fenêtre `WS_CHILD` de `Progman` ne reçoit **pas** `WM_SETTINGCHANGE` / `WM_DISPLAYCHANGE` (messages diffusés aux fenêtres top-level). Le filtre natif reste en place (best effort) mais la garantie vient du timer, qui re-vérifie les handles et le z-order, détecte la mort des fenêtres (`IsWindow`) et émet `desktopReacquired()`.
+- **Redémarrage d'Explorer** : une fenêtre enfant de `Progman` est détruite avec lui. `DesktopHost` retire les entrées mortes et émet `desktopReacquired()` ; le propriétaire recrée/rea-tache ses fenêtres (`attach()` gère une entrée périmée). ⚠️ Chemin **non validé en local** (pas de build) — à tester manuellement (`taskkill /f /im explorer.exe` puis relance).
+- **Vérification** : `DesktopHost::verifyPlacement()` renvoie `BelowIconLayer` / `AboveIconLayer` / `Unknown` via la chaîne `EnumChildWindows` (logique pure dans `src/core/zorder.*`, testée par `tests/test_zorder.cpp`). Rappel : verdict correct ≠ rendu effectif.
+- **Limite connue — transparence par pixel** : `SetLayeredWindowAttributes(alpha=255)` compose la fenêtre de façon uniforme. Un fond de zone translucide laissant voir le papier peint exige `UpdateLayeredWindow` (rendu Qt → `QImage` → push par pixels), non implémenté. `DesktopHost::setWindowAlpha()` n'offre pour l'instant qu'une opacité **uniforme** de toute la fenêtre.
+- **Coordonnées** : `attach()` attend un `QRect` en coordonnées client de `Progman`, qui coïncident avec l'écran principal en mono-écran ; le décalage multi-écran est du ressort de T-014.
+
 ### ADR-5 — Persistance JSON versionné
 Exemple (§) : lisible, diff-able, exportable (F-028). Écriture atomique (fichier temporaire + `ReplaceFile`). Emplacement : `%APPDATA%/StarFish/`.
 
@@ -79,8 +90,8 @@ Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Le
 
 | Besoin | API / technique |
 |---|---|
-| Masquer les icônes natives | Basculer `HideIcons` (`HKCU\...\Explorer\Advanced`) ou styler la fenêtre `SHELLDLL_DefView` ; rendre le basculement instantané et réversible |
-| Z-order bureau | Enfant de `Progman`, **`WS_EX_LAYERED` obligatoire**, inséré sous `SHELLDLL_DefView` (ADR-4) |
+| Masquer les icônes natives | Basculer `HideIcons` (`HKCU\...\Explorer\Advanced`) ou styler la fenêtre `SHELLDLL_DefView` ; rendre le basculement instantané et réversible — **implémenté** : `DesktopHost::setIconsHidden()` (`ShowWindow` sur DefView, aucune écriture registre) |
+| Z-order bureau | Enfant de `Progman`, **`WS_EX_LAYERED` obligatoire**, inséré sous `SHELLDLL_DefView` (ADR-4) — **implémenté** : `DesktopHost::attach()` |
 | Icônes système | `SHGetFileInfo` + cache `IImageList` (`SHGetImageList`) |
 | Notifications de changement du bureau | `SHChangeNotify` / `ReadDirectoryChangesW` sur le dossier Bureau |
 | Menu contextuel | `IContextMenu` (shell) — phase 2 |

@@ -6,7 +6,7 @@
 
 ## État du projet
 
-**Phase 0 — Cadrage (documentation).** Aucune ligne de code pour l'instant.
+**Phase 1 — Fondations.** Squelette Qt qui démarre, `DesktopHost` (placement des zones sur le bureau, ADR-4) et `RuleEngine`/`JsonStore` en place ; build **non vérifié en local** (pas de compilateur ni de Qt sur la machine de dev), la CI fait foi.
 
 - Prix de référence du produit original : abonnement annuel à partir de ~10 $ USD (Stardock, consulté le 2026-10-13). StarFish sera gratuit, open source, local-first, sans télémétrie.
 
@@ -47,6 +47,18 @@ ctest --test-dir build --output-on-failure
 ```
 
 La CI GitHub Actions (`.github/workflows/ci.yml`) construit et teste automatiquement sur `windows-latest`. Le build local n'est **pas encore vérifié** (pas de compilateur ni de Qt sur la machine de dev au 2026-10-13) — la validation passe par la CI au premier push.
+
+### Lancer
+
+Sans argument, le binaire démarre et se termine immédiatement (utilisable en CI, aucune intégration bureau).
+
+```bash
+starfish --dump                 # hiérarchie Progman / SHELLDLL_DefView, puis quitte
+starfish --host-demo            # affiche une zone vide sur le bureau pendant 10 s
+starfish --host-demo --seconds 30 --hide-icons
+```
+
+`--host-demo` journalise le verdict de placement (`below icon layer` attendu) — mais **le z-order seul ne prouve rien** (ADR-4) : confirmer visuellement que la zone est au-dessus du papier peint et sous les icônes.
 
 ### Expérimentations
 
