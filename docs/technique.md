@@ -208,7 +208,25 @@ Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jam
 **Reste ouvert :**
 - Rafraîchissement : `setFrame()` invalide la fenêtre entière. Un rendu partiel (régions sales) sera nécessaire quand les zones bougeront (T-007).
 - Fréquence de re-rendu et coût de `QWidget::render()` sur une zone contenant 50 icônes (à mesurer en T-005).
-- **Transparence par pixel** (T-017) : `UpdateLayeredWindow` échoue sur une fenêtre enfant cross-process (err 87) — le fond translucide d'une zone devra passer par la surface retenue en T-020.
+- **Transparence par pixel** (T-017, implémentée session 9, §8) : `UpdateLayeredWindow` fonctionne **même sur un enfant cross-process de Progman**, à condition de n'avoir **jamais appelé `SetLayeredWindowAttributes`** sur la fenêtre — sinon err 87. Reste la validation visuelle à l'écran.
 - Stratégie de renommage inline (F2) vs menu shell uniquement.
 - Comportement Peek quand aucune zone n'est définie.
 - Format exact des hotkeys configurables (JSON dans les réglages).
+
+## 8. Transparence par pixel (T-017, session 9)
+
+**Finding (spikes `experiments/spike_ulw.py` / `spike_ulw2.py`, ctypes)** : sur un enfant cross-process de `Progman`, `UpdateLayeredWindow` (ULW) :
+
+| Séquence | Résultat |
+|---|---|
+| enfant de Progman, ULW direct | ✅ accepté (err 0) |
+| enfant same-process, ULW | ✅ accepté |
+| top-level layered, ULW | ✅ accepté |
+| **`SetLayeredWindowAttributes(LWA_ALPHA)` puis ULW** | ❌ **err 87 (`ERROR_INVALID_PARAMETER`)** |
+| ULW avec `hdcDst = GetDC(NULL)` explicite | ✅ accepté |
+
+**Cause racine du blocage T-017** (session 7, attribuée à tort au cross-process et à Qt) : l'appel `SetLayeredWindowAttributes` est **une porte à sens unique** — une fois appliqué à une fenêtre enfant, tout push ULW échoue avec err 87. Le cross-process n'y est pour rien.
+
+**Implémentation** : `DesktopSurface::setPerPixelAlpha(bool)`. En mode per-pixel, `attach()` **saute** l'appel `SetLayeredWindowAttributes` et les frames partent via ULW (DIB 32 bpp premultiplié, `AC_SRC_ALPHA`, `Format_ARGB32_Premultiplied`). Changer de mode sur une surface vivante **recrée la fenêtre** (le mode layered est posé à la création). En cas d'échec ULW, repli automatique sur le chemin opaque `WM_PAINT` (invisible est pire qu'opaque). `WM_PAINT` ne fait que valider la région en mode per-pixel ; `place()` re-pousse la frame (ULW porte la position).
+
+Sonde : `starfish --render-probe --surface --pixel-alpha` (fence rendue translucide, alpha 96 + opacité 0,85). **Validation visuelle à l'écran en attente** (bureau non visible pendant la session 9 — captures polluées par une fenêtre au premier plan).

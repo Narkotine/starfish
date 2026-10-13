@@ -70,6 +70,16 @@ public:
     void setFrame(const QImage& frame);
     QImage frame() const;
 
+    // Per-pixel transparency mode (T-017). When enabled, frames are pushed
+    // with UpdateLayeredWindow (premultiplied alpha honoured, the wallpaper
+    // shows through translucent pixels) instead of being blitted from
+    // WM_PAINT with StretchDIBits (which ignores alpha). Measured in session 7
+    // to fail with ERROR_INVALID_PARAMETER on a child window *created by Qt*;
+    // this class owns its window, so the call has a chance. Returns false if
+    // the first push failed.
+    bool setPerPixelAlpha(bool enabled);
+    bool perPixelAlpha() const;
+
     // Re-applies the placement and z-order. Call it after the desktop changed
     // size or after something was stacked above the icon layer.
     void syncZOrder();
@@ -107,6 +117,9 @@ private:
                        qintptr* result);
     void paintInto(quintptr dc);
 
+    // Pushes m_frame through UpdateLayeredWindow (per-pixel alpha path).
+    bool pushLayeredFrame();
+
     quintptr m_hwnd = 0;
     quintptr m_iconHost = 0; // Progman on Win11; the DefView-hosting WorkerW on Win10
     quintptr m_defView = 0;
@@ -114,6 +127,7 @@ private:
     QImage m_frame;
     QTimer m_watchdog;
     bool m_placed = false;
+    bool m_perPixelAlpha = false;
 
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;

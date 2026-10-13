@@ -511,6 +511,11 @@ int main(int argc, char* argv[])
         QStringLiteral("With --render-probe --surface: populate the fence with the real "
                        "desktop items (scanned via T-004) so the icon grid of T-005 is "
                        "verified on screen, and route mouse input for selection."));
+    const QCommandLineOption pixelAlphaOption(
+        QStringLiteral("pixel-alpha"),
+        QStringLiteral("With --render-probe --surface: push frames via UpdateLayeredWindow "
+                       "with per-pixel alpha (T-017) instead of the opaque WM_PAINT blit, "
+                       "and render the fence translucent so the wallpaper shows through."));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -528,6 +533,7 @@ int main(int argc, char* argv[])
     parser.addOption(layeredManualOption);
     parser.addOption(surfaceOption);
     parser.addOption(withDesktopItemsOption);
+    parser.addOption(pixelAlphaOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -600,6 +606,7 @@ int main(int argc, char* argv[])
         const bool hosted = !parser.isSet(noParentOption);
         const bool opaque = parser.isSet(opaqueOption);
         const bool useSurface = parser.isSet(surfaceOption);
+        const bool pixelAlpha = parser.isSet(pixelAlphaOption) && useSurface;
         const QRect geometry(80, 80, 480, 320);
 
         // The raw surface path renders the widget offscreen: the widget is never
@@ -630,11 +637,16 @@ int main(int argc, char* argv[])
                 surface->setInputTarget(fence);
                 // Live re-render whenever selection changes so the desktop shows it.
                 QObject::connect(fence, &starfish::ui::FenceView::contentChanged, &app,
-                                 [surface, fence] {
+                                 [surface, fence, pixelAlpha] {
                                      QImage img(fence->size(), QImage::Format_ARGB32_Premultiplied);
-                                     img.fill(QColor(0x1F, 0x29, 0x37));
+                                     // T-017: in per-pixel mode the frame starts translucent so
+                                     // the wallpaper shows through the panel.
+                                     img.fill(pixelAlpha ? QColor(0x1F, 0x29, 0x37, 96)
+                                                         : QColor(0x1F, 0x29, 0x37));
                                      {
                                          QPainter painter(&img);
+                                         if (pixelAlpha)
+                                             painter.setOpacity(0.85);
                                          fence->render(&painter);
                                      }
                                      surface->setFrame(img);
@@ -674,6 +686,13 @@ int main(int argc, char* argv[])
                     qCCritical(lc) << "could not host the desktop surface";
                     QCoreApplication::exit(1);
                     return;
+                }
+                if (pixelAlpha) {
+                    const bool alphaOk = surface->setPerPixelAlpha(true);
+                    qCInfo(lc).noquote()
+                        << QStringLiteral("T-017: per-pixel alpha (UpdateLayeredWindow) %1")
+                               .arg(alphaOk ? QStringLiteral("ENABLED")
+                                            : QStringLiteral("REFUSED -- opaque fallback"));
                 }
             } else if (hosted && parser.isSet(layeredManualOption)) {
                 // Plain opaque Qt window first, then our own hosting sequence.
@@ -784,8 +803,15 @@ int main(int argc, char* argv[])
 
             // Qt-rendered content, blitted by us with plain GDI.
             QImage offscreen(fence->size(), QImage::Format_ARGB32_Premultiplied);
-            offscreen.fill(QColor(0xFF, 0x00, 0xFF)); // magenta corners prove our blit landed
-            {
+            if (pixelAlpha) {
+                // T-017: translucent base + translucent fence, so the wallpaper
+                // bleeding through is visible in the captures.
+                offscreen.fill(QColor(0x1F, 0x29, 0x37, 96));
+                QPainter painter(&offscreen);
+                painter.setOpacity(0.85);
+                fence->render(&painter);
+            } else {
+                offscreen.fill(QColor(0xFF, 0x00, 0xFF)); // magenta corners prove our blit landed
                 QPainter painter(&offscreen);
                 fence->render(&painter);
             }

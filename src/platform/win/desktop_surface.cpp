@@ -234,22 +234,36 @@ bool DesktopSurface::attach(const QRect& rect)
     // 3. The layered flag has to have survived the reparenting. Nothing here
     //    tries to add it: that is the write Windows refuses (see above). It is
     //    verified instead of assumed.
+    //
+    //    In per-pixel mode (T-017) the SetLayeredWindowAttributes call is
+    //    SKIPPED on purpose: measured in session 9 (experiments/spike_ulw2.py),
+    //    once LWA_ALPHA has been applied to a child window, every
+    //    UpdateLayeredWindow push fails with ERROR_INVALID_PARAMETER (87).
+    //    Without the attributes call the same push succeeds -- even on a
+    //    cross-process child of Progman. The two layered modes are mutually
+    //    exclusive, and the attributes call is a one-way door.
     const LONG exAfterHosting = static_cast<LONG>(::GetWindowLongW(hwnd, GWL_EXSTYLE));
-    ::SetLastError(0);
-    const BOOL attributesOk = ::SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-    const DWORD attributesError = ::GetLastError();
+    BOOL attributesOk = TRUE;
+    DWORD attributesError = 0;
+    if (!m_perPixelAlpha) {
+        ::SetLastError(0);
+        attributesOk = ::SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        attributesError = ::GetLastError();
+    }
 
     qCInfo(lc).noquote()
-        << QStringLiteral("layered: ex 0x%1 (expected 0x%2); alpha call %3 (err %4)")
+        << QStringLiteral("layered: ex 0x%1 (expected 0x%2); alpha call %3 (err %4)%5")
                .arg(static_cast<qulonglong>(exAfterHosting), 0, 16)
                .arg(static_cast<qulonglong>(WS_EX_LAYERED), 0, 16)
-               .arg(attributesOk ? 1 : 0)
-               .arg(attributesError);
+               .arg(m_perPixelAlpha ? -1 : (attributesOk ? 1 : 0))
+               .arg(attributesError)
+               .arg(m_perPixelAlpha ? QStringLiteral(" [skipped: per-pixel push mode]")
+                                    : QString());
 
     if (!(exAfterHosting & WS_EX_LAYERED))
         qCCritical(lc) << "WS_EX_LAYERED missing after hosting -- the surface will not be "
                           "composited by DWM (invisible, ADR-4)";
-    if (!attributesOk)
+    if (!m_perPixelAlpha && !attributesOk)
         qCCritical(lc) << "SetLayeredWindowAttributes failed -- the surface will not be "
                           "composited by DWM (invisible, ADR-4)";
 
@@ -298,10 +312,120 @@ QRect DesktopSurface::geometry() const
 
 void DesktopSurface::setFrame(const QImage& frame)
 {
-    m_frame = frame.convertToFormat(QImage::Format_ARGB32);
+    m_frame = frame.convertToFormat(m_perPixelAlpha ? QImage::Format_ARGB32_Premultiplied
+                                                    : QImage::Format_ARGB32);
     if (!m_hwnd || !::IsWindow(toHwnd(m_hwnd)))
         return;
+    if (m_perPixelAlpha) {
+        pushLayeredFrame();
+        return;
+    }
     ::InvalidateRect(toHwnd(m_hwnd), nullptr, FALSE);
+}
+
+bool DesktopSurface::setPerPixelAlpha(bool enabled)
+{
+    if (enabled == m_perPixelAlpha)
+        return true;
+    m_perPixelAlpha = enabled;
+    if (!isAttached())
+        return true;
+    if (enabled) {
+        // Switching to per-pixel mode on a live surface requires recreating
+        // the window: attach() applies SetLayeredWindowAttributes(LWA_ALPHA)
+        // in opaque mode, and after that call every UpdateLayeredWindow push
+        // fails with ERROR_INVALID_PARAMETER (87) -- measured in session 9
+        // with experiments/spike_ulw2.py. The attributes call is a one-way
+        // door, so the surface is re-attached and attach() now skips it.
+        const QImage frame = m_frame; // attach() -> detach() does not clear it
+        if (!attach(m_rect)) {
+            m_perPixelAlpha = false;
+            return false;
+        }
+        m_frame = frame;
+        if (m_frame.isNull())
+            return true; // the first setFrame() will push
+        m_frame = m_frame.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        return pushLayeredFrame();
+    }
+    // Back to the WM_PAINT path. The reverse switch needs a re-attach too:
+    // after ULW pushes the window ignores plain GDI painting.
+    const QImage frame = m_frame;
+    if (!attach(m_rect))
+        return false;
+    m_frame = frame.convertToFormat(QImage::Format_ARGB32);
+    ::InvalidateRect(toHwnd(m_hwnd), nullptr, FALSE);
+    return true;
+}
+
+bool DesktopSurface::perPixelAlpha() const
+{
+    return m_perPixelAlpha;
+}
+
+bool DesktopSurface::pushLayeredFrame()
+{
+    if (!isAttached() || m_frame.isNull())
+        return false;
+    if (m_frame.format() != QImage::Format_ARGB32_Premultiplied)
+        m_frame = m_frame.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+
+    // A 32 bpp top-down DIB section is the only source UpdateLayeredWindow
+    // accepts for per-pixel alpha (AC_SRC_ALPHA).
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = m_frame.width();
+    info.bmiHeader.biHeight = -m_frame.height(); // negative: top-down rows
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    const HDC screenDc = ::GetDC(nullptr);
+    const HDC memDc = ::CreateCompatibleDC(screenDc);
+    void* bits = nullptr;
+    const HBITMAP dib = ::CreateDIBSection(memDc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!dib || !bits) {
+        qCCritical(lc) << "UpdateLayeredWindow: CreateDIBSection failed, error"
+                       << ::GetLastError();
+        if (dib)
+            ::DeleteObject(dib);
+        ::DeleteDC(memDc);
+        ::ReleaseDC(nullptr, screenDc);
+        return false;
+    }
+
+    const int bytes = m_frame.sizeInBytes();
+    memcpy(bits, m_frame.constBits(), bytes);
+
+    const HGDIOBJ previous = ::SelectObject(memDc, dib);
+    POINT dst{m_rect.x(), m_rect.y()};
+    SIZE size{m_frame.width(), m_frame.height()};
+    POINT src{0, 0};
+    BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+
+    ::SetLastError(0);
+    const BOOL ok = ::UpdateLayeredWindow(toHwnd(m_hwnd), screenDc, &dst, &size, memDc, &src, 0,
+                                          &blend, ULW_ALPHA);
+    const DWORD error = ::GetLastError();
+
+    ::SelectObject(memDc, previous);
+    ::DeleteObject(dib);
+    ::DeleteDC(memDc);
+    ::ReleaseDC(nullptr, screenDc);
+
+    if (!ok) {
+        // The session-7 failure signature was ERROR_INVALID_PARAMETER (87) on
+        // a child window created by Qt. If this fires again, keep the opaque
+        // WM_PAINT path as the fallback: invisible is worse than opaque.
+        qCCritical(lc) << "UpdateLayeredWindow failed, error" << error
+                       << "-- falling back to the opaque WM_PAINT path";
+        m_perPixelAlpha = false;
+        m_frame = m_frame.convertToFormat(QImage::Format_ARGB32);
+        ::InvalidateRect(toHwnd(m_hwnd), nullptr, FALSE);
+        return false;
+    }
+    m_lastBlitLines = m_frame.height(); // pushed in full, not painted
+    return true;
 }
 
 QImage DesktopSurface::frame() const
@@ -411,7 +535,14 @@ bool DesktopSurface::place()
                                    SWP_NOACTIVATE | SWP_SHOWWINDOW);
     if (!ok)
         qCWarning(lc) << "SetWindowPos failed, error" << ::GetLastError();
-    ::UpdateWindow(toHwnd(m_hwnd));
+    if (m_perPixelAlpha) {
+        // UpdateLayeredWindow carries the position: after a move/resize the
+        // frame has to be pushed again, no WM_PAINT will refresh it.
+        if (ok && !m_frame.isNull())
+            pushLayeredFrame();
+    } else {
+        ::UpdateWindow(toHwnd(m_hwnd));
+    }
     return ok != FALSE;
 }
 
@@ -479,7 +610,10 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
                                    ps.rcPaint.right - ps.rcPaint.left,
                                    ps.rcPaint.bottom - ps.rcPaint.top);
         m_lastClipBox = ::GetClipBox(dc, nullptr);
-        paintInto(reinterpret_cast<quintptr>(dc));
+        // In per-pixel mode the content comes from UpdateLayeredWindow; a GDI
+        // blit would be ignored by DWM anyway. Just validate the region.
+        if (!m_perPixelAlpha)
+            paintInto(reinterpret_cast<quintptr>(dc));
         ::EndPaint(toHwnd(hwnd), &ps);
         *result = 0;
         return true;

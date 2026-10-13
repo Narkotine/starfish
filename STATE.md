@@ -2,8 +2,8 @@
 
 > **Protocole de reprise (obligatoire avant tout travail) :** lire `AGENTS.md` (conventions) → ce fichier → la phase courante de `docs/plan.md` → `TODO.md` → travailler → mettre à jour `TODO.md` + `devlog/` + ce fichier (+ commit git) avant de terminer.
 
-- **Phase courante :** Phase 2 — Icônes sur le bureau (**T-005 ✅** en code ; reste validation manuelle à l'écran T-021). Fondations Phase 1 : T-001…T-004, T-016, **T-020 ✅**. Restent T-018/T-019 (manuel), puis T-017, T-006.
-- **Dernière mise à jour :** 2026-10-13 (session 9)
+- **Phase courante :** Phase 2 — Icônes sur le bureau (**T-005 ✅** en code ; reste validation manuelle à l'écran T-021). Fondations Phase 1 : T-001…T-004, T-016, **T-020 ✅**, **T-017 ✅** en code (reste validation visuelle). Restent T-018/T-019 (manuel), puis T-006.
+- **Dernière mise à jour :** 2026-10-13 (session 9, soir)
 - **Branche de travail :** `main` (repo git local, pas encore de remote)
 
 ## Ce qui existe
@@ -40,12 +40,13 @@
 9. **T-004** : le Shell est l'autorité pour les chemins (`SHGetKnownFolderPath`) et les noms affichés (`SHGFI_DISPLAYNAME`) ; les icônes passent par la liste d'images système, pas `SHGFI_ICON` (32 px trop petit).
 10. **Session 8 — chemin de rendu (§7 piste (a))** : une **surface Win32 brute** (`DesktopSurface`) possède le HWND et blitte sur `WM_PAINT` une image produite par Qt hors écran. Qt ne peint jamais dans une fenêtre hébergée. Conséquence : ADR-2 (Qt Widgets) est intact, mais Qt n'est plus responsable du blit.
 11. **Session 8 — manifeste applicatif obligatoire** : `starfish.exe` doit embarquer `src/starfish.manifest` (via `src/starfish.rc`). Sans lui, `WS_EX_LAYERED` est refusé sur les fenêtres enfants et **rien ne s'affiche**, sans le moindre message. Corollaire : le flag est **aussi** posé dès `CreateWindowExW`, pour survivre à un binaire sans manifeste.
+12. **Session 9 — T-017, les deux modes layered sont mutuellement exclusifs** : `SetLayeredWindowAttributes(LWA_ALPHA)` est une porte à sens unique — après cet appel, tout `UpdateLayeredWindow` échoue (err 87), même sur notre propre fenêtre. ULW fonctionne sinon **même sur un enfant cross-process de Progman** (spikes `experiments/spike_ulw*.py`). Mode per-pixel de `DesktopSurface` : `attach()` saute l'appel d'attributs, frames poussées via ULW, repli opaque automatique. Détail : `docs/technique.md` §8.
 
 ## 3 prochaines actions
 
-1. **T-021** (manual) — vérifier à l'écran le rendu T-005 : `starfish --render-probe --surface --with-desktop-items` (grille d'icônes réelles, sélection clic/Ctrl/Maj, double-clic → lancement) + **T-018/T-019** (redémarrage d'Explorer, `--host-demo` avec Fences 6 actif **et** arrêté).
-2. **T-017** — re-tenter la transparence par pixel (`UpdateLayeredWindow`) sur `DesktopSurface`, qui possède sa propre fenêtre (le blocage mesuré portait sur une fenêtre créée par Qt).
-3. **T-006** — glisser-déposer interne (réordonner dans/déplacer entre zones) + menu contextuel shell (`IContextMenu`) + DnD `CF_HDROP`.
+1. **T-021** (manual) — vérifier à l'écran le rendu T-005 : `starfish --render-probe --surface --with-desktop-items` (grille d'icônes réelles, sélection clic/Ctrl/Maj, double-clic → lancement) + validation visuelle **T-017** (`--render-probe --surface --pixel-alpha`, papier peint visible à travers le panneau) + **T-018/T-019** (redémarrage d'Explorer, `--host-demo` avec Fences 6 actif **et** arrêté).
+2. **T-006** — glisser-déposer interne (réordonner dans/déplacer entre zones) + menu contextuel shell (`IContextMenu`) + DnD `CF_HDROP`.
+3. **T-007** — cycle de vie des zones (créer / déplacer / redimensionner / supprimer + aimantation).
 
 ## À ne pas faire
 
