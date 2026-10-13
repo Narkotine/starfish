@@ -6,6 +6,13 @@ project(StarFish
     LANGUAGES CXX
 )
 
+# The application manifest is load bearing, not cosmetic: without it Windows
+# applies pre-Windows-8 compatibility behaviour, WS_EX_LAYERED cannot be added to
+# a child window, and the hosted zones are never composited by DWM. See
+# src/starfish.manifest and ADR-4. Enabled explicitly because MinGW has no
+# default manifest step, unlike MSVC.
+enable_language(RC)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

@@ -151,6 +151,8 @@ LWA_ALPHA = 0x2
 HWND_BOTTOM = 1
 SW_HIDE = 0
 SW_SHOW = 5
+SW_MINIMIZE = 6
+SW_RESTORE = 9
 SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
 SRCCOPY = 0x00CC0020
@@ -170,6 +172,35 @@ KEYEVENTF_KEYUP = 0x0002
 
 
 # --- helpers -------------------------------------------------------------------
+
+def minimize_foreground():
+    """Minimise the foreground window so the desktop is really on screen.
+
+    Win+D (keybd_event) turned out to be unreliable: the synthetic keystroke can
+    be swallowed and the capture then shows a maximised application -- which
+    silently turns every measurement into a false negative. Minimising the
+    foreground window is deterministic and just as reversible.
+    """
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        print("[spike] no foreground window to minimise")
+        return None
+    if user32.IsIconic(hwnd):
+        return None
+    if class_name(hwnd) in ("Progman", "WorkerW", "Shell_TrayWnd"):
+        # The desktop is already the foreground window: minimising it would do
+        # the opposite of what we want.
+        print(f"[spike] foreground is {class_name(hwnd)}: desktop already visible")
+        return None
+    user32.ShowWindow(hwnd, SW_MINIMIZE)
+    print(f"[spike] minimised foreground window {hwnd:#x} ({class_name(hwnd)})")
+    return hwnd
+
+
+def restore_window(hwnd):
+    if hwnd:
+        user32.ShowWindow(hwnd, SW_RESTORE)
+
 
 def press_win_d():
     """Toggle 'show desktop' (Win+D). Reversible: a second press restores the
@@ -211,6 +242,32 @@ def enumerate_toplevel():
         return True
 
     user32.EnumWindows(cb, 0)
+    return out
+
+
+DESKTOP_CLASSES = ("Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+                   "Windows.UI.Core.CoreWindow", "SysShadow")
+
+
+def covering_windows(x, y, w, h):
+    """Visible top-level windows that overlap the given screen rectangle.
+
+    A capture taken while one of these is on top measures nothing: it has
+    already produced false negatives twice on this project (a maximised browser
+    in session 7, the IDE in session 8). Always check before believing a
+    screenshot.
+    """
+    out = []
+    for hwnd, cls in enumerate_toplevel():
+        if cls in DESKTOP_CLASSES or cls.startswith("Qt"):
+            continue
+        if not visible(hwnd) or user32.IsIconic(hwnd):
+            continue
+        r = rect(hwnd)
+        if not r:
+            continue
+        if r[0] < x + w and r[2] > x and r[1] < y + h and r[3] > y:
+            out.append((hwnd, cls, r))
     return out
 
 
@@ -378,7 +435,8 @@ def _pump():
 
 def show_test_window(parent, defview, insert_after, x, y, w, h, seconds,
                      capture_path, hide_icons=False, no_parent=False,
-                     child_direct=False, layered=False):
+                     child_direct=False, layered=False,
+                     layered_before_parent=False):
     """Pure Win32 window: the reference sequence for the Qt port (ADR-4).
 
     insert_after: HWND the window is placed after in z-order (None = HWND_TOP,
@@ -435,6 +493,14 @@ def show_test_window(parent, defview, insert_after, x, y, w, h, seconds,
                       f"{px & 0xFF},{(px >> 8) & 0xFF},{(px >> 16) & 0xFF}) "
                       f"(expect 230,126,34)")
                 diagnose_progman_children(proc_holder.get("parent") or 0, hwnd)
+                coverers = covering_windows(x, y, w, h)
+                if coverers:
+                    print(f"[spike] WARNING: {len(coverers)} top-level window(s) cover the "
+                          f"test rect -- this capture proves nothing:")
+                    for chwnd, ccls, crect in coverers:
+                        print(f"[spike]   {ccls} {chwnd:#x} {crect}")
+                else:
+                    print("[spike] test rect is clear: no top-level window covers it")
                 capture_screen(capture_path)
                 user32.KillTimer(hwnd, 2)
                 return 0
@@ -485,6 +551,17 @@ def show_test_window(parent, defview, insert_after, x, y, w, h, seconds,
     user32.ShowWindow(hwnd, SW_SHOW)
     user32.UpdateWindow(hwnd)
 
+    # T-020 diagnostic: the C++ surface sets WS_EX_LAYERED *before* reparenting
+    # (the only order in which Windows accepts the flag from C++), while this
+    # spike sets it afterwards. Both end up with the same style on paper; this
+    # flag tells whether the order alone changes whether the window is
+    # composited at all.
+    if layered_before_parent and layered:
+        ex_now = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_now | WS_EX_LAYERED)
+        print(f"[spike] layered (pre-parent): ex {ex_now:#x} -> "
+              f"{user32.GetWindowLongW(hwnd, GWL_EXSTYLE):#x}")
+
     if child_direct:
         ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
         user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_TOPMOST)
@@ -525,6 +602,12 @@ def show_test_window(parent, defview, insert_after, x, y, w, h, seconds,
     if layered:
         ex |= WS_EX_LAYERED
     user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex)
+    # Read the style back: adding WS_EX_LAYERED to a WS_CHILD of Progman can be
+    # refused *silently* (the call reports success and the style does not
+    # change), which is the whole point of the layered-flag finding in ADR-4.
+    ex_read = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    print(f"[spike] ex-style            : wrote {ex:#x}, read back {ex_read:#x} "
+          f"(layered={bool(ex_read & WS_EX_LAYERED)})")
     if layered:
         ok_l = user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
         print(f"[spike] layered             : ok={bool(ok_l)} (alpha=255)")
@@ -567,6 +650,9 @@ def main():
     parser.add_argument("--dump", action="store_true")
     parser.add_argument("--capture-only", metavar="PATH", default=None,
                         help="capture the screen to PATH and exit (no window)")
+    parser.add_argument("--minimize-foreground", action="store_true",
+                        help="minimise the foreground window instead of "
+                             "pressing Win+D (deterministic desktop reveal)")
     parser.add_argument("--show-desktop", action="store_true",
                         help="press Win+D before/after so the wallpaper is "
                              "visible in the capture (reversible)")
@@ -584,25 +670,43 @@ def main():
     parser.add_argument("--parent-workerw", action="store_true",
                         help="parent to the full-screen WorkerW (wallpaper host) "
                              "instead of Progman")
+    parser.add_argument("--dpi-awareness", type=int, default=None, metavar="N",
+                        help="diagnostic: force the process DPI awareness "
+                             "(0=unaware, 1=system, 2=per-monitor, "
+                             "3=per-monitor-v2) -- Qt applications are 3 (T-020)")
+    parser.add_argument("--layered-before-parent", action="store_true",
+                        help="diagnostic: set WS_EX_LAYERED BEFORE SetParent "
+                             "instead of after (T-020)")
     parser.add_argument("--no-layered", action="store_false", dest="layered",
                         default=True,
                         help="reproduce the non-layered failure (window is NOT "
                              "composited by DWM when parented to Progman)")
     args = parser.parse_args()
 
+    if args.dpi_awareness is not None:
+        contexts = {0: -1, 1: -2, 2: -3, 3: -4}  # unaware/system/per-monitor/PMv2
+        ctx = contexts[args.dpi_awareness]
+        ok = user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(ctx))
+        print(f"[spike] process DPI awareness requested: {args.dpi_awareness} "
+              f"(ok={bool(ok)}, err={kernel32.GetLastError()})")
+
+    # Reveal the desktop before any measurement: a capture taken while an
+    # application covers the screen proves nothing (and has produced false
+    # negatives twice on this project).
+    reveal = None
+    if args.minimize_foreground:
+        reveal = minimize_foreground()
+    elif args.show_desktop:
+        press_win_d()
+
     if args.capture_only:
-        if args.show_desktop:
-            press_win_d()
-            time.sleep(1.2)
+        time.sleep(1.2)
         ok = capture_screen(args.capture_only)
-        if args.show_desktop:
-            time.sleep(0.4)
-            press_win_d()
+        time.sleep(0.4)
+        restore_window(reveal)
         return 0 if ok else 1
 
-    if args.show_desktop:
-        press_win_d()
-        time.sleep(1.2)
+    time.sleep(1.2)
 
     progman = find_window("Progman")
     print(f"[spike] Progman            : {progman:#x} {rect(progman)}")
@@ -631,10 +735,12 @@ def main():
     ok = show_test_window(progman, defview, insert_after, args.x, args.y,
                           args.w, args.h, args.seconds, args.capture or None,
                           hide_icons=args.hide_icons, no_parent=args.no_parent,
-                          child_direct=args.child_direct, layered=args.layered)
+                          child_direct=args.child_direct, layered=args.layered,
+                          layered_before_parent=args.layered_before_parent)
 
-    if args.show_desktop:
-        time.sleep(0.4)
+    time.sleep(0.4)
+    restore_window(reveal)
+    if args.show_desktop and not reveal:
         press_win_d()
 
     if args.test_hide_icons:

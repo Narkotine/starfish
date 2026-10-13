@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="StarFish.DesktopZones" version="0.1.0.0"
+                    processorArchitecture="*"/>
+  <description>StarFish, open-source desktop zones</description>
+  <!--
+    The compatibility section is LOAD BEARING, not boilerplate.
+
+    WS_EX_LAYERED on a CHILD window is only supported from Windows 8 onwards
+    ("Windows 8: The WS_EX_LAYERED style is supported for top-level windows and
+    child windows. Previous Windows versions support WS_EX_LAYERED only for
+    top-level windows."). Windows selects the behaviour from this list, and a
+    binary with no manifest at all gets the legacy behaviour.
+
+    StarFish hosts its zones as child windows of Progman (ADR-4), so the legacy
+    behaviour makes the whole product invisible: adding WS_EX_LAYERED to a hosted
+    window is refused silently (the call returns 0, GetLastError() stays 0, and
+    the style reads back unchanged), and SetLayeredWindowAttributes then fails
+    with ERROR_INVALID_PARAMETER (87). Nothing is drawn, and nothing says why.
+
+    Measured in session 9 on this machine: the same source, the same sequence and
+    the same window state are composited 99.4 % of the time with this manifest
+    and 0 % of the time without it. A MinGW build gets no manifest by default.
+
+    Do not add a dpiAware entry here without re-measuring: DPI awareness is set
+    by Qt and was ruled out as a cause of the above.
+  -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 8 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/>
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+      <!-- Windows 10 and 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <!-- Never prompt for elevation: the desktop shell runs as the user. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>

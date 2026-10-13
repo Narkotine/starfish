@@ -21,6 +21,9 @@ __pycache__/
 *.pyc
 experiments/out/
 
+# Compiled Windows resources from the spikes
+*.res.o
+
 # Harness-specific tooling (never referenced by project docs)
 .workbuddy-ai/
 .cursor/

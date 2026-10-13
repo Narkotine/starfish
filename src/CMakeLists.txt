@@ -2,11 +2,14 @@ configure_file(version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
 
 qt_add_executable(starfish WIN32
     main.cpp
+    # Application manifest. Load bearing: see src/starfish.manifest (ADR-4).
+    starfish.rc
     core/desktop_item.cpp
     core/rules.cpp
     core/jsonstore.cpp
     core/zorder.cpp
     platform/win/desktop_host.cpp
+    platform/win/desktop_surface.cpp
     platform/win/desktop_scanner.cpp
     platform/win/shell_icon_cache.cpp
     ui/fence_view.cpp
@@ -26,8 +29,10 @@ target_link_libraries(starfish PRIVATE
     #   shell32  SHGetKnownFolderPath, SHGetFileInfoW, SHGetImageList (T-004)
     #   ole32    CoInitializeEx, CoCreateInstance, CoTaskMemFree (T-004)
     #   uuid     CLSID_ShellLink / IID_IShellLinkW / IID_IImageList symbols
+    #   dwmapi   DwmGetWindowAttribute(DWMWA_CLOAKED) diagnostic (T-020)
     user32
     shell32
     ole32
     uuid
+    dwmapi
 )

@@ -1,0 +1,9 @@
+/* Embeds src/starfish.manifest into starfish.exe.
+
+   Without it a MinGW build has no manifest, Windows falls back to pre-Windows-8
+   compatibility behaviour, and WS_EX_LAYERED cannot be added to a child window:
+   the hosted zones are then never composited by DWM (ADR-4, T-020).
+
+   1  = CREATEPROCESS_MANIFEST_RESOURCE_ID
+   24 = RT_MANIFEST */
+1 24 "starfish.manifest"
