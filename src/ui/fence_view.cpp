@@ -1,5 +1,6 @@
 #include "ui/fence_view.hpp"
 
+#include <QApplication>
 #include <QColor>
 #include <QDesktopServices>
 #include <QFont>
@@ -102,6 +103,8 @@ void FenceView::paintEvent(QPaintEvent* event)
     }
 
     m_grid.paint(painter, content, m_iconProvider);
+    if (m_dragging)
+        paintDropIndicator(m_dropTargetIndex, painter);
 }
 
 void FenceView::mousePressEvent(QMouseEvent* event)
@@ -137,8 +140,70 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     } else {
         m_grid.selectOnly(index);
     }
+
+    // Arm a possible drag (T-006-2). The move enters drag mode only once the
+    // cursor leaves the system threshold -- a click in place never reorders.
+    m_dragOriginIndex = (index >= 0 && index < m_grid.items().size()) ? index : -1;
+    m_dragStartPos = event->pos();
+    m_dropTargetIndex = -1;
+    m_dragging = false;
+
     update();
     emit contentChanged();
+}
+
+void FenceView::mouseMoveEvent(QMouseEvent* event)
+{
+    if (m_dragOriginIndex < 0 || !(event->buttons() & Qt::LeftButton))
+        return;
+
+    if (!m_dragging) {
+        // QApplication::startDragDistance() is the platform-consistent
+        // threshold (Qt::Drag is too sensitive for an icon grid where the
+        // cells are small and the cursor jitters on them).
+        if (QApplication::startDragDistance() >=
+            (event->pos() - m_dragStartPos).manhattanLength())
+            return;
+        // Lock the selection on the dragged item so the visual highlight
+        // matches what's being moved, not whatever the user had selected
+        // before (e.g. a Ctrl-click selection on another cell).
+        m_grid.selectOnly(m_dragOriginIndex);
+        m_dragging = true;
+    }
+
+    m_dropTargetIndex = itemAt(event->pos());
+    update();
+}
+
+void FenceView::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mouseReleaseEvent(event);
+        return;
+    }
+
+    if (m_dragging) {
+        const int from = m_dragOriginIndex;
+        // The drop target is the cell under the cursor; if the cursor is in
+        // empty space (no cell), drop at the end of the grid.
+        int to = itemAt(event->pos());
+        if (to < 0)
+            to = m_grid.items().size() - 1;
+        if (to >= 0 && from >= 0 && from != to)
+            m_grid.moveItem(from, to);
+        m_dragging = false;
+        m_dragOriginIndex = -1;
+        m_dragStartPos = QPoint();
+        m_dropTargetIndex = -1;
+        update();
+        emit contentChanged();
+        return;
+    }
+
+    // A press that never crossed the drag threshold is just a click -- the
+    // selection already happened in mousePressEvent; nothing else to do.
+    m_dragOriginIndex = -1;
+    m_dragStartPos = QPoint();
 }
 
 void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
@@ -152,6 +217,32 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     if (!target.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(target));
     emit itemActivated(index);
+}
+
+void FenceView::paintDropIndicator(int index, QPainter& painter)
+{
+    if (index < 0 || index >= m_grid.items().size())
+        return;
+
+    // Recompute the layout in content-local coordinates (matches paint()).
+    const QRect content = contentRect();
+    const QVector<ui::IconCell> cells = ui::IconLayout::compute(
+        content.size(), m_grid.iconSize(), m_grid.labelHeight(), m_grid.gap(),
+        m_grid.padding(), m_grid.items().size());
+    if (index >= cells.size())
+        return;
+
+    const QRect iconRect = cells.at(index).icon.translated(content.topLeft());
+    const QRect labelRect = cells.at(index).label.translated(content.topLeft());
+    const QRect combined = iconRect.united(labelRect).adjusted(-4, -4, 4, 4);
+
+    const QColor accent(0x3B, 0x82, 0xF6);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(accent, 2.0));
+    painter.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 60));
+    painter.drawRoundedRect(combined, 6, 6);
+    painter.restore();
 }
 
 void FenceView::showContextMenuForIndex(int index, const QPoint& globalPos)

@@ -44,6 +44,11 @@ public:
     void setPadding(int px) { m_padding = qMax(0, px); }
     void setLabelHeight(int px) { m_labelHeight = qMax(0, px); }
 
+    int iconSize() const { return m_iconSize; }
+    int gap() const { return m_gap; }
+    int padding() const { return m_padding; }
+    int labelHeight() const { return m_labelHeight; }
+
     // Draws the grid inside `contentRect` (already excludes the title bar and
     // the fence's outer padding). Caller is expected to clip to contentRect.
     void paint(QPainter& painter, const QRect& contentRect, IconProvider iconFor) const;
@@ -58,6 +63,21 @@ public:
     void clearSelection();
     QSet<int> selectedIndices() const { return m_selected; }
     bool isSelected(int index) const { return m_selected.contains(index); }
+
+    // --- reorder (T-006-2, intra-fence) -------------------------------------
+    // Move a single item from `from` to the slot previously occupied by `to`.
+    // Items between shift to accommodate. Out-of-range indexes are a no-op
+    // (returns -1); from == to is a no-op that returns `to`. The selection
+    // follows the moved item, and the anchor is set to its new position so
+    // a subsequent Shift-select behaves naturally.
+    // Returns the new index of the moved item, or -1 when nothing moved.
+    int moveItem(int from, int to);
+
+    // Index that would receive a drop at `contentLocalPoint` (the cell the
+    // pointer is hovering over). Returns -1 when the point is in empty space
+    // below the last row -- the caller decides what "drop at the end" means
+    // for its UX (in FenceView, that's the bottom-right cell).
+    int dropTargetIndex(const QPoint& contentLocalPoint, const QSize& contentSize) const;
 
     // The path QDesktopServices should open for a double-click (F-005 / T-005).
     // A .lnk/.url opens its resolved target, everything else opens itself.

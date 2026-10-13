@@ -2,8 +2,8 @@
 
 > **Protocole de reprise (obligatoire avant tout travail) :** lire `AGENTS.md` (conventions) → ce fichier → la phase courante de `docs/plan.md` → `TODO.md` → travailler → mettre à jour `TODO.md` + `devlog/` + ce fichier (+ commit git) avant de terminer.
 
-- **Phase courante :** Phase 2 — Icônes sur le bureau. T-005 ✅ en code + **T-006 pièce 1 (menu contextuel Shell, IContextMenu) ✅ en code + validé** (session 10). Restent T-006-2/3 (drag-drop, `CF_HDROP`) et T-007 (cycle de vie). Validations visuelles à l'écran (T-021/T-017 visuel/T-018/T-019) **impossibles depuis l'agent** (voir « Décisions actées » 13 et « À ne pas faire ») — à faire par l'utilisateur avec le bureau libre. Fondations Phase 1 : T-001…T-004, T-016, T-020 ✅, T-017 ✅ en code.
-- **Dernière mise à jour :** 2026-10-13 (session 10, soir)
+- **Phase courante :** Phase 2 — Icônes sur le bureau. T-005 ✅ en code + T-006 pièces 1 (menu Shell) et 2 (drag-drop **intra-zone**, session 11) ✅ en code + validées. Reste T-006-3 (DnD `CF_HDROP` depuis l'Explorer) et T-007 (cycle de vie des zones, qui rendra possible le drag-drop inter-zones). Validations visuelles à l'écran (T-021/T-017 visuel/T-018/T-019) **impossibles depuis l'agent** (voir « Décisions actées » 13 et « À ne pas faire ») — à faire par l'utilisateur avec le bureau libre. Fondations Phase 1 : T-001…T-004, T-016, T-020 ✅, T-017 ✅ en code.
+- **Dernière mise à jour :** 2026-10-13 (session 11, soir)
 - **Branche de travail :** `main` (repo git local, pas encore de remote)
 
 ## Ce qui existe
@@ -48,9 +48,9 @@
 
 ## 3 prochaines actions
 
-1. **T-021** (manuel, par l'utilisateur) — bureau libre, `starfish --render-probe --surface --with-desktop-items` : grille d'icônes réelles + sélection + double-clic sur le bureau hébergé, **et** `--pixel-alpha` pour la validation visuelle de T-017 (papier peint à travers le panneau). **+ T-018** (redémarrage Explorer) **+ T-019** (`--host-demo` Fences actif/arrêté). Non faisable depuis l'agent (voir décision 13).
-2. **T-006-2/3** — glisser-déposer interne (réordonner dans/déplacer entre zones) + DnD `CF_HDROP` (drop de fichiers depuis l'Explorer vers une zone).
-3. **T-007** — cycle de vie des zones (créer / déplacer / redimensionner / supprimer + aimantation).
+1. **T-021** (manuel, par l'utilisateur) — bureau libre, `starfish --render-probe --surface --with-desktop-items` : grille d'icônes réelles + sélection + double-clic **+ drag-drop** (nouveau : repérer l'insertion pendant le drag, vérifier que l'ordre change réellement) sur le bureau hébergé, **et** `--pixel-alpha` pour la validation visuelle de T-017 (papier peint à travers le panneau). **+ T-018** (redémarrage Explorer) **+ T-019** (`--host-demo` Fences actif/arrêté). Non faisable depuis l'agent (voir décision 13).
+2. **T-006-3** — DnD `CF_HDROP` (drop de fichiers depuis l'Explorer vers une zone : `OleInitialize` + `IDataObject` + `EnumFormatEtc` + `GetData(CF_HDROP)` + `DragQueryFile`). Indépendant de T-007.
+3. **T-007** — cycle de vie des zones (créer / déplacer / redimensionner / supprimer + aimantation). C'est T-007 qui rendra possible le drag-drop **entre** zones (T-006-2 reste intra-zone pour l'instant).
 
 ## À ne pas faire
 

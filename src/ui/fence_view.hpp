@@ -49,6 +49,8 @@ signals:
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
@@ -57,6 +59,10 @@ private:
     // stay out of the widget header. `globalPos` is screen coordinates.
     void showContextMenuForIndex(int index, const QPoint& globalPos);
 
+    // Draws the "insert here" highlight around the cell at `index` while a
+    // drag is in progress. No-op when index < 0.
+    void paintDropIndicator(int index, QPainter& painter);
+
     static constexpr int kTitleBarHeight = 30;
     static constexpr int kCornerRadius = 10;
     static constexpr int kPadding = 12;
@@ -64,6 +70,15 @@ private:
     QString m_title;
     IconGrid m_grid;
     IconGrid::IconProvider m_iconProvider;
+
+    // Drag state (T-006-2). The press sets `m_dragOriginIndex` and
+    // `m_dragStartPos`; the move enters drag mode past the system threshold,
+    // updates `m_dropTargetIndex` as the cursor moves; the release performs
+    // the reorder and clears the state.
+    int m_dragOriginIndex = -1;
+    int m_dropTargetIndex = -1;
+    QPoint m_dragStartPos;
+    bool m_dragging = false;
 };
 
 } // namespace starfish::ui

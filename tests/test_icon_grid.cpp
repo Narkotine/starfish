@@ -37,6 +37,10 @@ private slots:
     void launchPathResolvesShortcut();
     void sortReordersItems();
     void paintDoesNotCrash();
+    void moveItemReordersAndFollowsSelection();
+    void moveItemNoOpOnEqualIndexes();
+    void moveItemRejectsOutOfRange();
+    void moveItemClampsShiftedTarget();
 };
 
 void TestIconGrid::columnsFitTheWidth()
@@ -161,6 +165,91 @@ void TestIconGrid::paintDoesNotCrash()
             if (qAlpha(img.pixel(x, y)) != 0)
                 painted = true;
     QVERIFY(painted);
+}
+
+void TestIconGrid::moveItemReordersAndFollowsSelection()
+{
+    // 5 items in known order; move the first ("a") to slot 2 and verify the
+    // order matches QList::move semantics (the moved item ends up at index `to`),
+    // the selection, and the anchor (which Shift-select uses next).
+    IconGrid grid;
+    QList<DesktopItem> items{makeItem(QStringLiteral("a")), makeItem(QStringLiteral("b")),
+                             makeItem(QStringLiteral("c")), makeItem(QStringLiteral("d")),
+                             makeItem(QStringLiteral("e"))};
+    grid.setItems(items);
+
+    const int newIndex = grid.moveItem(/*from*/ 0, /*to*/ 2);
+    QCOMPARE(newIndex, 2);
+
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("b"), QStringLiteral("c"),
+                                 QStringLiteral("a"), QStringLiteral("d"),
+                                 QStringLiteral("e")}));
+    // Only the moved item stays selected.
+    QCOMPARE(grid.selectedIndices(), QSet<int>({2}));
+    // Anchor follows the moved item.
+    grid.selectRangeTo(4);
+    QCOMPARE(grid.selectedIndices(), QSet<int>({2, 3, 4}));
+}
+
+void TestIconGrid::moveItemNoOpOnEqualIndexes()
+{
+    IconGrid grid;
+    QList<DesktopItem> items{makeItem(QStringLiteral("a")),
+                             makeItem(QStringLiteral("b"))};
+    grid.setItems(items);
+
+    QCOMPARE(grid.moveItem(1, 1), 1);
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("a"), QStringLiteral("b")}));
+}
+
+void TestIconGrid::moveItemRejectsOutOfRange()
+{
+    IconGrid grid;
+    QList<DesktopItem> items{makeItem(QStringLiteral("a")),
+                             makeItem(QStringLiteral("b"))};
+    grid.setItems(items);
+
+    // Negative `from` / `to` and indices past the end are all rejected.
+    QCOMPARE(grid.moveItem(-1, 0), -1);
+    QCOMPARE(grid.moveItem(0, -1), -1);
+    QCOMPARE(grid.moveItem(0, 2), -1);
+    QCOMPARE(grid.moveItem(2, 0), -1);
+
+    // Nothing should have moved.
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("a"), QStringLiteral("b")}));
+}
+
+void TestIconGrid::moveItemClampsShiftedTarget()
+{
+    // moveItem(0, 4) on a 5-item list: "a" is taken out, then inserted at
+    // index 4 -- which is the last slot. The other items shift left to fill
+    // the gap. This catches an off-by-one in the take/insert pair (an earlier
+    // version of moveItem applied a "shift left when from < to" adjustment
+    // that landed the moved item at index 3 instead of 4).
+    IconGrid grid;
+    QList<DesktopItem> items{makeItem(QStringLiteral("a")), makeItem(QStringLiteral("b")),
+                             makeItem(QStringLiteral("c")), makeItem(QStringLiteral("d")),
+                             makeItem(QStringLiteral("e"))};
+    grid.setItems(items);
+
+    const int newIndex = grid.moveItem(/*from*/ 0, /*to*/ 4);
+    QCOMPARE(newIndex, 4);
+
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("b"), QStringLiteral("c"),
+                                 QStringLiteral("d"), QStringLiteral("e"),
+                                 QStringLiteral("a")}));
 }
 
 QTEST_MAIN(TestIconGrid)

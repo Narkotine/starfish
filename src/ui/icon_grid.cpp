@@ -137,6 +137,36 @@ void IconGrid::clearSelection()
     m_selected.clear();
 }
 
+int IconGrid::moveItem(int from, int to)
+{
+    if (from < 0 || from >= m_items.size())
+        return -1;
+    if (to < 0 || to >= m_items.size())
+        return -1;
+    if (from == to)
+        return to;
+
+    // Semantics matching QList::move: the moved item ends up at index `to` in
+    // the final list. `takeAt(from)` then `insert(to, item)` does exactly
+    // that -- the items between shift to make room, and the moved item lands
+    // at the requested slot. No shifted-target adjustment needed.
+    core::DesktopItem item = m_items.takeAt(from);
+    m_items.insert(to, item);
+
+    // The moved item is the only thing selected, and the anchor follows it.
+    m_anchor = to;
+    m_selected.clear();
+    m_selected.insert(to);
+    return to;
+}
+
+int IconGrid::dropTargetIndex(const QPoint& contentLocalPoint, const QSize& contentSize) const
+{
+    if (m_items.isEmpty())
+        return -1;
+    return hitTest(contentLocalPoint, contentSize);
+}
+
 QString IconGrid::launchPath(const core::DesktopItem& item)
 {
     // A shortcut opens its target; QDesktopServices::openUrl on the .lnk already
