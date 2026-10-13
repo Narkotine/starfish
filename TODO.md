@@ -6,7 +6,8 @@
 |---|---|---|---|---|
 | T-001 | Audit des alternatives open source (compléter §9 de `docs/produit.md`) | 1 | P1 | ✅ |
 | T-002 | `git init`, CMake + Qt 6.8, arborescence `src/`, `.gitignore`, CI minimale | 1 | P0 | ✅ |
-| T-003 | Spike WorkerW : fenêtre au bon z-order + masquage réversible des icônes natives | 1 | P0 | 🔄 |
+| T-003 | Placement bureau : fenêtre sous la couche d'icônes (spike, ADR-4) | 1 | P0 | ✅ |
+| T-016 | Portage C++/Qt du spike : `DesktopHost` (Progman + z-order, `WM_SETTINGCHANGE`) | 1 | P0 | ⬜ |
 | T-004 | Lecture du dossier Bureau + icônes shell (`SHGetFileInfo`, cache image list) | 1 | P0 | ⬜ |
 | T-005 | Rendu des icônes du bureau dans une zone (taille, libellé, sélection, double-clic) | 2 | P0 | ⬜ |
 | T-006 | Glisser-déposer interne (dans/entre zones) + menu contextuel shell + DnD `CF_HDROP` | 2 | P0 | ⬜ |

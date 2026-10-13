@@ -19,6 +19,7 @@ qrc_*.cpp
 # Python (experimental spikes)
 __pycache__/
 *.pyc
+experiments/out/
 
 # Harness-specific tooling (never referenced by project docs)
 .workbuddy-ai/

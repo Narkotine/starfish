@@ -53,7 +53,15 @@ Technique initialement envisagée (WorkerW) **invalide sur Windows 11 récent** 
 - La machine de dev a **Fences 6 installé et actif** → toute la validation était faite « sous Fences », ce qui est représentatif.
 
 **Stratégie retenue :** `SetParent(fenêtre_zone, Progman)` puis `SetWindowPos(hwnd, SHELLDLL_DefView, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)` → la fenêtre s'insère juste **sous** la couche d'icônes, donc au-dessus du papier peint et sous les icônes. Validation spike : `SetParent` ok=True, `SetWindowPos` ok=True.
-**Bonus mesuré :** masquer les icônes natives = `ShowWindow(SW_HIDE)` sur la `SHELLDLL_DefView` (réversible au logout/app exit, pas d'écriture registre sur ce build). Le basculement registre `HideIcons` reste prévu en secours.
+**Séquence Win32 de référence** (validée par le spike du 2026-10-13, dans cet ordre) :
+1. Créer une fenêtre `WS_POPUP` sans décoration.
+2. `SetParent(hwnd, Progman)` ; style : ajouter `WS_CHILD`, retirer `WS_POPUP`.
+3. **Effacer `WS_EX_TOPMOST`** (obligatoire : sinon la fenêtre reste au-dessus de la DefView quel que soit `insert_after`).
+4. `SetWindowPos(hwnd, SHELLDLL_DefView, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)`.
+5. Vérifier par la **chaîne de z-order des enfants de Progman** (`EnumChildWindows`) : la fenêtre doit apparaître **après** `SHELLDLL_DefView`/`SysListView32`. (Hit-tests non fiables : `WindowFromPoint` répond `Shell_LightDismissOverlay` ; une DefView désactivée est ignorée des hit-tests.)
+⚠️ Ne pas utiliser `overrideredirect` Tk ni de framework qui restack : Tk replace ses fenêtres au-dessus après `SetWindowPos`.
+**Comportement constaté avec Fences 6 actif** : nos fenêtres se placent sous les fences dessinées par Fences — placement conforme au produit de référence.
+**Bonus mesuré :** masquer les icônes natives = `ShowWindow(SW_HIDE)` sur la `SHELLDLL_DefView` (réversible, pas d'écriture registre sur ce build). Le basculement registre `HideIcons` reste prévu en secours.
 Z-order à recalculer sur `WM_SETTINGCHANGE`, changement de résolution et redémarrage d'Explorer.
 
 ### ADR-5 — Persistance JSON versionné
