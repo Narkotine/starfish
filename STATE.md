@@ -2,8 +2,8 @@
 
 > **Protocole de reprise (obligatoire avant tout travail) :** lire `AGENTS.md` (conventions) → ce fichier → la phase courante de `docs/plan.md` → `TODO.md` → travailler → mettre à jour `TODO.md` + `devlog/` + ce fichier (+ commit git) avant de terminer.
 
-- **Phase courante :** Phase 1 — Fondations (T-001, T-002, T-003, T-004, T-016, **T-020 ✅** ; restent T-018/T-019, puis T-005)
-- **Dernière mise à jour :** 2026-10-13 (session 8)
+- **Phase courante :** Phase 2 — Icônes sur le bureau (**T-005 ✅** en code ; reste validation manuelle à l'écran T-021). Fondations Phase 1 : T-001…T-004, T-016, **T-020 ✅**. Restent T-018/T-019 (manuel), puis T-017, T-006.
+- **Dernière mise à jour :** 2026-10-13 (session 9)
 - **Branche de travail :** `main` (repo git local, pas encore de remote)
 
 ## Ce qui existe
@@ -15,7 +15,9 @@
 - **`src/starfish.manifest` + `src/starfish.rc`** : manifeste applicatif embarqué dans `starfish.exe`. **Obligatoire** — sans lui Windows applique le comportement pré-Windows 8 et `WS_EX_LAYERED` est refusé sur une fenêtre enfant, donc les zones ne s'affichent jamais (échec silencieux). Voir ADR-4 finding 4.
 - **`DesktopScanner`** (`src/platform/win/desktop_scanner.{hpp,cpp}`, T-004) : `SHGetKnownFolderPath` (Desktop + Public Desktop), nom d'affichage Shell, cibles `.lnk`/`.url`, attributs caché/système, RAII COM
 - **`ShellIconCache`** (`src/platform/win/shell_icon_cache.{hpp,cpp}`, T-004) : icônes via la liste d'images système (48/256 px), repli `SHGFI_ICON`, cache par (chemin, taille)
-- `src/ui/fence_view.{hpp,cpp}` : zone vide (panneau arrondi + barre de titre) pour la démo Phase 1 ; les icônes arrivent en T-005
+- `src/ui/fence_view.{hpp,cpp}` : zone (panneau arrondi + barre de titre + grille d'icônes). T-005 : héberge `IconGrid`, dessine les icônes du bureau (via le `IconProvider` lié à `ShellIconCache`), gère la sélection (clic / Ctrl / Maj) et le double-clic (lancement via `QDesktopServices`), émet `contentChanged()`.
+- `src/ui/icon_layout.hpp` (T-005) : géométrie pure de la grille (colonnes, cellules icône+libellé, hit-test), testée sans Win32.
+- `src/ui/icon_grid.{hpp,cpp}` (T-005) : modèle de la grille (items, tri `name|type|size|date`, sélection, peinture via un `IconProvider` appelé avec `item.path` ; repli placeholder si l'icône ne résout pas). `launchPath()` renvoie la cible d'un `.lnk`/`.url`.
 - Tests : `tests/test_rules.cpp` (7 cas), `tests/test_zorder.cpp` (6 cas), `tests/test_desktop_item.cpp` (10 cas) — 3 exécutables ctest, verts
 - CI : `.github/workflows/ci.yml` (windows-latest, Qt 6.8 MSVC, build + ctest) — **non validée** (aucun push vers un remote)
 - **Toolchain locale : débloquée (session 7)** — Qt 6.8.3 `win64_mingw` + MinGW 13.1.0 installés via `aqtinstall` dans `C:/Users/<user>/Qt` (aucun droit admin requis ; MSVC absent de la machine). Build + `ctest` verts en local. Recette : voir `docs/technique.md` §6 et `devlog/2026-10-13.md` session 7.
@@ -41,9 +43,9 @@
 
 ## 3 prochaines actions
 
-1. **T-018 / T-019** — validations manuelles désormais exécutables en local : redémarrage d'Explorer (les zones meurent avec `Progman` ; vérifier que `attach()` les recrée), et `--host-demo` avec Fences 6 actif **et** arrêté.
-2. **T-005** — rendu des icônes du bureau dans une zone : dessiner `DesktopScanner` + `ShellIconCache` dans le `QImage` hors écran publié par `DesktopSurface`. Plus rien ne bloque.
-3. **T-017** — re-tenter la transparence par pixel (`UpdateLayeredWindow`) sur `DesktopSurface`, qui possède sa propre fenêtre (le blocage mesuré portait sur une fenêtre créée par Qt).
+1. **T-021** (manual) — vérifier à l'écran le rendu T-005 : `starfish --render-probe --surface --with-desktop-items` (grille d'icônes réelles, sélection clic/Ctrl/Maj, double-clic → lancement) + **T-018/T-019** (redémarrage d'Explorer, `--host-demo` avec Fences 6 actif **et** arrêté).
+2. **T-017** — re-tenter la transparence par pixel (`UpdateLayeredWindow`) sur `DesktopSurface`, qui possède sa propre fenêtre (le blocage mesuré portait sur une fenêtre créée par Qt).
+3. **T-006** — glisser-déposer interne (réordonner dans/déplacer entre zones) + menu contextuel shell (`IContextMenu`) + DnD `CF_HDROP`.
 
 ## À ne pas faire
 

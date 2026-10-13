@@ -506,6 +506,11 @@ int main(int argc, char* argv[])
         QStringLiteral("surface"),
         QStringLiteral("With --render-probe: host a raw Win32 DesktopSurface and push a "
                        "Qt-rendered frame into it (the T-020 rendering path)."));
+    const QCommandLineOption withDesktopItemsOption(
+        QStringLiteral("with-desktop-items"),
+        QStringLiteral("With --render-probe --surface: populate the fence with the real "
+                       "desktop items (scanned via T-004) so the icon grid of T-005 is "
+                       "verified on screen, and route mouse input for selection."));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -522,6 +527,7 @@ int main(int argc, char* argv[])
     parser.addOption(paintCycleOption);
     parser.addOption(layeredManualOption);
     parser.addOption(surfaceOption);
+    parser.addOption(withDesktopItemsOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -601,6 +607,40 @@ int main(int argc, char* argv[])
         auto* surface = useSurface ? new starfish::platform::win::DesktopSurface(&app) : nullptr;
         if (useSurface)
             fence->resize(geometry.size());
+
+        // T-005: fill the fence with the real desktop items and bind the icon
+        // source, so the probe verifies the icon grid on the actual desktop. The
+        // widget is rendered offscreen into the frame pushed to the surface.
+        starfish::platform::win::ShellIconCache probeIcons;
+        if (parser.isSet(withDesktopItemsOption)) {
+            fence->setIconProvider(
+                [&probeIcons](const starfish::core::DesktopItem& item, int sizePx) {
+                    return probeIcons.iconFor(item.path, sizePx);
+                });
+            QString scanErr;
+            QList<starfish::core::DesktopItem> items =
+                starfish::platform::win::DesktopScanner::scan(&scanErr);
+            if (!scanErr.isEmpty())
+                qCWarning(lc).noquote() << scanErr;
+            qCInfo(lc).noquote() << QStringLiteral("T-005: populated fence with %1 desktop items")
+                                        .arg(items.size());
+            fence->setItems(std::move(items));
+
+            if (surface) {
+                surface->setInputTarget(fence);
+                // Live re-render whenever selection changes so the desktop shows it.
+                QObject::connect(fence, &starfish::ui::FenceView::contentChanged, &app,
+                                 [surface, fence] {
+                                     QImage img(fence->size(), QImage::Format_ARGB32_Premultiplied);
+                                     img.fill(QColor(0x1F, 0x29, 0x37));
+                                     {
+                                         QPainter painter(&img);
+                                         fence->render(&painter);
+                                     }
+                                     surface->setFrame(img);
+                                 });
+            }
+        }
 
         PaintCounter counter;
         fence->installEventFilter(&counter);

@@ -9,7 +9,7 @@
 | T-003 | Placement bureau : fenêtre sous la couche d'icônes (spike, ADR-4) | 1 | P0 | ✅ |
 | T-016 | Portage C++/Qt du spike : `DesktopHost` (Progman + z-order, **`WS_EX_LAYERED` obligatoire**, `WM_SETTINGCHANGE`) | 1 | P0 | ✅ |
 | T-004 | Lecture du dossier Bureau + icônes shell (`SHGetFileInfo`, cache image list) | 1 | P0 | ✅ |
-| T-005 | Rendu des icônes du bureau dans une zone (taille, libellé, sélection, double-clic) | 2 | P0 | ⬜ |
+| T-005 | Rendu des icônes du bureau dans une zone (taille, libellé, sélection, double-clic) | 2 | P0 | ✅ |
 | T-006 | Glisser-déposer interne (dans/entre zones) + menu contextuel shell + DnD `CF_HDROP` | 2 | P0 | ⬜ |
 | T-007 | Cycle de vie des zones : créer / déplacer / redimensionner / supprimer + aimantation | 3 | P0 | ⬜ |
 | T-008 | Persistance JSON (schéma v1, écriture atomique) + restauration au démarrage | 3 | P0 | ⬜ |
@@ -32,3 +32,4 @@ _(à ajouter ici au fil de l'eau, puis à répartir par phase)_
   **Résolu par la piste (a) de `docs/technique.md` §7** : `DesktopSurface` (`src/platform/win/desktop_surface.{hpp,cpp}`), surface Win32 brute hébergée qui possède le HWND et le `WNDPROC` et blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()`). Qt ne touche plus jamais au HWND hébergé.
   Mesure (`starfish --render-probe --surface`, bureau visible) : **153600 / 153600 pixels** du rectangle de la zone changent à l'écran (bbox = exactement `80,80 480x320`), relecture `PrintWindow` = `0xff1f2937` (le panneau Qt), z-order `[3]` sous `DefView [0]`. Vérifié aussi à l'œil (`experiments/out/t020_surface_on_desktop.png`).
   **Cause racine annexe, importante pour toute la suite** : `WS_EX_LAYERED` est refusé **silencieusement** sur une fenêtre enfant par un binaire **sans manifeste applicatif** (comportement pré-Windows 8). Corrigé par `src/starfish.manifest` + `src/starfish.rc`. Détail et tableau de mesures → ADR-4 finding 4.
+- **T-021** (Phase 2, P2) — **Validation manuelle à l'écran de T-005** : lancer `starfish --render-probe --surface --with-desktop-items` avec le bureau visible, confirmer à l'œil (et via la relecture `PrintWindow` + diff avant/après) que la grille d'icônes réelles s'affiche dans la zone, et que la sélection (clic / Ctrl / Maj) et le double-clic (lancement) fonctionnent sur le bureau hébergé. Le routage souris `DesktopSurface → FenceView` est câblé en T-005 mais n'est pas vérifiable en CI headless.

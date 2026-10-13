@@ -1,7 +1,11 @@
 #include "platform/win/desktop_surface.hpp"
 
+#include <QCoreApplication>
 #include <QDebug>
+#include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QMouseEvent>
+#include <QPointF>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -10,6 +14,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <windowsx.h> // GET_X_LPARAM / GET_Y_LPARAM
 
 namespace starfish::platform::win {
 
@@ -128,12 +133,13 @@ bool DesktopSurface::ensureWindowClass()
 
     // Deliberately mirrors the T-003 spike's class: no CS_HREDRAW/CS_VREDRAW and
     // a solid background brush. The class is part of the reference sequence that
-    // is known to composite, so it is not the place to be creative.
+    // is known to composite, so it is not the place to be creative. CS_DBLCLKS
+    // is required so WM_LBUTTONDBLCLK is delivered and forwarded for double-click.
     static const HBRUSH background = ::CreateSolidBrush(RGB(0x1F, 0x29, 0x37));
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
-    wc.style = 0;
+    wc.style = CS_DBLCLKS;
     wc.lpfnWndProc = reinterpret_cast<WNDPROC>(&starfishSurfaceProc);
     wc.hInstance = ::GetModuleHandleW(nullptr);
     wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
@@ -320,6 +326,64 @@ void DesktopSurface::syncZOrder()
         m_placed = place();
 }
 
+void DesktopSurface::setInputTarget(QObject* target)
+{
+    m_inputTarget = target;
+}
+
+QObject* DesktopSurface::inputTarget() const
+{
+    return m_inputTarget;
+}
+
+void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
+{
+    if (!m_inputTarget)
+        return;
+
+    // Client coordinates of this surface == the fence's local coordinates: the
+    // fence is rendered at (0,0) of the frame, and the surface has no border.
+    const QPointF pos(static_cast<qreal>(GET_X_LPARAM(lParam)),
+                      static_cast<qreal>(GET_Y_LPARAM(lParam)));
+    const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
+
+    QEvent::Type type = QEvent::None;
+    Qt::MouseButton button = Qt::NoButton;
+    Qt::MouseButtons buttons = Qt::NoButton;
+
+    switch (message) {
+    case WM_LBUTTONDOWN:
+        type = QEvent::MouseButtonPress;
+        button = Qt::LeftButton;
+        buttons = Qt::LeftButton;
+        m_leftDown = true;
+        break;
+    case WM_LBUTTONUP:
+        type = QEvent::MouseButtonRelease;
+        button = Qt::LeftButton;
+        buttons = Qt::NoButton;
+        m_leftDown = false;
+        break;
+    case WM_LBUTTONDBLCLK:
+        type = QEvent::MouseButtonDblClick;
+        button = Qt::LeftButton;
+        buttons = Qt::LeftButton;
+        m_leftDown = true;
+        break;
+    case WM_MOUSEMOVE:
+        type = QEvent::MouseMove;
+        button = Qt::NoButton;
+        buttons = m_leftDown ? Qt::LeftButton : Qt::NoButton;
+        break;
+    default:
+        return;
+    }
+
+    // Posted, not sent: the WndProc must not re-enter the Qt event loop.
+    auto* event = new QMouseEvent(type, pos, pos, button, buttons, mods);
+    QCoreApplication::postEvent(m_inputTarget, event);
+}
+
 bool DesktopSurface::refreshDesktopHandles()
 {
     const DesktopHandles handles = discoverDesktop();
@@ -443,6 +507,17 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         // layer in Phase 2 (T-006); for now the whole surface is a client area.
         *result = HTCLIENT;
         return true;
+
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_MOUSEMOVE:
+        // Input is owned by the surface's WndProc; it is forwarded to the Qt
+        // widget rendered into this surface so selection and double-click work
+        // on the live desktop (T-005). The message is also passed to
+        // DefWindowProc, which has nothing to do for these on a layered child.
+        forwardMouse(message, lParam);
+        return false;
 
     case WM_DESTROY:
         m_hwnd = 0;

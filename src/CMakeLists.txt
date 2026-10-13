@@ -13,6 +13,7 @@ qt_add_executable(starfish WIN32
     platform/win/desktop_scanner.cpp
     platform/win/shell_icon_cache.cpp
     ui/fence_view.cpp
+    ui/icon_grid.cpp
 )
 
 target_include_directories(starfish PRIVATE

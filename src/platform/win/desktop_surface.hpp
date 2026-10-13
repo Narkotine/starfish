@@ -74,6 +74,14 @@ public:
     // size or after something was stacked above the icon layer.
     void syncZOrder();
 
+    // Routes mouse input coming from this surface's own WndProc to a target
+    // QObject (typically the FenceView rendered into this surface), so selection
+    // and double-click work on the live desktop. Coordinates are the surface's
+    // client coordinates, which match the fence's local coordinates because the
+    // fence is rendered at (0,0) of the frame. Set to nullptr to stop routing.
+    void setInputTarget(QObject* target);
+    QObject* inputTarget() const;
+
     // One-line report of what the paint cycle actually did: how many WM_PAINTs
     // were handled, the update region, the clip box and the number of scan
     // lines written. A paint that reports success while writing nothing is the
@@ -106,6 +114,15 @@ private:
     QImage m_frame;
     QTimer m_watchdog;
     bool m_placed = false;
+
+    QObject* m_inputTarget = nullptr;
+    bool m_leftDown = false;
+
+    // Builds a QMouseEvent from a surface mouse message and posts it to the
+    // input target (see setInputTarget). Coordinates are client-local, which
+    // match the fence's local coordinates because the fence is rendered at
+    // (0,0) of the frame.
+    void forwardMouse(unsigned message, quintptr lParam);
 
     // Paint-cycle counters, for paintReport().
     int m_paintCount = 0;

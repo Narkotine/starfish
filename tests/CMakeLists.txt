@@ -38,3 +38,18 @@ target_include_directories(test_starfish_desktop_item PRIVATE
 target_link_libraries(test_starfish_desktop_item PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_desktop_item COMMAND test_starfish_desktop_item)
+
+# Icon grid geometry + selection + paint: the pure half of T-005, no Win32.
+add_executable(test_starfish_icon_grid
+    test_icon_grid.cpp
+    ../src/core/desktop_item.cpp
+    ../src/ui/icon_grid.cpp
+)
+
+target_include_directories(test_starfish_icon_grid PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_icon_grid PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+
+add_test(NAME ui_icon_grid COMMAND test_starfish_icon_grid)

@@ -1,18 +1,16 @@
 #include "ui/fence_view.hpp"
 
 #include <QColor>
+#include <QDesktopServices>
 #include <QFont>
+#include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
 #include <QRect>
+#include <QUrl>
 
 namespace starfish::ui {
-
-namespace {
-constexpr int kTitleBarHeight = 30;
-constexpr int kCornerRadius = 10;
-} // namespace
 
 FenceView::FenceView(QWidget* parent)
     : QWidget(parent)
@@ -20,6 +18,10 @@ FenceView::FenceView(QWidget* parent)
     setObjectName(QStringLiteral("starfishFenceView"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAutoFillBackground(false);
+    m_grid.setIconSize(48);
+    m_grid.setGap(8);
+    m_grid.setPadding(12);
+    m_grid.setLabelHeight(34);
 }
 
 void FenceView::setTitle(const QString& title)
@@ -31,6 +33,32 @@ void FenceView::setTitle(const QString& title)
 QString FenceView::title() const
 {
     return m_title;
+}
+
+void FenceView::setItems(QList<core::DesktopItem> items)
+{
+    m_grid.setItems(std::move(items));
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setSort(const QString& by, bool ascending)
+{
+    m_grid.setSort(by, ascending);
+    update();
+    emit contentChanged();
+}
+
+QRect FenceView::contentRect() const
+{
+    return rect().adjusted(kPadding, kTitleBarHeight + kPadding, -kPadding, -kPadding);
+}
+
+int FenceView::itemAt(const QPoint& localPoint) const
+{
+    if (!contentRect().contains(localPoint))
+        return -1;
+    return m_grid.hitTest(localPoint - contentRect().topLeft(), contentRect().size());
 }
 
 void FenceView::paintEvent(QPaintEvent* event)
@@ -58,11 +86,52 @@ void FenceView::paintEvent(QPaintEvent* event)
                      Qt::AlignVCenter | Qt::AlignLeft,
                      m_title.isEmpty() ? QStringLiteral("Fence") : m_title);
 
-    painter.setFont(font());
-    painter.setPen(hintText);
-    painter.drawText(QRect(0, kTitleBarHeight, width(), qMax(0, height() - kTitleBarHeight)),
-                     Qt::AlignCenter,
-                     QStringLiteral("empty fence -- no icons yet (T-005)"));
+    const QRect content = contentRect();
+    if (m_grid.items().isEmpty()) {
+        painter.setFont(font());
+        painter.setPen(hintText);
+        painter.drawText(content, Qt::AlignCenter,
+                         QStringLiteral("empty fence -- no icons yet"));
+        return;
+    }
+
+    m_grid.paint(painter, content, m_iconProvider);
+}
+
+void FenceView::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    const int index = itemAt(event->pos());
+    const Qt::KeyboardModifiers mods = event->modifiers();
+    if (index < 0) {
+        if (!(mods & Qt::ControlModifier))
+            m_grid.clearSelection();
+    } else if (mods & Qt::ControlModifier) {
+        m_grid.toggle(index);
+    } else if (mods & Qt::ShiftModifier) {
+        m_grid.selectRangeTo(index);
+    } else {
+        m_grid.selectOnly(index);
+    }
+    update();
+    emit contentChanged();
+}
+
+void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    const int index = itemAt(event->pos());
+    if (index < 0 || index >= m_grid.items().size()) {
+        QWidget::mouseDoubleClickEvent(event);
+        return;
+    }
+    const QString target = IconGrid::launchPath(m_grid.items().at(index));
+    if (!target.isEmpty())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+    emit itemActivated(index);
 }
 
 } // namespace starfish::ui

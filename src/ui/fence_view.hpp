@@ -1,18 +1,18 @@
 #pragma once
 
-#include <QString>
 #include <QWidget>
+
+#include "core/desktop_item.hpp"
+#include "ui/icon_grid.hpp"
 
 namespace starfish::ui {
 
-// Minimal fence: a rounded panel with a title bar and an (empty) icon area.
-// Phase 1 only needs "an empty zone drawn at the right z-order"; the icon grid,
-// selection and interactions land in T-005/T-006.
-//
-// The panel is painted on an opaque background: per-pixel transparency, which
-// a translucent fence background over the wallpaper would need, requires
-// UpdateLayeredWindow compositing and is not implemented yet
-// (see docs/technique.md ADR-4).
+// A fence: a rounded panel with a title bar, hosting an icon grid of desktop
+// items (T-005). It renders itself onto any QPaintDevice (so the very same
+// paint path feeds both a live window and the offscreen image DesktopSurface
+// blits to the desktop), and handles the local interactions -- selection and
+// double-click-to-launch. The actual launch and any shell context menu happen
+// outside the widget (ADR-3); FenceView only reports intent through signals.
 class FenceView : public QWidget
 {
     Q_OBJECT
@@ -23,11 +23,42 @@ public:
     void setTitle(const QString& title);
     QString title() const;
 
+    // The items shown in the grid and how they are ordered.
+    void setItems(QList<core::DesktopItem> items);
+    const QList<core::DesktopItem>& items() const { return m_grid.items(); }
+    void setSort(const QString& by, bool ascending);
+
+    // Where icons come from. Bound by the application to a ShellIconCache.
+    void setIconProvider(IconGrid::IconProvider provider) { m_iconProvider = std::move(provider); }
+
+    // Content area in widget-local coordinates (excludes the title bar and the
+    // fence's outer padding). The grid is drawn here.
+    QRect contentRect() const;
+
+    // The item under a widget-local point, or -1.
+    int itemAt(const QPoint& localPoint) const;
+
+signals:
+    // Fired whenever the visual content changes (selection, items, sort) so the
+    // owner can re-render the offscreen frame and push it to the surface.
+    void contentChanged();
+
+    // A double-click on `index` asked to launch it.
+    void itemActivated(int index);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
+    static constexpr int kTitleBarHeight = 30;
+    static constexpr int kCornerRadius = 10;
+    static constexpr int kPadding = 12;
+
     QString m_title;
+    IconGrid m_grid;
+    IconGrid::IconProvider m_iconProvider;
 };
 
 } // namespace starfish::ui
