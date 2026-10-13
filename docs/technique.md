@@ -45,23 +45,28 @@ Fences est Windows-only et la valeur du produit est l'intégration shell. Linux 
 ### ADR-3 — On masque les icônes natives et on dessine les nôtres
 Requis par folder portals (F-024), teinte d'icônes (F-015) et pages de bureau (F-030). Conséquence : il faut réimplémenter les interactions shell (double-clic, menu contextuel via `IContextMenu`, glisser-déposer `CF_HDROP`, renommage F2). **Repli possible** : mode dégradé qui repositionne les icônes natives dans la zone (pas de portals ni de teinte) — à garder en tête si T-003/T-005 révèlent un blocage shell.
 
-### ADR-4 — Positionnement : fenêtres enfants de Progman, sous SHELLDLL_DefView
+### ADR-4 — Positionnement : fenêtres enfants de Progman (**layered**), sous SHELLDLL_DefView
 
-Technique initialement envisagée (WorkerW) **invalide sur Windows 11 récent** — findings du spike du 2026-10-13 (`experiments/spike_workerw.py`) :
-- Win11 garde `SHELLDLL_DefView` **enfant direct de Progman** ; le détournement WorkerW (message 0x052C, re-parenting de la DefView) propre à Win10 ne se produit pas (0x052C ne crée rien ici).
-- Les `WorkerW` présents (15 sur la machine de dev) sont des fenêtres 136×39 d'outils tiers ; `SetParent` vers elles échoue.
-- La machine de dev a **Fences 6 installé et actif** → toute la validation était faite « sous Fences », ce qui est représentatif.
+Technique initialement envisagée (WorkerW) **invalide sur Windows 11 récent** — findings des spikes du 2026-10-13 (`experiments/spike_workerw.py`) :
+- Win11 garde `SHELLDLL_DefView` **enfant direct de Progman** ; le détournement WorkerW (message 0x052C, re-parenting de la DefView) propre à Win10 ne se produit pas.
+- Les `WorkerW` présents (15 sur la machine de dev) sont des fenêtres 136×39 d'outils tiers.
+- Hiérarchie réelle mesurée (`experiments/probe_desktop.py`) : `Progman` → [`SHELLDLL_DefView` (**`WS_EX_LAYERED`**, plein écran), `WorkerW` (plein écran)]. `DefView` n'a qu'un enfant : `SysListView32` « FolderView » (la liste d'icônes). **Les « fences » de Fences ne sont pas des fenêtres** : elles sont dessinées à l'intérieur du `SysListView32` natif (masquer `DefView` les fait disparaître).
 
-**Stratégie retenue :** `SetParent(fenêtre_zone, Progman)` puis `SetWindowPos(hwnd, SHELLDLL_DefView, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)` → la fenêtre s'insère juste **sous** la couche d'icônes, donc au-dessus du papier peint et sous les icônes. Validation spike : `SetParent` ok=True, `SetWindowPos` ok=True.
-**Séquence Win32 de référence** (validée par le spike du 2026-10-13, dans cet ordre) :
+**⚠️ Finding critique (session 5) — la fenêtre doit être LAYERED.** Un enfant de Progman **non-layered n'est pas composé par DWM** : `IsWindowVisible` renvoie `True`, la chaîne de z-order est correcte (juste sous `DefView`), et pourtant **rien n'est dessiné à l'écran**. Échec silencieux. Établi par : capture plein écran (0 pixel de la fenêtre), test « au-dessus de la couche d'icônes » (`HWND_TOP`) — idem, puis **confirmation visuelle par l'utilisateur** (fenêtre plein écran invisible à l'œil). Le blocage **n'est pas dû à Fences** (le correctif fonctionne avec Fences actif).
+→ Le « succès » visuel de la session 4 était un **faux positif** : l'ancien papier peint était orange, de la même teinte que la fenêtre de test — une zone du fond partiellement recouverte par une fence a été prise pour la fenêtre.
+
+**Correctif :** `WS_EX_LAYERED` + `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)` (`DefView` est elle-même layered → condition pour être composé). Avec ce correctif la fenêtre est rendue (77,8 % de pixels orange mesurés ; icônes du bureau **et** fences dessinées par-dessus → placement conforme).
+
+**Séquence Win32 de référence** (validée session 5, dans cet ordre) :
 1. Créer une fenêtre `WS_POPUP` sans décoration.
 2. `SetParent(hwnd, Progman)` ; style : ajouter `WS_CHILD`, retirer `WS_POPUP`.
-3. **Effacer `WS_EX_TOPMOST`** (obligatoire : sinon la fenêtre reste au-dessus de la DefView quel que soit `insert_after`).
+3. Ex-style : retirer `WS_EX_TOPMOST` ; **ajouter `WS_EX_LAYERED`** puis `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)`.
 4. `SetWindowPos(hwnd, SHELLDLL_DefView, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)`.
-5. Vérifier par la **chaîne de z-order des enfants de Progman** (`EnumChildWindows`) : la fenêtre doit apparaître **après** `SHELLDLL_DefView`/`SysListView32`. (Hit-tests non fiables : `WindowFromPoint` répond `Shell_LightDismissOverlay` ; une DefView désactivée est ignorée des hit-tests.)
+5. Vérifier par la **chaîne de z-order** (`EnumChildWindows`) **et** par une **capture d'écran** — le z-order seul ne prouve pas le rendu. (Hit-tests non fiables : `WindowFromPoint` répond `Shell_LightDismissOverlay`.)
+
+⚠️ Ne pas se fier au seul z-order (il peut être correct alors que la fenêtre n'est pas rendue).
 ⚠️ Ne pas utiliser `overrideredirect` Tk ni de framework qui restack : Tk replace ses fenêtres au-dessus après `SetWindowPos`.
-**Comportement constaté avec Fences 6 actif** : nos fenêtres se placent sous les fences dessinées par Fences — placement conforme au produit de référence.
-**Bonus mesuré :** masquer les icônes natives = `ShowWindow(SW_HIDE)` sur la `SHELLDLL_DefView` (réversible, pas d'écriture registre sur ce build). Le basculement registre `HideIcons` reste prévu en secours.
+**Bonus mesuré :** masquer les icônes natives = `ShowWindow(SW_HIDE)` sur la `SHELLDLL_DefView` (réversible, pas d'écriture registre sur ce build).
 Z-order à recalculer sur `WM_SETTINGCHANGE`, changement de résolution et redémarrage d'Explorer.
 
 ### ADR-5 — Persistance JSON versionné
@@ -75,7 +80,7 @@ Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Le
 | Besoin | API / technique |
 |---|---|
 | Masquer les icônes natives | Basculer `HideIcons` (`HKCU\...\Explorer\Advanced`) ou styler la fenêtre `SHELLDLL_DefView` ; rendre le basculement instantané et réversible |
-| Z-order bureau | `Progman` → `WorkerW` ; attacher les fenêtres de zone |
+| Z-order bureau | Enfant de `Progman`, **`WS_EX_LAYERED` obligatoire**, inséré sous `SHELLDLL_DefView` (ADR-4) |
 | Icônes système | `SHGetFileInfo` + cache `IImageList` (`SHGetImageList`) |
 | Notifications de changement du bureau | `SHChangeNotify` / `ReadDirectoryChangesW` sur le dossier Bureau |
 | Menu contextuel | `IContextMenu` (shell) — phase 2 |

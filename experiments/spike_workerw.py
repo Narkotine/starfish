@@ -8,19 +8,36 @@ Findings on the dev machine (Windows 11, Fences 6 installed and running):
   * Windows 11 (recent builds) keeps SHELLDLL_DefView as a *direct child of
     Progman*. The classic Win10-era WorkerW trick (0x052C, DefView re-parenting)
     does not happen here; existing WorkerW windows belong to third-party tools.
+  * Progman's real hierarchy is: Progman -> [SHELLDLL_DefView (WS_EX_LAYERED,
+    full screen), WorkerW (full screen)]. DefView's only child is SysListView32
+    ("FolderView"), the icon list. Fences does NOT create windows: it paints its
+    fences inside the native SysListView32 (hiding DefView makes them vanish).
+  * CRITICAL (session 5): a NON-layered child of Progman is *not composited by
+    DWM*. IsWindowVisible returns True and the child z-order is correct (just
+    below DefView), yet nothing is drawn on screen -- a silent failure. Fix:
+    add WS_EX_LAYERED + SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA).
+    This is now the default; --no-layered reproduces the failure.
   * Tk(inter) toplevels cannot be used for the probe: Tk re-stacks its windows
-    after SetWindowPos (overrideredirect + internal raise), which forces them
-    above the icon layer. The window below is a pure Win32 window built with
+    after SetWindowPos. The window below is a pure Win32 window built with
     ctypes -- the same sequence the Qt implementation will use.
-  * z-order verification uses the Progman child chain (authoritative), plus
-    ChildWindowFromPointEx hit tests. Note: with Fences active the native
-    DefView is DISABLED, so hit tests may skip it -- the child chain is the
-    reliable verdict.
+  * Verify placement with BOTH the Progman child z-order chain (authoritative
+    ordering) AND a screenshot: z-order alone does NOT prove the window is
+    actually rendered.
 
 Run (system Python; pure ctypes, no third-party deps):
 
     python experiments/spike_workerw.py --seconds 3
     python experiments/spike_workerw.py --dump
+    python experiments/spike_workerw.py --capture-only out.png   # no window
+
+Diagnostics (all optional, default = the reference sequence):
+    --no-layered     reproduce the non-composited failure
+    --above          insert above the icon layer (HWND_TOP)
+    --hide-icons     hide SHELLDLL_DefView during the test (restored after)
+    --no-parent      plain top-level window (sanity check: paint + capture)
+    --child-direct   create as WS_CHILD of Progman directly (no SetParent)
+    --parent-workerw parent to the full-screen WorkerW instead of Progman
+    --show-desktop   press Win+D so the wallpaper is visible in the capture
 
 Shows an orange test window for N seconds, saving a screenshot of the desktop
 while it is up. Never modifies the registry; the icon-hiding procedure is only
@@ -32,6 +49,7 @@ import ctypes
 import os
 import struct
 import sys
+import time
 import zlib
 
 user32 = ctypes.windll.user32
@@ -74,6 +92,8 @@ user32.GetWindowLongW.restype = ctypes.c_long
 user32.SetWindowLongW.argtypes = [VOID_P, ctypes.c_int, ctypes.c_long]
 user32.SetWindowLongW.restype = ctypes.c_long
 user32.SetParent.argtypes = [VOID_P, VOID_P]
+user32.GetParent.argtypes = [VOID_P]
+user32.GetParent.restype = VOID_P
 user32.SetWindowPos.argtypes = [VOID_P, VOID_P, ctypes.c_int, ctypes.c_int,
                                 ctypes.c_int, ctypes.c_int, ctypes.c_uint]
 user32.ShowWindow.argtypes = [VOID_P, ctypes.c_int]
@@ -103,17 +123,31 @@ user32.DestroyWindow.argtypes = [VOID_P]
 user32.PostQuitMessage.argtypes = [ctypes.c_int]
 user32.GetMessageW.argtypes = [ctypes.c_void_p, VOID_P, ctypes.c_uint, ctypes.c_uint]
 user32.DispatchMessageW.argtypes = [ctypes.c_void_p]
+user32.keybd_event.argtypes = [ctypes.c_ubyte, ctypes.c_ubyte, ctypes.c_uint, VOID_P]
+user32.GetDC.argtypes = [VOID_P]
+user32.GetDC.restype = VOID_P
+user32.ReleaseDC.argtypes = [VOID_P, VOID_P]
+user32.SetLayeredWindowAttributes.argtypes = [VOID_P, ctypes.c_uint,
+                                              ctypes.c_ubyte, ctypes.c_uint]
+
+gdi32.GetPixel.argtypes = [VOID_P, ctypes.c_int, ctypes.c_int]
+gdi32.GetPixel.restype = ctypes.c_uint
 
 gdi32.CreateSolidBrush.argtypes = [ctypes.c_uint]
 gdi32.CreateSolidBrush.restype = VOID_P
 gdi32.DeleteObject.argtypes = [VOID_P]
 
+GW_CHILD = 5
+GW_HWNDNEXT = 2
 GWL_STYLE = -16
 GWL_EXSTYLE = -20
 WS_CHILD = 0x40000000
 WS_POPUP = 0x80000000
+WS_VISIBLE = 0x10000000
 WS_DISABLED = 0x8000000
 WS_EX_TOPMOST = 0x00000008
+WS_EX_LAYERED = 0x00080000
+LWA_ALPHA = 0x2
 HWND_BOTTOM = 1
 SW_HIDE = 0
 SW_SHOW = 5
@@ -130,8 +164,22 @@ DT_SINGLELINE = 0x0020
 
 ORANGE = 0x00227EE6  # COLORREF 0x00BBGGRR of #E67E22
 
+VK_LWIN = 0x5B
+VK_D = 0x44
+KEYEVENTF_KEYUP = 0x0002
+
 
 # --- helpers -------------------------------------------------------------------
+
+def press_win_d():
+    """Toggle 'show desktop' (Win+D). Reversible: a second press restores the
+    previously minimized windows. Used to capture the wallpaper without other
+    top-level windows covering the test window."""
+    user32.keybd_event(VK_LWIN, 0, 0, None)
+    user32.keybd_event(VK_D, 0, 0, None)
+    user32.keybd_event(VK_D, 0, KEYEVENTF_KEYUP, None)
+    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, None)
+
 
 def find_window(cls, title=None):
     return user32.FindWindowW(cls, title)
@@ -192,6 +240,23 @@ def find_defview():
         if d:
             return w, d
     return progman, None
+
+
+def class_name(hwnd):
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
+
+def find_wallpaper_workerw(progman):
+    """The full-screen WorkerW child of Progman (hosts the wallpaper on Win11)."""
+    h = user32.GetWindow(progman, GW_CHILD)
+    while h:
+        r = rect(h)
+        if class_name(h) == "WorkerW" and r and (r[2] - r[0]) > 1000:
+            return h
+        h = user32.GetWindow(h, GW_HWNDNEXT)
+    return None
 
 
 def capture_screen(path):
@@ -299,9 +364,35 @@ def diagnose_progman_children(progman, our_hwnd=None):
     return False
 
 
-def show_test_window(parent, insert_below, x, y, w, h, seconds, capture_path):
-    """Pure Win32 window: the reference sequence for the Qt port (ADR-4)."""
-    proc_holder = {}
+def _pump():
+    """Run the message loop until WM_QUIT."""
+    class MSG(ctypes.Structure):
+        _fields_ = [("hwnd", ctypes.c_void_p), ("message", ctypes.c_uint),
+                    ("wParam", ctypes.c_void_p), ("lParam", ctypes.c_void_p),
+                    ("time", ctypes.c_uint), ("pt", POINT)]
+
+    msg = MSG()
+    while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) > 0:
+        user32.DispatchMessageW(ctypes.byref(msg))
+
+
+def show_test_window(parent, defview, insert_after, x, y, w, h, seconds,
+                     capture_path, hide_icons=False, no_parent=False,
+                     child_direct=False, layered=False):
+    """Pure Win32 window: the reference sequence for the Qt port (ADR-4).
+
+    insert_after: HWND the window is placed after in z-order (None = HWND_TOP,
+    so it lands *above* the icon layer -- diagnostic only).
+    hide_icons: temporarily hide SHELLDLL_DefView to test whether it occludes
+    our window (it is full-screen and sits above us).
+    no_parent: diagnostic -- skip SetParent, keep a plain top-level window to
+    check that painting and screen capture work at all.
+    """
+    proc_holder = {"parent": parent, "defview": defview}
+
+    if hide_icons and defview:
+        user32.ShowWindow(defview, SW_HIDE)
+        print("[spike] DefView hidden      : True (diagnostic)")
 
     def paint(hwnd, hdc, rc):
         brush = gdi32.CreateSolidBrush(ORANGE)
@@ -331,6 +422,19 @@ def show_test_window(parent, insert_below, x, y, w, h, seconds, capture_path):
                 user32.DestroyWindow(hwnd)
                 return 0
             if tid == 2 and capture_path:
+                ph = user32.GetParent(hwnd) or 0
+                print(f"[spike] at capture: rect={rect(hwnd)} "
+                      f"visible={visible(hwnd)} parent={ph:#x}")
+                cr = RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(cr))
+                hdc = user32.GetDC(hwnd)
+                px = gdi32.GetPixel(hdc, (cr.right - cr.left) // 2,
+                                    (cr.bottom - cr.top) // 2)
+                user32.ReleaseDC(hwnd, hdc)
+                print(f"[spike] window self-pixel   : {px:#010x} -> RGB("
+                      f"{px & 0xFF},{(px >> 8) & 0xFF},{(px >> 16) & 0xFF}) "
+                      f"(expect 230,126,34)")
+                diagnose_progman_children(proc_holder.get("parent") or 0, hwnd)
                 capture_screen(capture_path)
                 user32.KillTimer(hwnd, 2)
                 return 0
@@ -359,13 +463,19 @@ def show_test_window(parent, insert_below, x, y, w, h, seconds, capture_path):
     wc.lpfnWndProc = proc
     wc.hInstance = hinst
     wc.lpszClassName = cls_name
+    wc.hbrBackground = gdi32.CreateSolidBrush(ORANGE)
     if not user32.RegisterClassExW(ctypes.byref(wc)):
         print(f"[spike] RegisterClassEx failed: {kernel32.GetLastError()}",
               file=sys.stderr)
         return False
 
-    hwnd = user32.CreateWindowExW(
-        0, cls_name, None, WS_POPUP, x, y, w, h, 0, 0, hinst, 0)
+    if child_direct:
+        hwnd = user32.CreateWindowExW(
+            0, cls_name, None, WS_CHILD | WS_VISIBLE, x, y, w, h,
+            parent, 0, hinst, 0)
+    else:
+        hwnd = user32.CreateWindowExW(
+            0, cls_name, None, WS_POPUP, x, y, w, h, 0, 0, hinst, 0)
     if not hwnd:
         print(f"[spike] CreateWindowEx failed: {kernel32.GetLastError()}",
               file=sys.stderr)
@@ -375,15 +485,50 @@ def show_test_window(parent, insert_below, x, y, w, h, seconds, capture_path):
     user32.ShowWindow(hwnd, SW_SHOW)
     user32.UpdateWindow(hwnd)
 
+    if child_direct:
+        ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_TOPMOST)
+        ok = user32.SetWindowPos(hwnd, insert_after, x, y, w, h,
+                                 SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        user32.UpdateWindow(hwnd)
+        print(f"[spike] child-direct        : SetWindowPos ok={bool(ok)} "
+              f"rect={rect(hwnd)} visible={visible(hwnd)}")
+        ok_chain = diagnose_progman_children(parent, hwnd)
+        user32.SetTimer(hwnd, 1, seconds * 1000, None)
+        if capture_path:
+            user32.SetTimer(hwnd, 2, 1000, None)
+        print(f"[spike] window visible for {seconds}s ...")
+        _pump()
+        print("[spike] closed cleanly")
+        return ok_chain
+
+    if no_parent:
+        user32.SetWindowPos(hwnd, None, x, y, w, h,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        user32.UpdateWindow(hwnd)
+        print("[spike] no-parent mode      : plain top-level window")
+        ok_chain = True
+        user32.SetTimer(hwnd, 1, seconds * 1000, None)
+        if capture_path:
+            user32.SetTimer(hwnd, 2, 1000, None)
+        print(f"[spike] window visible for {seconds}s ...")
+        _pump()
+        print("[spike] closed cleanly")
+        return ok_chain
+
     ok = user32.SetParent(hwnd, parent)
     print(f"[spike] SetParent -> Progman {parent:#x}: ok={bool(ok)}")
 
     style = user32.GetWindowLongW(hwnd, GWL_STYLE)
     user32.SetWindowLongW(hwnd, GWL_STYLE, (style | WS_CHILD) & ~WS_POPUP)
-    ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex & ~WS_EX_TOPMOST)
+    ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & ~WS_EX_TOPMOST
+    if layered:
+        ex |= WS_EX_LAYERED
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex)
+    if layered:
+        ok_l = user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
+        print(f"[spike] layered             : ok={bool(ok_l)} (alpha=255)")
 
-    insert_after = insert_below if insert_below else HWND_BOTTOM
     ok = user32.SetWindowPos(hwnd, insert_after, x, y, w, h,
                              SWP_NOACTIVATE | SWP_SHOWWINDOW)
     user32.UpdateWindow(hwnd)
@@ -397,14 +542,11 @@ def show_test_window(parent, insert_below, x, y, w, h, seconds, capture_path):
         user32.SetTimer(hwnd, 2, 1000, None)
 
     print(f"[spike] window visible for {seconds}s ...")
-    class MSG(ctypes.Structure):
-        _fields_ = [("hwnd", ctypes.c_void_p), ("message", ctypes.c_uint),
-                    ("wParam", ctypes.c_void_p), ("lParam", ctypes.c_void_p),
-                    ("time", ctypes.c_uint), ("pt", POINT)]
+    _pump()
 
-    msg = MSG()
-    while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) > 0:
-        user32.DispatchMessageW(ctypes.byref(msg))
+    if hide_icons and defview:
+        user32.ShowWindow(defview, SW_SHOW)
+        print("[spike] DefView restored    : True")
 
     print("[spike] closed cleanly")
     return ok_chain
@@ -423,9 +565,44 @@ def main():
                         help="screenshot path taken while the window is up "
                              "(empty string to disable)")
     parser.add_argument("--dump", action="store_true")
+    parser.add_argument("--capture-only", metavar="PATH", default=None,
+                        help="capture the screen to PATH and exit (no window)")
+    parser.add_argument("--show-desktop", action="store_true",
+                        help="press Win+D before/after so the wallpaper is "
+                             "visible in the capture (reversible)")
     parser.add_argument("--test-hide-icons", action="store_true",
                         help="print the icon-hiding procedure (never executed)")
+    parser.add_argument("--above", action="store_true",
+                        help="diagnostic: insert ABOVE the icon layer (HWND_TOP)")
+    parser.add_argument("--hide-icons", action="store_true",
+                        help="diagnostic: hide SHELLDLL_DefView during the test "
+                             "(restored afterwards)")
+    parser.add_argument("--no-parent", action="store_true",
+                        help="diagnostic: plain top-level window (no SetParent)")
+    parser.add_argument("--child-direct", action="store_true",
+                        help="diagnostic: create as WS_CHILD of Progman directly")
+    parser.add_argument("--parent-workerw", action="store_true",
+                        help="parent to the full-screen WorkerW (wallpaper host) "
+                             "instead of Progman")
+    parser.add_argument("--no-layered", action="store_false", dest="layered",
+                        default=True,
+                        help="reproduce the non-layered failure (window is NOT "
+                             "composited by DWM when parented to Progman)")
     args = parser.parse_args()
+
+    if args.capture_only:
+        if args.show_desktop:
+            press_win_d()
+            time.sleep(1.2)
+        ok = capture_screen(args.capture_only)
+        if args.show_desktop:
+            time.sleep(0.4)
+            press_win_d()
+        return 0 if ok else 1
+
+    if args.show_desktop:
+        press_win_d()
+        time.sleep(1.2)
 
     progman = find_window("Progman")
     print(f"[spike] Progman            : {progman:#x} {rect(progman)}")
@@ -442,8 +619,23 @@ def main():
         print("[spike] FAIL: Progman or DefView not found", file=sys.stderr)
         return 1
 
-    ok = show_test_window(progman, defview, args.x, args.y, args.w, args.h,
-                          args.seconds, args.capture or None)
+    insert_after = None if args.above else defview
+    if args.parent_workerw:
+        ww = find_wallpaper_workerw(progman)
+        if not ww:
+            print("[spike] FAIL: wallpaper WorkerW not found", file=sys.stderr)
+            return 1
+        print(f"[spike] wallpaper WorkerW   : {ww:#x} {rect(ww)}")
+        progman, insert_after = ww, None
+
+    ok = show_test_window(progman, defview, insert_after, args.x, args.y,
+                          args.w, args.h, args.seconds, args.capture or None,
+                          hide_icons=args.hide_icons, no_parent=args.no_parent,
+                          child_direct=args.child_direct, layered=args.layered)
+
+    if args.show_desktop:
+        time.sleep(0.4)
+        press_win_d()
 
     if args.test_hide_icons:
         print("[spike] icon hiding (procedure only): ShowWindow(SW_HIDE) on the "

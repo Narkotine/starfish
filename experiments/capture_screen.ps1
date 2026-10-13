@@ -12,22 +12,18 @@ param(
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$screens = [System.Windows.Forms.Screen]::AllScreens
-$x = ($screens | Measure-Object -Property Bounds.X -Minimum).Minimum
-$y = ($screens | Measure-Object -Property Bounds.Y -Minimum).Minimum
-$w = ($screens | Measure-Object -Property { $_.Bounds.Right } -Maximum).Maximum - $x
-$h = ($screens | Measure-Object -Property { $_.Bounds.Bottom } -Maximum).Maximum - $y
+$vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
 
 $dir = Split-Path -Parent $OutputPath
 if ($dir -and -not (Test-Path $dir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
-$bmp = New-Object System.Drawing.Bitmap($w, $h)
+$bmp = New-Object System.Drawing.Bitmap($vs.Width, $vs.Height)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($x, $y, 0, 0, $bmp.Size)
+$g.CopyFromScreen($vs.X, $vs.Y, 0, 0, $bmp.Size)
 $bmp.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose()
 $bmp.Dispose()
 
-Write-Output "saved $OutputPath (${w}x${h} at ${x},${y})"
+Write-Output "saved $OutputPath ($($vs.Width)x$($vs.Height) at $($vs.X),$($vs.Y))"
