@@ -1,0 +1,4 @@
+#pragma once
+
+// Version string injected by CMake (see src/version.h.in).
+#define STARFISH_VERSION "@PROJECT_VERSION@"

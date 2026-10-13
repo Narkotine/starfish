@@ -1,0 +1,26 @@
+# Build dirs
+/build/
+/out/
+CMakeUserPresets.json
+
+# IDE
+.vs/
+x64/
+*.user
+.idea/
+.vscode/
+
+# Qt
+*.pro.user
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# Python (experimental spikes)
+__pycache__/
+*.pyc
+
+# Harness-specific tooling (never referenced by project docs)
+.workbuddy-ai/
+.cursor/
+.claude/
