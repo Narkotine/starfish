@@ -218,7 +218,7 @@ bool DesktopSurface::attach(const QRect& rect)
     m_hwnd = fromHwnd(hwnd);
     m_rect = rect;
 
-    ::ShowWindow(hwnd, SW_SHOW);
+    ::ShowWindow(hwnd, m_visible ? SW_SHOW : SW_HIDE);
     ::UpdateWindow(hwnd);
 
     // 2. Reparent to the icon host and become a child window.
@@ -487,6 +487,32 @@ bool DesktopSurface::setGeometry(const QRect& rect)
     return place();
 }
 
+void DesktopSurface::setVisible(bool visible)
+{
+    if (m_visible == visible)
+        return;
+    m_visible = visible;
+    if (!isAttached())
+        return;
+    if (visible) {
+        // SW_SHOWNA: show without stealing focus -- the desktop must not
+        // activate when a fence comes back.
+        ::ShowWindow(toHwnd(m_hwnd), SW_SHOWNA);
+        place();
+    } else {
+        ::ShowWindow(toHwnd(m_hwnd), SW_HIDE);
+    }
+}
+
+void DesktopSurface::setRaisedAboveIcons(bool raised)
+{
+    if (m_raisedAboveIcons == raised)
+        return;
+    m_raisedAboveIcons = raised;
+    if (isAttached())
+        place();
+}
+
 void DesktopSurface::syncZOrder()
 {
     if (!isAttached())
@@ -617,10 +643,18 @@ bool DesktopSurface::place()
     if (!m_iconHost || !isAttached())
         return false;
 
-    const HWND anchor = m_defView ? toHwnd(m_defView) : HWND_BOTTOM;
+    // Peek (F-021) puts the surface at the top of Progman's child z-order, i.e.
+    // above the icon layer; the normal position is just below SHELLDLL_DefView.
+    const HWND anchor = m_raisedAboveIcons
+                            ? HWND_TOP
+                            : (m_defView ? toHwnd(m_defView) : HWND_BOTTOM);
+    // A hidden surface (quick hide, F-022) is positioned but never shown: the
+    // watchdog re-places every 2 s and must not resurrect it.
+    UINT flags = SWP_NOACTIVATE;
+    if (m_visible)
+        flags |= SWP_SHOWWINDOW;
     const BOOL ok = ::SetWindowPos(toHwnd(m_hwnd), anchor, m_rect.x(), m_rect.y(),
-                                   m_rect.width(), m_rect.height(),
-                                   SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                                   m_rect.width(), m_rect.height(), flags);
     if (!ok)
         qCWarning(lc) << "SetWindowPos failed, error" << ::GetLastError();
     if (m_perPixelAlpha) {
@@ -628,7 +662,7 @@ bool DesktopSurface::place()
         // frame has to be pushed again, no WM_PAINT will refresh it.
         if (ok && !m_frame.isNull())
             pushLayeredFrame();
-    } else {
+    } else if (m_visible) {
         ::UpdateWindow(toHwnd(m_hwnd));
     }
     return ok != FALSE;
@@ -715,12 +749,17 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         return true;
 
     case WM_WINDOWPOSCHANGING: {
-        // Nothing may stack a hosted surface above the icon layer. Rewriting
+        // Nothing may stack a hosted surface above the icon layer -- except
+        // Peek (F-021), which is the one caller allowed to ask for it. Rewriting
         // hwndInsertAfter here is what the Qt port needed a native event filter
         // for; owning the WndProc makes it trivial.
         auto* pos = reinterpret_cast<WINDOWPOS*>(lParam);
-        if (pos && !(pos->flags & SWP_NOZORDER) && m_defView)
-            pos->hwndInsertAfter = toHwnd(m_defView);
+        if (pos && !(pos->flags & SWP_NOZORDER)) {
+            if (m_raisedAboveIcons)
+                pos->hwndInsertAfter = HWND_TOP;
+            else if (m_defView)
+                pos->hwndInsertAfter = toHwnd(m_defView);
+        }
         return false;
     }
 

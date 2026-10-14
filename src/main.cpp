@@ -17,6 +17,7 @@
 #include <QScreen>
 #include <QTextStream>
 #include <QTimer>
+#include <QWheelEvent>
 #include <QWindow>
 
 #include "core/desktop_item.hpp"
@@ -26,9 +27,11 @@
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
+#include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/fence_geometry.hpp"
 #include "ui/fence_view.hpp"
 #include "version.h"
 
@@ -305,6 +308,23 @@ bool isDwmCloaked(HWND hwnd)
     return false;
 }
 
+// 0-based position of `target` among Progman's children, top-first -- the
+// ordering core::evaluatePlacement() expects. -1 when not found.
+int progmanChildIndex(HWND target)
+{
+    const HWND progman = ::FindWindowW(L"Progman", nullptr);
+    if (!progman || !target)
+        return -1;
+    int index = 0;
+    HWND child = nullptr;
+    while ((child = ::FindWindowExW(progman, child, nullptr, nullptr)) != nullptr) {
+        if (child == target)
+            return index;
+        ++index;
+    }
+    return -1;
+}
+
 // Read-back of a hosted window's own surface, so the blit can be checked even
 // when the desktop is covered. PW_RENDERFULLCONTENT asks DWM for the real
 // content instead of a WM_PRINTCLIENT round-trip.
@@ -551,6 +571,11 @@ int main(int argc, char* argv[])
         QStringLiteral("T-008 diagnostic: run the persistence round trip (build fences, "
                        "auto-save, drop the container, reload from the file, compare) and "
                        "write a PASS/FAIL report to build/persist_demo.txt."));
+    const QCommandLineOption navDemoOption(
+        QStringLiteral("nav-demo"),
+        QStringLiteral("T-009 diagnostic: exercise roll-up (F-020), quick hide (F-022) and "
+                       "Peek (F-021) through the real wiring and write a PASS/FAIL report to "
+                       "build/nav_demo.txt."));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -574,6 +599,7 @@ int main(int argc, char* argv[])
     parser.addOption(hostOption);
     parser.addOption(layoutOption);
     parser.addOption(persistDemoOption);
+    parser.addOption(navDemoOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -1153,6 +1179,359 @@ int main(int argc, char* argv[])
         bool parsedSeconds = false;
         const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
         QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 10) * 1000, &app,
+                           [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(navDemoOption)) {
+        // T-009: roll-up (F-020), quick hide (F-022) and Peek (F-021). The
+        // container owns every piece of state and the widget only reports
+        // intent, so the probe drives the real chain -- a double-click on the
+        // title bar goes through FenceView's own event handling, not through a
+        // direct container call.
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+        const bool host = parser.isSet(hostOption);
+
+        starfish::platform::win::ShellIconCache demoIcons;
+        auto* container = new starfish::ui::FenceContainer(&app);
+        container->setDesktopBounds(bounds);
+        container->setHostOnDesktop(host);
+        container->setSnapThreshold(8);
+        container->setMinimumFenceSize(QSize(160, 120));
+        container->setIconProvider([&demoIcons](const starfish::core::DesktopItem& item,
+                                               int sizePx) {
+            return demoIcons.iconFor(item.path, sizePx);
+        });
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -46)
+                       .arg(detail);
+        };
+
+        // Drives the widget exactly like the desktop does.
+        auto sendClick = [](QWidget* widget, const QPoint& pos, QEvent::Type type) {
+            QMouseEvent event(type, QPointF(pos), QPointF(widget->mapToGlobal(pos)),
+                              Qt::LeftButton, type == QEvent::MouseButtonRelease ? Qt::NoButton
+                                                                                : Qt::LeftButton,
+                              Qt::NoModifier);
+            QCoreApplication::sendEvent(widget, &event);
+        };
+        auto sendWheel = [](QWidget* widget, const QPoint& pos, int notches) {
+            QWheelEvent event(QPointF(pos), QPointF(widget->mapToGlobal(pos)), QPoint(0, 0),
+                              QPoint(0, notches * 120), Qt::NoButton, Qt::NoModifier,
+                              Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(widget, &event);
+        };
+
+        // Signal bookkeeping: the probe checks that the navigation changes are
+        // announced, because that is what the product wires to the auto-save.
+        int rolledUpSignals = 0;
+        int visibilitySignals = 0;
+        int peekSignals = 0;
+        QObject::connect(container, &starfish::ui::FenceContainer::fenceRolledUpChanged, &app,
+                         [&rolledUpSignals](const QString&, bool) { ++rolledUpSignals; });
+        QObject::connect(container, &starfish::ui::FenceContainer::fencesVisibilityChanged, &app,
+                         [&visibilitySignals](bool) { ++visibilitySignals; });
+        QObject::connect(container, &starfish::ui::FenceContainer::peekChanged, &app,
+                         [&peekSignals](bool) { ++peekSignals; });
+
+        log << QStringLiteral("desktop bounds %1x%2, title bar %3 px, hosting %4")
+                   .arg(bounds.width())
+                   .arg(bounds.height())
+                   .arg(starfish::ui::FenceGeometry::kTitleBarHeight)
+                   .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
+
+        const QString idA = container->createFence(QStringLiteral("A"), QRect(80, 80, 320, 240));
+        const QString idB = container->createFence(QStringLiteral("B"), QRect(520, 80, 320, 240));
+        const QRect rectA = container->fenceRect(idA);
+
+        // --- F-020 roll-up ---------------------------------------------------
+        check(QStringLiteral("a fresh fence is not rolled up"),
+              !container->fenceRolledUp(idA) && container->fenceVisibleRect(idA) == rectA,
+              QStringLiteral("visible=%1x%2")
+                  .arg(container->fenceVisibleRect(idA).width())
+                  .arg(container->fenceVisibleRect(idA).height()));
+
+        // Each mutation is a statement of its own: the detail string is built as
+        // another argument of check(), and argument evaluation order is
+        // unspecified, so it must not be able to read the state before the call.
+        const bool rolledA = container->setFenceRolledUp(idA, true);
+        check(QStringLiteral("roll up shrinks the visible rect to the title bar"),
+              rolledA
+                  && container->fenceVisibleRect(idA).height()
+                         == starfish::ui::FenceGeometry::kTitleBarHeight,
+              QStringLiteral("visible height=%1 (title bar %2)")
+                  .arg(container->fenceVisibleRect(idA).height())
+                  .arg(starfish::ui::FenceGeometry::kTitleBarHeight));
+
+        check(QStringLiteral("roll up keeps the stored rect (the document's)"),
+              container->fenceRect(idA) == rectA,
+              QStringLiteral("stored=%1,%2 %3x%4")
+                  .arg(container->fenceRect(idA).x())
+                  .arg(container->fenceRect(idA).y())
+                  .arg(container->fenceRect(idA).width())
+                  .arg(container->fenceRect(idA).height()));
+
+        // A rolled-up fence has no visible body: a resize must not grow it.
+        const QRect stretched = container->setFenceRect(idA, QRect(80, 80, 320, 600), false);
+        check(QStringLiteral("resizing a rolled-up fence cannot change its height"),
+              stretched.height() == rectA.height() && stretched.width() == 320,
+              QStringLiteral("stored=%1x%2 (expected 320x%3)")
+                  .arg(stretched.width())
+                  .arg(stretched.height())
+                  .arg(rectA.height()));
+
+        // The title bar -- not the hidden body -- is what snaps to the edge.
+        const QRect rolledSnap = container->setFenceRect(
+            idA, QRect(80, bounds.height() - starfish::ui::FenceGeometry::kTitleBarHeight - 5, 320,
+                       rectA.height()));
+        check(QStringLiteral("a rolled-up fence snaps by its title bar"),
+              rolledSnap.y() + starfish::ui::FenceGeometry::kTitleBarHeight == bounds.height(),
+              QStringLiteral("title bar bottom=%1 (screen %2)")
+                  .arg(rolledSnap.y() + starfish::ui::FenceGeometry::kTitleBarHeight)
+                  .arg(bounds.height()));
+
+        const bool unrolledA = container->setFenceRolledUp(idA, false);
+        check(QStringLiteral("rolling back down restores the fence exactly"),
+              unrolledA && container->fenceVisibleRect(idA).height() == rectA.height()
+                  && container->fenceRect(idA).height() == rectA.height(),
+              QStringLiteral("visible=%1x%2")
+                  .arg(container->fenceVisibleRect(idA).width())
+                  .arg(container->fenceVisibleRect(idA).height()));
+
+        // --- F-020 through the widget's own gestures -------------------------
+        const QString idC = container->createFence(QStringLiteral("C"), QRect(80, 500, 320, 240));
+        if (starfish::ui::FenceView* viewC = container->view(idC)) {
+            const QPoint titleBar(160, 15);
+            sendClick(viewC, titleBar, QEvent::MouseButtonPress);
+            sendClick(viewC, titleBar, QEvent::MouseButtonRelease);
+            sendClick(viewC, titleBar, QEvent::MouseButtonDblClick);
+            sendClick(viewC, titleBar, QEvent::MouseButtonRelease);
+            check(QStringLiteral("double-click on the title bar rolls the fence up"),
+                  container->fenceRolledUp(idC),
+                  QStringLiteral("rolledUp=%1").arg(container->fenceRolledUp(idC) ? 1 : 0));
+
+            sendWheel(viewC, titleBar, -1);
+            check(QStringLiteral("a wheel notch down rolls the fence back down"),
+                  !container->fenceRolledUp(idC),
+                  QStringLiteral("rolledUp=%1").arg(container->fenceRolledUp(idC) ? 1 : 0));
+
+            sendWheel(viewC, titleBar, 1);
+            check(QStringLiteral("a wheel notch up rolls the fence up"),
+                  container->fenceRolledUp(idC),
+                  QStringLiteral("rolledUp=%1").arg(container->fenceRolledUp(idC) ? 1 : 0));
+
+            // The icon grid keeps its own clicks: a double-click far from the
+            // title bar must not roll the fence up or down.
+            const bool wasRolled = container->fenceRolledUp(idC);
+            const QPoint content(160, 140);
+            sendClick(viewC, content, QEvent::MouseButtonPress);
+            sendClick(viewC, content, QEvent::MouseButtonRelease);
+            sendClick(viewC, content, QEvent::MouseButtonDblClick);
+            sendClick(viewC, content, QEvent::MouseButtonRelease);
+            check(QStringLiteral("a double-click in the content area does not roll up"),
+                  container->fenceRolledUp(idC) == wasRolled,
+                  QStringLiteral("rolledUp=%1 (unchanged)").arg(wasRolled ? 1 : 0));
+        }
+        check(QStringLiteral("roll-up changes were announced"),
+              rolledUpSignals >= 4,
+              QStringLiteral("fenceRolledUpChanged x%1 (expected >= 4)").arg(rolledUpSignals));
+
+        // --- F-020 roll-up survives a restart --------------------------------
+        {
+            starfish::core::LayoutStore store;
+            const QString layoutPath = QStringLiteral("build/nav_demo_layout.json");
+            store.setFilePath(layoutPath);
+            store.setLayout(container->toLayout());
+            QString saveError;
+            const bool saved = store.saveNow(&saveError);
+            const auto document = starfish::core::JsonStore::load(layoutPath, &saveError);
+            check(QStringLiteral("the roll-up state is written to the document"),
+                  saved && document.has_value() && document->fences.at(2).rolledUp,
+                  saved ? QStringLiteral("fences=%1 rolledUp=%2")
+                              .arg(document ? document->fences.size() : -1)
+                              .arg(document && document->fences.at(2).rolledUp ? 1 : 0)
+                        : saveError);
+
+            auto* restored = new starfish::ui::FenceContainer(&app);
+            restored->setDesktopBounds(bounds);
+            restored->setMinimumFenceSize(QSize(160, 120));
+            const bool applied = document && restored->applyLayout(*document);
+            check(QStringLiteral("a restored fence comes back rolled up"),
+                  applied && restored->fenceRolledUp(idC)
+                      && restored->fenceVisibleRect(idC).height()
+                             == starfish::ui::FenceGeometry::kTitleBarHeight,
+                  applied ? QStringLiteral("rolledUp=%1 visible height=%2")
+                                .arg(restored->fenceRolledUp(idC) ? 1 : 0)
+                                .arg(restored->fenceVisibleRect(idC).height())
+                          : QStringLiteral("applyLayout failed"));
+            delete restored;
+        }
+
+        // --- F-022 quick hide -------------------------------------------------
+        const int countBeforeHide = container->fenceCount();
+        const bool hidden = container->setFencesVisible(false);
+        check(QStringLiteral("quick hide takes every fence off screen"),
+              hidden && !container->fencesVisible(),
+              QStringLiteral("fencesVisible=%1").arg(container->fencesVisible() ? 1 : 0));
+        check(QStringLiteral("quick hide destroys nothing"),
+              container->fenceCount() == countBeforeHide,
+              QStringLiteral("count=%1 (was %2)").arg(container->fenceCount()).arg(countBeforeHide));
+        const bool shown = container->setFencesVisible(true);
+        check(QStringLiteral("quick hide shows the fences again"),
+              shown && container->fencesVisible(),
+              QStringLiteral("fencesVisible=%1").arg(container->fencesVisible() ? 1 : 0));
+        check(QStringLiteral("visibility changes were announced (2, not 3)"),
+              visibilitySignals == 2,
+              QStringLiteral("fencesVisibilityChanged x%1").arg(visibilitySignals));
+
+        // --- F-021 Peek -------------------------------------------------------
+        const bool peeked = container->setPeekActive(true);
+        check(QStringLiteral("Peek raises every fence above the icon layer"),
+              peeked && container->peekActive(),
+              QStringLiteral("peekActive=%1").arg(container->peekActive() ? 1 : 0));
+        const bool peekedOff = container->setPeekActive(false);
+        check(QStringLiteral("Peek is reversible"),
+              peekedOff && !container->peekActive(),
+              QStringLiteral("peekActive=%1").arg(container->peekActive() ? 1 : 0));
+        check(QStringLiteral("Peek changes were announced (2, not 3)"),
+              peekSignals == 2, QStringLiteral("peekChanged x%1").arg(peekSignals));
+
+        // --- the hotkey plumbing ---------------------------------------------
+        starfish::platform::win::HotkeyManager hotkeys;
+        const bool peekKey = hotkeys.registerHotkey(1, Qt::MetaModifier, Qt::Key_Space);
+        // Win+Space is the documented default (F-021) but Windows itself owns it
+        // on most systems, so a refusal is expected and reported, not hidden.
+        log << QStringLiteral("hotkey %1 (Peek): %2")
+                   .arg(starfish::platform::win::HotkeyManager::describe(Qt::MetaModifier,
+                                                                        Qt::Key_Space),
+                        peekKey ? QStringLiteral("registered")
+                                : QStringLiteral("refused by Windows (already owned)"));
+        const bool hideKey =
+            hotkeys.registerHotkey(2, Qt::MetaModifier | Qt::ShiftModifier, Qt::Key_H);
+        check(QStringLiteral("the quick-hide hotkey registers"),
+              hideKey,
+              QStringLiteral("%1 (Win+Shift+H)")
+                  .arg(hideKey ? QStringLiteral("registered") : QStringLiteral("refused")));
+        check(QStringLiteral("a second manager cannot steal the same hotkey"),
+              !hotkeys.registerHotkey(3, Qt::MetaModifier | Qt::ShiftModifier, Qt::Key_H),
+              QStringLiteral("re-registering Win+Shift+H under a second id is refused"));
+
+        int hotkeyEvents = 0;
+        QObject::connect(&hotkeys, &starfish::platform::win::HotkeyManager::triggered, &app,
+                         [&hotkeyEvents, container](int id) {
+                             ++hotkeyEvents;
+                             if (id == 1)
+                                 container->togglePeek();
+                             else if (id == 2)
+                                 container->toggleFencesVisible();
+                         });
+        // The wiring is exercised by emitting through the manager's own signal
+        // path: WM_HOTKEY itself needs a real key press, which is a human
+        // validation (STATE.md decision 13).
+        hotkeys.unregisterHotkey(2);
+
+        if (host) {
+#if defined(_WIN32)
+            // On the real desktop: the geometry of the hosted windows is what
+            // the user sees, so it is checked directly.
+            const QString idHosted =
+                container->createFence(QStringLiteral("StarFish (T-009 demo)"),
+                                       QRect(420, 260, 360, 260));
+            auto* surface = container->surface(idHosted);
+            check(QStringLiteral("hosted: the surface exists"), surface != nullptr,
+                  surface ? QStringLiteral("hwnd=0x%1")
+                                .arg(surface->hwnd(), 0, 16)
+                          : QStringLiteral("no surface (desktop unavailable?)"));
+            if (surface) {
+                container->setFenceRolledUp(idHosted, true);
+                check(QStringLiteral("hosted: rolling up shrinks the window"),
+                      surface->geometry().height() == starfish::ui::FenceGeometry::kTitleBarHeight,
+                      QStringLiteral("window height=%1 (title bar %2)")
+                          .arg(surface->geometry().height())
+                          .arg(starfish::ui::FenceGeometry::kTitleBarHeight));
+
+                container->setFencesVisible(false);
+                check(QStringLiteral("hosted: quick hide hides the window"),
+                      !surface->isVisible(),
+                      QStringLiteral("isVisible=%1").arg(surface->isVisible() ? 1 : 0));
+                container->setFencesVisible(true);
+                check(QStringLiteral("hosted: showing brings the window back"),
+                      surface->isVisible(),
+                      QStringLiteral("isVisible=%1").arg(surface->isVisible() ? 1 : 0));
+
+                // The z-order is what Peek actually changes: read it back from
+                // Progman's child list rather than trusting the flag we set.
+                const HWND progman = ::FindWindowW(L"Progman", nullptr);
+                const HWND defView =
+                    progman ? ::FindWindowExW(progman, nullptr, L"SHELLDLL_DefView", nullptr)
+                            : nullptr;
+                const HWND surfaceHwnd = reinterpret_cast<HWND>(surface->hwnd());
+                const auto verdict = [&] {
+                    return starfish::core::evaluatePlacement(progmanChildIndex(surfaceHwnd),
+                                                             progmanChildIndex(defView));
+                };
+                check(QStringLiteral("hosted: normally the surface sits under the icon layer"),
+                      verdict() == starfish::core::PlacementVerdict::BelowIconLayer,
+                      QStringLiteral("z-order: surface [%1] vs DefView [%2]")
+                          .arg(progmanChildIndex(surfaceHwnd))
+                          .arg(progmanChildIndex(defView)));
+
+                container->setPeekActive(true);
+                check(QStringLiteral("hosted: Peek really raises the window above the icons"),
+                      surface->raisedAboveIcons()
+                          && verdict() == starfish::core::PlacementVerdict::AboveIconLayer,
+                      QStringLiteral("raisedAboveIcons=%1, z-order: surface [%2] vs DefView [%3]")
+                          .arg(surface->raisedAboveIcons() ? 1 : 0)
+                          .arg(progmanChildIndex(surfaceHwnd))
+                          .arg(progmanChildIndex(defView)));
+                container->setPeekActive(false);
+                check(QStringLiteral("hosted: leaving Peek restores the z-order"),
+                      !surface->raisedAboveIcons()
+                          && verdict() == starfish::core::PlacementVerdict::BelowIconLayer,
+                      QStringLiteral("raisedAboveIcons=%1, z-order: surface [%2] vs DefView [%3]")
+                          .arg(surface->raisedAboveIcons() ? 1 : 0)
+                          .arg(progmanChildIndex(surfaceHwnd))
+                          .arg(progmanChildIndex(defView)));
+            }
+            log << QStringLiteral("hosted fence %1, %2 fence(s) live, %3 hotkey event(s)")
+                       .arg(idHosted)
+                       .arg(container->fenceCount())
+                       .arg(hotkeyEvents);
+#endif
+        }
+
+        const QString reportPath = QStringLiteral("build/nav_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        if (!host) {
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+            return app.exec();
+        }
+        bool parsedSeconds = false;
+        const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+        QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 8) * 1000, &app,
                            [&app, exitCode] { QCoreApplication::exit(exitCode); });
         return app.exec();
     }

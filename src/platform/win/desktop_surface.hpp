@@ -70,6 +70,20 @@ public:
     bool setGeometry(const QRect& rect);
     QRect geometry() const;
 
+    // Quick hide (F-022): takes the surface off screen without destroying it.
+    // The state is remembered so the 2 s watchdog re-place does not put a hidden
+    // fence back on screen.
+    void setVisible(bool visible);
+    bool isVisible() const { return m_visible; }
+
+    // Peek (F-021): raises the surface above the icon layer while active.
+    // Within this window model -- a child of Progman -- HWND_TOP is the
+    // frontmost position a fence can reach, i.e. above SHELLDLL_DefView.
+    // Floating above *application* windows would need a top-level window, which
+    // is a different ownership model and is not part of v1.
+    void setRaisedAboveIcons(bool raised);
+    bool raisedAboveIcons() const { return m_raisedAboveIcons; }
+
     // Frame to display. The image is copied, so the caller may release it.
     // A null image clears the surface.
     void setFrame(const QImage& frame);
@@ -140,6 +154,10 @@ private:
     QTimer m_watchdog;
     bool m_placed = false;
     bool m_perPixelAlpha = false;
+    // Navigation state (T-009), both honoured by place() so the watchdog cannot
+    // undo them.
+    bool m_visible = true;
+    bool m_raisedAboveIcons = false;
 
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;

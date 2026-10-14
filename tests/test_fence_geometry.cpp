@@ -31,6 +31,11 @@ private slots:
     void snapReportsWhichAxisMoved();
     void clampToBoundsKeepsRectInside();
     void clampToBoundsShrinksOversizedRect();
+    void visibleRectReducesRolledFenceToItsTitleBar();
+    void applyRequestKeepsTheStoredHeightWhenRolled();
+    void applyRequestSnapsARolledFenceByItsTitleBar();
+    void applyRequestKeepsARolledTitleBarOnScreen();
+    void applyRequestStillClampsAnUnrolledFenceToTheMinimum();
 };
 
 void TestFenceGeometry::hitTestClassifiesRegions()
@@ -208,6 +213,68 @@ void TestFenceGeometry::clampToBoundsShrinksOversizedRect()
     // A fence larger than the desktop is shrunk to fit before being positioned.
     QCOMPARE(FenceGeometry::clampToBounds(QRect(0, 0, 1200, 900), bounds),
              QRect(0, 0, 1000, 800));
+}
+
+// --- T-009: roll-up (F-020) ------------------------------------------------
+
+void TestFenceGeometry::visibleRectReducesRolledFenceToItsTitleBar()
+{
+    const QRect stored(120, 90, 320, 240);
+    // Unrolled: the visible rect is the stored rect, unchanged.
+    QCOMPARE(FenceGeometry::visibleRect(stored, false), stored);
+    // Rolled up: only the title bar is visible; x, y and width are untouched.
+    const QRect rolled = FenceGeometry::visibleRect(stored, true);
+    QCOMPARE(rolled, QRect(120, 90, 320, FenceGeometry::kTitleBarHeight));
+    QCOMPARE(rolled.x(), stored.x());
+    QCOMPARE(rolled.y(), stored.y());
+    QCOMPARE(rolled.width(), stored.width());
+}
+
+void TestFenceGeometry::applyRequestKeepsTheStoredHeightWhenRolled()
+{
+    // A rolled-up fence has no visible body: a resize or a move can only change
+    // x, y and width. The expanded height survives for the next roll-down.
+    const QRect stored(100, 100, 300, 200);
+    const QRect result = FenceGeometry::applyRequest(stored, /*rolledUp=*/true,
+                                                     QRect(50, 50, 400, 900), {}, QSize(1920, 1080),
+                                                     QSize(160, 120), 8, /*snap=*/false);
+    QCOMPARE(result, QRect(50, 50, 400, 200));
+    QCOMPARE(result.height(), stored.height());
+}
+
+void TestFenceGeometry::applyRequestSnapsARolledFenceByItsTitleBar()
+{
+    // 5 px above the bottom edge: the *title bar* is what snaps flush with the
+    // screen, not the (hidden) expanded body.
+    const QRect stored(100, 100, 300, 200);
+    const QRect result = FenceGeometry::applyRequest(stored, /*rolledUp=*/true,
+                                                     QRect(100, 1045, 300, 200), {}, QSize(1920, 1080),
+                                                     QSize(160, 120), 8, /*snap=*/true);
+    // The title bar's bottom edge (exclusive) is flush with the screen bottom.
+    QCOMPARE(result.y() + FenceGeometry::kTitleBarHeight, 1080);
+    QCOMPARE(result.height(), 200);
+}
+
+void TestFenceGeometry::applyRequestKeepsARolledTitleBarOnScreen()
+{
+    // Dragged far below the screen: the title bar is pulled back so the fence
+    // stays reachable, while the hidden body is allowed to hang off-screen.
+    const QRect stored(100, 100, 300, 200);
+    const QRect result = FenceGeometry::applyRequest(stored, /*rolledUp=*/true,
+                                                     QRect(100, 2000, 300, 200), {}, QSize(1920, 1080),
+                                                     QSize(160, 120), 8, /*snap=*/true);
+    QCOMPARE(result.y(), 1080 - FenceGeometry::kTitleBarHeight);
+    QCOMPARE(result.height(), 200);
+}
+
+void TestFenceGeometry::applyRequestStillClampsAnUnrolledFenceToTheMinimum()
+{
+    // The roll-up branch must not change the plain behaviour T-007 relies on.
+    const QRect result = FenceGeometry::applyRequest(QRect(0, 0, 300, 200), /*rolledUp=*/false,
+                                                     QRect(0, 0, 50, 40), {}, QSize(1920, 1080),
+                                                     QSize(160, 120), 8, /*snap=*/true);
+    QCOMPARE(result.size(), QSize(160, 120));
+    QCOMPARE(result.topLeft(), QPoint(0, 0));
 }
 
 QTEST_MAIN(TestFenceGeometry)

@@ -30,13 +30,28 @@ inline bool isResizeHandle(FenceHandle handle)
     return handle != FenceHandle::None && handle != FenceHandle::TitleBar;
 }
 
-// Pure geometry for the fence lifecycle (T-007): handle hit-testing, resize
-// math, minimum-size clamping and edge/centre snapping. No widget, no Win32 --
-// so every rule below is unit-tested in tests/test_fence_geometry.cpp and the
-// interactive code (FenceView, FenceContainer) only supplies the inputs.
+// Pure geometry for the fence lifecycle (T-007) and for the navigation
+// behaviours that move or hide a fence (T-009). No widget, no Win32 -- so every
+// rule below is unit-tested in tests/test_fence_geometry.cpp and the interactive
+// code (FenceView, FenceContainer) only supplies the inputs.
 class FenceGeometry
 {
 public:
+    // Shared fence metrics. Defined once so the widget and the container cannot
+    // disagree about where the title bar ends or how wide a grip is.
+    static constexpr int kTitleBarHeight = 30;
+    static constexpr int kResizeBorder = 6;
+
+    // The rect a fence actually shows. A rolled-up fence (F-020) is reduced to
+    // its title bar; the *stored* rect keeps the expanded size, so rolling back
+    // down restores the fence exactly as it was. Pure.
+    static QRect visibleRect(const QRect& stored, bool rolledUp)
+    {
+        if (!rolledUp)
+            return stored;
+        return QRect(stored.x(), stored.y(), stored.width(), kTitleBarHeight);
+    }
+
     // `border` is the resize grip width measured inwards from each edge,
     // `titleBarHeight` the height of the drag band at the top. Corners win over
     // edges: a point in the top-left corner square is TopLeft, never Left or
@@ -185,6 +200,52 @@ public:
         const int maxY = qMax(0, bounds.height() - result.height());
         result.moveTopLeft(QPoint(qBound(0, result.x(), maxX), qBound(0, result.y(), maxY)));
         return result;
+    }
+
+    // Resolves a move/resize request into the rect that gets stored, honouring
+    // the roll-up state (F-020). Two rules differ from the plain case:
+    //
+    //  * a rolled-up fence has no visible body, so only x, y and width change;
+    //    the stored (expanded) height is preserved and rolling back down
+    //    restores it exactly;
+    //  * snapping and clamping act on the *visible* rect, so a rolled-up fence
+    //    snaps its title bar against the screen edge and may sit flush with the
+    //    bottom edge with its hidden body hanging off-screen.
+    //
+    // `others` are the visible rects of the other fences. Pure; this is the
+    // whole of FenceContainer::setFenceRect minus the bookkeeping.
+    static QRect applyRequest(const QRect& stored, bool rolledUp, const QRect& requested,
+                              const QList<QRect>& others, const QSize& bounds,
+                              const QSize& minSize, int snapThreshold, bool snap)
+    {
+        QRect target = requested;
+
+        if (rolledUp) {
+            target.setHeight(stored.height()); // the hidden body keeps its size
+            if (target.width() < minSize.width())
+                target.setWidth(minSize.width());
+
+            if (snap) {
+                const QRect visible = visibleRect(target, true);
+                const QRect snapped = FenceGeometry::snap(visible, others, bounds, snapThreshold);
+                target.translate(snapped.topLeft() - visible.topLeft());
+            }
+
+            const QRect visible = visibleRect(target, true);
+            const QRect clamped = clampToBounds(visible, bounds);
+            target.setWidth(clamped.width());
+            target.moveTopLeft(target.topLeft() + clamped.topLeft() - visible.topLeft());
+            target.setHeight(stored.height());
+            return target;
+        }
+
+        if (target.width() < minSize.width())
+            target.setWidth(minSize.width());
+        if (target.height() < minSize.height())
+            target.setHeight(minSize.height());
+        if (snap)
+            target = FenceGeometry::snap(target, others, bounds, snapThreshold);
+        return clampToBounds(target, bounds);
     }
 
 private:

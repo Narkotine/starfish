@@ -16,14 +16,17 @@
 │  ├─ DesktopHost    héberge les zones sur le bureau │
 │  ├─ DesktopSurface surface hébergée (rendu)        │
 │  ├─ FenceContainer cycle de vie des zones (T-007)  │
+│  │                 + navigation (T-009)            │
 │  ├─ FenceView      rendu + interaction d'une zone  │
-│  ├─ FenceGeometry  géométrie pure (hit-test, snap) │
+│  ├─ FenceGeometry  géométrie pure (hit-test, snap, │
+│  │                 roll-up)                        │
 │  ├─ IconGrid       grille d'icônes d'une zone      │
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
 │  ├─ LayoutStore    lecture/écriture JSON atomique  │
 │  ├─ DesktopScanner lecture du dossier Bureau       │
 │  ├─ ShellIconCache icônes shell (image list)       │
 │  ├─ ShellBridge    menu contextuel, DnD            │
+│  ├─ HotkeyManager  raccourcis globaux (T-009)      │
 │  └─ Tray/Settings  réglages, hotkeys (F-033)       │
 └────────────────────────────────────────────────────┘
      │ dépend de
@@ -39,8 +42,9 @@
 - **DesktopSurface** (`src/platform/win/desktop_surface.{hpp,cpp}`) : **le chemin de rendu retenu (T-020, §7 piste (a))**. Surface Win32 brute hébergée sous `Progman` qui possède son propre `WNDPROC` : elle blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()` dans un `QImage`). Qt ne touche jamais au HWND hébergé, ce qui contourne le blocage d'ADR-4 finding 3. `WS_EX_LAYERED` est posé dès `CreateWindowExW` (finding 4). Expose `attach()` / `setFrame()` / `detach()`, `syncZOrder()`, un garde `WM_WINDOWPOSCHANGING` (le `hwndInsertAfter` est réécrit en `SHELLDLL_DefView`) et un watchdog 2 s. Compteurs de peinture (`paintReport()`) pour diagnostiquer un « rien à l'écran ».
 - **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
 - **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
-- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`.
-- **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones) et `clampToBounds`. Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 unit-testables.
+- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` (**le corps déplié**, même enroulé) + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`. Depuis T-009 il porte l'état de navigation (roll-up, visibilité globale, Peek) — voir §11 et ADR-8.
+- **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie et de la navigation — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones), `clampToBounds`, `visibleRect` (roll-up) et `applyRequest` (la demande de déplacement/redimensionnement résolue en rect stocké). Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 **et** de T-009 unit-testables.
+- **HotkeyManager** (`src/platform/win/hotkey_manager.{hpp,cpp}`, T-009) : `RegisterHotKey` sur une fenêtre message-only (`HWND_MESSAGE`), signal `triggered(id)`. Déclencheur de Peek (F-021) et de quick hide (F-022) tant que les raccourcis ne sont pas configurables (F-033). L'échec d'enregistrement est **remonté**, jamais avalé — `Win+Space` est refusé par Windows.
 - **JsonStore / LayoutStore** (`src/core/jsonstore.{hpp,cpp}`, `src/core/layout_store.{hpp,cpp}`, T-008) : seule source de vérité pour « quelle icône dans quelle zone, où ». `JsonStore` ne connaît que le format (schéma 1, écriture atomique, sérialisation déterministe) ; `LayoutStore` possède le document (chemin, chargement, écriture différée — voir §10 et ADR-7). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
 - **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
@@ -137,6 +141,16 @@ Deux conséquences de T-008, à respecter par la suite :
 
 Corollaire : un fichier illisible, tronqué ou de schéma inconnu est **refusé** et le layout courant est **conservé** (jamais remplacé par du vide). L'erreur est remontée à l'appelant (`LayoutStore::saveFailed` / `load`), pas avalée.
 
+### ADR-8 — La navigation change ce qui est *visible*, jamais ce qui est *stocké*
+
+Les trois comportements « dégager le bureau » (F-020 roll-up, F-021 Peek, F-022 quick hide) partagent une règle : **l'état appartient au conteneur, et la géométrie persistée ne bouge pas**.
+
+1. **Le rect stocké est toujours le corps déplié.** Enrouler une zone ne réécrit pas son `rect` : `FenceGeometry::visibleRect(stored, rolledUp)` dérive le rect affiché (la barre de titre) du rect stocké, et `applyRequest()` fait tout le calcul — aimantation et clamp sur le rect **visible**, hauteur dépliée préservée. Dérouler restaure donc la zone *exactement*, et le schéma JSON n'a pas eu à bouger (le champ `rolledUp` voyageait déjà depuis T-008).
+2. **Le widget et la surface obéissent, ils ne décident pas.** Une `FenceView` ne se déplace pas plus qu'elle ne s'enroule : le double-clic et la molette sur la barre de titre émettent `rollUpRequested(bool)`, et c'est `FenceContainer` qui applique (même règle qu'en T-007 pour la géométrie).
+3. **L'état de navigation doit survivre au watchdog.** Une zone masquée (quick hide) ou surélevée (Peek) est ré-appliquée toutes les 2 s par le watchdog de `DesktopSurface` : `place()` tient compte de `m_visible` et de `m_raisedAboveIcons`, sans quoi une zone masquée réapparaîtrait en boucle. Même chose pour la garde `WM_WINDOWPOSCHANGING`, qui n'autorise `HWND_TOP` qu'en Peek.
+
+Corollaire assumé : Peek surélève la zone **dans le bureau** (au-dessus de la couche d'icônes), pas au-dessus des fenêtres d'application — c'est le maximum atteignable tant que les zones sont des enfants de `Progman` (ADR-4). Voir §11.
+
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
 | Besoin | API / technique |
@@ -152,7 +166,7 @@ Corollaire : un fichier illisible, tronqué ou de schéma inconnu est **refusé*
 | Menu contextuel | `IContextMenu` (shell) — phase 2 |
 | Glisser-déposer sortant | `CF_HDROP` via OLE (phase 2) |
 | DPI | Per-monitor DPI v2 (`SetProcessDpiAwarenessContext`) |
-| Hotkeys globales | `RegisterHotKey` (Win+Espace pour Peek = F-021) |
+| Hotkeys globales | `RegisterHotKey` (Win+Espace pour Peek = F-021) — **implémenté** : `HotkeyManager` (T-009). `Win+Space` est refusé par Windows (sélecteur de langue) ; raccourcis configurables = F-033 / T-029 |
 
 ## 5. Modèle de données (ébauche)
 
@@ -204,7 +218,7 @@ Notes de format :
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
 - **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -315,4 +329,50 @@ Le candidat retenu sur chaque axe est le plus proche ; les deux axes sont indép
 - Pas de sauvegarde sur `aboutToQuit` dans un mode produit (elle viendra avec le mode normal) ; le debounce de 500 ms suffit en pratique, mais un arrêt brutal dans les 500 ms qui suivent un déplacement perd ce déplacement.
 - Pas de versionnage au-delà du refus : un schéma 2 futur devra prévoir une migration (F-028 / T-012).
 - `kind: "portal"` n'est pas encore produit (F-024 / T-011).
+
+## 11. Navigation : roll-up, quick hide, Peek (T-009, session 15)
+
+Les trois comportements de `docs/produit.md` section D. Tous suivent l'ADR-8 : le conteneur possède l'état, la géométrie persistée ne change pas, et le widget comme la surface ne font qu'obéir.
+
+| Fonctionnalité | Ce qui change | Où vit l'état | Geste / déclencheur | Limite assumée |
+|---|---|---|---|---|
+| **F-020 roll-up** | le rect **visible** d'une zone (sa barre de titre) | `FenceWindow::rolledUp` (persisté) | double-clic **ou** molette sur la barre de titre | aucun : c'est complet |
+| **F-022 quick hide** | toutes les zones disparaissent / reviennent | `FenceContainer::m_fencesVisible` | hotkey (état et câblage testés) | le double-clic sur le bureau **vide** exige un hook souris global (T-027) |
+| **F-021 Peek** | le z-order : les zones passent au-dessus de la couche d'icônes | `FenceContainer::m_peekActive` | hotkey `Win+Space` (F-021) | ne flotte pas au-dessus des fenêtres d'application (T-028) |
+
+### Roll-up (F-020)
+
+- **Pur** : `FenceGeometry::visibleRect(stored, rolledUp)` et `FenceGeometry::applyRequest(stored, rolledUp, requested, others, bounds, minSize, threshold, snap)`. Les deux règles qui diffèrent du cas normal : une zone enroulée n'a pas de corps visible (seuls x, y et largeur changent ; la hauteur dépliée est préservée), et l'aimantation comme le clamp portent sur le rect **visible** — une zone enroulée peut donc se coller au bas de l'écran avec son corps caché qui dépasse.
+- **Gestes** : double-clic sur la barre de titre (`rollUpRequested(!rolledUp)`) et molette sur la barre de titre (haut = enrouler, bas = dérouler). Ailleurs, le geste reste celui de la grille : un double-clic dans le contenu lance l'icône, il n'enroule pas.
+- **Persistance** : `rolledUp` est dans le document depuis T-008 ; `setFenceRolledUp` émet `fenceRolledUpChanged`, que le produit câble au même auto-save que les autres signaux de cycle de vie. Une zone restaurée enroulée revient **enroulée**.
+- **Le widget est redimensionné au rect visible** par le conteneur (`applyVisibleGeometry`) : une `FenceView` enroulée ne fait que 30 px de haut et `contentRect()` est vide, donc rien n'est peint sous la barre de titre.
+
+### Quick hide (F-022)
+
+- `FenceContainer::setFencesVisible(bool)` : les **surfaces** hébergées passent par `DesktopSurface::setVisible()` (`ShowWindow(SW_HIDE)` / `SW_SHOWNA`), les widgets ne sont touchés qu'en mode fenêtré (et jamais un widget jamais affiché, sinon un conteneur headless ferait apparaître des fenêtres).
+- **Rien n'est détruit** : `removeFence` n'est pas appelé, les fichiers ne sont pas touchés, le layout est inchangé.
+- `place()` n'ajoute `SWP_SHOWWINDOW` que si la surface est visible : sans ça le watchdog la ressusciterait toutes les 2 s.
+
+### Peek (F-021)
+
+- `DesktopSurface::setRaisedAboveIcons(true)` → `place()` ancre sur `HWND_TOP` au lieu de `SHELLDLL_DefView`, et la garde `WM_WINDOWPOSCHANGING` réécrit `hwndInsertAfter` en `HWND_TOP` au lieu de la DefView. `HWND_TOP` est le point le plus haut atteignable pour un enfant de `Progman` : la zone passe **au-dessus de la couche d'icônes**.
+- **Mesuré** (`--nav-demo --host`, z-order relu dans la liste des enfants de Progman) : normalement `surface [1]` vs `DefView [0]` (verdict `BelowIconLayer`), en Peek `surface [0]` vs `DefView [4]` (`AboveIconLayer`), puis retour à `[1]`/`[0]`. Le Peek n'est donc pas qu'un booléen.
+- **Ce n'est pas le Peek de Fences** : mettre les zones au-dessus des *fenêtres d'application* suppose un modèle top-level (reparentage ou fenêtre d'overlay), pas un enfant de `Progman`. À trancher en T-028.
+
+### Hotkeys (`src/platform/win/hotkey_manager.{hpp,cpp}`)
+
+- `RegisterHotKey` sur une fenêtre **message-only** (`HWND_MESSAGE`) : elle n'est jamais composée, n'apparaît pas dans le z-order et ne peut donc pas interférer avec le placement de l'ADR-4. Elle existe uniquement pour recevoir `WM_HOTKEY`.
+- **L'échec est signalé, jamais avalé** : `Win+Space` — le raccourci donné par F-021 — est **refusé** par Windows (`ERROR_HOTKEY_ALREADY_REGISTERED`), qui le réserve au sélecteur de langue. C'est mesuré et imprimé par la sonde. Quick hide s'enregistre sur `Win+Shift+H`.
+- Les raccourcis ne sont pas encore configurables (T-029 / F-033) : c'est là que la valeur par défaut de Peek devra changer.
+
+### Vérification
+
+- `tests/test_fence_geometry.cpp` — **19 cas** (14 de T-007 + 5 de T-009) : `visibleRect` enroulé/déplié, hauteur stockée préservée, aimantation de la barre de titre, barre de titre ramenée à l'écran, non-régression du clamp de taille normale.
+- `starfish --nav-demo [--host] [--seconds N]` — rapport dans `build/nav_demo.txt`, code de sortie 0/1. **22/22 PASS** en headless, **29/29 PASS** en `--host`. Points mesurés : rect visible `320×30` et rect stocké inchangé ; redimensionnement enroulé sans effet sur la hauteur ; barre de titre aimantée au bas de l'écran ; dérouler restaure `320×240` ; double-clic et molette passent par les vrais événements Qt et un double-clic dans la grille n'enroule pas ; `rolledUp` écrit dans le document et restauré ; quick hide sans destruction ; z-order mesuré sous puis au-dessus de la DefView.
+- Non-régression : `ctest` **6/6** ; `--fence-demo` **8/8** ; `--fence-demo --host` **3 surfaces** ; `--persist-demo` **27/27** ; `--persist-demo --host` **8 surfaces**.
+
+### Limites assumées
+
+- **Un `WM_HOTKEY` réel** (l'appui effectif sur la touche) n'est pas testable depuis l'agent : la sonde prouve l'enregistrement et le câblage, pas la frappe. Validation humaine, comme T-021.
+- Le geste du double-clic sur le bureau vide (F-022) et le Peek au-dessus des fenêtres (F-021) sont les deux écarts restants par rapport à Fences 6 (T-027 / T-028).
 

@@ -6,6 +6,7 @@
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
+class QWheelEvent;
 
 #include "core/desktop_item.hpp"
 #include "ui/fence_geometry.hpp"
@@ -44,6 +45,13 @@ public:
     void setCornerRadius(int px);
     int cornerRadius() const { return m_cornerRadius; }
 
+    // Roll-up (F-020). A rolled-up fence is only its title bar: the grid is not
+    // drawn and there is no content area. The widget is resized to the visible
+    // rect by FenceContainer -- it never resizes itself, exactly like the
+    // geometry gestures of T-007.
+    void setRolledUp(bool rolledUp);
+    bool rolledUp() const { return m_rolledUp; }
+
     // Where icons come from. Bound by the application to a ShellIconCache.
     void setIconProvider(IconGrid::IconProvider provider) { m_iconProvider = std::move(provider); }
 
@@ -75,12 +83,18 @@ signals:
     void geometryDragDelta(FenceHandle handle, const QPoint& delta);
     void geometryDragFinished();
 
+    // A double-click or a wheel notch on the title bar asks to roll the fence up
+    // or down (F-020). Like the geometry gestures, the view only reports intent:
+    // FenceContainer owns the state and the resulting size.
+    void rollUpRequested(bool rolledUp);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
     // Explorer drag-and-drop into the fence (T-006-3). Only files/folders
     // (CF_HDROP, exposed by Qt as mimeData()->hasUrls()) are accepted; the
@@ -99,15 +113,16 @@ private:
     // drag is in progress. No-op when index < 0.
     void paintDropIndicator(int index, QPainter& painter);
 
-    static constexpr int kTitleBarHeight = 30;
+    static constexpr int kTitleBarHeight = FenceGeometry::kTitleBarHeight;
     static constexpr int kCornerRadius = 10;
     static constexpr int kPadding = 12;
     // Inward width of the resize grips along each edge (T-007).
-    static constexpr int kResizeBorder = 6;
+    static constexpr int kResizeBorder = FenceGeometry::kResizeBorder;
 
     QString m_title;
     QColor m_panelColor{0x1F, 0x29, 0x37};
     int m_cornerRadius = kCornerRadius;
+    bool m_rolledUp = false;
     IconGrid m_grid;
     IconGrid::IconProvider m_iconProvider;
 

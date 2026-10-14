@@ -17,6 +17,7 @@
 #include <QPoint>
 #include <QRect>
 #include <QUrl>
+#include <QWheelEvent>
 
 #if defined(_WIN32)
 #include "platform/win/desktop_scanner.hpp"
@@ -114,8 +115,23 @@ void FenceView::setCornerRadius(int px)
     emit contentChanged();
 }
 
+void FenceView::setRolledUp(bool rolledUp)
+{
+    if (m_rolledUp == rolledUp)
+        return;
+    m_rolledUp = rolledUp;
+    // No content area is left, so a cursor left over from a grip would be
+    // misleading until the pointer moves again.
+    setCursor(Qt::ArrowCursor);
+    update();
+}
+
 QRect FenceView::contentRect() const
 {
+    // A rolled-up fence is nothing but its title bar: there is no content area
+    // to hit-test or paint into.
+    if (m_rolledUp)
+        return QRect();
     return rect().adjusted(kPadding, kTitleBarHeight + kPadding, -kPadding, -kPadding);
 }
 
@@ -151,6 +167,10 @@ void FenceView::paintEvent(QPaintEvent* event)
                      m_title.isEmpty() ? QStringLiteral("Fence") : m_title);
 
     const QRect content = contentRect();
+    // Rolled up (F-020): the widget is the title bar, nothing else is drawn.
+    if (m_rolledUp || content.isEmpty())
+        return;
+
     if (m_grid.items().isEmpty()) {
         painter.setFont(font());
         painter.setPen(hintText);
@@ -305,6 +325,14 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
 
 void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    // F-020: a double-click on the title bar rolls the fence up or down. Checked
+    // before the grid so a double-click on an icon still launches it.
+    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight)
+        == FenceHandle::TitleBar) {
+        emit rollUpRequested(!m_rolledUp);
+        return;
+    }
+
     const int index = itemAt(event->pos());
     if (index < 0 || index >= m_grid.items().size()) {
         QWidget::mouseDoubleClickEvent(event);
@@ -314,6 +342,29 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     if (!target.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(target));
     emit itemActivated(index);
+}
+
+void FenceView::wheelEvent(QWheelEvent* event)
+{
+    // F-020: the wheel over the title bar rolls the fence up (away from the
+    // user) or down (towards them). Only the title bar reacts, so scrolling over
+    // the icon grid is never hijacked.
+    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, kTitleBarHeight)
+        != FenceHandle::TitleBar) {
+        QWidget::wheelEvent(event);
+        return;
+    }
+
+    const int dy = event->angleDelta().y();
+    if (dy == 0) {
+        QWidget::wheelEvent(event);
+        return;
+    }
+
+    const bool wantRolledUp = dy > 0;
+    if (wantRolledUp != m_rolledUp)
+        emit rollUpRequested(wantRolledUp);
+    event->accept();
 }
 
 void FenceView::addDroppedItems(const QList<core::DesktopItem>& items)

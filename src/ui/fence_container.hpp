@@ -30,9 +30,11 @@ struct FenceWindow {
     // Persisted device name of the monitor (T-008). v1 only ever runs on the
     // primary one, so it is stored and reported but not acted upon (T-014).
     QString monitor;
+    // The *stored* rect: the expanded body, even while rolled up. Roll-up only
+    // changes what is visible -- FenceGeometry::visibleRect derives that.
     QRect rect; // desktop coordinates (Progman client == primary monitor, v1)
     core::FenceStyle style; // panel colour + radius are applied to the view
-    bool rolledUp = false;  // persisted for F-020 (T-009), not acted upon yet
+    bool rolledUp = false;  // F-020: persisted (T-008) and acted upon (T-009)
     FenceView* view = nullptr;
     starfish::platform::win::DesktopSurface* surface = nullptr;
 
@@ -119,6 +121,32 @@ public:
     void setFenceStyle(const QString& id, const core::FenceStyle& style);
     void setFenceSort(const QString& id, const QString& by, bool ascending);
 
+    // --- navigation (T-009) -------------------------------------------------
+    //
+    // The three "get the desktop out of the way" behaviours of docs/produit.md
+    // section D. The container owns every piece of state; the widget and the
+    // surface only obey. Roll-up changes what a fence shows, quick hide takes
+    // every fence off screen, Peek raises them above the icon layer.
+
+    // Roll-up (F-020). The stored rect keeps the expanded size, so rolling back
+    // down restores the fence exactly. Idempotent.
+    bool setFenceRolledUp(const QString& id, bool rolledUp);
+    bool toggleFenceRolledUp(const QString& id);
+
+    // The rect a fence actually shows (its title bar when rolled up).
+    QRect fenceVisibleRect(const QString& id) const;
+
+    // Quick hide (F-022): hide every fence at once, reversibly. The zones are
+    // only taken off screen -- nothing is destroyed and no file is touched.
+    bool setFencesVisible(bool visible);
+    bool fencesVisible() const { return m_fencesVisible; }
+    bool toggleFencesVisible() { return setFencesVisible(!m_fencesVisible); }
+
+    // Peek (F-021): raise every fence above the icon layer while active.
+    bool setPeekActive(bool active);
+    bool peekActive() const { return m_peekActive; }
+    bool togglePeek() { return setPeekActive(!m_peekActive); }
+
     // Applies a new rect. The rect is clamped to the desktop bounds and, unless
     // `snap` is false, snapped to the other fences and the screen edges. Returns
     // the rect actually applied (an unknown id returns a null rect).
@@ -152,6 +180,11 @@ signals:
     void fenceRemoved(const QString& id);
     void fenceRectChanged(const QString& id, const QRect& rect);
     void fenceContentChanged(const QString& id);
+    // T-009. Roll-up is persisted (it is part of the document), so the product
+    // wires this to the same auto-save as the other lifecycle signals.
+    void fenceRolledUpChanged(const QString& id, bool rolledUp);
+    void fencesVisibilityChanged(bool visible);
+    void peekChanged(bool active);
 
 private:
     FenceWindow* find(const QString& id);
@@ -165,6 +198,11 @@ private:
                      bool rolledUp, const QList<core::DesktopItem>& items);
 
     core::DesktopItem resolveItem(const QString& path) const;
+
+    // Resizes the view and the surface to the fence's *visible* rect and pushes
+    // a fresh frame. The stored rect is untouched -- that is the whole point of
+    // keeping roll-up out of the document's geometry.
+    void applyVisibleGeometry(FenceWindow& fence);
 
     // FenceView geometry gestures -> move/resize with snapping.
     void beginGeometryDrag(const QString& id);
@@ -181,6 +219,10 @@ private:
     int m_snapThreshold = 8;
     bool m_host = false;
     int m_nextId = 1;
+    // T-009 navigation state. Both are applied to every fence created
+    // afterwards, so a fence made while hidden or peeking behaves like the rest.
+    bool m_fencesVisible = true;
+    bool m_peekActive = false;
 };
 
 } // namespace starfish::ui

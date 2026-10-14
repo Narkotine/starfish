@@ -208,11 +208,13 @@ QImage FenceContainer::frame(const QString& id) const
 
 QList<QRect> FenceContainer::otherRects(const QString& excludeId) const
 {
+    // The *visible* rects: a rolled-up fence offers only its title bar as a
+    // snapping target, which is what the user sees and aims at.
     QList<QRect> rects;
     rects.reserve(m_fences.size());
     for (const FenceWindow& fence : m_fences) {
         if (fence.id != excludeId)
-            rects.append(fence.rect);
+            rects.append(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
     }
     return rects;
 }
@@ -252,7 +254,10 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     fence.view->setIconProvider(m_iconProvider);
     fence.view->setPanelColor(QColor(style.background));
     fence.view->setCornerRadius(style.radius);
-    fence.view->resize(fence.rect.size());
+    fence.view->setRolledUp(rolledUp);
+    // The widget is sized to what is visible: a restored rolled-up fence comes
+    // back as a title bar, not as a full panel.
+    fence.view->resize(FenceGeometry::visibleRect(fence.rect, fence.rolledUp).size());
     fence.view->setSort(sortBy, sortAscending);
     fence.view->setItems(items);
 
@@ -270,6 +275,8 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id] { endGeometryDrag(id); });
     connect(view, &FenceView::contentChanged, this,
             [this, id] { emit fenceContentChanged(id); });
+    connect(view, &FenceView::rollUpRequested, this,
+            [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
 
     if (m_host) {
         auto* surface = new starfish::platform::win::DesktopSurface(this);
@@ -293,12 +300,18 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                 target->view->addDroppedItems(dropped);
         });
 #endif
-        if (!surface->attach(m_fences.last().rect)) {
+        if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
             qCWarning(lc).noquote()
                 << QStringLiteral("fence %1: could not host the surface (no desktop?)").arg(id);
             delete surface;
         } else {
             find(id)->surface = surface;
+            // A fence created while the desktop is hidden or peeking joins the
+            // current navigation state instead of appearing on its own.
+            if (!m_fencesVisible)
+                surface->setVisible(false);
+            if (m_peekActive)
+                surface->setRaisedAboveIcons(true);
             connect(surface, &starfish::platform::win::DesktopSurface::desktopLost, this,
                     [this, id] { renderFence(id); });
         }
@@ -400,25 +413,100 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
     if (!fence)
         return {};
 
-    QRect target = rect;
-    if (target.width() < m_minSize.width())
-        target.setWidth(m_minSize.width());
-    if (target.height() < m_minSize.height())
-        target.setHeight(m_minSize.height());
-
-    if (snap)
-        target = FenceGeometry::snap(target, otherRects(id), m_bounds, m_snapThreshold);
-    target = FenceGeometry::clampToBounds(target, m_bounds);
-
+    // All the roll-up aware math lives in the pure geometry (T-009); this is
+    // just the bookkeeping.
+    const QRect target = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, rect,
+                                                     otherRects(id), m_bounds, m_minSize,
+                                                     m_snapThreshold, snap);
     fence->rect = target;
-    if (fence->view)
-        fence->view->resize(target.size());
-    if (fence->surface)
-        fence->surface->setGeometry(target);
-    renderFence(id);
+    applyVisibleGeometry(*fence);
 
     emit fenceRectChanged(id, target);
     return target;
+}
+
+void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
+{
+    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    if (fence.view) {
+        fence.view->setRolledUp(fence.rolledUp);
+        fence.view->resize(visible.size());
+    }
+    if (fence.surface)
+        fence.surface->setGeometry(visible);
+    renderFence(fence.id);
+}
+
+QRect FenceContainer::fenceVisibleRect(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence)
+        return {};
+    return FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+}
+
+bool FenceContainer::setFenceRolledUp(const QString& id, bool rolledUp)
+{
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return false;
+    if (fence->rolledUp == rolledUp)
+        return true;
+
+    fence->rolledUp = rolledUp;
+    applyVisibleGeometry(*fence);
+    qCInfo(lc).noquote() << QStringLiteral("fence %1 %2")
+                                .arg(id, rolledUp ? QStringLiteral("rolled up")
+                                                  : QStringLiteral("rolled down"));
+    emit fenceRolledUpChanged(id, rolledUp);
+    return true;
+}
+
+bool FenceContainer::toggleFenceRolledUp(const QString& id)
+{
+    const FenceWindow* fence = find(id);
+    if (!fence)
+        return false;
+    return setFenceRolledUp(id, !fence->rolledUp);
+}
+
+bool FenceContainer::setFencesVisible(bool visible)
+{
+    if (m_fencesVisible == visible)
+        return true;
+    m_fencesVisible = visible;
+
+    for (FenceWindow& fence : m_fences) {
+        if (fence.surface) {
+            // The hosted surface is the only thing actually on screen.
+            fence.surface->setVisible(visible);
+        } else if (fence.view && !fence.view->isHidden()) {
+            // Windowed mode (no surface): the widget is the window. A widget
+            // that was never shown is left alone, so a headless container does
+            // not pop windows into existence.
+            fence.view->setVisible(visible);
+        }
+    }
+    qCInfo(lc).noquote() << QStringLiteral("fences %1")
+                                .arg(visible ? QStringLiteral("shown") : QStringLiteral("hidden"));
+    emit fencesVisibilityChanged(visible);
+    return true;
+}
+
+bool FenceContainer::setPeekActive(bool active)
+{
+    if (m_peekActive == active)
+        return true;
+    m_peekActive = active;
+
+    for (FenceWindow& fence : m_fences) {
+        if (fence.surface)
+            fence.surface->setRaisedAboveIcons(active);
+    }
+    qCInfo(lc).noquote() << QStringLiteral("peek %1")
+                                .arg(active ? QStringLiteral("on") : QStringLiteral("off"));
+    emit peekChanged(active);
+    return true;
 }
 
 void FenceContainer::renderFence(const QString& id)
