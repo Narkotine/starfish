@@ -5,6 +5,7 @@ qt_add_executable(starfish WIN32
     # Application manifest. Load bearing: see src/starfish.manifest (ADR-4).
     starfish.rc
     core/desktop_item.cpp
+    core/desktop_watcher.cpp
     core/rules.cpp
     core/jsonstore.cpp
     core/layout_store.cpp

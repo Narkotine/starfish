@@ -6,13 +6,13 @@
 
 ## État du projet
 
-**Phase 4 — Fonctions phares, en cours.** Roll-up, quick hide et Peek sont faits (T-009) : enrouler une zone ne change que ce qu'elle **montre** (le rect stocké reste le corps déplié, donc dérouler restaure la zone exactement), quick hide masque et rappelle toutes les zones, et Peek les fait passer au-dessus de la couche d'icônes — le tout mesuré par `--nav-demo` (22/22 PASS headless, 29/29 en `--host`).
+**Phase 4 — Fonctions phares, en cours.** L'auto-organisation est en place (T-010) : des règles déclaratives (type, motif de nom, fenêtre d'âge, zone cible) rangent automatiquement les fichiers qui apparaissent dans un dossier surveillé — vérifié pour de vrai par `--rules-demo`, un fichier créé dans un dossier surveillé étant signalé en 300 ms puis rangé dans la bonne zone (28/28 PASS). **Aucun fichier n'est jamais déplacé sur le disque** : une règle décide quelle zone *montre* un item, point. Roll-up, quick hide et Peek sont faits (T-009) : enrouler une zone ne change que ce qu'elle **montre** (le rect stocké reste le corps déplié, donc dérouler restaure la zone exactement), quick hide masque et rappelle toutes les zones, et Peek les fait passer au-dessus de la couche d'icônes — le tout mesuré par `--nav-demo` (22/22 PASS headless, 29/29 en `--host`). Reste **T-011** (folder portals) pour clore la phase.
 
-**Phase 3 — Zones complètes. TERMINÉE.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007), et la disposition survit à un redémarrage (T-008 : document JSON versionné dans `%APPDATA%/StarFish/layout.json`, écriture atomique différée, restauration vérifiée par la sonde `--persist-demo` — 27/27 PASS).
+**Phase 3 — Zones complètes. TERMINÉE.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007), et la disposition survit à un redémarrage (T-008 : document JSON versionné dans `%APPDATA%/StarFish/layout.json`, écriture atomique différée, restauration vérifiée par la sonde `--persist-demo` — 26/26 PASS).
 
-Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : 6 suites de tests unitaires.
+Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : 7 suites de tests unitaires.
 
-⚠️ **Les validations à l'écran restent à faire** (T-021 et suivantes) : elles exigent un bureau libre et un œil humain, et ne peuvent pas être conduites depuis un agent — voir `STATE.md`, « Décisions actées » 13. Deux écarts à Fences 6 sont par ailleurs **assumés et documentés** : quick hide n'a pas encore son geste « double-clic sur le bureau vide » (T-028) et Peek surélève les zones dans le bureau, pas au-dessus des fenêtres d'application (T-029).
+⚠️ **Les validations à l'écran restent à faire** (T-021 et suivantes) : elles exigent un bureau libre et un œil humain, et ne peuvent pas être conduites depuis un agent — voir `STATE.md`, « Décisions actées » 13. Trois écarts à Fences 6 sont par ailleurs **assumés et documentés** : quick hide n'a pas encore son geste « double-clic sur le bureau vide » (T-028), Peek surélève les zones dans le bureau, pas au-dessus des fenêtres d'application (T-029), et les règles ne déplacent jamais un fichier sur le disque (T-031).
 
 - Prix de référence du produit original : abonnement annuel à partir de ~10 $ USD (Stardock, consulté le 2026-10-13). StarFish sera gratuit, open source, local-first, sans télémétrie.
 
@@ -81,7 +81,12 @@ starfish --persist-demo --host --seconds 10   # les zones restaurées, hébergé
 starfish --persist-demo --layout C:/tmp/layout.json
 starfish --nav-demo             # roll-up / quick hide / Peek, rapport PASS/FAIL, puis quitte
 starfish --nav-demo --host --seconds 10       # les mêmes, avec les fenêtres réellement hébergées
+starfish --rules-demo           # règles d'auto-organisation + dossier surveillé, rapport PASS/FAIL, puis quitte
+starfish --rules-demo --host --seconds 15     # idem, et l'on voit une zone se remplir toute seule
+starfish --rules-demo --watch C:/tmp/depot   # surveille un dossier au choix (les fichiers créés sont supprimés ensuite)
 ```
+
+`--rules-demo` crée ses fichiers de démonstration sous un nom dérivé du PID du processus et les supprime en fin de sonde : il ne peut donc pas écraser un fichier existant, et rien d'autre que ce qu'il a créé n'est jamais touché — y compris si `--watch` pointe sur un vrai dossier.
 
 Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.
 

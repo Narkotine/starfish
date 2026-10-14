@@ -3,6 +3,7 @@
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QEventLoop>
 #include <QFile>
@@ -21,8 +22,10 @@
 #include <QWindow>
 
 #include "core/desktop_item.hpp"
+#include "core/desktop_watcher.hpp"
 #include "core/jsonstore.hpp"
 #include "core/layout_store.hpp"
+#include "core/rules.hpp"
 #include "core/zorder.hpp"
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_scanner.hpp"
@@ -576,6 +579,18 @@ int main(int argc, char* argv[])
         QStringLiteral("T-009 diagnostic: exercise roll-up (F-020), quick hide (F-022) and "
                        "Peek (F-021) through the real wiring and write a PASS/FAIL report to "
                        "build/nav_demo.txt."));
+    const QCommandLineOption rulesDemoOption(
+        QStringLiteral("rules-demo"),
+        QStringLiteral("T-010 diagnostic: run the auto-organisation rules (F-017) and the "
+                       "desktop folder watcher that feeds them (F-018) -- including a file "
+                       "really created in a watched folder -- and write a PASS/FAIL report to "
+                       "build/rules_demo.txt."));
+    const QCommandLineOption watchOption(
+        QStringLiteral("watch"),
+        QStringLiteral("With --rules-demo: the folder to watch and drop a demo file into. "
+                       "Defaults to build/rules_demo_watch. The files it creates are removed "
+                       "again when the probe ends."),
+        QStringLiteral("dir"));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -600,6 +615,8 @@ int main(int argc, char* argv[])
     parser.addOption(layoutOption);
     parser.addOption(persistDemoOption);
     parser.addOption(navDemoOption);
+    parser.addOption(rulesDemoOption);
+    parser.addOption(watchOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -1532,6 +1549,399 @@ int main(int argc, char* argv[])
         bool parsedSeconds = false;
         const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
         QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 8) * 1000, &app,
+                           [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(rulesDemoOption)) {
+        // T-010: auto-organisation (F-017) and the watcher that feeds it
+        // (F-018). This is also the exit criterion of Phase 4, checked for
+        // real: a file created in a watched folder ends up inside a fence --
+        // and the file itself never moves.
+        const bool host = parser.isSet(hostOption);
+        const QString layoutPath = parser.isSet(layoutOption)
+                                       ? parser.value(layoutOption)
+                                       : QStringLiteral("build/rules_demo_layout.json");
+        const bool customWatch = parser.isSet(watchOption);
+        const QString watchDir = customWatch ? parser.value(watchOption)
+                                             : QStringLiteral("build/rules_demo_watch");
+        const QString itemDir = QStringLiteral("build/rules_demo_items");
+
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -52)
+                       .arg(detail);
+        };
+        auto waitMs = [](int ms) {
+            QEventLoop loop;
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+
+        // The document is wired exactly like the product will: every
+        // document-level signal updates the layout and re-arms the debounced
+        // write. Filing a file by rule is a change to the document, so it has
+        // to be persisted like any other.
+        starfish::core::LayoutStore store;
+        store.setFilePath(layoutPath);
+        store.setDebounceInterval(60);
+        QFile::remove(layoutPath);
+        int writes = 0;
+        QObject::connect(&store, &starfish::core::LayoutStore::saved, &app,
+                         [&writes](const QString&) { ++writes; });
+
+        auto* container = new starfish::ui::FenceContainer;
+        container->setDesktopBounds(bounds);
+        container->setHostOnDesktop(host);
+        container->setMinimumFenceSize(QSize(160, 120));
+        {
+            auto sync = [container, &store] {
+                store.setLayout(container->toLayout());
+                store.scheduleSave();
+            };
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceCreated, container,
+                             [sync](const QString&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceRemoved, container,
+                             [sync](const QString&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceRectChanged, container,
+                             [sync](const QString&, const QRect&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceContentChanged,
+                             container, [sync](const QString&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::rulesChanged, container,
+                             [sync] { sync(); });
+        }
+
+        const QString idShots = container->createFence(QStringLiteral("Captures"),
+                                                      QRect(80, 80, 320, 240));
+        const QString idDocs = container->createFence(QStringLiteral("Factures"),
+                                                     QRect(440, 80, 320, 240));
+
+        QList<starfish::core::Rule> rules;
+        {
+            // Priority order: the first match wins, so the extension rule is
+            // deliberately placed before the name pattern.
+            starfish::core::Rule shots;
+            shots.id = QStringLiteral("rule-shots");
+            shots.name = QStringLiteral("Captures d'écran");
+            shots.extensions = {QStringLiteral("png")};
+            shots.targetFenceId = idShots;
+            rules.append(shots);
+
+            starfish::core::Rule docs;
+            docs.id = QStringLiteral("rule-docs");
+            docs.name = QStringLiteral("Factures");
+            docs.namePattern = QStringLiteral("facture*");
+            docs.targetFenceId = idDocs;
+            rules.append(docs);
+
+            // A deliberately narrow catch-all: .txt files *older than ten
+            // years*. Nothing fresh can match it, which is what proves the
+            // date criteria really gate the rule.
+            starfish::core::Rule ancient;
+            ancient.id = QStringLiteral("rule-ancient");
+            ancient.name = QStringLiteral("Vieux textes");
+            ancient.extensions = {QStringLiteral("txt")};
+            ancient.olderThanDays = 3650;
+            ancient.targetFenceId = idShots;
+            rules.append(ancient);
+        }
+        container->setRules(rules);
+
+        // --- A. the engine, no I/O -------------------------------------------
+        //
+        // A fixed clock, so the date criteria are checked against a known
+        // reference instead of whatever the wall clock says when this runs.
+        const QDateTime clock = QDateTime::fromString(QStringLiteral("2026-10-14T12:00:00"),
+                                                      Qt::ISODate);
+        auto meta = [&clock](const QString& name, int daysAgo) {
+            starfish::core::FileMeta file;
+            file.name = name;
+            file.path = QStringLiteral("C:/Desktop/") + name;
+            file.modified = clock.addDays(-daysAgo);
+            return file;
+        };
+        auto targetOf = [&rules, &clock](const starfish::core::FileMeta& file) {
+            return starfish::core::RuleEngine::classify(file, rules, clock)
+                .value_or(QStringLiteral("(none)"));
+        };
+
+        const QString t1 = targetOf(meta(QStringLiteral("shot-1.png"), 0));
+        check(QStringLiteral("an extension rule matches"), t1 == idShots,
+              QStringLiteral("\"shot-1.png\" -> %1 (expected %2)").arg(t1, idShots));
+
+        const QString t2 = targetOf(meta(QStringLiteral("facture-2026.pdf"), 0));
+        check(QStringLiteral("a name pattern rule matches"), t2 == idDocs,
+              QStringLiteral("\"facture-2026.pdf\" -> %1 (expected %2)").arg(t2, idDocs));
+
+        const QString t3 = targetOf(meta(QStringLiteral("facture-1.png"), 0));
+        check(QStringLiteral("the first matching rule wins"), t3 == idShots,
+              QStringLiteral("both rules match, %1 chosen (expected %2 = the first)")
+                  .arg(t3, idShots));
+
+        const QString t4 = targetOf(meta(QStringLiteral("notes.txt"), 0));
+        check(QStringLiteral("the age window rejects a fresh file"), t4 == QLatin1String("(none)"),
+              QStringLiteral("\"notes.txt\" written today -> %1 (expected no rule: older than "
+                             "3650 days only)")
+                  .arg(t4));
+
+        const QString t5 = targetOf(meta(QStringLiteral("notes.txt"), 4000));
+        check(QStringLiteral("the age window accepts an old file"), t5 == idShots,
+              QStringLiteral("\"notes.txt\" 4000 days old -> %1 (expected %2)").arg(t5, idShots));
+
+        const QString t6 = targetOf(meta(QStringLiteral("readme.md"), 0));
+        check(QStringLiteral("an item no rule wants is left alone"),
+              t6 == QLatin1String("(none)"),
+              QStringLiteral("\"readme.md\" -> %1").arg(t6));
+
+        // --- B. the document --------------------------------------------------
+        const QByteArray before = starfish::core::JsonStore::toJson(container->toLayout());
+        check(QStringLiteral("the rules are in the document"),
+              before.contains(QByteArrayLiteral("\"rules\""))
+                  && before.contains(QByteArrayLiteral("rule-shots")),
+              QStringLiteral("%1 byte(s), %2 rule(s)")
+                  .arg(before.size())
+                  .arg(container->rules().size()));
+
+        waitMs(250); // longer than the debounce interval
+        check(QStringLiteral("setting the rules was auto-saved"), writes == 1,
+              QStringLiteral("writes=%1 (expected 1 for the whole burst)").arg(writes));
+
+        starfish::core::LayoutStore reopened;
+        reopened.setFilePath(layoutPath);
+        QString loadError;
+        const bool loaded = reopened.load(&loadError);
+        check(QStringLiteral("reload: the document loads"),
+              loaded && reopened.layout().rules.size() == 3,
+              loaded ? QStringLiteral("rules=%1").arg(reopened.layout().rules.size()) : loadError);
+
+        auto* restored = new starfish::ui::FenceContainer;
+        restored->setDesktopBounds(bounds);
+        restored->setItemResolver([](const QString& path) {
+            return starfish::core::itemFromPathOnly(path);
+        });
+        QString applyError;
+        const bool applied = restored->applyLayout(reopened.layout(), &applyError);
+        check(QStringLiteral("reload: the rules come back"), applied && restored->rules().size() == 3,
+              applied ? QStringLiteral("rules=%1").arg(restored->rules().size()) : applyError);
+        if (applied && restored->rules().size() == 3) {
+            const starfish::core::Rule& first = restored->rules().at(0);
+            const starfish::core::Rule& third = restored->rules().at(2);
+            check(QStringLiteral("reload: the criteria survive intact"),
+                  first.extensions == QStringList({QStringLiteral("png")})
+                      && first.targetFenceId == idShots
+                      && restored->rules().at(1).namePattern == QStringLiteral("facture*")
+                      && third.olderThanDays.value_or(-1) == 3650,
+                  QStringLiteral("%1 ext, pattern \"%2\", %3 days")
+                      .arg(first.extensions.join(QLatin1Char('/')))
+                      .arg(restored->rules().at(1).namePattern)
+                      .arg(third.olderThanDays.value_or(-1)));
+            // A restored rule must classify exactly like the live one: the same
+            // clock, the same answer.
+            const QString t7 = starfish::core::RuleEngine::classify(
+                                   meta(QStringLiteral("shot-1.png"), 0), restored->rules(), clock)
+                                   .value_or(QStringLiteral("(none)"));
+            check(QStringLiteral("reload: a restored rule still matches"), t7 == idShots,
+                  QStringLiteral("\"shot-1.png\" -> %1 (expected %2)").arg(t7, idShots));
+        }
+        check(QStringLiteral("reload: the document round-trips byte for byte"),
+              starfish::core::JsonStore::toJson(restored->toLayout())
+                  == starfish::core::JsonStore::toJson(reopened.layout()),
+              QStringLiteral("toLayout() == the loaded document"));
+
+        {
+            // What T-008 wrote: no `rules` key at all. It must keep loading.
+            const QByteArray legacy = QByteArrayLiteral(
+                "{\n  \"schema\": 1,\n  \"fences\": []\n}");
+            QString legacyError;
+            const auto parsedLegacy = starfish::core::JsonStore::fromJson(legacy, &legacyError);
+            check(QStringLiteral("a document without rules still loads"),
+                  parsedLegacy.has_value() && parsedLegacy->rules.isEmpty(),
+                  parsedLegacy ? QStringLiteral("rules=%1").arg(parsedLegacy->rules.size())
+                               : legacyError);
+        }
+        delete restored;
+
+        // --- C. the wiring: an item is filed, nothing moves -------------------
+        QDir().mkpath(itemDir);
+        const QString realName = QStringLiteral("starfish-rules-demo-shot.png");
+        const QString realPath = QDir(itemDir).absoluteFilePath(realName);
+        {
+            QFile file(realPath);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                file.write("not really a png");
+        }
+        const starfish::core::DesktopItem realItem = container->itemForPath(realPath);
+
+        const std::optional<QString> target = container->classify(realItem);
+        check(QStringLiteral("the container classifies a real file"),
+              target.has_value() && *target == idShots,
+              QStringLiteral("%1 -> %2").arg(realName, target.value_or(QStringLiteral("(none)"))));
+
+        const int placed = container->applyRulesTo({realItem});
+        check(QStringLiteral("the rule files it into the fence"), placed == 1,
+              QStringLiteral("placed=%1").arg(placed));
+
+        bool inFence = false;
+        for (const starfish::core::DesktopItem& item : container->fenceItems(idShots)) {
+            if (item.path.compare(realPath, Qt::CaseInsensitive) == 0)
+                inFence = true;
+        }
+        check(QStringLiteral("the fence really holds it"), inFence,
+              QStringLiteral("%1 item(s) in the fence").arg(container->fenceItems(idShots).size()));
+
+        check(QStringLiteral("filing it twice does nothing the second time"),
+              container->applyRulesTo({realItem}) == 0,
+              QStringLiteral("the item is already there"));
+
+        const starfish::core::DesktopItem stranger =
+            container->itemForPath(QDir(itemDir).absoluteFilePath(QStringLiteral("readme.md")));
+        check(QStringLiteral("an item no rule wants is not filed"),
+              container->applyRulesTo({stranger}) == 0,
+              QStringLiteral("placed=0"));
+
+        {
+            // A rule naming a fence that no longer exists: stale, not fatal.
+            starfish::core::Rule stale;
+            stale.id = QStringLiteral("rule-stale");
+            stale.extensions = {QStringLiteral("png")};
+            stale.targetFenceId = QStringLiteral("fence-999");
+            starfish::ui::FenceContainer throwaway;
+            throwaway.setRules({stale});
+            const int stalePlaced = throwaway.applyRulesTo({realItem});
+            check(QStringLiteral("a rule pointing at a dead fence is refused"),
+                  stalePlaced == 0, QStringLiteral("placed=%1 (expected 0)").arg(stalePlaced));
+        }
+
+        check(QStringLiteral("the file itself was not moved"),
+              QFileInfo::exists(realPath),
+              QStringLiteral("still at %1").arg(realPath));
+
+        waitMs(250);
+        const auto afterFiling = starfish::core::JsonStore::load(layoutPath, &loadError);
+        bool persistedItem = false;
+        if (afterFiling) {
+            for (const starfish::core::Fence& fence : afterFiling->fences) {
+                for (const starfish::core::FenceItem& entry : fence.items) {
+                    if (entry.path.compare(realPath, Qt::CaseInsensitive) == 0)
+                        persistedItem = true;
+                }
+            }
+        }
+        check(QStringLiteral("filing by rule is persisted"), persistedItem,
+              afterFiling ? QStringLiteral("the item is in %1").arg(layoutPath) : loadError);
+
+        // --- D. F-018 for real: a file appears in a watched folder ------------
+        //
+        // The files are named after this process, so the probe can never
+        // overwrite something that was already there -- and it removes exactly
+        // what it created, wherever it was pointed.
+        QDir().mkpath(watchDir);
+        const QString stamp = QString::number(QCoreApplication::applicationPid());
+        const QString shotPath =
+            QDir(watchDir).absoluteFilePath(QStringLiteral("starfish-rules-demo-%1-shot.png")
+                                                .arg(stamp));
+        const QString notesPath =
+            QDir(watchDir).absoluteFilePath(QStringLiteral("starfish-rules-demo-%1-notes.txt")
+                                                .arg(stamp));
+        QFile::remove(shotPath);
+        QFile::remove(notesPath);
+
+        starfish::core::DesktopWatcher watcher;
+        watcher.setFolders({QDir(watchDir).absolutePath()});
+        watcher.setDebounceInterval(200);
+        watcher.start();
+        check(QStringLiteral("the watcher is watching the folder"), watcher.isWatching(),
+              QStringLiteral("watching %1").arg(QDir(watchDir).absolutePath()));
+
+        QStringList reported;
+        int filedByWatcher = 0;
+        QObject::connect(&watcher, &starfish::core::DesktopWatcher::itemsAdded, container,
+                         [container, &reported, &filedByWatcher](const QStringList& paths) {
+                             reported += paths;
+                             QList<starfish::core::DesktopItem> items;
+                             items.reserve(paths.size());
+                             for (const QString& path : paths)
+                                 items.append(container->itemForPath(path));
+                             filedByWatcher += container->applyRulesTo(items);
+                         });
+
+        for (const QString& path : {shotPath, notesPath}) {
+            QFile file(path);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                file.write("dropped by --rules-demo");
+        }
+
+        // Spin the event loop until the watcher has reported both files (the
+        // debounce plus the round trip), or give up and say so.
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (reported.size() < 2 && elapsed.elapsed() < 8000)
+            waitMs(100);
+
+        check(QStringLiteral("a file created in the watched folder is reported"),
+              reported.size() == 2,
+              QStringLiteral("%1 of 2 reported in %2 ms").arg(reported.size()).arg(elapsed.elapsed()));
+
+        bool shotFiled = false;
+        bool notesFiled = false;
+        for (const starfish::core::DesktopItem& item : container->fenceItems(idShots)) {
+            if (item.path.compare(shotPath, Qt::CaseInsensitive) == 0)
+                shotFiled = true;
+            if (item.path.compare(notesPath, Qt::CaseInsensitive) == 0)
+                notesFiled = true;
+        }
+        check(QStringLiteral("the dropped file landed in the target fence"), shotFiled,
+              QStringLiteral("%1 -> %2").arg(QFileInfo(shotPath).fileName(), idShots));
+        check(QStringLiteral("only the matching file was filed"), filedByWatcher == 1 && !notesFiled,
+              QStringLiteral("filed=%1, the .txt (too fresh for the age rule) is untouched")
+                  .arg(filedByWatcher));
+        check(QStringLiteral("the dropped files were not moved"),
+              QFileInfo::exists(shotPath) && QFileInfo::exists(notesPath),
+              QStringLiteral("both still in %1").arg(QDir(watchDir).absolutePath()));
+
+        watcher.stop();
+        const bool cleaned = QFile::remove(shotPath) && QFile::remove(notesPath);
+        check(QStringLiteral("the probe removed the files it created"), cleaned,
+              QStringLiteral("%1 and %2 are gone").arg(QFileInfo(shotPath).fileName(),
+                                                       QFileInfo(notesPath).fileName()));
+
+        const QString reportPath = QStringLiteral("build/rules_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("layout file: %1\n").arg(layoutPath);
+                stream << QStringLiteral("watched folder: %1%2\n")
+                              .arg(QDir(watchDir).absolutePath(),
+                                   customWatch ? QStringLiteral(" (--watch)")
+                                               : QStringLiteral(" (scratch)"));
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        if (!host) {
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+            return app.exec();
+        }
+        bool parsedSeconds = false;
+        const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+        QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 10) * 1000, &app,
                            [&app, exitCode] { QCoreApplication::exit(exitCode); });
         return app.exec();
     }

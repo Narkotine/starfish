@@ -6,6 +6,8 @@
 #include <QString>
 #include <optional>
 
+#include "core/rules.hpp"
+
 namespace starfish::core {
 
 // Visual style of a fence (docs/produit.md F-004/F-005).
@@ -43,6 +45,9 @@ struct Fence {
 struct Layout {
     int schema = 1;
     QList<Fence> fences;
+    // Automation rules (T-010, F-017). They belong to the document rather than
+    // to a single fence: a rule names the fence it feeds.
+    QList<Rule> rules;
 };
 
 // Atomic JSON persistence via QSaveFile (docs/technique.md ADR-5).

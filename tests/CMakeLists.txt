@@ -1,6 +1,8 @@
 add_executable(test_starfish_core
     test_rules.cpp
     ../src/core/rules.cpp
+    # T-010: fileMetaFromItem() adapts a DesktopItem for the rule engine.
+    ../src/core/desktop_item.cpp
 )
 
 target_include_directories(test_starfish_core PRIVATE
@@ -83,3 +85,18 @@ target_include_directories(test_starfish_layout_store PRIVATE
 target_link_libraries(test_starfish_layout_store PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_layout_store COMMAND test_starfish_layout_store)
+
+# Desktop folder watching (T-010 / F-018): the trigger of the rule engine. The
+# diff is pure, the wiring is exercised against a temporary directory.
+add_executable(test_starfish_desktop_watcher
+    test_desktop_watcher.cpp
+    ../src/core/desktop_watcher.cpp
+)
+
+target_include_directories(test_starfish_desktop_watcher PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_desktop_watcher PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_desktop_watcher COMMAND test_starfish_desktop_watcher)

@@ -4,6 +4,8 @@
 #include <QList>
 #include <QString>
 
+#include "core/rules.hpp"
+
 namespace starfish::core {
 
 // One entry of the desktop, as the Shell presents it (T-004).
@@ -65,5 +67,14 @@ QList<DesktopItem> mergeDesktopItems(const QList<DesktopItem>& items);
 // *what a fence shows*, and a temporarily missing file must not silently empty
 // a fence.
 DesktopItem itemFromPathOnly(const QString& path);
+
+// Adapter for the rule engine (F-017): the engine only needs a name, a path, a
+// folder flag, a size and a modification time, so it does not have to know
+// about the desktop model.
+//
+// The *on-disk* name is handed over (`fileName`, extension included), not the
+// Shell display name: the Shell strips the extension of known types, and an
+// extension criterion that cannot see the extension would never match.
+FileMeta fileMetaFromItem(const DesktopItem& item);
 
 } // namespace starfish::core

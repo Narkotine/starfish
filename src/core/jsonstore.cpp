@@ -91,6 +91,58 @@ static Fence fenceFromJson(const QJsonObject& o)
     return f;
 }
 
+static QJsonObject ruleToJson(const Rule& r)
+{
+    QJsonObject o;
+    o["id"] = r.id;
+    o["name"] = r.name;
+
+    // The criteria live in their own object so that a future criterion (size,
+    // folder-only, ...) is an addition rather than a schema break. Empty
+    // criteria are omitted; an empty `match` is the documented catch-all.
+    QJsonObject match;
+    if (!r.extensions.isEmpty()) {
+        QJsonArray types;
+        for (const QString& extension : r.extensions)
+            types.append(extension);
+        match["type"] = types;
+    }
+    if (!r.namePattern.isEmpty())
+        match["name"] = r.namePattern;
+    if (r.newerThanDays)
+        match["newerThanDays"] = *r.newerThanDays;
+    if (r.olderThanDays)
+        match["olderThanDays"] = *r.olderThanDays;
+    o["match"] = match;
+
+    o["targetFence"] = r.targetFenceId;
+    o["moveFiles"] = r.moveFiles;
+    return o;
+}
+
+static Rule ruleFromJson(const QJsonObject& o)
+{
+    Rule r;
+    r.id = o["id"].toString();
+    r.name = o["name"].toString();
+
+    const QJsonObject match = o["match"].toObject();
+    for (const auto& value : match["type"].toArray()) {
+        const QString extension = value.toString().toLower();
+        if (!extension.isEmpty())
+            r.extensions.append(extension);
+    }
+    r.namePattern = match["name"].toString();
+    if (match.contains("newerThanDays"))
+        r.newerThanDays = match["newerThanDays"].toInt();
+    if (match.contains("olderThanDays"))
+        r.olderThanDays = match["olderThanDays"].toInt();
+
+    r.targetFenceId = o["targetFence"].toString();
+    r.moveFiles = o["moveFiles"].toBool(false);
+    return r;
+}
+
 QByteArray JsonStore::toJson(const Layout& layout)
 {
     QJsonObject root;
@@ -99,6 +151,10 @@ QByteArray JsonStore::toJson(const Layout& layout)
     for (const auto& f : layout.fences)
         fences.append(fenceToJson(f));
     root["fences"] = fences;
+    QJsonArray rules;
+    for (const auto& r : layout.rules)
+        rules.append(ruleToJson(r));
+    root["rules"] = rules;
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
@@ -121,6 +177,10 @@ std::optional<Layout> JsonStore::fromJson(const QByteArray& data, QString* error
     Layout layout;
     for (const auto& v : root["fences"].toArray())
         layout.fences.append(fenceFromJson(v.toObject()));
+    // Absent `rules` is not an error: documents written before T-010 simply
+    // carry no rules, and must keep loading.
+    for (const auto& v : root["rules"].toArray())
+        layout.rules.append(ruleFromJson(v.toObject()));
     return layout;
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -11,6 +12,7 @@
 
 #include "core/desktop_item.hpp"
 #include "core/jsonstore.hpp"
+#include "core/rules.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
 
@@ -152,6 +154,30 @@ public:
     // the rect actually applied (an unknown id returns a null rect).
     QRect setFenceRect(const QString& id, const QRect& rect, bool snap = true);
 
+    // --- rules (T-010, F-017 / F-018) ---------------------------------------
+    //
+    // Auto-organisation. The rules are part of the document (docs/technique.md
+    // section 5) and are evaluated by core::RuleEngine, which knows nothing
+    // about fences, widgets or Win32. Applying a rule decides which fence
+    // *shows* an item -- the filesystem is never touched, whatever `moveFiles`
+    // says. See the golden rule in AGENTS.md.
+    void setRules(QList<core::Rule> rules);
+    QList<core::Rule> rules() const { return m_rules; }
+
+    // Resolves a path through the same resolver the layout restore uses, so a
+    // file dropped by the Explorer and a file restored from the document are
+    // described identically.
+    core::DesktopItem itemForPath(const QString& path) const;
+
+    // The fence an item belongs to according to the rules, or nullopt.
+    std::optional<QString> classify(const core::DesktopItem& item) const;
+
+    // Files a batch of items: every item with a matching rule whose target
+    // fence still exists is appended to that fence. Returns how many were
+    // actually placed (an item already in the target fence is not placed
+    // twice, so a repeated notification does not rewrite the document).
+    int applyRulesTo(const QList<core::DesktopItem>& items);
+
     // Access for tests / diagnostics. May be null in headless mode (surface).
     FenceView* view(const QString& id) const;
     starfish::platform::win::DesktopSurface* surface(const QString& id) const;
@@ -185,6 +211,12 @@ signals:
     void fenceRolledUpChanged(const QString& id, bool rolledUp);
     void fencesVisibilityChanged(bool visible);
     void peekChanged(bool active);
+    // T-010. The rule list is persisted, so the product wires this to the same
+    // auto-save as the other document-level signals. It is deliberately NOT
+    // emitted by applyLayout: restoring the document is not changing it.
+    void rulesChanged();
+    // An item was filed by a rule. Diagnostics and, later, an undo trail.
+    void ruleApplied(const QString& path, const QString& fenceId);
 
 private:
     FenceWindow* find(const QString& id);
@@ -214,6 +246,8 @@ private:
     QList<FenceWindow> m_fences;
     IconGrid::IconProvider m_iconProvider;
     ItemResolver m_itemResolver;
+    // T-010: the automation rules, in priority order (first match wins).
+    QList<core::Rule> m_rules;
     QSize m_bounds{1920, 1080};
     QSize m_minSize{160, 120};
     int m_snapThreshold = 8;

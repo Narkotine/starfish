@@ -17,11 +17,13 @@
 │  ├─ DesktopSurface surface hébergée (rendu)        │
 │  ├─ FenceContainer cycle de vie des zones (T-007)  │
 │  │                 + navigation (T-009)            │
+│  │                 + application des règles (T-010)│
 │  ├─ FenceView      rendu + interaction d'une zone  │
 │  ├─ FenceGeometry  géométrie pure (hit-test, snap, │
 │  │                 roll-up)                        │
 │  ├─ IconGrid       grille d'icônes d'une zone      │
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
+│  ├─ DesktopWatcher nouveaux fichiers (F-018)       │
 │  ├─ LayoutStore    lecture/écriture JSON atomique  │
 │  ├─ DesktopScanner lecture du dossier Bureau       │
 │  ├─ ShellIconCache icônes shell (image list)       │
@@ -42,11 +44,12 @@
 - **DesktopSurface** (`src/platform/win/desktop_surface.{hpp,cpp}`) : **le chemin de rendu retenu (T-020, §7 piste (a))**. Surface Win32 brute hébergée sous `Progman` qui possède son propre `WNDPROC` : elle blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()` dans un `QImage`). Qt ne touche jamais au HWND hébergé, ce qui contourne le blocage d'ADR-4 finding 3. `WS_EX_LAYERED` est posé dès `CreateWindowExW` (finding 4). Expose `attach()` / `setFrame()` / `detach()`, `syncZOrder()`, un garde `WM_WINDOWPOSCHANGING` (le `hwndInsertAfter` est réécrit en `SHELLDLL_DefView`) et un watchdog 2 s. Compteurs de peinture (`paintReport()`) pour diagnostiquer un « rien à l'écran ».
 - **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
 - **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
-- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` (**le corps déplié**, même enroulé) + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`. Depuis T-009 il porte l'état de navigation (roll-up, visibilité globale, Peek) — voir §11 et ADR-8.
+- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` (**le corps déplié**, même enroulé) + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`. Depuis T-009 il porte l'état de navigation (roll-up, visibilité globale, Peek) — voir §11 et ADR-8. Depuis T-010 il porte aussi les **règles** (`setRules()` / `rules()`) et les applique (`classify()`, `applyRulesTo()`), sans jamais toucher au disque — voir §12.
 - **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie et de la navigation — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones), `clampToBounds`, `visibleRect` (roll-up) et `applyRequest` (la demande de déplacement/redimensionnement résolue en rect stocké). Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 **et** de T-009 unit-testables.
 - **HotkeyManager** (`src/platform/win/hotkey_manager.{hpp,cpp}`, T-009) : `RegisterHotKey` sur une fenêtre message-only (`HWND_MESSAGE`), signal `triggered(id)`. Déclencheur de Peek (F-021) et de quick hide (F-022) tant que les raccourcis ne sont pas configurables (F-033). L'échec d'enregistrement est **remonté**, jamais avalé — `Win+Space` est refusé par Windows.
 - **JsonStore / LayoutStore** (`src/core/jsonstore.{hpp,cpp}`, `src/core/layout_store.{hpp,cpp}`, T-008) : seule source de vérité pour « quelle icône dans quelle zone, où ». `JsonStore` ne connaît que le format (schéma 1, écriture atomique, sérialisation déterministe) ; `LayoutStore` possède le document (chemin, chargement, écriture différée — voir §10 et ADR-7). Les fichiers, eux, restent où ils sont sur le disque.
-- **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
+- **RuleEngine** (`src/core/rules.{hpp,cpp}`) : **pure** — entrée = métadonnées d'un fichier (`core::FileMeta`) + liste ordonnée de règles, sortie = id de la zone cible ou rien. Critères ET-és : extension, motif de nom, fenêtre d'âge (relative à un `now` injectable, donc testable sans horloge). Depuis T-010 le `Layout` transporte les règles et `FenceContainer::applyRulesTo()` les applique — voir §12.
+- **DesktopWatcher** (`src/core/desktop_watcher.{hpp,cpp}`, T-010) : déclencheur de F-018. `QFileSystemWatcher` + instantané des entrées + diff pur (`newEntries()`) + debounce, Qt Core seul, donc testable sans bureau. Il **signale** (`itemsAdded`) ; c'est le conteneur qui range. Voir §12.
 - **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
 
 ## 3. Décisions techniques
@@ -206,8 +209,8 @@ Notes de format :
 
 - `style.background` est en **`#AARRGGBB`**, c'est-à-dire exactement ce que produit `QColor::name(QColor::HexArgb)` : la chaîne se relit sans perte. `iconTint` est omis quand il est vide.
 - `items` est la **composition de la zone** (voir ADR-7) ; `kind` vaut `"file"` jusqu'à F-024 (T-011), une entrée `"portal"` relue étant résolue comme le dossier qu'elle désigne.
-- `rules` est réservé à F-017/F-018 (T-010) et n'est pas encore écrit.
-- Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque** sans opt-in explicite.
+- `rules` est **écrit depuis T-010** (§12). Les critères vivent dans un objet `match` (`type`, `name`, `newerThanDays`, `olderThanDays`) pour qu'un futur critère soit un ajout plutôt qu'une rupture de schéma ; un `match` vide est la règle « attrape-tout ». Un document **sans** `rules` (ce que T-008 écrivait) se charge normalement — le tableau vaut alors vide. Le schéma reste **1** : `rules` était réservé depuis l'origine, ce n'est pas une rupture.
+- Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque**. Le déplacement réel n'est d'ailleurs pas implémenté (T-031).
 
 ## 6. Build, packaging, qualité
 
@@ -218,7 +221,7 @@ Notes de format :
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
 - **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -337,8 +340,8 @@ Les trois comportements de `docs/produit.md` section D. Tous suivent l'ADR-8 : l
 | Fonctionnalité | Ce qui change | Où vit l'état | Geste / déclencheur | Limite assumée |
 |---|---|---|---|---|
 | **F-020 roll-up** | le rect **visible** d'une zone (sa barre de titre) | `FenceWindow::rolledUp` (persisté) | double-clic **ou** molette sur la barre de titre | aucun : c'est complet |
-| **F-022 quick hide** | toutes les zones disparaissent / reviennent | `FenceContainer::m_fencesVisible` | hotkey (état et câblage testés) | le double-clic sur le bureau **vide** exige un hook souris global (T-027) |
-| **F-021 Peek** | le z-order : les zones passent au-dessus de la couche d'icônes | `FenceContainer::m_peekActive` | hotkey `Win+Space` (F-021) | ne flotte pas au-dessus des fenêtres d'application (T-028) |
+| **F-022 quick hide** | toutes les zones disparaissent / reviennent | `FenceContainer::m_fencesVisible` | hotkey (état et câblage testés) | le double-clic sur le bureau **vide** exige un hook souris global (T-028) |
+| **F-021 Peek** | le z-order : les zones passent au-dessus de la couche d'icônes | `FenceContainer::m_peekActive` | hotkey `Win+Space` (F-021) | ne flotte pas au-dessus des fenêtres d'application (T-029) |
 
 ### Roll-up (F-020)
 
@@ -357,22 +360,85 @@ Les trois comportements de `docs/produit.md` section D. Tous suivent l'ADR-8 : l
 
 - `DesktopSurface::setRaisedAboveIcons(true)` → `place()` ancre sur `HWND_TOP` au lieu de `SHELLDLL_DefView`, et la garde `WM_WINDOWPOSCHANGING` réécrit `hwndInsertAfter` en `HWND_TOP` au lieu de la DefView. `HWND_TOP` est le point le plus haut atteignable pour un enfant de `Progman` : la zone passe **au-dessus de la couche d'icônes**.
 - **Mesuré** (`--nav-demo --host`, z-order relu dans la liste des enfants de Progman) : normalement `surface [1]` vs `DefView [0]` (verdict `BelowIconLayer`), en Peek `surface [0]` vs `DefView [4]` (`AboveIconLayer`), puis retour à `[1]`/`[0]`. Le Peek n'est donc pas qu'un booléen.
-- **Ce n'est pas le Peek de Fences** : mettre les zones au-dessus des *fenêtres d'application* suppose un modèle top-level (reparentage ou fenêtre d'overlay), pas un enfant de `Progman`. À trancher en T-028.
+- **Ce n'est pas le Peek de Fences** : mettre les zones au-dessus des *fenêtres d'application* suppose un modèle top-level (reparentage ou fenêtre d'overlay), pas un enfant de `Progman`. À trancher en T-029.
 
 ### Hotkeys (`src/platform/win/hotkey_manager.{hpp,cpp}`)
 
 - `RegisterHotKey` sur une fenêtre **message-only** (`HWND_MESSAGE`) : elle n'est jamais composée, n'apparaît pas dans le z-order et ne peut donc pas interférer avec le placement de l'ADR-4. Elle existe uniquement pour recevoir `WM_HOTKEY`.
 - **L'échec est signalé, jamais avalé** : `Win+Space` — le raccourci donné par F-021 — est **refusé** par Windows (`ERROR_HOTKEY_ALREADY_REGISTERED`), qui le réserve au sélecteur de langue. C'est mesuré et imprimé par la sonde. Quick hide s'enregistre sur `Win+Shift+H`.
-- Les raccourcis ne sont pas encore configurables (T-029 / F-033) : c'est là que la valeur par défaut de Peek devra changer.
+- Les raccourcis ne sont pas encore configurables (T-030 / F-033) : c'est là que la valeur par défaut de Peek devra changer.
 
 ### Vérification
 
 - `tests/test_fence_geometry.cpp` — **19 cas** (14 de T-007 + 5 de T-009) : `visibleRect` enroulé/déplié, hauteur stockée préservée, aimantation de la barre de titre, barre de titre ramenée à l'écran, non-régression du clamp de taille normale.
 - `starfish --nav-demo [--host] [--seconds N]` — rapport dans `build/nav_demo.txt`, code de sortie 0/1. **22/22 PASS** en headless, **29/29 PASS** en `--host`. Points mesurés : rect visible `320×30` et rect stocké inchangé ; redimensionnement enroulé sans effet sur la hauteur ; barre de titre aimantée au bas de l'écran ; dérouler restaure `320×240` ; double-clic et molette passent par les vrais événements Qt et un double-clic dans la grille n'enroule pas ; `rolledUp` écrit dans le document et restauré ; quick hide sans destruction ; z-order mesuré sous puis au-dessus de la DefView.
-- Non-régression : `ctest` **6/6** ; `--fence-demo` **8/8** ; `--fence-demo --host` **3 surfaces** ; `--persist-demo` **27/27** ; `--persist-demo --host` **8 surfaces**.
+- Non-régression : `ctest` **7/7** ; `--fence-demo` **8/8** ; `--fence-demo --host` **3 surfaces** ; `--persist-demo` **26/26** ; `--persist-demo --host` **8 surfaces**.
 
 ### Limites assumées
 
 - **Un `WM_HOTKEY` réel** (l'appui effectif sur la touche) n'est pas testable depuis l'agent : la sonde prouve l'enregistrement et le câblage, pas la frappe. Validation humaine, comme T-021.
-- Le geste du double-clic sur le bureau vide (F-022) et le Peek au-dessus des fenêtres (F-021) sont les deux écarts restants par rapport à Fences 6 (T-027 / T-028).
+- Le geste du double-clic sur le bureau vide (F-022) et le Peek au-dessus des fenêtres (F-021) sont les deux écarts restants par rapport à Fences 6 (T-028 / T-029).
+
+## 12. Auto-organisation : règles et surveillance du dossier (T-010, session 17)
+
+F-017 (les règles) et F-018 (leur déclencheur). Le critère de sortie de la Phase 4 est ici : « un fichier déposé dans `~/Desktop` est automatiquement rangé selon une règle ».
+
+Trois pièces, découpées comme les précédentes — aucune ne connaît les widgets, et deux sont testables sans écran :
+
+| Pièce | Rôle | Dépendances |
+|---|---|---|
+| `core/rules.{hpp,cpp}` (`RuleEngine`) | **décider** : quelle règle s'applique à ce fichier | Qt Core seul, pur |
+| `core/desktop_watcher.{hpp,cpp}` (`DesktopWatcher`) | **déclencher** : dire qu'un fichier vient d'apparaître | Qt Core seul (`QFileSystemWatcher`) |
+| `FenceContainer::applyRulesTo()` | **appliquer** : mettre l'item dans la zone visée | le conteneur, déjà propriétaire des zones |
+
+### Critères de correspondance (F-017)
+
+`Rule` porte des critères **ET**-és ; un critère vide vaut « n'importe lequel », et la **première règle qui correspond gagne** (l'ordre de la liste est l'ordre de priorité).
+
+| Critère | Champ | Remarque |
+|---|---|---|
+| type (extension) | `extensions` (`match.type`) | minuscules, sans point ; comparé au suffixe du **nom de fichier sur disque** |
+| nom (motif) | `namePattern` (`match.name`) | joker `*`/`?` via `QRegularExpression::fromWildcard`, insensible à la casse |
+| date | `newerThanDays` / `olderThanDays` | **relatif à maintenant**, bornes exactes (`now.addDays(-N)`) |
+| emplacement cible | `targetFenceId` (`targetFence`) | l'id d'une zone du même document |
+
+Deux choix de conception à ne pas défaire :
+
+1. **Les dates sont relatives, pas absolues.** Une règle « modifié il y a moins de 7 jours » garde son sens dans le temps ; une règle écrite avec des horodatages absolus deviendrait fausse au bout d'une semaine, et un layout restauré sur une autre machine ne correspondrait plus à rien.
+2. **Le nom comparé est celui du disque, extension comprise**, pas le nom d'affichage du Shell. Le Shell masque l'extension des types connus (« photo.png » s'affiche « photo ») : un critère de type qui ne verrait pas l'extension ne correspondrait **jamais**. C'est le rôle de `core::fileMetaFromItem()`.
+
+Un fichier dont la date de modification est illisible (`modified` invalide) **ne satisfait pas** un critère de date : il ne doit pas tomber dans « plus vieux que 30 jours » par accident.
+
+### Déclencheur : `DesktopWatcher` (F-018)
+
+`QFileSystemWatcher` dit seulement « ce dossier a changé », jamais comment. Le watcher garde donc un **instantané** des entrées et le diffé contre l'état courant (`newEntries()`, fonction **pure**, testée sur des listes synthétiques).
+
+- **Le diff est calculé au moment du debounce**, pas à la réception de l'événement : un fichier créé puis supprimé dans la fenêtre ne sera jamais signalé, ce qui est le comportement voulu.
+- **Debounce (400 ms par défaut)** : Windows émet plusieurs notifications par fichier créé, et le fichier peut encore être en cours d'écriture à la première. Une rafale donne **un** `itemsAdded()`.
+- **La ligne de base est prise au démarrage** : les entrées déjà présentes ne sont **pas** signalées. Une règle ne doit pas re-ranger tout le bureau à chaque lancement.
+- **Ré-armement** : `QFileSystemWatcher` oublie un chemin qui disparaît (dossier supprimé puis recréé, lecteur démonté). Le watcher le ré-ajoute au lieu de devenir sourd en silence.
+
+### Application, et la règle d'or
+
+`FenceContainer::applyRulesTo(items)` met chaque item dont la règle désigne une zone **existante** dans la grille de cette zone, et retourne combien ont été réellement placés.
+
+- **Aucun fichier n'est déplacé sur le disque, jamais.** Une règle décide quelle zone **montre** un item. `moveFiles` est persisté et relu, mais le déplacement réel sur disque n'est **pas implémenté** (T-031) : une règle mal écrite qui relocalise silencieusement des fichiers utilisateur est irréversible, et la règle d'or d'`AGENTS.md` est de ne jamais déplacer un fichier sans opt-in explicite — ce que « ne jamais déplacer » satisfait par construction. La sonde le **prouve** : après application, le fichier est toujours à son chemin d'origine.
+- **Idempotence** : un item déjà présent dans la zone visée (comparaison de chemins insensible à la casse, Windows oblige) n'est pas ajouté une seconde fois — sinon une notification répétée re-rendrait la zone et réécrirait le document pour rien.
+- **Une règle orpheline** (elle vise une zone supprimée) est signalée et ignorée : l'item reste où il est, aucune exception.
+- **Les règles appartiennent au document** (`Layout::rules`, tableau `rules` du §5) : elles sont donc sauvegardées, restaurées et exportables avec les zones. `applyLayout()` les réinstalle **sans émettre `rulesChanged`** — appliquer le document n'est pas le modifier, et l'annoncer ferait passer un démarrage pour une édition.
+
+### Vérification
+
+- `tests/test_rules.cpp` — **13 cas** (7 de T-002 + 6 de T-010 : fenêtre d'âge, bornes, date illisible, ET avec les autres critères, adaptation depuis un `DesktopItem`).
+- `tests/test_desktop_watcher.cpp` — **5 cas** : diff pur, la ligne de base ne se signale pas elle-même, un fichier qui apparaît est signalé, une rafale de trois donne **un** signal, une suppression n'est pas un ajout (et le watch survit).
+- `tests/test_layout_store.cpp` — **+2 cas** : aller-retour du tableau `rules` (tous les critères, octets identiques) et un document **sans** `rules` (ce que T-008 écrivait) qui continue de se charger.
+- `starfish --rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]` — rapport `build/rules_demo.txt`, code de sortie 0/1. **28/28 PASS**, mesuré : la première règle qui correspond gagne, la fenêtre d'âge rejette un fichier du jour et accepte un fichier de 4000 jours, les règles reviennent intactes après un aller-retour par le disque, un fichier **réellement créé** dans un dossier surveillé est signalé en **300 ms** et se retrouve dans la bonne zone, le `.txt` trop récent n'est **pas** rangé, et les deux fichiers sont toujours à leur place d'origine.
+- Non-régression : `ctest` **7/7** ; `--fence-demo` **8/8** ; `--persist-demo` **26/26** ; `--nav-demo` **22/22**.
+
+### Limites assumées
+
+- **Pas de déplacement sur disque** (`moveFiles: true`), volontairement : T-031.
+- **Pas d'interface de création de règles** : elles se déclarent en JSON (le format est stable) ou par `setRules()`. Un éditeur de règles est une tâche d'interface, à raccrocher à la page de réglages (F-034 / T-015).
+- **Le watcher ne surveille que le premier niveau** d'un dossier. Les règles ne s'appliquent donc pas à ce qui apparaît dans un sous-dossier — ce qui est cohérent avec F-018 (« nouveaux éléments du bureau »), mais à revoir si un portail (T-011) doit être surveillé.
+- **`DesktopScanner` n'est pas branché sur le watcher dans un mode produit** : il n'existe pas encore de « mode normal » (T-015). La sonde câble la séquence exacte (`itemsAdded` → `itemForPath` → `applyRulesTo`) ; en production le resolver sera `DesktopScanner::itemForPath`, comme pour les drops de l'Explorer.
 

@@ -35,6 +35,22 @@ Fence makeFence(const QString& id, const QString& title, const QRect& rect)
     return fence;
 }
 
+// T-010: a rule carrying every criterion, so the round-trip test below covers
+// the whole `match` object and not just the easy half.
+Rule makeRule()
+{
+    Rule rule;
+    rule.id = QStringLiteral("rule-001");
+    rule.name = QStringLiteral("Images → Médias");
+    rule.extensions = {QStringLiteral("jpg"), QStringLiteral("png")};
+    rule.namePattern = QStringLiteral("shot*");
+    rule.newerThanDays = 30;
+    rule.olderThanDays = 1;
+    rule.targetFenceId = QStringLiteral("fence-001");
+    rule.moveFiles = true;
+    return rule;
+}
+
 Layout makeLayout()
 {
     Layout layout;
@@ -42,6 +58,7 @@ Layout makeLayout()
                                QRect(10, 20, 480, 320)),
                      makeFence(QStringLiteral("fence-002"), QStringLiteral("Perso"),
                                QRect(500, 20, 200, 160))};
+    layout.rules = {makeRule()};
     return layout;
 }
 
@@ -61,6 +78,9 @@ private slots:
     void setLayoutIgnoresAnIdenticalDocument();
     void scheduleSaveDebouncesABurst();
     void saveNowReportsFailureOnAnUnwritablePath();
+    // T-010 -- the `rules` array.
+    void jsonRoundTripsRules();
+    void jsonAcceptsADocumentWithoutRules();
 };
 
 void TestLayoutStore::jsonRoundTripsEveryField()
@@ -247,6 +267,66 @@ void TestLayoutStore::saveNowReportsFailureOnAnUnwritablePath()
     QCOMPARE(signalled, error);
     // Still dirty: the next change retries rather than losing the layout.
     QCOMPARE(store.isDirty(), true);
+}
+
+void TestLayoutStore::jsonRoundTripsRules()
+{
+    const Layout original = makeLayout();
+    const QByteArray payload = JsonStore::toJson(original);
+
+    // The shape is the documented one (docs/technique.md section 5): criteria
+    // nested under `match`, the destination named `targetFence`.
+    QVERIFY(payload.contains(QByteArrayLiteral("\"rules\"")));
+    QVERIFY(payload.contains(QByteArrayLiteral("\"match\"")));
+    QVERIFY(payload.contains(QByteArrayLiteral("\"targetFence\": \"fence-001\"")));
+
+    QString error;
+    const auto parsed = JsonStore::fromJson(payload, &error);
+    QVERIFY2(parsed.has_value(), qPrintable(error));
+    QCOMPARE(parsed->rules.size(), 1);
+
+    const Rule& rule = parsed->rules.at(0);
+    QCOMPARE(rule.id, QStringLiteral("rule-001"));
+    QCOMPARE(rule.name, QStringLiteral("Images → Médias"));
+    QCOMPARE(rule.extensions, QStringList({QStringLiteral("jpg"), QStringLiteral("png")}));
+    QCOMPARE(rule.namePattern, QStringLiteral("shot*"));
+    QCOMPARE(rule.newerThanDays.value_or(-1), 30);
+    QCOMPARE(rule.olderThanDays.value_or(-1), 1);
+    QCOMPARE(rule.targetFenceId, QStringLiteral("fence-001"));
+    QCOMPARE(rule.moveFiles, true);
+
+    // Still byte-identical, so an unchanged rule list does not rewrite the file.
+    QCOMPARE(JsonStore::toJson(*parsed), payload);
+
+    // An absent criterion stays absent instead of becoming a zero that would
+    // silently mean "modified within the last 0 days".
+    Rule bare;
+    bare.targetFenceId = QStringLiteral("fence-002");
+    Layout sparse;
+    sparse.rules = {bare};
+    const auto reread = JsonStore::fromJson(JsonStore::toJson(sparse), &error);
+    QVERIFY2(reread.has_value(), qPrintable(error));
+    QCOMPARE(reread->rules.at(0).extensions.size(), 0);
+    QVERIFY(!reread->rules.at(0).newerThanDays.has_value());
+    QVERIFY(!reread->rules.at(0).olderThanDays.has_value());
+    QCOMPARE(reread->rules.at(0).moveFiles, false);
+}
+
+void TestLayoutStore::jsonAcceptsADocumentWithoutRules()
+{
+    // Exactly what T-008 wrote: no `rules` key at all. Adding the key must not
+    // make an existing layout unreadable.
+    const QByteArray legacy = QByteArrayLiteral(
+        "{\n  \"schema\": 1,\n  \"fences\": [\n    {\n      \"id\": \"fence-001\",\n"
+        "      \"title\": \"Travail\",\n      \"rect\": { \"x\": 0, \"y\": 0, \"w\": 100, \"h\": 80 }\n"
+        "    }\n  ]\n}");
+
+    QString error;
+    const auto parsed = JsonStore::fromJson(legacy, &error);
+    QVERIFY2(parsed.has_value(), qPrintable(error));
+    QCOMPARE(parsed->fences.size(), 1);
+    QCOMPARE(parsed->fences.at(0).title, QStringLiteral("Travail"));
+    QCOMPARE(parsed->rules.size(), 0);
 }
 
 QTEST_MAIN(TestLayoutStore)

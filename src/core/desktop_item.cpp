@@ -164,4 +164,15 @@ DesktopItem itemFromPathOnly(const QString& path)
     return item;
 }
 
+FileMeta fileMetaFromItem(const DesktopItem& item)
+{
+    FileMeta meta;
+    meta.name = item.fileName.isEmpty() ? item.name : item.fileName;
+    meta.path = item.path;
+    meta.isDir = item.isDir;
+    meta.sizeBytes = item.sizeBytes;
+    meta.modified = item.modified;
+    return meta;
+}
+
 } // namespace starfish::core

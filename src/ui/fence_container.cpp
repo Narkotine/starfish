@@ -59,6 +59,67 @@ core::DesktopItem FenceContainer::resolveItem(const QString& path) const
     return m_itemResolver ? m_itemResolver(path) : core::itemFromPathOnly(path);
 }
 
+core::DesktopItem FenceContainer::itemForPath(const QString& path) const
+{
+    return resolveItem(path);
+}
+
+void FenceContainer::setRules(QList<core::Rule> rules)
+{
+    m_rules = std::move(rules);
+    qCInfo(lc).noquote() << QStringLiteral("rules set: %1").arg(m_rules.size());
+    emit rulesChanged();
+}
+
+std::optional<QString> FenceContainer::classify(const core::DesktopItem& item) const
+{
+    if (m_rules.isEmpty() || item.path.isEmpty())
+        return std::nullopt;
+    return core::RuleEngine::classify(core::fileMetaFromItem(item), m_rules);
+}
+
+int FenceContainer::applyRulesTo(const QList<core::DesktopItem>& items)
+{
+    int placed = 0;
+    for (const core::DesktopItem& item : items) {
+        const std::optional<QString> target = classify(item);
+        if (!target)
+            continue; // no rule wanted it: it stays where it is
+
+        FenceWindow* fence = find(*target);
+        if (!fence || !fence->view) {
+            // A rule naming a fence that no longer exists is stale, not fatal.
+            // Say so rather than dropping the item in silence.
+            qCWarning(lc).noquote()
+                << QStringLiteral("rule target %1 does not exist, \"%2\" left alone")
+                       .arg(*target, item.path);
+            continue;
+        }
+
+        // Windows paths are case-insensitive, and an item already filed must
+        // not be appended again: that would re-render the fence and rewrite the
+        // document for nothing.
+        bool alreadyThere = false;
+        for (const core::DesktopItem& existing : fence->view->items()) {
+            if (existing.path.compare(item.path, Qt::CaseInsensitive) == 0) {
+                alreadyThere = true;
+                break;
+            }
+        }
+        if (alreadyThere)
+            continue;
+
+        // addDroppedItems() emits contentChanged(), which the container already
+        // relays as fenceContentChanged() -- no need to emit it here.
+        fence->view->addDroppedItems({item});
+        emit ruleApplied(item.path, fence->id);
+        ++placed;
+    }
+    if (placed > 0)
+        qCInfo(lc).noquote() << QStringLiteral("rules filed %1 item(s)").arg(placed);
+    return placed;
+}
+
 void FenceContainer::setDesktopBounds(const QSize& bounds)
 {
     if (bounds.isEmpty())
@@ -332,6 +393,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
 core::Layout FenceContainer::toLayout() const
 {
     core::Layout layout;
+    layout.rules = m_rules;
     layout.fences.reserve(m_fences.size());
     for (const FenceWindow& fence : m_fences) {
         core::Fence out;
@@ -373,6 +435,11 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
     while (!m_fences.isEmpty())
         removeFence(m_fences.first().id);
 
+    // The rules come back too, without announcing a change: applying the
+    // document is not modifying it, and announcing it here would make a
+    // startup restore look like an edit and trigger a pointless write.
+    m_rules = layout.rules;
+
     for (const core::Fence& stored : layout.fences) {
         QList<core::DesktopItem> items;
         items.reserve(stored.items.size());
@@ -385,8 +452,9 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
                                     stored.sortAscending, stored.rolledUp, items);
         find(id)->monitor = stored.monitor;
     }
-    qCInfo(lc).noquote()
-        << QStringLiteral("applied layout: %1 fence(s)").arg(m_fences.size());
+    qCInfo(lc).noquote() << QStringLiteral("applied layout: %1 fence(s), %2 rule(s)")
+                                .arg(m_fences.size())
+                                .arg(m_rules.size());
     return true;
 }
 
