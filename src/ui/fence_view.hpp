@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -32,6 +33,16 @@ public:
     void setItems(QList<core::DesktopItem> items);
     const QList<core::DesktopItem>& items() const { return m_grid.items(); }
     void setSort(const QString& by, bool ascending);
+    QString sortBy() const { return m_grid.sortBy(); }
+    bool sortAscending() const { return m_grid.ascending(); }
+
+    // Visual style of the panel (T-008 persists these through FenceStyle). The
+    // colour is stored opaque on purpose: the alpha channel of the persisted
+    // style belongs to the per-pixel surface path (T-017), not to this widget.
+    void setPanelColor(const QColor& color);
+    QColor panelColor() const { return m_panelColor; }
+    void setCornerRadius(int px);
+    int cornerRadius() const { return m_cornerRadius; }
 
     // Where icons come from. Bound by the application to a ShellIconCache.
     void setIconProvider(IconGrid::IconProvider provider) { m_iconProvider = std::move(provider); }
@@ -95,6 +106,8 @@ private:
     static constexpr int kResizeBorder = 6;
 
     QString m_title;
+    QColor m_panelColor{0x1F, 0x29, 0x37};
+    int m_cornerRadius = kCornerRadius;
     IconGrid m_grid;
     IconGrid::IconProvider m_iconProvider;
 

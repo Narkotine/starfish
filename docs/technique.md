@@ -39,9 +39,9 @@
 - **DesktopSurface** (`src/platform/win/desktop_surface.{hpp,cpp}`) : **le chemin de rendu retenu (T-020, §7 piste (a))**. Surface Win32 brute hébergée sous `Progman` qui possède son propre `WNDPROC` : elle blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()` dans un `QImage`). Qt ne touche jamais au HWND hébergé, ce qui contourne le blocage d'ADR-4 finding 3. `WS_EX_LAYERED` est posé dès `CreateWindowExW` (finding 4). Expose `attach()` / `setFrame()` / `detach()`, `syncZOrder()`, un garde `WM_WINDOWPOSCHANGING` (le `hwndInsertAfter` est réécrit en `SHELLDLL_DefView`) et un watchdog 2 s. Compteurs de peinture (`paintReport()`) pour diagnostiquer un « rien à l'écran ».
 - **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
 - **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
-- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + `QRect` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**.
+- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`.
 - **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones) et `clampToBounds`. Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 unit-testables.
-- **LayoutStore** : seule source de vérité pour « quelle icône dans quelle zone, où ». Format JSON versionné (voir §5). Les fichiers, eux, restent où ils sont sur le disque.
+- **JsonStore / LayoutStore** (`src/core/jsonstore.{hpp,cpp}`, `src/core/layout_store.{hpp,cpp}`, T-008) : seule source de vérité pour « quelle icône dans quelle zone, où ». `JsonStore` ne connaît que le format (schéma 1, écriture atomique, sérialisation déterministe) ; `LayoutStore` possède le document (chemin, chargement, écriture différée — voir §10 et ADR-7). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
 - **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
 
@@ -124,10 +124,18 @@ Z-order à recalculer sur `WM_SETTINGCHANGE`, changement de résolution et redé
 - ⚠️ Le compte de pixels n'est valable que si le bureau est visible : `spike_surface_min` **masque sa propre console** au démarrage (une fenêtre de console est une fenêtre top-level qui recouvre le rectangle de test) et **avertit** quand une fenêtre top-level recouvre ce rectangle.
 
 ### ADR-5 — Persistance JSON versionné
-Exemple (§) : lisible, diff-able, exportable (F-028). Écriture atomique (fichier temporaire + `ReplaceFile`). Emplacement : `%APPDATA%/StarFish/`.
+Exemple (§5) : lisible, diff-able, exportable (F-028). Écriture atomique (`QSaveFile`, fichier temporaire + commit). Emplacement : `%APPDATA%/StarFish/layout.json` (`QStandardPaths::AppDataLocation`), créé au premier enregistrement. **Implémenté en T-008** : `core::JsonStore` (format) + `core::LayoutStore` (propriétaire du document, écriture différée) — voir §10.
 
 ### ADR-6 — Local-first
 Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Les folder portals pointent vers des dossiers locaux ou réseau de l'utilisateur, jamais vers un service StarFish.
+
+### ADR-7 — Le layout est la seule autorité sur le contenu d'une zone, et l'écriture est différée
+Deux conséquences de T-008, à respecter par la suite :
+
+1. **Le document, pas le disque, décide de ce qu'une zone affiche.** Une entrée restaurée dont le fichier a disparu est **conservée** (nom déduit du chemin) plutôt que retirée : une clé USB débranchée ne doit pas vider les zones de l'utilisateur. Le scan du bureau ne sert donc qu'à *résoudre* les métadonnées d'affichage (nom Shell, icône, cible de raccourci), jamais à décider de la composition des zones.
+2. **Aucune écriture sans changement, aucune écriture en rafale.** Un drag émet un `fenceRectChanged` par déplacement de souris (~60/s) : `LayoutStore` compare le document candidat au document courant (sérialisation déterministe) et n'arme un timer d'écriture (500 ms, réarmé à chaque changement) que si les octets diffèrent. Une sélection qui change ne réécrit donc rien (la sélection n'est pas persistée), et un geste entier produit **une** écriture.
+
+Corollaire : un fichier illisible, tronqué ou de schéma inconnu est **refusé** et le layout courant est **conservé** (jamais remplacé par du vide). L'erreur est remontée à l'appelant (`LayoutStore::saveFailed` / `load`), pas avalée.
 
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
@@ -148,21 +156,23 @@ Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Le
 
 ## 5. Modèle de données (ébauche)
 
+Le document ci-dessous est celui que `core::JsonStore` écrit réellement depuis T-008 (schéma 1) ; `docs/technique.md` §10 décrit qui l'écrit et quand.
+
 ```json
 {
   "schema": 1,
   "fences": [
     {
-      "id": "uuid",
+      "id": "fence-001",
       "title": "Travail",
       "monitor": "\\\\.\\DISPLAY1",
       "rect": { "x": 0, "y": 0, "w": 480, "h": 320 },
       "style": {
-        "bg": "#1F2937CC", "radius": 10, "padding": 12,
-        "iconSize": 48, "gap": 8, "titleBar": true,
-        "iconTint": null
+        "background": "#CC1F2937", "radius": 10, "padding": 12,
+        "iconSize": 48, "gap": 8, "titleBar": true
       },
-      "sort": { "by": "name", "asc": true },
+      "sort": "name",
+      "sortAscending": true,
       "rolledUp": false,
       "items": [
         { "kind": "file",  "path": "C:\\Users\\x\\Desktop\\a.pdf" },
@@ -178,7 +188,12 @@ Aucun accès réseau fonctionnel, aucune télémétrie, aucun compte (F-037). Le
 }
 ```
 
-Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque** sans opt-in explicite.
+Notes de format :
+
+- `style.background` est en **`#AARRGGBB`**, c'est-à-dire exactement ce que produit `QColor::name(QColor::HexArgb)` : la chaîne se relit sans perte. `iconTint` est omis quand il est vide.
+- `items` est la **composition de la zone** (voir ADR-7) ; `kind` vaut `"file"` jusqu'à F-024 (T-011), une entrée `"portal"` relue étant résolue comme le dossier qu'elle désigne.
+- `rules` est réservé à F-017/F-018 (T-010) et n'est pas encore écrit.
+- Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque** sans opt-in explicite.
 
 ## 6. Build, packaging, qualité
 
@@ -189,7 +204,7 @@ Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jam
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
 - **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -267,4 +282,37 @@ Le candidat retenu sur chaque axe est le plus proche ; les deux axes sont indép
 - Le geste à la souris **sur le bureau hébergé** (barre de titre / poignées) n'est pas vérifiable depuis l'agent : la sonde prouve le câblage, pas le ressenti. Validation humaine, comme T-021.
 - Coordonnées en client de `Progman`, donc moniteur principal uniquement — offsets multi-écrans en T-014.
 - Pas encore d'aimantation magnétique « collante » (la zone ne reste pas accrochée) ni de guides visuels dessinés ; ni de redimensionnement au clavier.
+
+## 10. Persistance du layout (T-008, session 14)
+
+**Décision : deux pièces, comme pour la géométrie.** `core::JsonStore` ne connaît que le *format* (et rien d'autre) ; `core::LayoutStore` possède le *document* — son chemin, sa lecture, et le moment de l'écriture. Ni l'un ni l'autre ne connaît Qt Widgets ou Win32, donc les deux sont testables sans écran.
+
+| Pièce | Rôle | Fichier |
+|---|---|---|
+| `JsonStore` | Format schéma 1 : `toJson` / `fromJson` / `save` (atomique, crée le dossier parent) / `load`. Sérialisation **déterministe** (`QJsonObject` trie ses clés) — c'est ce qui permet de comparer deux documents. | `src/core/jsonstore.{hpp,cpp}` |
+| `LayoutStore` | Chemin du document (défaut `%APPDATA%/StarFish/layout.json`), `load`, `setLayout` (retourne `true` **seulement** si le document a changé), `scheduleSave` (timer 500 ms réarmé), `saveNow`, signaux `layoutLoaded` / `layoutChanged` / `saved` / `saveFailed`. | `src/core/layout_store.{hpp,cpp}` |
+| `FenceContainer` | `toLayout()` (les zones vivantes → document) et `applyLayout()` (document → zones, ids conservés). Les chemins d'items repassent par un `ItemResolver` injectable. | `src/ui/fence_container.{hpp,cpp}` |
+
+**Le câblage produit** est celui que la sonde exerce : `fenceCreated` / `fenceRemoved` / `fenceRectChanged` / `fenceContentChanged` → `store.setLayout(container.toLayout())` + `store.scheduleSave()`. Le relâchement d'un geste n'a donc rien de spécial à faire : la dernière position arrive par le même chemin que les autres.
+
+**Resolver d'items.** `FenceContainer::setItemResolver()` permet de résoudre un chemin restauré en `DesktopItem`. Défaut : `core::itemFromPathOnly()` (nom déduit du chemin, drapeaux dossier/caché depuis le système de fichiers local — **aucun appel Shell**), ce qui rend la restauration testable et utilisable en mode headless. Le produit y branche `DesktopScanner::itemForPath()` pour que la tuile restaurée soit exactement ce que le Shell dessinerait. Le resolver est aussi utilisé pour les drops de l'Explorer, donc un seul chemin de résolution.
+
+**Restaurer, c'est remplacer.** `applyLayout()` détruit les zones courantes (jamais les fichiers) puis les recrée avec leurs **ids d'origine**, et `addFence` avance le compteur d'ids au-delà du plus grand numéro restauré : une zone créée après un redémarrage ne peut pas réutiliser l'id d'une zone restaurée. Un schéma inconnu fait échouer `applyLayout` **sans rien toucher**.
+
+**Éléments persistés mais pas encore agis** : `monitor` (T-014), `rolledUp` (F-020 / T-009), l'alpha de `style.background` (T-017). Ils voyagent déjà, donc le schéma ne bougera pas quand ces tâches arriveront. Le rayon et la couleur RGB du fond, eux, sont **appliqués** (`FenceView::setPanelColor` / `setCornerRadius`), et le remplissage opaque de `renderFence` est dérivé de la couleur du panneau : les deux ne peuvent plus diverger.
+
+### Vérification
+
+- `tests/test_layout_store.cpp` — **9 cas** : aller-retour de tous les champs (style, tri, items, `rolledUp`, `monitor`), refus d'un autre schéma, refus d'un JSON invalide, création du dossier parent, fichier absent = premier lancement, fichier corrompu refusé **avec le layout conservé**, `setLayout` qui ignore un document identique, rafale de 10 changements → **une seule** écriture, échec d'écriture signalé et document laissé sale.
+- `tests/test_desktop_item.cpp` — **+1 cas** : `itemFromPathOnly` conserve une entrée dont le fichier n'existe plus.
+- `starfish --persist-demo [--host] [--seconds N] [--layout FILE]` — **27/27 PASS**, `rc=0`, rapport dans `build/persist_demo.txt`. Points mesurés : rafale de 6 signaux → **1 écriture** ; une sélection qui change → **0 écriture** ; rect aimanté **440,400 280x200** retrouvé à l'identique après « redémarrage » ; document **identique octet pour octet** après aller-retour ; zone supprimée absente du fichier ; fichier corrompu refusé (`unterminated object`) avec le layout conservé.
+- `--persist-demo --host` : les zones restaurées sont réellement hébergées — **8 `DesktopSurface`** au total pendant le scénario, toutes `layered ex 0x80000`, `alpha call 1 (err 0)`, `placed 1`, dont les deux zones restaurées à `120,90 320x240` et **`440,400 280x200`** (la position aimantée d'avant le redémarrage).
+- Non-régression : `ctest` **6/6 verts** ; `--fence-demo` **8/8 PASS** ; `--fence-demo --host` **3 surfaces** + 83 entrées réelles du bureau.
+
+### Limites assumées
+
+- Le démarrage de l'application (chargement du layout avant la première frame) n'est pas encore branché sur un mode produit : il n'existe pas encore de « mode normal » (Phase 6 / T-015). La sonde exerce exactement la séquence prévue, mais c'est elle qui l'orchestre.
+- Pas de sauvegarde sur `aboutToQuit` dans un mode produit (elle viendra avec le mode normal) ; le debounce de 500 ms suffit en pratique, mais un arrêt brutal dans les 500 ms qui suivent un déplacement perd ce déplacement.
+- Pas de versionnage au-delà du refus : un schéma 2 futur devra prévoir une migration (F-028 / T-012).
+- `kind: "portal"` n'est pas encore produit (F-024 / T-011).
 

@@ -7,6 +7,7 @@ qt_add_executable(starfish WIN32
     core/desktop_item.cpp
     core/rules.cpp
     core/jsonstore.cpp
+    core/layout_store.cpp
     core/zorder.cpp
     platform/win/desktop_host.cpp
     platform/win/desktop_surface.cpp

@@ -57,4 +57,13 @@ void sortForDisplay(QList<DesktopItem>& items, const QString& by, bool ascending
 // per-user entry wins.
 QList<DesktopItem> mergeDesktopItems(const QList<DesktopItem>& items);
 
+// A DesktopItem built from a path alone (T-008): display name from the file
+// name, directory/hidden flags from the local filesystem, nothing from the
+// Shell. Used when a persisted layout is restored without a Shell resolver --
+// tests and headless probes -- so the restore path does not need Windows.
+// The entry is kept even when the file is gone: the layout is the authority on
+// *what a fence shows*, and a temporarily missing file must not silently empty
+// a fence.
+DesktopItem itemFromPathOnly(const QString& path);
+
 } // namespace starfish::core

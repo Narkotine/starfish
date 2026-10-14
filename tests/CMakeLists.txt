@@ -67,3 +67,19 @@ target_include_directories(test_starfish_fence_geometry PRIVATE
 target_link_libraries(test_starfish_fence_geometry PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME ui_fence_geometry COMMAND test_starfish_fence_geometry)
+
+# Layout persistence (T-008): the versioned document, its atomic write, the
+# debounced auto-save and the refusal to load a corrupted file. Pure Qt Core.
+add_executable(test_starfish_layout_store
+    test_layout_store.cpp
+    ../src/core/jsonstore.cpp
+    ../src/core/layout_store.cpp
+)
+
+target_include_directories(test_starfish_layout_store PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_layout_store PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_layout_store COMMAND test_starfish_layout_store)

@@ -1,6 +1,8 @@
 #include "core/jsonstore.hpp"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -89,7 +91,7 @@ static Fence fenceFromJson(const QJsonObject& o)
     return f;
 }
 
-bool JsonStore::save(const Layout& layout, const QString& filePath, QString* error)
+QByteArray JsonStore::toJson(const Layout& layout)
 {
     QJsonObject root;
     root["schema"] = layout.schema;
@@ -97,8 +99,43 @@ bool JsonStore::save(const Layout& layout, const QString& filePath, QString* err
     for (const auto& f : layout.fences)
         fences.append(fenceToJson(f));
     root["fences"] = fences;
+    return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
 
-    const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
+std::optional<Layout> JsonStore::fromJson(const QByteArray& data, QString* error)
+{
+    QJsonParseError parseError;
+    const auto doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        if (error)
+            *error = parseError.errorString();
+        return std::nullopt;
+    }
+    const auto root = doc.object();
+    if (root["schema"].toInt() != Layout{}.schema) {
+        if (error)
+            *error = QStringLiteral("unsupported schema: %1").arg(root["schema"].toInt());
+        return std::nullopt;
+    }
+
+    Layout layout;
+    for (const auto& v : root["fences"].toArray())
+        layout.fences.append(fenceFromJson(v.toObject()));
+    return layout;
+}
+
+bool JsonStore::save(const Layout& layout, const QString& filePath, QString* error)
+{
+    const QByteArray payload = toJson(layout);
+
+    // The layout lives in %APPDATA%/StarFish/, which does not exist on a fresh
+    // profile: create it rather than failing the very first save.
+    const QString dir = QFileInfo(filePath).absolutePath();
+    if (!dir.isEmpty() && !QDir().mkpath(dir)) {
+        if (error)
+            *error = QStringLiteral("could not create %1").arg(dir);
+        return false;
+    }
 
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -127,24 +164,7 @@ std::optional<Layout> JsonStore::load(const QString& filePath, QString* error)
             *error = file.errorString();
         return std::nullopt;
     }
-    QJsonParseError parseError;
-    const auto doc = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError) {
-        if (error)
-            *error = parseError.errorString();
-        return std::nullopt;
-    }
-    const auto root = doc.object();
-    if (root["schema"].toInt() != Layout{}.schema) {
-        if (error)
-            *error = QStringLiteral("unsupported schema: %1").arg(root["schema"].toInt());
-        return std::nullopt;
-    }
-
-    Layout layout;
-    for (const auto& v : root["fences"].toArray())
-        layout.fences.append(fenceFromJson(v.toObject()));
-    return layout;
+    return fromJson(file.readAll(), error);
 }
 
 } // namespace starfish::core

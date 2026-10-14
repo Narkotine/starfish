@@ -41,6 +41,7 @@ private slots:
     void sortsByDate();
     void mergePrefersTheUserDesktop();
     void mergeKeepsOrderAndDropsDuplicates();
+    void itemFromPathOnlyKeepsMissingEntries();
 };
 
 void TestDesktopItem::dotHiddenNames()
@@ -154,6 +155,26 @@ void TestDesktopItem::mergeKeepsOrderAndDropsDuplicates()
 
     const QList<DesktopItem> merged = mergeDesktopItems({a, b, shared});
     QCOMPARE(namesOf(merged), QStringList({QStringLiteral("a.txt"), QStringLiteral("b.txt")}));
+}
+
+// T-008: the restore path must survive a file that is no longer there -- the
+// layout, not the disk, decides what a fence shows.
+void TestDesktopItem::itemFromPathOnlyKeepsMissingEntries()
+{
+    const DesktopItem missing = itemFromPathOnly(QStringLiteral("C:/Nowhere/report.pdf"));
+    QCOMPARE(missing.path, QStringLiteral("C:/Nowhere/report.pdf"));
+    QCOMPARE(missing.name, QStringLiteral("report.pdf"));
+    QCOMPARE(missing.fileName, QStringLiteral("report.pdf"));
+    QCOMPARE(missing.isDir, false);
+    QCOMPARE(missing.isHidden, false);
+    QCOMPARE(missing.sizeBytes, qint64(-1));
+    QVERIFY(missing.modified.isNull());
+
+    // The dot convention still applies without any filesystem lookup.
+    QCOMPARE(itemFromPathOnly(QStringLiteral("C:/Nowhere/.gitignore")).isHidden, true);
+
+    // An empty path stays empty: that is how the container drops an entry.
+    QCOMPARE(itemFromPathOnly(QString()).path, QString());
 }
 
 QTEST_MAIN(TestDesktopItem)

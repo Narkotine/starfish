@@ -4,7 +4,9 @@
 #include <QDebug>
 #include <QDir>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QLoggingCategory>
@@ -18,6 +20,8 @@
 #include <QWindow>
 
 #include "core/desktop_item.hpp"
+#include "core/jsonstore.hpp"
+#include "core/layout_store.hpp"
 #include "core/zorder.hpp"
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_scanner.hpp"
@@ -536,6 +540,17 @@ int main(int argc, char* argv[])
         QStringLiteral("host"),
         QStringLiteral("With --fence-demo: also host the fences on the desktop through "
                        "DesktopSurface instead of running headless."));
+    const QCommandLineOption layoutOption(
+        QStringLiteral("layout"),
+        QStringLiteral("Path of the layout document (T-008). Defaults to "
+                       "%APPDATA%/StarFish/layout.json; --persist-demo uses "
+                       "build/layout_demo.json unless this is given."),
+        QStringLiteral("file"));
+    const QCommandLineOption persistDemoOption(
+        QStringLiteral("persist-demo"),
+        QStringLiteral("T-008 diagnostic: run the persistence round trip (build fences, "
+                       "auto-save, drop the container, reload from the file, compare) and "
+                       "write a PASS/FAIL report to build/persist_demo.txt."));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -557,6 +572,8 @@ int main(int argc, char* argv[])
     parser.addOption(contextMenuVerbsOption);
     parser.addOption(fenceDemoOption);
     parser.addOption(hostOption);
+    parser.addOption(layoutOption);
+    parser.addOption(persistDemoOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -811,6 +828,331 @@ int main(int argc, char* argv[])
         bool parsedSeconds = false;
         const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
         QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 8) * 1000, &app,
+                           [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(persistDemoOption)) {
+        // T-008: the persistence round trip. It goes through the wiring the
+        // product uses -- a container change updates the LayoutStore, which
+        // debounces the write -- rather than calling the serialiser by hand, so
+        // the probe also covers the auto-save path. What it proves is the exit
+        // criterion of Phase 3: "restart the app and the layout comes back
+        // identical" (docs/plan.md).
+        const QString layoutPath = parser.isSet(layoutOption)
+                                       ? parser.value(layoutOption)
+                                       : QStringLiteral("build/layout_demo.json");
+        QFile::remove(layoutPath);
+
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+        const bool host = parser.isSet(hostOption);
+
+        starfish::core::LayoutStore store;
+        store.setFilePath(layoutPath);
+        store.setDebounceInterval(60);
+        int writes = 0;
+        QObject::connect(&store, &starfish::core::LayoutStore::saved, &app,
+                         [&writes](const QString&) { ++writes; });
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -48)
+                       .arg(detail);
+        };
+        auto waitMs = [](int ms) {
+            QEventLoop loop;
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+
+        // `persist` wires the container to the store exactly like the product
+        // will: every lifecycle signal updates the document, and the store
+        // decides whether anything really changed and when to write.
+        auto makeContainer = [&store, &bounds, host](bool persist) {
+            auto* container = new starfish::ui::FenceContainer;
+            container->setDesktopBounds(bounds);
+            container->setHostOnDesktop(host);
+            container->setSnapThreshold(8);
+            container->setMinimumFenceSize(QSize(160, 120));
+            if (persist) {
+                auto sync = [container, &store] {
+                    store.setLayout(container->toLayout());
+                    store.scheduleSave();
+                };
+                QObject::connect(container, &starfish::ui::FenceContainer::fenceCreated, container,
+                                 [sync](const QString&) { sync(); });
+                QObject::connect(container, &starfish::ui::FenceContainer::fenceRemoved, container,
+                                 [sync](const QString&) { sync(); });
+                QObject::connect(container, &starfish::ui::FenceContainer::fenceRectChanged,
+                                 container, [sync](const QString&, const QRect&) { sync(); });
+                QObject::connect(container, &starfish::ui::FenceContainer::fenceContentChanged,
+                                 container, [sync](const QString&) { sync(); });
+            }
+            return container;
+        };
+
+        // Items are described by path only: the probe must not depend on what
+        // happens to be on this machine's desktop.
+        const QString itemDir = QStringLiteral("build/persist_demo_items");
+        auto itemFor = [&itemDir](const QString& name) {
+            return starfish::core::itemFromPathOnly(itemDir + QLatin1Char('/') + name);
+        };
+
+        auto* first = makeContainer(/*persist=*/true);
+        const QString idA = first->createFence(QStringLiteral("Travail"), QRect(120, 90, 320, 240),
+                                              {itemFor(QStringLiteral("a.pdf")),
+                                               itemFor(QStringLiteral("b.txt")),
+                                               itemFor(QStringLiteral("c.png"))});
+        const QString idB = first->createFence(QStringLiteral("Perso"), QRect(600, 120, 280, 200),
+                                              {itemFor(QStringLiteral("notes.md"))});
+        const QString idC = first->createFence(QStringLiteral("Temporaire"),
+                                              QRect(120, 400, 240, 180));
+        first->setFenceSort(idA, QStringLiteral("size"), false);
+        check(QStringLiteral("three fences created"), first->fenceCount() == 3,
+              QStringLiteral("count=%1 ids=%2")
+                  .arg(first->fenceCount())
+                  .arg(first->fenceIds().join(QLatin1Char(','))));
+
+        // 434 is 6 px from A's right edge (440): what has to survive the restart
+        // is the *snapped* rect, not the one that was asked for.
+        const QRect snappedB = first->setFenceRect(idB, QRect(434, 400, 280, 200));
+        check(QStringLiteral("move snaps to A's right edge"), snappedB.x() == 440,
+              QStringLiteral("x=%1 (expected 440)").arg(snappedB.x()));
+
+        const bool removedC = first->removeFence(idC);
+        check(QStringLiteral("delete a fence"), removedC && first->fenceCount() == 2,
+              QStringLiteral("removed=%1 count=%2").arg(removedC ? 1 : 0).arg(
+                  first->fenceCount()));
+        const QStringList savedIds = first->fenceIds();
+        const QRect savedRectB = first->fenceRect(idB);
+
+        // Six lifecycle signals have fired by now (three creations, a sort, a
+        // snapped move, a deletion). They all happened inside one event-loop
+        // turn, so the debounce must collapse them into a single write.
+        waitMs(250); // longer than the debounce interval
+        check(QStringLiteral("the change burst auto-saved exactly once"), writes == 1,
+              QStringLiteral("writes=%1 (expected 1 for the whole burst)").arg(writes));
+        QString saveError;
+        const bool savedNow = store.saveNow(&saveError);
+        check(QStringLiteral("saveNow writes the document"),
+              savedNow && QFileInfo::exists(layoutPath),
+              savedNow ? layoutPath : saveError);
+        const int writesAfterSave = writes;
+        check(QStringLiteral("a save with no change writes nothing"),
+              store.saveNow() && writes == writesAfterSave,
+              QStringLiteral("writes=%1 (expected %2)").arg(writes).arg(writesAfterSave));
+
+        QString readError;
+        const auto document = starfish::core::JsonStore::load(layoutPath, &readError);
+        check(QStringLiteral("the file parses as schema 1"),
+              document.has_value() && document->schema == 1,
+              document.has_value() ? QStringLiteral("schema=%1").arg(document->schema) : readError);
+        if (document) {
+            check(QStringLiteral("the file holds the two surviving fences"),
+                  document->fences.size() == 2,
+                  QStringLiteral("fences=%1").arg(document->fences.size()));
+            check(QStringLiteral("the snapped rect is in the file"),
+                  document->fences.at(1).rect == snappedB,
+                  QStringLiteral("%1,%2 %3x%4")
+                      .arg(document->fences.at(1).rect.x())
+                      .arg(document->fences.at(1).rect.y())
+                      .arg(document->fences.at(1).rect.width())
+                      .arg(document->fences.at(1).rect.height()));
+            check(QStringLiteral("the three items are in the file"),
+                  document->fences.at(0).items.size() == 3,
+                  QStringLiteral("items=%1").arg(document->fences.at(0).items.size()));
+            check(QStringLiteral("the sort order is in the file"),
+                  document->fences.at(0).sortBy == QLatin1String("size")
+                      && !document->fences.at(0).sortAscending,
+                  QStringLiteral("%1/%2")
+                      .arg(document->fences.at(0).sortBy)
+                      .arg(document->fences.at(0).sortAscending ? QStringLiteral("asc")
+                                                                : QStringLiteral("desc")));
+            check(QStringLiteral("the style is in the file"),
+                  document->fences.at(0).style.background == QLatin1String("#CC1F2937")
+                      && document->fences.at(0).style.radius == 10,
+                  QStringLiteral("bg=%1 radius=%2")
+                      .arg(document->fences.at(0).style.background)
+                      .arg(document->fences.at(0).style.radius));
+            check(QStringLiteral("the deleted fence is gone from the file"),
+                  document->fences.at(0).id == idA && document->fences.at(1).id == idB,
+                  QStringLiteral("ids=%1,%2").arg(document->fences.at(0).id,
+                                                  document->fences.at(1).id));
+        }
+
+        // A click that only moves the selection must not rewrite the file: the
+        // selection is not part of the document, so the document is unchanged.
+        const int writesBeforeClick = writes;
+        if (starfish::ui::FenceView* viewB = first->view(idB)) {
+            const QPoint empty(200, 150); // inside the content area, on no cell
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(empty),
+                              QPointF(viewB->mapToGlobal(empty)), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(viewB, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(empty),
+                                QPointF(viewB->mapToGlobal(empty)), Qt::LeftButton, Qt::NoButton,
+                                Qt::NoModifier);
+            QCoreApplication::sendEvent(viewB, &release);
+        }
+        waitMs(250); // longer than the debounce interval
+        check(QStringLiteral("a selection change does not rewrite the file"),
+              writes == writesBeforeClick,
+              QStringLiteral("writes=%1 (expected %2)").arg(writes).arg(writesBeforeClick));
+
+        // --- the restart ------------------------------------------------------
+        delete first;
+
+        starfish::core::LayoutStore reopened;
+        reopened.setFilePath(layoutPath);
+        QString loadError;
+        const bool loaded = reopened.load(&loadError);
+        check(QStringLiteral("restart: the document loads"), loaded,
+              loaded ? QStringLiteral("fences=%1").arg(reopened.layout().fences.size())
+                     : loadError);
+
+        auto* second = makeContainer(/*persist=*/false);
+        QString applyError;
+        const bool applied = second->applyLayout(reopened.layout(), &applyError);
+        check(QStringLiteral("restart: the layout applies"), applied,
+              applied ? QStringLiteral("count=%1").arg(second->fenceCount()) : applyError);
+        check(QStringLiteral("restart: the fence ids are stable"),
+              second->fenceIds() == savedIds,
+              second->fenceIds().join(QLatin1Char(',')));
+        check(QStringLiteral("restart: the snapped rect comes back"),
+              second->fenceRect(idB) == savedRectB,
+              QStringLiteral("rect=%1,%2 %3x%4 (expected %5,%6 %7x%8)")
+                  .arg(second->fenceRect(idB).x())
+                  .arg(second->fenceRect(idB).y())
+                  .arg(second->fenceRect(idB).width())
+                  .arg(second->fenceRect(idB).height())
+                  .arg(savedRectB.x())
+                  .arg(savedRectB.y())
+                  .arg(savedRectB.width())
+                  .arg(savedRectB.height()));
+        check(QStringLiteral("restart: the items come back"),
+              second->fenceItems(idA).size() == 3,
+              QStringLiteral("items=%1").arg(second->fenceItems(idA).size()));
+        check(QStringLiteral("restart: the sort order comes back"),
+              second->view(idA) && second->view(idA)->sortBy() == QLatin1String("size")
+                  && !second->view(idA)->sortAscending(),
+              second->view(idA)
+                  ? QStringLiteral("%1/%2")
+                        .arg(second->view(idA)->sortBy())
+                        .arg(second->view(idA)->sortAscending() ? QStringLiteral("asc")
+                                                                : QStringLiteral("desc"))
+                  : QStringLiteral("no view"));
+        check(QStringLiteral("restart: the style comes back"),
+              second->fenceStyle(idA).radius == 10
+                  && second->fenceStyle(idA).background == QLatin1String("#CC1F2937"),
+              QStringLiteral("radius=%1 bg=%2")
+                  .arg(second->fenceStyle(idA).radius)
+                  .arg(second->fenceStyle(idA).background));
+        check(QStringLiteral("restart: the document round-trips byte for byte"),
+              starfish::core::JsonStore::toJson(second->toLayout())
+                  == starfish::core::JsonStore::toJson(reopened.layout()),
+              QStringLiteral("toLayout() == the loaded document"));
+
+        // A restored id must not be handed out again by the id generator.
+        const QString idNew = second->createFence(QStringLiteral("Neuf"),
+                                                 QRect(600, 620, 200, 160));
+        check(QStringLiteral("restart: a new fence gets a fresh id"),
+              !savedIds.contains(idNew) && second->fenceCount() == 3,
+              QStringLiteral("new id=%1").arg(idNew));
+        second->removeFence(idNew);
+
+        // --- deleting after a restart shrinks the document ---------------------
+        second->removeFence(idA);
+        reopened.setLayout(second->toLayout());
+        QString secondSaveError;
+        const bool secondSaved = reopened.saveNow(&secondSaveError);
+        const auto afterDelete = starfish::core::JsonStore::load(layoutPath, &readError);
+        check(QStringLiteral("delete + save shrinks the document"),
+              secondSaved && afterDelete.has_value() && afterDelete->fences.size() == 1
+                  && afterDelete->fences.at(0).id == idB,
+              secondSaved ? QStringLiteral("fences=%1")
+                                .arg(afterDelete ? afterDelete->fences.size() : -1)
+                          : secondSaveError);
+
+        // --- robustness -------------------------------------------------------
+        const QString corruptPath = QStringLiteral("build/persist_demo_corrupt.json");
+        {
+            QFile corrupt(corruptPath);
+            if (corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                corrupt.write("{ this is not a layout");
+        }
+        starfish::core::LayoutStore guarded;
+        guarded.setFilePath(corruptPath);
+        guarded.setLayout(reopened.layout());
+        QString corruptError;
+        const bool corruptLoaded = guarded.load(&corruptError);
+        check(QStringLiteral("a corrupted file is refused, not applied"),
+              !corruptLoaded && !corruptError.isEmpty()
+                  && guarded.layout().fences.size() == 1,
+              corruptLoaded ? QStringLiteral("accepted a corrupt file!")
+                            : QStringLiteral("kept %1 fence(s): %2")
+                                  .arg(guarded.layout().fences.size())
+                                  .arg(corruptError));
+
+        starfish::core::LayoutStore fresh;
+        fresh.setFilePath(QStringLiteral("build/persist_demo_absent.json"));
+        QFile::remove(fresh.filePath());
+        check(QStringLiteral("a missing file is a first run, not an error"),
+              fresh.load() && fresh.layout().fences.isEmpty(),
+              QStringLiteral("fences=%1").arg(fresh.layout().fences.size()));
+
+        if (host) {
+#if defined(_WIN32)
+            // The same restart, but on the real desktop: the user can see the
+            // restored fences, plus one filled with the actual desktop entries.
+            auto* hosted = makeContainer(/*persist=*/false);
+            hosted->setItemResolver([](const QString& path) {
+                return starfish::platform::win::DesktopScanner::itemForPath(path);
+            });
+            hosted->applyLayout(reopened.layout());
+            QString scanError;
+            const QList<starfish::core::DesktopItem> desktopItems =
+                starfish::platform::win::DesktopScanner::scan(&scanError);
+            if (!scanError.isEmpty())
+                qCWarning(lc).noquote() << scanError;
+            const QString idDemo = hosted->createFence(QStringLiteral("StarFish (T-008 demo)"),
+                                                      QRect(200, 300, 360, 260), desktopItems);
+            log << QStringLiteral("hosted %1 restored fence(s) + %2 with %3 desktop item(s)")
+                       .arg(hosted->fenceCount() - 1)
+                       .arg(idDemo)
+                       .arg(desktopItems.size());
+#endif
+        }
+
+        const QString reportPath = QStringLiteral("build/persist_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("layout file: %1\n").arg(layoutPath);
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        if (!host)
+            return exitCode;
+
+        bool parsedSeconds = false;
+        const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+        QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 10) * 1000, &app,
                            [&app, exitCode] { QCoreApplication::exit(exitCode); });
         return app.exec();
     }

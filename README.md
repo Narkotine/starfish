@@ -6,9 +6,9 @@
 
 ## État du projet
 
-**Phase 3 — Zones complètes.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), et les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007). Reste la persistance du layout (T-008).
+**Phase 3 — Zones complètes. TERMINÉE.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007), et la disposition survit à un redémarrage (T-008 : document JSON versionné dans `%APPDATA%/StarFish/layout.json`, écriture atomique différée, restauration vérifiée par la sonde `--persist-demo` — 27/27 PASS).
 
-Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : 5 suites de tests unitaires.
+Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : 6 suites de tests unitaires.
 
 ⚠️ **Les validations à l'écran restent à faire** (T-021 et suivantes) : elles exigent un bureau libre et un œil humain, et ne peuvent pas être conduites depuis un agent — voir `STATE.md`, « Décisions actées » 13.
 
@@ -72,6 +72,9 @@ starfish --host-demo            # affiche une zone vide sur le bureau pendant 10
 starfish --host-demo --seconds 30 --hide-icons
 starfish --fence-demo           # cycle de vie des zones, rapport PASS/FAIL, puis quitte
 starfish --fence-demo --host --seconds 10
+starfish --persist-demo         # aller-retour de persistance + redémarrage simulé, puis quitte
+starfish --persist-demo --host --seconds 10   # les zones restaurées, hébergées pour de vrai
+starfish --persist-demo --layout C:/tmp/layout.json
 ```
 
 Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.

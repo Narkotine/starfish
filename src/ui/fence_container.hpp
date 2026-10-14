@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -9,6 +10,7 @@
 #include <QStringList>
 
 #include "core/desktop_item.hpp"
+#include "core/jsonstore.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
 
@@ -25,7 +27,12 @@ class FenceView;
 struct FenceWindow {
     QString id;
     QString title;
+    // Persisted device name of the monitor (T-008). v1 only ever runs on the
+    // primary one, so it is stored and reported but not acted upon (T-014).
+    QString monitor;
     QRect rect; // desktop coordinates (Progman client == primary monitor, v1)
+    core::FenceStyle style; // panel colour + radius are applied to the view
+    bool rolledUp = false;  // persisted for F-020 (T-009), not acted upon yet
     FenceView* view = nullptr;
     starfish::platform::win::DesktopSurface* surface = nullptr;
 
@@ -65,6 +72,13 @@ public:
     // Icon source bound to every FenceView created afterwards.
     void setIconProvider(IconGrid::IconProvider provider);
 
+    // Resolves a path coming back from the persisted layout into a DesktopItem
+    // (T-008). The default resolver uses core::itemFromPathOnly (no Shell, no
+    // Win32); the application binds DesktopScanner::itemForPath so a restored
+    // tile is exactly what the Shell would draw.
+    using ItemResolver = std::function<core::DesktopItem(const QString& path)>;
+    void setItemResolver(ItemResolver resolver);
+
     // The area fences are kept inside and snapped to. In v1 this is the primary
     // monitor; multi-monitor offsets are T-014.
     void setDesktopBounds(const QSize& bounds);
@@ -97,6 +111,13 @@ public:
 
     QString fenceTitle(const QString& id) const;
     QRect fenceRect(const QString& id) const;
+    QList<core::DesktopItem> fenceItems(const QString& id) const;
+    core::FenceStyle fenceStyle(const QString& id) const;
+    bool fenceRolledUp(const QString& id) const;
+
+    void setFenceTitle(const QString& id, const QString& title);
+    void setFenceStyle(const QString& id, const core::FenceStyle& style);
+    void setFenceSort(const QString& id, const QString& by, bool ascending);
 
     // Applies a new rect. The rect is clamped to the desktop bounds and, unless
     // `snap` is false, snapped to the other fences and the screen edges. Returns
@@ -114,6 +135,18 @@ public:
     // All rects except `excludeId`, for snapping.
     QList<QRect> otherRects(const QString& excludeId) const;
 
+    // --- persistence (T-008) -------------------------------------------------
+    // The live fences as a versioned document, ready for core::JsonStore. The
+    // order of `fences` is the creation order.
+    core::Layout toLayout() const;
+
+    // Replaces every fence with the ones in `layout`: this is what runs at
+    // startup. Fence ids, titles, rects, styles, sort and item paths are
+    // restored, and the item paths go through the item resolver. Returns false
+    // with an error message when the schema is unsupported -- in which case
+    // nothing is touched. Files are never affected, only zones.
+    bool applyLayout(const core::Layout& layout, QString* error = nullptr);
+
 signals:
     void fenceCreated(const QString& id);
     void fenceRemoved(const QString& id);
@@ -124,6 +157,15 @@ private:
     FenceWindow* find(const QString& id);
     const FenceWindow* find(const QString& id) const;
 
+    // Shared body of createFence and applyLayout. An empty `requestedId` means
+    // "allocate a fresh one"; a restored id is kept verbatim so that the
+    // document is stable across restarts.
+    QString addFence(const QString& requestedId, const QString& title, const QRect& rect,
+                     const core::FenceStyle& style, const QString& sortBy, bool sortAscending,
+                     bool rolledUp, const QList<core::DesktopItem>& items);
+
+    core::DesktopItem resolveItem(const QString& path) const;
+
     // FenceView geometry gestures -> move/resize with snapping.
     void beginGeometryDrag(const QString& id);
     void applyGeometryDrag(const QString& id, FenceHandle handle, const QPoint& delta);
@@ -133,6 +175,7 @@ private:
 
     QList<FenceWindow> m_fences;
     IconGrid::IconProvider m_iconProvider;
+    ItemResolver m_itemResolver;
     QSize m_bounds{1920, 1080};
     QSize m_minSize{160, 120};
     int m_snapThreshold = 8;

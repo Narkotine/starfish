@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QRect>
 #include <QList>
 #include <QString>
@@ -9,7 +10,9 @@ namespace starfish::core {
 
 // Visual style of a fence (docs/produit.md F-004/F-005).
 struct FenceStyle {
-    QString background = "#1F2937CC"; // ARGB hex (QColor::name(QColor::HexArgb))
+    // #AARRGGBB, i.e. exactly what QColor::name(QColor::HexArgb) produces, so
+    // the string round-trips through QColor unchanged.
+    QString background = "#CC1F2937";
     int radius = 10;
     int padding = 12;
     int iconSize = 48;
@@ -46,7 +49,17 @@ struct Layout {
 class JsonStore
 {
 public:
-    // Writes the layout atomically. Returns false with an error message.
+    // Serialises a layout to the on-disk document. Deterministic (QJsonObject
+    // sorts its keys), so the bytes can be compared to tell whether two layouts
+    // are identical -- LayoutStore relies on that to skip pointless writes.
+    static QByteArray toJson(const Layout& layout);
+
+    // Parses a document. Returns nullopt with an error message on failure,
+    // including an unsupported schema version.
+    static std::optional<Layout> fromJson(const QByteArray& data, QString* error = nullptr);
+
+    // Writes the layout atomically, creating the parent directory if needed.
+    // Returns false with an error message.
     static bool save(const Layout& layout, const QString& filePath, QString* error = nullptr);
 
     // Reads a layout. Returns nullopt with an error message on failure.

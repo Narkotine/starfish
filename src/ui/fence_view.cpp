@@ -98,6 +98,22 @@ void FenceView::setSort(const QString& by, bool ascending)
     emit contentChanged();
 }
 
+void FenceView::setPanelColor(const QColor& color)
+{
+    // Alpha is dropped: this widget paints the opaque panel; translucency is a
+    // property of the hosted surface (T-017), not of the QImage that feeds it.
+    m_panelColor = QColor(color.red(), color.green(), color.blue());
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setCornerRadius(int px)
+{
+    m_cornerRadius = qBound(0, px, 64);
+    update();
+    emit contentChanged();
+}
+
 QRect FenceView::contentRect() const
 {
     return rect().adjusted(kPadding, kTitleBarHeight + kPadding, -kPadding, -kPadding);
@@ -114,7 +130,6 @@ void FenceView::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
 
-    const QColor panel(0x1F, 0x29, 0x37);
     const QColor panelBorder(0x3B, 0x82, 0xF6);
     const QColor titleText(0xE5, 0xE7, 0xEB);
     const QColor hintText(0x9C, 0xA3, 0xAF);
@@ -123,9 +138,9 @@ void FenceView::paintEvent(QPaintEvent* event)
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     painter.setPen(QPen(panelBorder, 1.0));
-    painter.setBrush(panel);
+    painter.setBrush(m_panelColor);
     painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                            kCornerRadius, kCornerRadius);
+                            m_cornerRadius, m_cornerRadius);
 
     QFont titleFont = font();
     titleFont.setBold(true);

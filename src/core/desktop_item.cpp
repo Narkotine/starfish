@@ -1,5 +1,6 @@
 #include "core/desktop_item.hpp"
 
+#include <QFileInfo>
 #include <QSet>
 
 #include <algorithm>
@@ -144,6 +145,23 @@ QList<DesktopItem> mergeDesktopItems(const QList<DesktopItem>& items)
         }
     }
     return merged;
+}
+
+DesktopItem itemFromPathOnly(const QString& path)
+{
+    DesktopItem item;
+    item.path = path;
+
+    const QFileInfo info(path);
+    item.fileName = info.fileName().isEmpty() ? path : info.fileName();
+    item.name = item.fileName;
+    item.isDir = info.isDir();
+    item.isHidden = isDotHiddenName(item.fileName);
+    if (info.exists() && !item.isDir)
+        item.sizeBytes = info.size();
+    if (info.exists())
+        item.modified = info.lastModified();
+    return item;
 }
 
 } // namespace starfish::core
