@@ -6,9 +6,11 @@
 
 ## État du projet
 
-**Phase 1 — Fondations.** Squelette Qt qui démarre, `DesktopHost` (placement des zones sur le bureau, ADR-4), `DesktopScanner`/`ShellIconCache` (lecture du Bureau + icônes shell) et `RuleEngine`/`JsonStore` en place. Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas).
+**Phase 3 — Zones complètes.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), et les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007). Reste la persistance du layout (T-008).
 
-⚠️ **Le placement des zones est correct mais leur rendu est encore ouvert** : Qt ne blitte plus dans la fenêtre native une fois celle-ci enfant de `Progman` (`TODO.md` T-020, `docs/technique.md` ADR-4 et §7).
+Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : 5 suites de tests unitaires.
+
+⚠️ **Les validations à l'écran restent à faire** (T-021 et suivantes) : elles exigent un bureau libre et un œil humain, et ne peuvent pas être conduites depuis un agent — voir `STATE.md`, « Décisions actées » 13.
 
 - Prix de référence du produit original : abonnement annuel à partir de ~10 $ USD (Stardock, consulté le 2026-10-13). StarFish sera gratuit, open source, local-first, sans télémétrie.
 
@@ -68,6 +70,8 @@ starfish --list-desktop         # contenu du Bureau tel que le Shell le voit, pu
 starfish --list-desktop --icons --icon-size 48 --icon-dump out/icons
 starfish --host-demo            # affiche une zone vide sur le bureau pendant 10 s
 starfish --host-demo --seconds 30 --hide-icons
+starfish --fence-demo           # cycle de vie des zones, rapport PASS/FAIL, puis quitte
+starfish --fence-demo --host --seconds 10
 ```
 
 Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.

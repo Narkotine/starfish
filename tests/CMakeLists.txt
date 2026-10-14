@@ -53,3 +53,17 @@ target_include_directories(test_starfish_icon_grid PRIVATE
 target_link_libraries(test_starfish_icon_grid PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
 
 add_test(NAME ui_icon_grid COMMAND test_starfish_icon_grid)
+
+# Fence lifecycle geometry (T-007): handle hit-test, resize with a minimum
+# size, edge/centre snapping, clamping. Pure -- no widget, no Win32.
+add_executable(test_starfish_fence_geometry
+    test_fence_geometry.cpp
+)
+
+target_include_directories(test_starfish_fence_geometry PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_fence_geometry PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME ui_fence_geometry COMMAND test_starfish_fence_geometry)

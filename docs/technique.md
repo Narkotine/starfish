@@ -15,7 +15,9 @@
 │ Application (Qt, thread UI)                        │
 │  ├─ DesktopHost    héberge les zones sur le bureau │
 │  ├─ DesktopSurface surface hébergée (rendu)        │
+│  ├─ FenceContainer cycle de vie des zones (T-007)  │
 │  ├─ FenceView      rendu + interaction d'une zone  │
+│  ├─ FenceGeometry  géométrie pure (hit-test, snap) │
 │  ├─ IconGrid       grille d'icônes d'une zone      │
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
 │  ├─ LayoutStore    lecture/écriture JSON atomique  │
@@ -37,6 +39,8 @@
 - **DesktopSurface** (`src/platform/win/desktop_surface.{hpp,cpp}`) : **le chemin de rendu retenu (T-020, §7 piste (a))**. Surface Win32 brute hébergée sous `Progman` qui possède son propre `WNDPROC` : elle blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()` dans un `QImage`). Qt ne touche jamais au HWND hébergé, ce qui contourne le blocage d'ADR-4 finding 3. `WS_EX_LAYERED` est posé dès `CreateWindowExW` (finding 4). Expose `attach()` / `setFrame()` / `detach()`, `syncZOrder()`, un garde `WM_WINDOWPOSCHANGING` (le `hwndInsertAfter` est réécrit en `SHELLDLL_DefView`) et un watchdog 2 s. Compteurs de peinture (`paintReport()`) pour diagnostiquer un « rien à l'écran ».
 - **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
 - **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
+- **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + `QRect` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**.
+- **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones) et `clampToBounds`. Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 unit-testables.
 - **LayoutStore** : seule source de vérité pour « quelle icône dans quelle zone, où ». Format JSON versionné (voir §5). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** : pure, testable sans UI (entrée = métadonnées fichier + règles ; sortie = zone cible).
 - **ShellBridge** : isole tout l'accès aux API Windows pour rendre le reste du code testable/portable (à créer en Phase 2).
@@ -230,3 +234,37 @@ Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jam
 **Implémentation** : `DesktopSurface::setPerPixelAlpha(bool)`. En mode per-pixel, `attach()` **saute** l'appel `SetLayeredWindowAttributes` et les frames partent via ULW (DIB 32 bpp premultiplié, `AC_SRC_ALPHA`, `Format_ARGB32_Premultiplied`). Changer de mode sur une surface vivante **recrée la fenêtre** (le mode layered est posé à la création). En cas d'échec ULW, repli automatique sur le chemin opaque `WM_PAINT` (invisible est pire qu'opaque). `WM_PAINT` ne fait que valider la région en mode per-pixel ; `place()` re-pousse la frame (ULW porte la position).
 
 Sonde : `starfish --render-probe --surface --pixel-alpha` (fence rendue translucide, alpha 96 + opacité 0,85). **Validation visuelle à l'écran en attente** (bureau non visible pendant la session 9 — captures polluées par une fenêtre au premier plan).
+
+## 9. Cycle de vie des zones (T-007, session 13)
+
+**Décision : séparer la géométrie (pure) du propriétaire des zones.** `FenceGeometry` ne connaît ni widget ni Win32 ; `FenceContainer` est le seul objet qui sait combien de zones existent et où elles sont. C'est cette séparation qui rend l'aimantation testable et qui **débloque le drag-drop inter-zones** : une zone ne peut pas décider seule où elle atterrit.
+
+### Règles de géométrie
+
+| Règle | Comportement retenu | Raison |
+|---|---|---|
+| Zone de saisie | `hitTest` : 6 px de bord, 30 px de barre de titre ; **les coins gagnent sur les bords** | sur une petite zone, les bandes haut/bas se recouvrent ; sans priorité aux coins, le redimensionnement diagonal serait inatteignable |
+| Redimensionnement ouest/nord | l'origine bouge, **le bord opposé est épinglé** ; sous la taille minimale, on s'arrête au minimum | la zone rétrécit, elle ne se retourne jamais sur elle-même |
+| Aimantation | gauche/centre/droite et haut/milieu/bas, contre les bords **et le centre** de l'écran **et de chaque autre zone**, à 8 px | le centre est ce qui permet d'aligner deux zones verticalement ou horizontalement sans calcul |
+| Après aimantation | `clampToBounds` : la zone est **toujours entièrement à l'écran** | une zone traînée hors écran serait irrécupérable à la souris |
+
+Le candidat retenu sur chaque axe est le plus proche ; les deux axes sont indépendants. `snap()` renvoie aussi quels axes ont bougé, pour dessiner un repère.
+
+### Répartition des responsabilités
+
+- `FenceView` **ne se déplace jamais lui-même** : au clic gauche, `FenceGeometry::hitTest` est évalué **avant** la grille d'icônes ; un titre ou un bord démarre un geste de géométrie et émet `geometryDragStarted` / `geometryDragDelta(handle, delta)` / `geometryDragFinished`. Les deux drags (icône vs zone) sont donc mutuellement exclusifs **par construction**, pas par convention.
+- `FenceContainer` capture le rect de référence au début du geste et applique chaque delta à **ce même** rect : l'arrondi ne s'accumule pas.
+- Le delta est appliqué **en direct** (la zone suit le curseur) ; le relâchement ne fait que clore le geste — c'est là que T-008 persistera le layout.
+
+### Vérification
+
+- `tests/test_fence_geometry.cpp` — **14 cas** : classement des régions, priorité des coins, croissance est/sud, épinglage du bord opposé, clamp ouest et nord, no-op sur un handle non-redimensionnant, aimantation bords/centre/autre zone, absence d'aimantation au-delà du seuil, seuil 0, `clampToBounds` (dedans, débordement, négatif, surdimensionné).
+- `starfish --fence-demo [--host] [--seconds N]` — scénario **non interactif** qui exerce la vraie chaîne `FenceView → signaux → FenceContainer` en envoyant de vrais `QMouseEvent` au widget ; rapport PASS/FAIL dans `build/fence_demo.txt`, code de sortie 0/1. Mesuré : **8/8 PASS**, dont aimantation 394 → **400** (bord droit d'une autre zone), (3,5) → **(0,0)**, clamp 50×40 → **160×120**, drag de barre de titre (-77,+37) → **(0,120,320,240)**, poignée bas-droite +60,+60 → **380×300**, suppression → count 1.
+- `--fence-demo --host` héberge **3 surfaces simultanément** (`layered ex 0x80000`, `alpha 1 (err 0)`, `placed 1`) : la coexistence de plusieurs `DesktopSurface` sur le même Progman est donc vérifiée, la zone de démo étant remplie des 83 entrées réelles du bureau.
+
+### Limites assumées
+
+- Le geste à la souris **sur le bureau hébergé** (barre de titre / poignées) n'est pas vérifiable depuis l'agent : la sonde prouve le câblage, pas le ressenti. Validation humaine, comme T-021.
+- Coordonnées en client de `Progman`, donc moniteur principal uniquement — offsets multi-écrans en T-014.
+- Pas encore d'aimantation magnétique « collante » (la zone ne reste pas accrochée) ni de guides visuels dessinés ; ni de redimensionnement au clavier.
+

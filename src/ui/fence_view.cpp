@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QFileInfo>
 #include <QDragEnterEvent>
@@ -24,6 +25,36 @@
 #endif
 
 namespace starfish::ui {
+
+namespace {
+
+// Pointer feedback for the fence geometry handles (T-007). Only visible in
+// windowed mode: on the hosted desktop the real window is the DesktopSurface,
+// which owns the cursor.
+Qt::CursorShape cursorForHandle(FenceHandle handle)
+{
+    switch (handle) {
+    case FenceHandle::TitleBar:
+        return Qt::SizeAllCursor;
+    case FenceHandle::Left:
+    case FenceHandle::Right:
+        return Qt::SizeHorCursor;
+    case FenceHandle::Top:
+    case FenceHandle::Bottom:
+        return Qt::SizeVerCursor;
+    case FenceHandle::TopLeft:
+    case FenceHandle::BottomRight:
+        return Qt::SizeFDiagCursor;
+    case FenceHandle::TopRight:
+    case FenceHandle::BottomLeft:
+        return Qt::SizeBDiagCursor;
+    case FenceHandle::None:
+    default:
+        return Qt::ArrowCursor;
+    }
+}
+
+} // namespace
 
 FenceView::FenceView(QWidget* parent)
     : QWidget(parent)
@@ -141,6 +172,23 @@ void FenceView::mousePressEvent(QMouseEvent* event)
 
     const int index = itemAt(event->pos());
     const Qt::KeyboardModifiers mods = event->modifiers();
+
+    // T-007: the title bar moves the fence, a border grip resizes it. Checked
+    // before the icon grid so a fence gesture never disturbs the icon selection
+    // -- which is also what keeps the two drags mutually exclusive.
+    const FenceHandle handle =
+        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight);
+    if (handle != FenceHandle::None) {
+        m_geometryHandle = handle;
+        m_geometryStartPos = event->pos();
+        m_geometryDragging = true;
+        m_dragOriginIndex = -1;
+        m_dragging = false;
+        m_dropTargetIndex = -1;
+        emit geometryDragStarted();
+        return;
+    }
+
     if (index < 0) {
         if (!(mods & Qt::ControlModifier))
             m_grid.clearSelection();
@@ -165,8 +213,21 @@ void FenceView::mousePressEvent(QMouseEvent* event)
 
 void FenceView::mouseMoveEvent(QMouseEvent* event)
 {
-    if (m_dragOriginIndex < 0 || !(event->buttons() & Qt::LeftButton))
+    // Fence gesture (T-007) takes priority: while the title bar or a border
+    // grip is held, the pointer moves the fence, never an icon.
+    if (m_geometryDragging) {
+        emit geometryDragDelta(m_geometryHandle, event->pos() - m_geometryStartPos);
         return;
+    }
+
+    if (m_dragOriginIndex < 0 || !(event->buttons() & Qt::LeftButton)) {
+        // Idle: reflect the handle under the pointer so the user can see where
+        // the fence can be grabbed.
+        if (!(event->buttons() & Qt::LeftButton))
+            setCursor(cursorForHandle(
+                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight)));
+        return;
+    }
 
     if (!m_dragging) {
         // QApplication::startDragDistance() is the platform-consistent
@@ -190,6 +251,16 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() != Qt::LeftButton) {
         QWidget::mouseReleaseEvent(event);
+        return;
+    }
+
+    if (m_geometryDragging) {
+        // The container already applied every delta as it arrived; the release
+        // only closes the gesture (and lets it settle, e.g. commit the final
+        // snapped rect to the layout in T-008).
+        m_geometryDragging = false;
+        m_geometryHandle = FenceHandle::None;
+        emit geometryDragFinished();
         return;
     }
 

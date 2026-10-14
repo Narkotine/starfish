@@ -4,13 +4,16 @@
 #include <QDebug>
 #include <QDir>
 #include <QEvent>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImage>
 #include <QLoggingCategory>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QRect>
 #include <QScreen>
+#include <QTextStream>
 #include <QTimer>
 #include <QWindow>
 
@@ -21,6 +24,7 @@
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
+#include "ui/fence_container.hpp"
 #include "ui/fence_view.hpp"
 #include "version.h"
 
@@ -523,6 +527,15 @@ int main(int argc, char* argv[])
                        "context menu for this path and print them. Non-interactive: proves "
                        "the IContextMenu pipeline (T-006) without showing a popup."),
         QStringLiteral("path"));
+    const QCommandLineOption fenceDemoOption(
+        QStringLiteral("fence-demo"),
+        QStringLiteral("T-007 diagnostic: run a scripted fence lifecycle (create, move with "
+                       "snapping, resize with a minimum size, delete) and write a PASS/FAIL "
+                       "report to build/fence_demo.txt."));
+    const QCommandLineOption hostOption(
+        QStringLiteral("host"),
+        QStringLiteral("With --fence-demo: also host the fences on the desktop through "
+                       "DesktopSurface instead of running headless."));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -542,6 +555,8 @@ int main(int argc, char* argv[])
     parser.addOption(withDesktopItemsOption);
     parser.addOption(pixelAlphaOption);
     parser.addOption(contextMenuVerbsOption);
+    parser.addOption(fenceDemoOption);
+    parser.addOption(hostOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -643,6 +658,161 @@ int main(int argc, char* argv[])
         qCWarning(lc) << "--context-menu-verbs is Windows-only";
         return 1;
 #endif
+    }
+
+    if (parser.isSet(fenceDemoOption)) {
+        // T-007: a scripted, non-interactive walk through the fence lifecycle.
+        // The geometry rules are unit-tested (tests/test_fence_geometry.cpp);
+        // what this probe adds is the wiring -- FenceView turning a title-bar or
+        // border gesture into a container call -- and the same code path being
+        // hosted on the real desktop when --host is passed.
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+        const bool host = parser.isSet(hostOption);
+
+        starfish::platform::win::ShellIconCache demoIcons;
+        auto* container = new starfish::ui::FenceContainer(&app);
+        container->setDesktopBounds(bounds);
+        container->setHostOnDesktop(host);
+        container->setSnapThreshold(8);
+        container->setMinimumFenceSize(QSize(160, 120));
+        container->setIconProvider([&demoIcons](const starfish::core::DesktopItem& item,
+                                               int sizePx) {
+            return demoIcons.iconFor(item.path, sizePx);
+        });
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -34)
+                       .arg(detail);
+        };
+
+        // Drives the widget the way the desktop does: a press on the title bar
+        // (or a border grip), a move past it, a release. FenceView does the
+        // hit-testing; the container applies the delta and the snapping.
+        auto dragWidget = [](QWidget* widget, const QPoint& from, const QPoint& delta) {
+            const QPoint to = from + delta;
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(from),
+                              QPointF(widget->mapToGlobal(from)), Qt::LeftButton, Qt::LeftButton,
+                              Qt::NoModifier);
+            QCoreApplication::sendEvent(widget, &press);
+            QMouseEvent move(QEvent::MouseMove, QPointF(to), QPointF(widget->mapToGlobal(to)),
+                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(widget, &move);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(to),
+                                QPointF(widget->mapToGlobal(to)), Qt::LeftButton, Qt::NoButton,
+                                Qt::NoModifier);
+            QCoreApplication::sendEvent(widget, &release);
+        };
+
+        log << QStringLiteral("desktop bounds %1x%2, snap threshold %3 px, hosting %4")
+                   .arg(bounds.width())
+                   .arg(bounds.height())
+                   .arg(container->snapThreshold())
+                   .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
+
+        const QString idA = container->createFence(QStringLiteral("A"), QRect(80, 80, 320, 240));
+        const QString idB = container->createFence(QStringLiteral("B"), QRect(520, 80, 320, 240));
+        check(QStringLiteral("create two fences"), container->fenceCount() == 2,
+              QStringLiteral("count=%1 ids=%2").arg(container->fenceCount()).arg(
+                  container->fenceIds().join(QLatin1Char(','))));
+
+        // A sits at x=80 w=320, so its right edge is 400. Dropping B's left edge
+        // at 394 (6 px away) must snap it onto 400.
+        const QRect snapped = container->setFenceRect(idB, QRect(394, 400, 320, 240));
+        check(QStringLiteral("move snaps to another fence"), snapped.x() == 400,
+              QStringLiteral("x=%1 (expected 400 = A.right)").arg(snapped.x()));
+
+        // 3 px from the top-left corner: both axes snap to 0.
+        const QRect corner = container->setFenceRect(idB, QRect(3, 5, 320, 240));
+        check(QStringLiteral("move snaps to the screen edges"),
+              corner.topLeft() == QPoint(0, 0),
+              QStringLiteral("topLeft=%1,%2 (expected 0,0)").arg(corner.x()).arg(corner.y()));
+
+        // Asking for 50x40 must stop at the 160x120 minimum, not invert.
+        const QRect clamped = container->setFenceRect(idB, QRect(0, 0, 50, 40));
+        check(QStringLiteral("resize clamps to the minimum"),
+              clamped.size() == QSize(160, 120),
+              QStringLiteral("size=%1x%2 (minimum 160x120)")
+                  .arg(clamped.width())
+                  .arg(clamped.height()));
+
+        // Title-bar drag on A through the real widget: (-77,+37) targets (3,117),
+        // which snaps to x=0 and to y=120 -- the bottom edge of B.
+        if (starfish::ui::FenceView* viewA = container->view(idA))
+            dragWidget(viewA, QPoint(160, 15), QPoint(-77, 37));
+        const QRect movedA = container->fenceRect(idA);
+        check(QStringLiteral("title-bar drag moves the fence"),
+              movedA == QRect(0, 120, 320, 240),
+              QStringLiteral("rect=%1,%2 %3x%4 (expected 0,120 320x240)")
+                  .arg(movedA.x())
+                  .arg(movedA.y())
+                  .arg(movedA.width())
+                  .arg(movedA.height()));
+
+        // Bottom-right grip of A, dragged by (+60,+60).
+        if (starfish::ui::FenceView* viewA = container->view(idA))
+            dragWidget(viewA, QPoint(319, 239), QPoint(60, 60));
+        const QRect resizedA = container->fenceRect(idA);
+        check(QStringLiteral("border grip resizes the fence"),
+              resizedA.size() == QSize(380, 300),
+              QStringLiteral("size=%1x%2 (expected 380x300)")
+                  .arg(resizedA.width())
+                  .arg(resizedA.height()));
+
+        const bool removed = container->removeFence(idA);
+        check(QStringLiteral("delete a fence"),
+              removed && container->fenceCount() == 1 && !container->contains(idA),
+              QStringLiteral("removed=%1 count=%2").arg(removed ? 1 : 0).arg(
+                  container->fenceCount()));
+        check(QStringLiteral("deleting an unknown fence fails"),
+              !container->removeFence(QStringLiteral("fence-999")),
+              QStringLiteral("unknown id rejected"));
+
+        if (host) {
+            QString scanError;
+            QList<starfish::core::DesktopItem> items =
+                starfish::platform::win::DesktopScanner::scan(&scanError);
+            if (!scanError.isEmpty())
+                qCWarning(lc).noquote() << scanError;
+            const QString idDemo = container->createFence(QStringLiteral("StarFish (T-007 demo)"),
+                                                         QRect(420, 260, 360, 260), items);
+            log << QStringLiteral("hosted fence %1 with %2 desktop item(s)")
+                       .arg(idDemo)
+                       .arg(items.size());
+        }
+
+        const QString reportPath = QStringLiteral("build/fence_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        if (!host) {
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+            return app.exec();
+        }
+        bool parsedSeconds = false;
+        const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+        QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 8) * 1000, &app,
+                           [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
     }
 
     if (parser.isSet(renderProbeOption)) {

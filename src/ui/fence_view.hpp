@@ -7,6 +7,7 @@ class QDragMoveEvent;
 class QDropEvent;
 
 #include "core/desktop_item.hpp"
+#include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
 
 namespace starfish::ui {
@@ -55,6 +56,14 @@ signals:
     // A double-click on `index` asked to launch it.
     void itemActivated(int index);
 
+    // Fence geometry gestures (T-007): the title bar moves the fence, a border
+    // grip resizes it. `delta` is the pointer offset since the gesture began.
+    // FenceView never moves itself -- it has no idea where the other fences are,
+    // so FenceContainer owns the geometry and decides where the drag lands.
+    void geometryDragStarted();
+    void geometryDragDelta(FenceHandle handle, const QPoint& delta);
+    void geometryDragFinished();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -82,6 +91,8 @@ private:
     static constexpr int kTitleBarHeight = 30;
     static constexpr int kCornerRadius = 10;
     static constexpr int kPadding = 12;
+    // Inward width of the resize grips along each edge (T-007).
+    static constexpr int kResizeBorder = 6;
 
     QString m_title;
     IconGrid m_grid;
@@ -95,6 +106,13 @@ private:
     int m_dropTargetIndex = -1;
     QPoint m_dragStartPos;
     bool m_dragging = false;
+
+    // Fence geometry drag state (T-007), mutually exclusive with the icon drag
+    // above: a press that lands on the title bar or a border grip never arms an
+    // icon drag, and vice versa.
+    FenceHandle m_geometryHandle = FenceHandle::None;
+    QPoint m_geometryStartPos;
+    bool m_geometryDragging = false;
 };
 
 } // namespace starfish::ui
