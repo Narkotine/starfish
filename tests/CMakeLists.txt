@@ -100,3 +100,19 @@ target_include_directories(test_starfish_desktop_watcher PRIVATE
 target_link_libraries(test_starfish_desktop_watcher PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_desktop_watcher COMMAND test_starfish_desktop_watcher)
+
+# Folder portals (T-011 / F-024): what a portal lists, and the refusal to treat
+# a file or a missing folder as a folder. Qt Core + the local filesystem.
+add_executable(test_starfish_portal
+    test_portal.cpp
+    ../src/core/portal.cpp
+    ../src/core/desktop_item.cpp
+)
+
+target_include_directories(test_starfish_portal PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_portal PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_portal COMMAND test_starfish_portal)

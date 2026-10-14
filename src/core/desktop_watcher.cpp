@@ -89,6 +89,20 @@ QStringList DesktopWatcher::newEntries(const QStringList& known, const QStringLi
     return fresh;
 }
 
+QStringList DesktopWatcher::removedEntries(const QStringList& known, const QStringList& current)
+{
+    QSet<QString> currentSet;
+    for (const QString& path : current)
+        currentSet.insert(path);
+
+    QStringList gone;
+    for (const QString& path : known) {
+        if (!currentSet.contains(path) && !gone.contains(path))
+            gone.append(path);
+    }
+    return gone;
+}
+
 void DesktopWatcher::start()
 {
     m_debounce.stop();
@@ -122,6 +136,7 @@ void DesktopWatcher::stop()
     if (!watched.isEmpty())
         m_watcher.removePaths(watched);
     m_known.clear();
+    m_dirtyFolders.clear();
 }
 
 void DesktopWatcher::onDirectoryChanged(const QString& path)
@@ -141,21 +156,43 @@ void DesktopWatcher::onDirectoryChanged(const QString& path)
         if (!stillWatched)
             m_watcher.addPath(clean);
     }
+    if (!m_dirtyFolders.contains(clean))
+        m_dirtyFolders.append(clean);
     m_debounce.start(m_debounceMs);
 }
 
 void DesktopWatcher::flush()
 {
-    const QStringList fresh = newEntries(m_known, snapshot());
-    if (fresh.isEmpty())
-        return; // a deletion, a rename, a touch: not a new entry
+    // Taken now rather than at notification time: a folder can notify twice in
+    // one debounce window, and the folder portals (T-011) want one refresh per
+    // burst, not one per notification.
+    const QStringList dirty = m_dirtyFolders;
+    m_dirtyFolders.clear();
 
-    for (const QString& path : fresh) {
-        if (!m_known.contains(path))
-            m_known.append(path);
+    const QStringList current = snapshot();
+    const QStringList fresh = newEntries(m_known, current);
+    if (!fresh.isEmpty()) {
+        for (const QString& path : fresh) {
+            if (!m_known.contains(path))
+                m_known.append(path);
+        }
+        qCInfo(lc).noquote() << QStringLiteral("%1 new entry/entries").arg(fresh.size());
+        emit itemsAdded(fresh);
+    } else {
+        // A deletion or a rename: drop what is gone from the baseline, so a
+        // file recreated under the same name counts as new again.
+        const QStringList gone = removedEntries(m_known, current);
+        for (const QString& path : gone)
+            m_known.removeAll(path);
+        if (!gone.isEmpty())
+            qCInfo(lc).noquote() << QStringLiteral("%1 entry/entries gone").arg(gone.size());
     }
-    qCInfo(lc).noquote() << QStringLiteral("%1 new entry/entries").arg(fresh.size());
-    emit itemsAdded(fresh);
+
+    // Emitted for every folder that notified, additions or not: a portal has
+    // to re-list its folder when a file *disappears* too, and it has no
+    // business knowing which of the two happened.
+    for (const QString& folder : dirty)
+        emit folderChanged(folder);
 }
 
 } // namespace starfish::core

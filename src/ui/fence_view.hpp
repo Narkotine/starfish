@@ -67,6 +67,18 @@ public:
     // (Windows Shell resolution) is done by the caller; this method is pure.
     void addDroppedItems(const QList<core::DesktopItem>& items);
 
+    // Same thing, with the count of tiles actually added (0 when they were all
+    // duplicates). Used by the folder portals of T-011, which append a folder's
+    // listing and want to know whether anything changed.
+    int appendItems(const QList<core::DesktopItem>& items);
+
+    // Folder portal refresh (T-011): withdraws the tiles a portal contributed
+    // (`previousPaths`) and appends the folder's current listing, in a single
+    // `contentChanged()`. The fence's own items and the selection are left
+    // alone -- a folder changing under a portal is not the user doing
+    // something. Returns the number of tiles added.
+    int replaceItems(const QStringList& previousPaths, const QList<core::DesktopItem>& items);
+
 signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <functional>
+#include <QHash>
 #include <QList>
 #include <QSet>
+#include <QStringList>
 
 #include "core/desktop_item.hpp"
 #include "ui/icon_layout.hpp"
@@ -85,6 +87,15 @@ public:
     // batch, not a continuation of the current selection). Returns the number
     // of items actually added (0 when all were duplicates or the list empty).
     int appendItems(const QList<core::DesktopItem>& items);
+
+    // --- folder portals (T-011) ---------------------------------------------
+    // Removes every tile whose path is in `paths`, compared case-insensitively
+    // (Windows paths are, and a portal listing can come back with a different
+    // capitalisation than the one it went out with). The selection follows the
+    // tiles that stay -- it is not cleared, because a folder changing under a
+    // portal is not the user selecting something else. Returns the number
+    // removed.
+    int removeItemsByPath(const QStringList& paths);
 
     // The path QDesktopServices should open for a double-click (F-005 / T-005).
     // A .lnk/.url opens its resolved target, everything else opens itself.

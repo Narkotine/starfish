@@ -25,6 +25,7 @@
 #include "core/desktop_watcher.hpp"
 #include "core/jsonstore.hpp"
 #include "core/layout_store.hpp"
+#include "core/portal.hpp"
 #include "core/rules.hpp"
 #include "core/zorder.hpp"
 #include "platform/win/desktop_host.hpp"
@@ -591,6 +592,18 @@ int main(int argc, char* argv[])
                        "Defaults to build/rules_demo_watch. The files it creates are removed "
                        "again when the probe ends."),
         QStringLiteral("dir"));
+    const QCommandLineOption portalDemoOption(
+        QStringLiteral("portal-demo"),
+        QStringLiteral("T-011 diagnostic: mirror a folder into a fence (F-024) -- the fence "
+                       "shows the folder's contents, the document stores the folder path, the "
+                       "mirror follows the folder -- and write a PASS/FAIL report to "
+                       "build/portal_demo.txt."));
+    const QCommandLineOption portalFolderOption(
+        QStringLiteral("portal-folder"),
+        QStringLiteral("With --portal-demo: the folder to mirror. Defaults to "
+                       "build/portal_demo_folder. The files it creates inside are removed "
+                       "again when the probe ends; the folder itself is never emptied."),
+        QStringLiteral("dir"));
 
     parser.addOption(dumpOption);
     parser.addOption(listDesktopOption);
@@ -617,6 +630,8 @@ int main(int argc, char* argv[])
     parser.addOption(navDemoOption);
     parser.addOption(rulesDemoOption);
     parser.addOption(watchOption);
+    parser.addOption(portalDemoOption);
+    parser.addOption(portalFolderOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -1923,6 +1938,452 @@ int main(int argc, char* argv[])
                               .arg(QDir(watchDir).absolutePath(),
                                    customWatch ? QStringLiteral(" (--watch)")
                                                : QStringLiteral(" (scratch)"));
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        if (!host) {
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+            return app.exec();
+        }
+        bool parsedSeconds = false;
+        const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+        QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 10) * 1000, &app,
+                           [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(portalDemoOption)) {
+        // T-011: folder portals (F-024). A portal mirrors a folder into a fence
+        // -- the fence shows the folder's *contents*, the document stores the
+        // folder *path*, and the mirror follows the folder. The folder itself is
+        // never drawn as a tile, and nothing is ever moved into it: this is the
+        // read half of F-024, the write half is T-035.
+        const bool host = parser.isSet(hostOption);
+        const QString layoutPath = parser.isSet(layoutOption)
+                                       ? parser.value(layoutOption)
+                                       : QStringLiteral("build/portal_demo_layout.json");
+        const bool customFolder = parser.isSet(portalFolderOption);
+        const QString folder = customFolder ? parser.value(portalFolderOption)
+                                            : QStringLiteral("build/portal_demo_folder");
+
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -52)
+                       .arg(detail);
+        };
+        auto waitMs = [](int ms) {
+            QEventLoop loop;
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+        auto waitUntil = [&waitMs](const std::function<bool()>& done, int timeoutMs) {
+            QElapsedTimer timer;
+            timer.start();
+            while (!done() && timer.elapsed() < timeoutMs)
+                waitMs(50);
+            return done();
+        };
+
+        // Everything the probe creates is named after its own process, so it can
+        // never overwrite something that was already there -- and it removes
+        // exactly what it created, wherever it was pointed.
+        const QString stamp = QString::number(QCoreApplication::applicationPid());
+        QDir().mkpath(folder);
+        const QString alphaName = QStringLiteral("starfish-portal-%1-alpha.txt").arg(stamp);
+        const QString betaName = QStringLiteral("starfish-portal-%1-beta.png").arg(stamp);
+        const QString gammaName = QStringLiteral("starfish-portal-%1-gamma.md").arg(stamp);
+        const QString dotName = QStringLiteral(".starfish-portal-%1-hidden").arg(stamp);
+        const QString subName = QStringLiteral("starfish-portal-%1-sub").arg(stamp);
+        const QString alphaPath = QDir(folder).absoluteFilePath(alphaName);
+        const QString betaPath = QDir(folder).absoluteFilePath(betaName);
+        const QString gammaPath = QDir(folder).absoluteFilePath(gammaName);
+        const QString dotPath = QDir(folder).absoluteFilePath(dotName);
+        const QString subPath = QDir(folder).absoluteFilePath(subName);
+
+        // A previous run may have been killed before its cleanup: start from a
+        // known state instead of asserting on leftovers.
+        for (const QString& path : {alphaPath, betaPath, gammaPath, dotPath})
+            QFile::remove(path);
+        QDir(folder).rmdir(subName);
+        // What the folder held before the probe touched it, so the checks below
+        // are about the probe's own entries -- --portal-folder may well point at
+        // a folder that is already full.
+        const int baseline =
+            QDir(folder)
+                .entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
+                                   | QDir::System,
+                               QDir::NoSort)
+                .size();
+
+        auto writeFile = [](const QString& path, const QByteArray& payload) {
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                return false;
+            return file.write(payload) == payload.size();
+        };
+        const bool seeded = writeFile(alphaPath, "alpha") && writeFile(betaPath, "beta")
+                            && writeFile(gammaPath, "gamma") && writeFile(dotPath, "dot")
+                            && QDir(folder).mkpath(subName);
+
+        // --- A. what a portal lists -------------------------------------------
+        const starfish::core::Portal listing = starfish::core::listPortal(folder);
+        check(QStringLiteral("the folder is listed"), seeded && listing.error.isEmpty(),
+              listing.error.isEmpty() ? QStringLiteral("%1 item(s) in %2")
+                                            .arg(listing.items.size())
+                                            .arg(QDir(folder).absolutePath())
+                                      : listing.error);
+
+        QStringList listed;
+        for (const starfish::core::DesktopItem& item : listing.items)
+            listed.append(item.fileName);
+        check(QStringLiteral("the listing is the folder's own entries"), listed.size() == 4,
+              QStringLiteral("%1 (the dot entry is skipped by convention)").arg(listed.join(
+                  QStringLiteral(", "))));
+        check(QStringLiteral("the listing is sorted naturally"),
+              listed == QStringList({alphaName, betaName, gammaName, subName}),
+              QStringLiteral("%1").arg(listed.join(QStringLiteral(" < "))));
+
+        const starfish::core::Portal missing =
+            starfish::core::listPortal(QDir(folder).absoluteFilePath(QStringLiteral("unplugged")));
+        check(QStringLiteral("a folder that is not there is reported, not fatal"),
+              !missing.error.isEmpty() && missing.items.isEmpty(),
+              QStringLiteral("\"%1\", 0 item(s)").arg(missing.error));
+
+        check(QStringLiteral("the document entry kind is recognised"),
+              starfish::core::isPortalKind(QStringLiteral("portal"))
+                  && !starfish::core::isPortalKind(QStringLiteral("file")),
+              QStringLiteral("\"portal\" -> portal, \"file\" -> file, \"\" -> file"));
+
+        // --- B. the wiring: a fence mirrors the folder -------------------------
+        starfish::core::LayoutStore store;
+        store.setFilePath(layoutPath);
+        store.setDebounceInterval(60);
+        QFile::remove(layoutPath);
+        int writes = 0;
+        QObject::connect(&store, &starfish::core::LayoutStore::saved, &app,
+                         [&writes](const QString&) { ++writes; });
+
+        auto* container = new starfish::ui::FenceContainer;
+        container->setDesktopBounds(bounds);
+        container->setHostOnDesktop(host);
+        container->setMinimumFenceSize(QSize(160, 120));
+        {
+            auto sync = [container, &store] {
+                store.setLayout(container->toLayout());
+                store.scheduleSave();
+            };
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceCreated, container,
+                             [sync](const QString&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceRemoved, container,
+                             [sync](const QString&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceRectChanged, container,
+                             [sync](const QString&, const QRect&) { sync(); });
+            QObject::connect(container, &starfish::ui::FenceContainer::fenceContentChanged,
+                             container, [sync](const QString&) { sync(); });
+        }
+
+        const QString idInbox = container->createFence(QStringLiteral("Boîte de réception"),
+                                                       QRect(120, 120, 360, 300));
+
+        // The product answers fenceContentChanged() by reading toLayout(), so the
+        // document has to be consistent *when the signal fires*, not once the
+        // call that emitted it has returned. This records what the auto-save
+        // would have seen. (It did catch a real bug: the portal used to be
+        // appended after its tiles, so the first read saw the folder's files as
+        // plain items and persisted a frozen listing.)
+        QByteArray documentWhenAnnounced;
+        QObject::connect(container, &starfish::ui::FenceContainer::fenceContentChanged, container,
+                         [container, &documentWhenAnnounced](const QString&) {
+                             if (documentWhenAnnounced.isEmpty())
+                                 documentWhenAnnounced =
+                                     starfish::core::JsonStore::toJson(container->toLayout());
+                         });
+
+        const bool mirrored = container->addPortal(idInbox, folder);
+        check(QStringLiteral("the fence mirrors the folder"), mirrored,
+              QStringLiteral("addPortal(%1, %2)").arg(idInbox, QDir(folder).absolutePath()));
+
+        const QList<starfish::core::Portal> portals = container->portals(idInbox);
+        check(QStringLiteral("the portal is recorded with the path as declared"),
+              portals.size() == 1 && portals.at(0).path == folder,
+              portals.isEmpty() ? QStringLiteral("no portal")
+                                : QStringLiteral("path=\"%1\"").arg(portals.at(0).path));
+
+        QList<starfish::core::DesktopItem> tiles = container->fenceItems(idInbox);
+        bool folderItselfShown = false;
+        bool betaShown = false;
+        for (const starfish::core::DesktopItem& item : tiles) {
+            if (starfish::core::sameFolder(item.path, folder))
+                folderItselfShown = true;
+            if (item.path.compare(betaPath, Qt::CaseInsensitive) == 0)
+                betaShown = true;
+        }
+        check(QStringLiteral("the fence shows the folder's contents"), tiles.size() == 4,
+              QStringLiteral("%1 tile(s)").arg(tiles.size()));
+        check(QStringLiteral("the folder itself is not drawn as a tile"), !folderItselfShown,
+              QStringLiteral("no tile points at %1").arg(QDir(folder).absolutePath()));
+        check(QStringLiteral("a file of the folder is really there"), betaShown,
+              QStringLiteral("%1 is in the fence").arg(betaName));
+
+        check(QStringLiteral("mirroring the same folder twice is refused"),
+              !container->addPortal(idInbox, folder)
+                  && container->portals(idInbox).size() == 1
+                  && container->fenceItems(idInbox).size() == 4,
+              QStringLiteral("still 1 portal, %1 tile(s)")
+                  .arg(container->fenceItems(idInbox).size()));
+
+        check(QStringLiteral("an unknown fence cannot mirror anything"),
+              !container->addPortal(QStringLiteral("fence-999"), folder),
+              QStringLiteral("addPortal(fence-999) refused"));
+
+        check(QStringLiteral("the folders to watch are reported"),
+              container->portalFolders() == QStringList{folder},
+              QStringLiteral("%1").arg(container->portalFolders().join(QStringLiteral(" | "))));
+
+        if (host) {
+            check(QStringLiteral("the fence is hosted on the desktop"),
+                  container->surface(idInbox) != nullptr,
+                  container->surface(idInbox) ? QStringLiteral("surface attached")
+                                              : QStringLiteral("no surface"));
+            const QImage frame = container->frame(idInbox);
+            check(QStringLiteral("the hosted fence rendered its frame"),
+                  !frame.isNull() && frame.width() > 0,
+                  QStringLiteral("frame %1x%2").arg(frame.width()).arg(frame.height()));
+        }
+
+        // --- C. the document --------------------------------------------------
+        //
+        // The document is read back through the parser rather than grepped as
+        // bytes: what matters is the entry the format describes, not the
+        // escaping a path happens to need.
+        const starfish::core::Layout liveLayout = container->toLayout();
+        const QByteArray document = starfish::core::JsonStore::toJson(liveLayout);
+        int portalEntries = 0;
+        int fileEntries = 0;
+        bool portalPathMatches = false;
+        for (const starfish::core::Fence& fence : liveLayout.fences) {
+            for (const starfish::core::FenceItem& entry : fence.items) {
+                if (starfish::core::isPortalKind(entry.kind)) {
+                    ++portalEntries;
+                    if (entry.path == folder)
+                        portalPathMatches = true;
+                } else {
+                    ++fileEntries;
+                }
+            }
+        }
+        check(QStringLiteral("the document holds a portal entry"),
+              portalEntries == 1 && fileEntries == 0 && portalPathMatches,
+              QStringLiteral("%1 portal entry, %2 file entry, path as declared")
+                  .arg(portalEntries)
+                  .arg(fileEntries));
+        check(QStringLiteral("the listing is NOT frozen into the document"),
+              !document.contains(betaName.toUtf8()) && !document.contains(alphaName.toUtf8()),
+              QStringLiteral("no file of the folder is persisted as an item"));
+
+        {
+            // What the auto-save read at the instant the change was announced.
+            int announcedPortals = 0;
+            int announcedFiles = 0;
+            if (const auto announced = starfish::core::JsonStore::fromJson(documentWhenAnnounced)) {
+                for (const starfish::core::Fence& fence : announced->fences) {
+                    for (const starfish::core::FenceItem& entry : fence.items) {
+                        if (starfish::core::isPortalKind(entry.kind))
+                            ++announcedPortals;
+                        else
+                            ++announcedFiles;
+                    }
+                }
+            }
+            check(QStringLiteral("the document is consistent when the signal fires"),
+                  announcedPortals == 1 && announcedFiles == 0,
+                  QStringLiteral("%1 portal entry, %2 file entry as the auto-save saw it")
+                      .arg(announcedPortals)
+                      .arg(announcedFiles));
+        }
+
+        waitMs(250); // longer than the debounce interval
+        check(QStringLiteral("the portal was auto-saved"), writes == 1,
+              QStringLiteral("writes=%1 (expected 1 for the whole burst)").arg(writes));
+
+        starfish::core::LayoutStore reopened;
+        reopened.setFilePath(layoutPath);
+        QString loadError;
+        const bool loaded = reopened.load(&loadError);
+        check(QStringLiteral("reload: the document loads"), loaded,
+              loaded ? QStringLiteral("%1 fence(s)").arg(reopened.layout().fences.size())
+                     : loadError);
+
+        auto* restored = new starfish::ui::FenceContainer;
+        restored->setDesktopBounds(bounds);
+        restored->setHostOnDesktop(host);
+        restored->setItemResolver([](const QString& path) {
+            return starfish::core::itemFromPathOnly(path);
+        });
+        QString applyError;
+        const bool applied = restored->applyLayout(reopened.layout(), &applyError);
+        const QList<starfish::core::Portal> restoredPortals =
+            applied ? restored->portals(idInbox) : QList<starfish::core::Portal>{};
+        check(QStringLiteral("reload: the portal comes back"), applied && restoredPortals.size() == 1,
+              applied ? QStringLiteral("%1 portal(s)").arg(restoredPortals.size()) : applyError);
+        check(QStringLiteral("reload: the folder is listed again, from disk"),
+              applied && restored->fenceItems(idInbox).size() == 4,
+              QStringLiteral("%1 tile(s)").arg(restored->fenceItems(idInbox).size()));
+        check(QStringLiteral("reload: the document round-trips byte for byte"),
+              applied
+                  && starfish::core::JsonStore::toJson(restored->toLayout())
+                         == starfish::core::JsonStore::toJson(reopened.layout()),
+              QStringLiteral("toLayout() == the loaded document"));
+
+        {
+            // A portal pointing at a folder that is not reachable (an unplugged
+            // drive, an offline share) must survive a round trip: dropping it
+            // would silently delete the user's portal.
+            starfish::ui::FenceContainer offline;
+            const QString idOffline =
+                offline.createFence(QStringLiteral("Hors ligne"), QRect(0, 0, 320, 240));
+            const QString goneFolder = QDir(folder).absoluteFilePath(QStringLiteral("unplugged"));
+            const bool accepted = offline.addPortal(idOffline, goneFolder);
+            const QByteArray offlineDoc =
+                starfish::core::JsonStore::toJson(offline.toLayout());
+            starfish::ui::FenceContainer reloaded;
+            const bool offlineApplied =
+                reloaded.applyLayout(starfish::core::JsonStore::fromJson(offlineDoc).value_or(
+                                         starfish::core::Layout{}),
+                                     nullptr);
+            check(QStringLiteral("a portal to a missing folder is kept, not dropped"),
+                  accepted && offlineApplied && reloaded.portals(idOffline).size() == 1
+                      && reloaded.fenceItems(idOffline).isEmpty(),
+                  QStringLiteral("accepted=%1, %2 portal(s), %3 tile(s)")
+                      .arg(accepted ? QStringLiteral("yes") : QStringLiteral("no"))
+                      .arg(reloaded.portals(idOffline).size())
+                      .arg(reloaded.fenceItems(idOffline).size()));
+        }
+        delete restored;
+
+        // --- D. the mirror follows the folder (F-018) --------------------------
+        starfish::core::DesktopWatcher watcher;
+        watcher.setFolders(container->portalFolders());
+        watcher.setDebounceInterval(200);
+        watcher.start();
+        check(QStringLiteral("the portal's folder is watched"),
+              watcher.isWatching()
+                  && watcher.folders() == QStringList{QDir::cleanPath(QDir(folder).absolutePath())},
+              QStringLiteral("watching %1").arg(watcher.folders().join(QStringLiteral(" | "))));
+
+        int refreshed = 0;
+        QObject::connect(&watcher, &starfish::core::DesktopWatcher::folderChanged, container,
+                         [container, &refreshed](const QString& changed) {
+                             refreshed += container->refreshPortalsFor(changed);
+                         });
+
+        const QString deltaPath = QDir(folder).absoluteFilePath(
+            QStringLiteral("starfish-portal-%1-delta.txt").arg(stamp));
+        QFile::remove(deltaPath);
+        const int writesBeforeFolderChange = writes;
+        const bool deltaWritten = writeFile(deltaPath, "delta");
+        const bool sawDelta = waitUntil([&container, &idInbox] {
+                                            return container->fenceItems(idInbox).size() == 5;
+                                        },
+                                        8000);
+        bool deltaShown = false;
+        for (const starfish::core::DesktopItem& item : container->fenceItems(idInbox)) {
+            if (item.path.compare(deltaPath, Qt::CaseInsensitive) == 0)
+                deltaShown = true;
+        }
+        check(QStringLiteral("a file added to the folder appears in the fence"),
+              deltaWritten && sawDelta && deltaShown,
+              QStringLiteral("%1 tile(s) after the change (refreshed %2 time(s))")
+                  .arg(container->fenceItems(idInbox).size())
+                  .arg(refreshed));
+
+        const bool deltaRemoved = QFile::remove(deltaPath);
+        const bool sawRemoval = waitUntil([&container, &idInbox] {
+                                              return container->fenceItems(idInbox).size() == 4;
+                                          },
+                                          8000);
+        check(QStringLiteral("a file removed from the folder leaves the fence"),
+              deltaRemoved && sawRemoval,
+              QStringLiteral("%1 tile(s) after the deletion")
+                  .arg(container->fenceItems(idInbox).size()));
+
+        waitMs(250);
+        check(QStringLiteral("a folder change does not rewrite the document"),
+              writes == writesBeforeFolderChange,
+              QStringLiteral("writes=%1 (unchanged: only the folder path is persisted)")
+                  .arg(writes));
+
+        watcher.stop();
+
+        // --- E. nothing was moved ---------------------------------------------
+        const QFileInfoList after = QDir(folder).entryInfoList(
+            QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System, QDir::NoSort);
+        check(QStringLiteral("the folder still holds exactly what the probe left"),
+              after.size() == baseline + 5 && QFileInfo(subPath).isDir(),
+              QStringLiteral("%1 entries (baseline %2 + 4 files + 1 subfolder)")
+                  .arg(after.size())
+                  .arg(baseline));
+
+        // Every tile a portal contributes *is* the file, not a copy of it: the
+        // mirror has no second copy of anything, anywhere.
+        const QString folderAbs = QDir(folder).absolutePath();
+        bool allInside = !container->fenceItems(idInbox).isEmpty();
+        for (const starfish::core::DesktopItem& item : container->fenceItems(idInbox)) {
+            if (QFileInfo(item.path).absolutePath().compare(folderAbs, Qt::CaseInsensitive) != 0)
+                allInside = false;
+        }
+        check(QStringLiteral("the tiles point into the folder, nothing is copied"), allInside,
+              QStringLiteral("%1 tile(s), all under %2")
+                  .arg(container->fenceItems(idInbox).size())
+                  .arg(folderAbs));
+
+        // --- cleanup ----------------------------------------------------------
+        const bool cleaned = QFile::remove(alphaPath) && QFile::remove(betaPath)
+                             && QFile::remove(gammaPath) && QFile::remove(dotPath)
+                             && QDir(folder).rmdir(subName);
+        check(QStringLiteral("the probe removed what it created"), cleaned,
+              QStringLiteral("%1 entries removed").arg(4));
+
+        if (!customFolder) {
+            // Only a scratch folder the probe made itself is removed, and only
+            // if it is empty: a folder the user pointed at is never touched.
+            const bool gone = QDir().rmdir(folder);
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(QStringLiteral("INFO"), -6)
+                       .arg(QStringLiteral("scratch folder"), -52)
+                       .arg(gone ? QStringLiteral("removed")
+                                 : QStringLiteral("kept (not empty)"));
+        }
+
+        const QString reportPath = QStringLiteral("build/portal_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("layout file: %1\n").arg(layoutPath);
+                stream << QStringLiteral("mirrored folder: %1%2\n")
+                              .arg(QDir(folder).absolutePath(),
+                                   customFolder ? QStringLiteral(" (--portal-folder)")
+                                                : QStringLiteral(" (scratch)"));
+                stream << QStringLiteral("hosted: %1\n")
+                              .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
                 for (const QString& line : log)
                     stream << line << '\n';
                 stream << (failures == 0

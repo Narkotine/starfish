@@ -6,7 +6,7 @@
 
 ## État du projet
 
-**Phase 4 — Fonctions phares, en cours.** L'auto-organisation est en place (T-010) : des règles déclaratives (type, motif de nom, fenêtre d'âge, zone cible) rangent automatiquement les fichiers qui apparaissent dans un dossier surveillé — vérifié pour de vrai par `--rules-demo`, un fichier créé dans un dossier surveillé étant signalé en 300 ms puis rangé dans la bonne zone (28/28 PASS). **Aucun fichier n'est jamais déplacé sur le disque** : une règle décide quelle zone *montre* un item, point. Roll-up, quick hide et Peek sont faits (T-009) : enrouler une zone ne change que ce qu'elle **montre** (le rect stocké reste le corps déplié, donc dérouler restaure la zone exactement), quick hide masque et rappelle toutes les zones, et Peek les fait passer au-dessus de la couche d'icônes — le tout mesuré par `--nav-demo` (22/22 PASS headless, 29/29 en `--host`). Reste **T-011** (folder portals) pour clore la phase.
+**Phase 4 — Fonctions phares, terminée.** L'auto-organisation est en place (T-010) : des règles déclaratives (type, motif de nom, fenêtre d'âge, zone cible) rangent automatiquement les fichiers qui apparaissent dans un dossier surveillé — vérifié pour de vrai par `--rules-demo`, un fichier créé dans un dossier surveillé étant signalé en 300 ms puis rangé dans la bonne zone (28/28 PASS). **Aucun fichier n'est jamais déplacé sur le disque** : une règle décide quelle zone *montre* un item, point. Roll-up, quick hide et Peek sont faits (T-009) : enrouler une zone ne change que ce qu'elle **montre** (le rect stocké reste le corps déplié, donc dérouler restaure la zone exactement), quick hide masque et rappelle toutes les zones, et Peek les fait passer au-dessus de la couche d'icônes — le tout mesuré par `--nav-demo` (22/22 PASS headless, 29/29 en `--host`). Les **folder portals** sont faits (T-011) : une zone peut refléter un dossier arbitraire, le document ne stockant que le chemin du dossier — le miroir suit le dossier (ajouts **et** suppressions) sans jamais réécrire le document, et **sans jamais déplacer un fichier** (`--portal-demo`, 29/29 PASS headless, 31/31 en `--host`). Prochaine étape : **Phase 5** (snapshots, T-012).
 
 **Phase 3 — Zones complètes. TERMINÉE.** Le rendu des zones hébergées est réglé (T-020 : une surface Win32 brute blitte une image rendue par Qt hors écran), les icônes du bureau réel s'affichent dans une zone avec sélection, double-clic, menu contextuel Shell et glisser-déposer (T-005/T-006), les zones se créent, se déplacent, se redimensionnent, s'aimantent et se suppriment (T-007), et la disposition survit à un redémarrage (T-008 : document JSON versionné dans `%APPDATA%/StarFish/layout.json`, écriture atomique différée, restauration vérifiée par la sonde `--persist-demo` — 26/26 PASS).
 
@@ -84,9 +84,12 @@ starfish --nav-demo --host --seconds 10       # les mêmes, avec les fenêtres r
 starfish --rules-demo           # règles d'auto-organisation + dossier surveillé, rapport PASS/FAIL, puis quitte
 starfish --rules-demo --host --seconds 15     # idem, et l'on voit une zone se remplir toute seule
 starfish --rules-demo --watch C:/tmp/depot   # surveille un dossier au choix (les fichiers créés sont supprimés ensuite)
+starfish --portal-demo          # portail de dossier (F-024) : la zone montre le contenu d'un dossier, rapport PASS/FAIL, puis quitte
+starfish --portal-demo --host --seconds 15    # idem, et l'on voit un vrai dossier s'afficher dans une zone
+starfish --portal-demo --portal-folder C:/tmp/depot   # reflète un dossier au choix (la sonde ne supprime que ses propres fichiers)
 ```
 
-`--rules-demo` crée ses fichiers de démonstration sous un nom dérivé du PID du processus et les supprime en fin de sonde : il ne peut donc pas écraser un fichier existant, et rien d'autre que ce qu'il a créé n'est jamais touché — y compris si `--watch` pointe sur un vrai dossier.
+`--rules-demo` et `--portal-demo` créent leurs fichiers de démonstration sous un nom dérivé du PID du processus et les suppriment en fin de sonde : elles ne peuvent donc pas écraser un fichier existant, et rien d'autre que ce qu'elles ont créé n'est jamais touché — y compris si `--watch` ou `--portal-folder` pointe sur un vrai dossier. Un portail **ne déplace jamais** un fichier : il décide quelle zone *montre* le contenu d'un dossier.
 
 Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.
 

@@ -369,10 +369,28 @@ void FenceView::wheelEvent(QWheelEvent* event)
 
 void FenceView::addDroppedItems(const QList<core::DesktopItem>& items)
 {
-    if (m_grid.appendItems(items) > 0) {
+    appendItems(items);
+}
+
+int FenceView::appendItems(const QList<core::DesktopItem>& items)
+{
+    const int added = m_grid.appendItems(items);
+    if (added > 0) {
         update();
         emit contentChanged();
     }
+    return added;
+}
+
+int FenceView::replaceItems(const QStringList& previousPaths, const QList<core::DesktopItem>& items)
+{
+    const int removed = m_grid.removeItemsByPath(previousPaths);
+    const int added = m_grid.appendItems(items);
+    if (removed > 0 || added > 0) {
+        update();
+        emit contentChanged();
+    }
+    return added;
 }
 
 void FenceView::dragEnterEvent(QDragEnterEvent* event)

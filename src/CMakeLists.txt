@@ -6,6 +6,7 @@ qt_add_executable(starfish WIN32
     starfish.rc
     core/desktop_item.cpp
     core/desktop_watcher.cpp
+    core/portal.cpp
     core/rules.cpp
     core/jsonstore.cpp
     core/layout_store.cpp

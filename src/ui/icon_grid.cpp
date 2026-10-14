@@ -193,6 +193,47 @@ int IconGrid::appendItems(const QList<core::DesktopItem>& items)
     return added;
 }
 
+int IconGrid::removeItemsByPath(const QStringList& paths)
+{
+    if (paths.isEmpty() || m_items.isEmpty())
+        return 0;
+
+    QSet<QString> doomed;
+    for (const QString& path : paths) {
+        if (!path.isEmpty())
+            doomed.insert(path.toLower());
+    }
+    if (doomed.isEmpty())
+        return 0;
+
+    QList<core::DesktopItem> kept;
+    kept.reserve(m_items.size());
+    QHash<int, int> remap; // old index -> new index, for the selection
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (doomed.contains(m_items.at(i).path.toLower()))
+            continue;
+        remap.insert(i, kept.size());
+        kept.append(m_items.at(i));
+    }
+
+    const int removed = m_items.size() - kept.size();
+    if (removed == 0)
+        return 0;
+
+    QSet<int> selection;
+    for (int index : m_selected) {
+        const auto mapped = remap.constFind(index);
+        if (mapped != remap.constEnd())
+            selection.insert(*mapped);
+    }
+    m_selected = selection;
+    // The anchor may have been one of the removed tiles: fall back to the first
+    // cell rather than to an index that no longer exists.
+    m_anchor = remap.value(m_anchor, 0);
+    m_items = std::move(kept);
+    return removed;
+}
+
 QString IconGrid::launchPath(const core::DesktopItem& item)
 {
     // A shortcut opens its target; QDesktopServices::openUrl on the .lnk already

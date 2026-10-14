@@ -12,6 +12,7 @@
 
 #include "core/desktop_item.hpp"
 #include "core/jsonstore.hpp"
+#include "core/portal.hpp"
 #include "core/rules.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
@@ -37,6 +38,11 @@ struct FenceWindow {
     QRect rect; // desktop coordinates (Progman client == primary monitor, v1)
     core::FenceStyle style; // panel colour + radius are applied to the view
     bool rolledUp = false;  // F-020: persisted (T-008) and acted upon (T-009)
+    // T-011: the folder portals this fence mirrors, in declaration order. Each
+    // one carries its last listing, which is how the tiles a portal
+    // contributed are told apart from the fence's own items -- the document
+    // persists the folder path, never the listing.
+    QList<core::Portal> portals;
     FenceView* view = nullptr;
     starfish::platform::win::DesktopSurface* surface = nullptr;
 
@@ -178,6 +184,42 @@ public:
     // twice, so a repeated notification does not rewrite the document).
     int applyRulesTo(const QList<core::DesktopItem>& items);
 
+    // --- folder portals (T-011, F-024) --------------------------------------
+    //
+    // A portal mirrors a folder into a fence: the tiles it contributes are the
+    // folder's *contents*, and the folder itself is never drawn. What the
+    // document holds is the folder path (`{"kind":"portal","path":...}`), never
+    // the listing -- so the mirror follows the folder, and a folder changing
+    // never rewrites the document.
+    //
+    // Read mirror only: adding a file to the folder *shows* it, nothing is ever
+    // moved into the folder (that is the write half, T-035, and it would be an
+    // irreversible disk mutation -- see the golden rule in AGENTS.md).
+
+    // Mirrors `folderPath` into a fence. Returns false when the fence is
+    // unknown, the path is empty, the folder is already mirrored by this fence,
+    // or it could not be listed -- a portal to a folder that is not there is
+    // still accepted (and reported), because an offline network share must not
+    // silently disappear from the document.
+    bool addPortal(const QString& fenceId, const QString& folderPath);
+
+    // Stops mirroring a folder. The tiles it contributed go; the files and the
+    // folder itself are untouched. Returns false when the fence or the portal
+    // is unknown.
+    bool removePortal(const QString& fenceId, const QString& folderPath);
+
+    QList<core::Portal> portals(const QString& fenceId) const;
+
+    // Re-lists the portals pointing at `folder` -- every portal when it is
+    // empty -- and updates the fences that hold them. Returns how many portals
+    // were refreshed. The document is not touched: only the folder path is
+    // persisted, so a refresh can never trigger a write.
+    int refreshPortalsFor(const QString& folder = QString());
+
+    // Every folder a portal points at: what the product must watch (F-018) for
+    // the mirrors to follow their folders.
+    QStringList portalFolders() const;
+
     // Access for tests / diagnostics. May be null in headless mode (surface).
     FenceView* view(const QString& id) const;
     starfish::platform::win::DesktopSurface* surface(const QString& id) const;
@@ -224,12 +266,24 @@ private:
 
     // Shared body of createFence and applyLayout. An empty `requestedId` means
     // "allocate a fresh one"; a restored id is kept verbatim so that the
-    // document is stable across restarts.
+    // document is stable across restarts. `portalPaths` are the folders the
+    // restored fence mirrors (T-011); they are listed before the fence is
+    // announced, so fenceCreated() never describes half a fence.
     QString addFence(const QString& requestedId, const QString& title, const QRect& rect,
                      const core::FenceStyle& style, const QString& sortBy, bool sortAscending,
-                     bool rolledUp, const QList<core::DesktopItem>& items);
+                     bool rolledUp, const QList<core::DesktopItem>& items,
+                     const QStringList& portalPaths = {});
 
     core::DesktopItem resolveItem(const QString& path) const;
+
+    // Shared body of addPortal and the restore path. `announce` is false while
+    // a fence is being built, where the tiles are appended before any signal is
+    // connected and fenceCreated() is the single announcement.
+    bool addPortalTo(FenceWindow& fence, const QString& folderPath, bool announce);
+
+    // Re-lists one portal and swaps the tiles it contributed in the fence's
+    // view. Returns the number of tiles the folder holds now.
+    int applyPortalListing(FenceWindow& fence, core::Portal& portal);
 
     // Resizes the view and the surface to the fence's *visible* rect and pushes
     // a fresh frame. The stored rect is untouched -- that is the whole point of

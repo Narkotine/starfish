@@ -208,7 +208,7 @@ Le document ci-dessous est celui que `core::JsonStore` écrit réellement depuis
 Notes de format :
 
 - `style.background` est en **`#AARRGGBB`**, c'est-à-dire exactement ce que produit `QColor::name(QColor::HexArgb)` : la chaîne se relit sans perte. `iconTint` est omis quand il est vide.
-- `items` est la **composition de la zone** (voir ADR-7) ; `kind` vaut `"file"` jusqu'à F-024 (T-011), une entrée `"portal"` relue étant résolue comme le dossier qu'elle désigne.
+- `items` est la **composition de la zone** (voir ADR-7) ; `kind` vaut `"file"` ou `"portal"` (§13, T-011). Une entrée `"portal"` ne désigne pas une tuile mais **un dossier à refléter** : ses tuiles sont listées depuis le dossier à chaque chargement et ne sont donc **jamais** écrites comme items `"file"` — le document ne contient que le chemin du dossier.
 - `rules` est **écrit depuis T-010** (§12). Les critères vivent dans un objet `match` (`type`, `name`, `newerThanDays`, `olderThanDays`) pour qu'un futur critère soit un ajout plutôt qu'une rupture de schéma ; un `match` vide est la règle « attrape-tout ». Un document **sans** `rules` (ce que T-008 écrivait) se charge normalement — le tableau vaut alors vide. Le schéma reste **1** : `rules` était réservé depuis l'origine, ce n'est pas une rupture.
 - Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque**. Le déplacement réel n'est d'ailleurs pas implémenté (T-031).
 
@@ -219,9 +219,9 @@ Notes de format :
   - **Manifeste applicatif obligatoire** (`src/starfish.manifest` + `src/starfish.rc`, `enable_language(RC)`) : MinGW n'a **pas** d'étape manifeste par défaut, contrairement à MSVC. Sans lui, Windows applique le comportement pré-Windows 8, `WS_EX_LAYERED` est refusé sur les fenêtres enfants et **les zones hébergées ne s'affichent jamais** — silencieusement (ADR-4, finding 4). Ne pas retirer ce fichier du `CMakeLists.txt` : la panne ne produit aucun message.
 - **CI** : GitHub Actions `windows-latest` → configure/build + tests unitaires (`RuleEngine`, `LayoutStore`) à chaque PR.
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
-- **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
+- **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau, listage d'un portail) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -331,7 +331,7 @@ Le candidat retenu sur chaque axe est le plus proche ; les deux axes sont indép
 - Le démarrage de l'application (chargement du layout avant la première frame) n'est pas encore branché sur un mode produit : il n'existe pas encore de « mode normal » (Phase 6 / T-015). La sonde exerce exactement la séquence prévue, mais c'est elle qui l'orchestre.
 - Pas de sauvegarde sur `aboutToQuit` dans un mode produit (elle viendra avec le mode normal) ; le debounce de 500 ms suffit en pratique, mais un arrêt brutal dans les 500 ms qui suivent un déplacement perd ce déplacement.
 - Pas de versionnage au-delà du refus : un schéma 2 futur devra prévoir une migration (F-028 / T-012).
-- `kind: "portal"` n'est pas encore produit (F-024 / T-011).
+- `kind: "portal"` est produit depuis T-011 (§13) ; ce qui reste ouvert, c'est la moitié **écriture** du miroir (T-036).
 
 ## 11. Navigation : roll-up, quick hide, Peek (T-009, session 15)
 
@@ -439,6 +439,77 @@ Un fichier dont la date de modification est illisible (`modified` invalide) **ne
 
 - **Pas de déplacement sur disque** (`moveFiles: true`), volontairement : T-031.
 - **Pas d'interface de création de règles** : elles se déclarent en JSON (le format est stable) ou par `setRules()`. Un éditeur de règles est une tâche d'interface, à raccrocher à la page de réglages (F-034 / T-015).
-- **Le watcher ne surveille que le premier niveau** d'un dossier. Les règles ne s'appliquent donc pas à ce qui apparaît dans un sous-dossier — ce qui est cohérent avec F-018 (« nouveaux éléments du bureau »), mais à revoir si un portail (T-011) doit être surveillé.
+- **Le watcher ne surveille que le premier niveau** d'un dossier. Les règles ne s'appliquent donc pas à ce qui apparaît dans un sous-dossier — ce qui est cohérent avec F-018 (« nouveaux éléments du bureau »). Depuis T-011 un portail s'appuie sur le même watcher, et un dossier surveillé est re-listé à chaque changement (§13) ; surveiller l'**intérieur** d'un dossier reste T-033.
 - **`DesktopScanner` n'est pas branché sur le watcher dans un mode produit** : il n'existe pas encore de « mode normal » (T-015). La sonde câble la séquence exacte (`itemsAdded` → `itemForPath` → `applyRulesTo`) ; en production le resolver sera `DesktopScanner::itemForPath`, comme pour les drops de l'Explorer.
+
+## 13. Folder portals (T-011, session 18)
+
+F-024 : « portail vers un dossier quelconque (miroir en lecture/écriture) ». Un portail est une **zone qui montre le contenu d'un dossier** au lieu d'une liste d'items figée. C'est la dernière tâche de la Phase 4, et elle ferme le critère de sortie : « un portail affiche un dossier arbitraire ».
+
+### Ce que le document contient, et ce qu'il ne contient pas
+
+L'entrée de portail existait dans le schéma depuis l'origine (`FenceItem.kind`) et était **relue** comme le dossier qu'elle désigne (T-008) ; T-011 la **produit** :
+
+```json
+{ "kind": "portal", "path": "C:\\Users\\x\\Documents\\Factures" }
+```
+
+- **Le document ne stocke que le chemin du dossier**, jamais son contenu. Les tuiles qu'un portail apporte sont listées **depuis le disque** à chaque restauration. C'est ce qui fait d'un portail un miroir plutôt qu'un instantané : un fichier ajouté au dossier après la sauvegarde apparaît, un fichier supprimé disparaît.
+- Conséquence directe et testée : **une tuile apportée par un portail n'est jamais persistée comme item `"file"`**. `toLayout()` retire de la liste tout chemin qu'un portail fournit, et écrit à la place l'entrée `"portal"`. Sans ça la liste serait écrite deux fois : la zone afficherait des doublons au rechargement, et le miroir cesserait de suivre le dossier (les entrées persistées gèleraient l'ancien contenu).
+- **Le dossier lui-même n'est pas dessiné** : un portail montre ce que le dossier contient, pas le dossier.
+- Le chemin est conservé **tel que déclaré**, sans normalisation : `QDir::cleanPath()` convertit `C:\x` en `C:/x`, et le document cesserait de faire l'aller-retour octet pour octet (§10).
+
+### Les pièces
+
+| Pièce | Rôle | Dépendances |
+|---|---|---|
+| `core/portal.{hpp,cpp}` (`Portal`, `listPortal`, `isPortalKind`, `sameFolder`) | **lister** : ce que le dossier contient | Qt Core + système de fichiers local, aucun Shell |
+| `FenceContainer::addPortal` / `removePortal` / `refreshPortalsFor` | **appliquer** : porter les tuiles dans la zone | le conteneur, déjà propriétaire des zones |
+| `DesktopWatcher::folderChanged()` | **déclencher** : dire qu'un dossier a changé | Qt Core seul |
+
+`listPortal()` ne fait aucun appel Shell, exactement comme `itemFromPathOnly()` : un portail se teste donc sans bureau et sans Windows. Il ne liste que le **premier niveau** (même périmètre que F-018) et écarte les entrées en `.` (`isDotHiddenName`) — les entrées cachées par attribut sont conservées, comme le scanner de bureau les conserve.
+
+Un dossier **injoignable** (clé débranchée, partage hors ligne) n'est pas une erreur fatale : `Portal::error` est renseigné, la liste est vide, et **l'entrée reste dans le document**. La supprimer reviendrait à effacer le portail de l'utilisateur à cause d'un disque débranché.
+
+### Le miroir suit le dossier (F-018)
+
+`DesktopWatcher` gagne un second signal, plus grossier que `itemsAdded()` :
+
+| Signal | Sens | Consommateur |
+|---|---|---|
+| `itemsAdded(paths)` | ces entrées sont **nouvelles** (ajout seul) | les règles (T-010) |
+| `folderChanged(folder)` | ce dossier a changé, **peu importe comment** | les portails (T-011) |
+
+Un miroir ne raisonne pas en différentiel : il **re-liste** le dossier. Il a donc besoin de savoir qu'un fichier est *parti* autant que qu'un fichier est *arrivé* — ce que `itemsAdded()` ne dira jamais. `folderChanged()` est émis pour chaque dossier qui a notifié, après le même debounce ; il est volontairement indifférent au type de changement.
+
+Effet de bord nécessaire : la ligne de base (`m_known`) est **élaguée** des entrées disparues. Sans ça, un fichier supprimé puis recréé sous le même nom ne serait plus jamais signalé comme nouveau (l'ancien chemin resterait dans la ligne de base).
+
+### La règle d'or, et pourquoi la moitié « écriture » n'est pas faite
+
+F-024 dit « miroir en **lecture/écriture** ». Seule la moitié **lecture** est implémentée ici, volontairement :
+
+- Écrire signifierait **déplacer un fichier sur le disque** (déposer un fichier dans une zone-portail le rangerait dans le dossier cible). C'est une mutation irréversible du système de fichiers de l'utilisateur, exactement ce que la règle d'or d'`AGENTS.md` interdit sans opt-in explicite — et le même raisonnement qui a fait reporter `moveFiles` en T-031.
+- Déposer un fichier sur une zone-portail continue donc de **l'ajouter comme tuile à la zone**, sans toucher au dossier. Aucune sonde, aucun test, aucun code ne déplace quoi que ce soit.
+
+Le reste de F-024 (F-025, F-026) reste en P2 : taille d'icônes propre aux portails, et navigation dans les sous-dossiers.
+
+### Vérification
+
+- `tests/test_portal.cpp` — **8 cas** : `isPortalKind` (dont un `kind` absent, qui doit rester un item fichier), chemin conservé verbatim (y compris pour un dossier absent), listage naturel (dossier + fichiers, `shot9` avant `shot10`, taille/date d'un fichier, taille `-1` d'un dossier), entrées en `.` écartées, dossier vide sans erreur, dossier absent et fichier (au lieu d'un dossier) signalés sans exception, `sameFolder` (séparateurs, segments relatifs, casse, chemins vides).
+- `starfish --portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]` — rapport `build/portal_demo.txt`, code de sortie 0/1. **29/29 PASS** headless, **31/31 PASS** en `--host` (deux vérifications d'hébergement en plus). Mesuré : la zone affiche les 4 entrées du dossier et **pas** le dossier ; le document contient **1 entrée `portal` et 0 entrée `file`** ; le listing n'est **pas** figé dans le document ; l'aller-retour par le disque rend le portail **et le relit depuis le dossier** ; le document est **identique octet pour octet** après aller-retour ; un portail vers un dossier absent est **conservé** et n'affiche rien ; un fichier **réellement créé** dans le dossier apparaît dans la zone, un fichier **supprimé** disparaît de la zone ; **le document n'est pas réécrit** quand le dossier change ; le dossier contient toujours exactement ce que la sonde y a laissé, et **toutes les tuiles pointent sur les fichiers eux-mêmes** (aucune copie).
+- Non-régression (session 18) : `ctest` **8/8** ; `--fence-demo` **8/8** ; `--persist-demo` **26/26** ; `--nav-demo` **29/29** en `--host` (22/22 headless) ; `--rules-demo` **28/28**.
+
+### Piège trouvé par la sonde : un signal émis au milieu d'une mutation
+
+`FenceView::appendItems()` émet `contentChanged()`, que le conteneur relaie en `fenceContentChanged()`, que le produit écoute pour **lire `toLayout()` et sauvegarder**. La première version de `addPortalTo()` ajoutait les tuiles **puis** enregistrait le portail dans la liste. Résultat : au moment du signal, la zone avait 4 tuiles et **aucun portail** — le document lu (et donc sauvegardé) contenait les 4 fichiers comme items `"file"`, sans entrée `"portal"`. Le portail n'existait plus après un redémarrage, et le premier rafraîchissement du dossier réécrivait le document (les deux symptômes mesurés par la sonde).
+
+**Règle qui en sort : l'état doit être cohérent *avant* le signal, jamais après.** Le portail est donc enregistré avant l'ajout de ses tuiles. C'est le pendant exact du piège d'ordre d'évaluation des arguments des sondes (§12) : ici, ce n'est pas le rapport qui ment, c'est le document qui est lu trop tôt. La sonde en garde une vérification dédiée — « le document est cohérent quand le signal part » — qui rejoue la lecture **pendant** l'émission.
+
+### Limites assumées
+
+- **Pas d'écriture** : déposer un fichier sur un portail ne le range pas dans le dossier cible (T-036).
+- **Pas de récursion** : seul le premier niveau du dossier est listé ; naviguer dans un sous-dossier est F-026 (P2), et surveiller récursivement est T-033.
+- **Pas d'interface** : un portail se déclare en JSON (`{"kind":"portal","path":...}`) ou par `addPortal()`. Créer un portail en déposant un dossier n'existe pas encore.
+- **Pas de taille d'icônes propre au portail** (F-025, P2) : un portail utilise le style de sa zone.
+
 
