@@ -3,7 +3,12 @@
 #include <QApplication>
 #include <QColor>
 #include <QDesktopServices>
+#include <QFileInfo>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFont>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
@@ -13,6 +18,7 @@
 #include <QUrl>
 
 #if defined(_WIN32)
+#include "platform/win/desktop_scanner.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include <windows.h>
 #endif
@@ -29,6 +35,11 @@ FenceView::FenceView(QWidget* parent)
     m_grid.setGap(8);
     m_grid.setPadding(12);
     m_grid.setLabelHeight(34);
+
+    // The fence accepts files dropped from the Explorer (T-006-3). This is the
+    // path used when the fence is a real Qt window; the desktop-hosted surface
+    // takes the OLE IDropTarget path in DesktopSurface instead.
+    setAcceptDrops(true);
 }
 
 void FenceView::setTitle(const QString& title)
@@ -217,6 +228,72 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     if (!target.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(target));
     emit itemActivated(index);
+}
+
+void FenceView::addDroppedItems(const QList<core::DesktopItem>& items)
+{
+    if (m_grid.appendItems(items) > 0) {
+        update();
+        emit contentChanged();
+    }
+}
+
+void FenceView::dragEnterEvent(QDragEnterEvent* event)
+{
+    // Qt translates the Explorer's CF_HDROP into a list of file:// URLs.
+    if (event->mimeData()->hasUrls())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void FenceView::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (event->mimeData()->hasUrls())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void FenceView::dropEvent(QDropEvent* event)
+{
+    if (!event->mimeData()->hasUrls()) {
+        event->ignore();
+        return;
+    }
+
+    QList<core::DesktopItem> items;
+#if defined(_WIN32)
+    // Resolve each dropped path the same way the desktop scan does, so the
+    // tile (display name, shortcut target, hidden flag) matches the Shell.
+    items.reserve(event->mimeData()->urls().size());
+    for (const QUrl& url : event->mimeData()->urls()) {
+        const QString local = url.toLocalFile();
+        if (local.isEmpty())
+            continue;
+        const core::DesktopItem item =
+            starfish::platform::win::DesktopScanner::itemForPath(local);
+        if (!item.path.isEmpty())
+            items.append(item);
+    }
+#else
+    // Non-Windows: keep the path so the model still gains a tile; name falls
+    // back to the file name through itemForPath's equivalent on that platform.
+    for (const QUrl& url : event->mimeData()->urls()) {
+        const QString local = url.toLocalFile();
+        if (local.isEmpty())
+            continue;
+        core::DesktopItem item;
+        item.path = local;
+        item.fileName = QFileInfo(local).fileName();
+        item.name = item.fileName;
+        items.append(item);
+    }
+#endif
+
+    if (!items.isEmpty())
+        addDroppedItems(items);
+    event->acceptProposedAction();
 }
 
 void FenceView::paintDropIndicator(int index, QPainter& painter)

@@ -2,6 +2,10 @@
 
 #include <QWidget>
 
+class QDragEnterEvent;
+class QDragMoveEvent;
+class QDropEvent;
+
 #include "core/desktop_item.hpp"
 #include "ui/icon_grid.hpp"
 
@@ -38,6 +42,11 @@ public:
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
 
+    // Accepts items dropped from the Explorer (T-006-3) and appends them to the
+    // grid. `contentChanged` is emitted so the owner re-renders. The source
+    // (Windows Shell resolution) is done by the caller; this method is pure.
+    void addDroppedItems(const QList<core::DesktopItem>& items);
+
 signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.
@@ -52,6 +61,13 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+
+    // Explorer drag-and-drop into the fence (T-006-3). Only files/folders
+    // (CF_HDROP, exposed by Qt as mimeData()->hasUrls()) are accepted; the
+    // dropped paths are resolved to DesktopItems and appended.
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     // Pops the Windows shell context menu for the item at `index` (-1 = empty

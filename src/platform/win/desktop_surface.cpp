@@ -7,6 +7,8 @@
 #include <QMouseEvent>
 #include <QPointF>
 
+#include "platform/win/shell_drop_target.hpp"
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -15,6 +17,7 @@
 #endif
 #include <windows.h>
 #include <windowsx.h> // GET_X_LPARAM / GET_Y_LPARAM
+#include <ole2.h>     // OleInitialize / OleUninitialize (OLE drag-and-drop)
 
 namespace starfish::platform::win {
 
@@ -269,6 +272,37 @@ bool DesktopSurface::attach(const QRect& rect)
 
     // 4. Just below the icon layer.
     m_placed = place();
+
+    // 5. OLE drag-and-drop so the Explorer can drop files onto the hosted
+    //    window (T-006-3). OleInitialize must run on the thread that calls
+    //    RegisterDragDrop; the Qt main thread is already an STA, so it pairs
+    //    with OleUninitialize in detach(). m_oleInit is set on success (or when
+    //    OLE was already initialised by somebody else) so exactly one init is
+    //    balanced by one uninit.
+    if (!m_oleInit) {
+        const HRESULT hr = ::OleInitialize(nullptr);
+        if (SUCCEEDED(hr)) {
+            m_oleInit = true;
+        } else {
+            qCWarning(lc) << "OleInitialize failed, error" << hr
+                          << "-- Explorer drop disabled on this surface";
+        }
+    }
+    if (m_oleInit && !m_dropTarget) {
+        m_dropTarget = new starfish::platform::win::ShellDropTarget(
+            toHwnd(m_hwnd), [this](const QPoint& client, const QStringList& paths) {
+                if (m_dropHandler)
+                    m_dropHandler(client, paths);
+            });
+        const HRESULT hr = ::RegisterDragDrop(toHwnd(m_hwnd), m_dropTarget);
+        if (FAILED(hr)) {
+            qCWarning(lc) << "RegisterDragDrop failed, error" << hr
+                          << "-- Explorer drop disabled on this surface";
+            m_dropTarget->Release();
+            m_dropTarget = nullptr;
+        }
+    }
+
     m_watchdog.start();
 
     qCInfo(lc).noquote() << QStringLiteral("surface 0x%1 hosted at %2,%3 %4x%5 (layered, alpha "
@@ -286,10 +320,22 @@ void DesktopSurface::detach()
 {
     m_watchdog.stop();
     if (m_hwnd && ::IsWindow(toHwnd(m_hwnd))) {
+        // Revoke and release the OLE drop target before the window goes away,
+        // and before we clear USERDATA (the target's methods may still fire on
+        // the calling thread until RevokeDragDrop returns).
+        if (m_dropTarget) {
+            ::RevokeDragDrop(toHwnd(m_hwnd));
+            m_dropTarget->Release();
+            m_dropTarget = nullptr;
+        }
         // Drop the user data first: WM_DESTROY must not call back into a
         // half-destroyed object.
         ::SetWindowLongPtrW(toHwnd(m_hwnd), GWLP_USERDATA, 0);
         ::DestroyWindow(toHwnd(m_hwnd));
+    }
+    if (m_oleInit) {
+        ::OleUninitialize();
+        m_oleInit = false;
     }
     m_hwnd = 0;
     m_placed = false;
@@ -458,6 +504,17 @@ void DesktopSurface::setInputTarget(QObject* target)
 QObject* DesktopSurface::inputTarget() const
 {
     return m_inputTarget;
+}
+
+void DesktopSurface::setDropHandler(
+    std::function<void(const QPoint&, const QStringList&)> handler)
+{
+    m_dropHandler = std::move(handler);
+}
+
+const std::function<void(const QPoint&, const QStringList&)>& DesktopSurface::dropHandler() const
+{
+    return m_dropHandler;
 }
 
 void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)

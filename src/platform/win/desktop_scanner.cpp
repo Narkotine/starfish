@@ -118,6 +118,36 @@ bool hasHiddenAttribute(const QString& nativePath)
     return (attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0;
 }
 
+// Builds a DesktopItem from a single file's QFileInfo using the same Shell
+// resolution as the desktop scan (display name, shortcut target, hidden
+// attribute). Shared by scanFolder() and itemForPath() so a dropped file and a
+// scanned desktop entry resolve identically.
+core::DesktopItem itemFromFileInfo(const QFileInfo& info, bool isPublicDesktop)
+{
+    const QString fileName = info.fileName();
+    core::DesktopItem item;
+    item.fileName = fileName;
+    item.path = QDir::cleanPath(info.absoluteFilePath());
+    item.isDir = info.isDir();
+    item.modified = info.lastModified();
+    item.fromPublicDesktop = isPublicDesktop;
+    item.sizeBytes = item.isDir ? -1 : info.size();
+
+    const QString nativePath = QDir::toNativeSeparators(item.path);
+    const QString displayName = shellDisplayName(nativePath);
+    item.name = displayName.isEmpty() ? fileName : displayName;
+
+    const QString suffix = info.suffix().toLower();
+    item.isLink = suffix == QLatin1String("lnk") || suffix == QLatin1String("url");
+    if (suffix == QLatin1String("lnk"))
+        item.targetPath = resolveShortcutTarget(nativePath);
+    else if (suffix == QLatin1String("url"))
+        item.targetPath = resolveInternetShortcutTarget(item.path);
+
+    item.isHidden = hasHiddenAttribute(nativePath) || core::isDotHiddenName(fileName);
+    return item;
+}
+
 QList<core::DesktopItem> scanFolder(const QString& folder, bool isPublicDesktop)
 {
     QList<core::DesktopItem> items;
@@ -140,28 +170,7 @@ QList<core::DesktopItem> scanFolder(const QString& folder, bool isPublicDesktop)
         if (fileName.compare(QLatin1String("desktop.ini"), Qt::CaseInsensitive) == 0)
             continue;
 
-        core::DesktopItem item;
-        item.fileName = fileName;
-        item.path = QDir::cleanPath(info.absoluteFilePath());
-        item.isDir = info.isDir();
-        item.modified = info.lastModified();
-        item.fromPublicDesktop = isPublicDesktop;
-        item.sizeBytes = item.isDir ? -1 : info.size();
-
-        const QString nativePath = QDir::toNativeSeparators(item.path);
-        const QString displayName = shellDisplayName(nativePath);
-        item.name = displayName.isEmpty() ? fileName : displayName;
-
-        const QString suffix = info.suffix().toLower();
-        item.isLink = suffix == QLatin1String("lnk") || suffix == QLatin1String("url");
-        if (suffix == QLatin1String("lnk"))
-            item.targetPath = resolveShortcutTarget(nativePath);
-        else if (suffix == QLatin1String("url"))
-            item.targetPath = resolveInternetShortcutTarget(item.path);
-
-        item.isHidden = hasHiddenAttribute(nativePath) || core::isDotHiddenName(fileName);
-
-        items.append(item);
+        items.append(itemFromFileInfo(info, isPublicDesktop));
     }
     return items;
 }
@@ -215,6 +224,20 @@ QStringList DesktopScanner::desktopFolders()
     if (!publicDesktop.isEmpty())
         folders.append(QDir::cleanPath(publicDesktop));
     return folders;
+}
+
+core::DesktopItem DesktopScanner::itemForPath(const QString& path)
+{
+    if (path.isEmpty())
+        return {};
+    const ComScope com;
+    if (!com.usable())
+        return {};
+    // Even a path that does not (yet) exist becomes a valid tile: the Shell
+    // display name then falls back to the file name, and the tile is still
+    // useful once the file appears (a drop can race with a copy completing).
+    const QFileInfo info(path);
+    return itemFromFileInfo(info, false);
 }
 
 } // namespace starfish::platform::win

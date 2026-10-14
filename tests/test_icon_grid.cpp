@@ -41,6 +41,7 @@ private slots:
     void moveItemNoOpOnEqualIndexes();
     void moveItemRejectsOutOfRange();
     void moveItemClampsShiftedTarget();
+    void appendItemsAddsDedupesAndSorts();
 };
 
 void TestIconGrid::columnsFitTheWidth()
@@ -250,6 +251,33 @@ void TestIconGrid::moveItemClampsShiftedTarget()
     QCOMPARE(names, QStringList({QStringLiteral("b"), QStringLiteral("c"),
                                  QStringLiteral("d"), QStringLiteral("e"),
                                  QStringLiteral("a")}));
+}
+
+void TestIconGrid::appendItemsAddsDedupesAndSorts()
+{
+    // T-006-3: a drop from the Explorer appends to the grid. Duplicates (same
+    // path) are ignored, an item with no path is skipped, the list is re-sorted
+    // to the current order, and the selection is cleared (a drop is a fresh
+    // batch, not a continuation of the current selection).
+    IconGrid grid;
+    grid.setItems(QList<DesktopItem>{makeItem(QStringLiteral("b.txt"))});
+    grid.selectOnly(0);
+    QCOMPARE(grid.selectedIndices(), QSet<int>({0}));
+
+    const DesktopItem c = makeItem(QStringLiteral("c.txt"));
+    const DesktopItem dupB = makeItem(QStringLiteral("b.txt")); // same path as the existing item
+    const DesktopItem empty;                                    // no path -> skipped
+    const int added = grid.appendItems(QList<DesktopItem>{c, dupB, empty});
+    QCOMPARE(added, 1);
+
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("b.txt"), QStringLiteral("c.txt")}));
+    QVERIFY(grid.selectedIndices().isEmpty());
+
+    // A second identical drop adds nothing.
+    QCOMPARE(grid.appendItems(QList<DesktopItem>{c}), 0);
 }
 
 QTEST_MAIN(TestIconGrid)

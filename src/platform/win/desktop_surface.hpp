@@ -1,12 +1,17 @@
 #pragma once
 
+#include <functional>
 #include <QImage>
 #include <QObject>
+#include <QPoint>
 #include <QRect>
+#include <QStringList>
 #include <QTimer>
 #include <QtGlobal>
 
 namespace starfish::platform::win {
+
+class ShellDropTarget;
 
 class DesktopSurface;
 
@@ -92,6 +97,13 @@ public:
     void setInputTarget(QObject* target);
     QObject* inputTarget() const;
 
+    // Handler invoked when the Explorer drops files onto this surface (T-006-3).
+    // `clientPos` is in surface client coordinates (== fence local coordinates),
+    // `paths` are the dropped file/folder paths. Set before attach() so the
+    // OLE drop target is registered against the window.
+    void setDropHandler(std::function<void(const QPoint&, const QStringList&)> handler);
+    const std::function<void(const QPoint&, const QStringList&)>& dropHandler() const;
+
     // One-line report of what the paint cycle actually did: how many WM_PAINTs
     // were handled, the update region, the clip box and the number of scan
     // lines written. A paint that reports success while writing nothing is the
@@ -132,6 +144,14 @@ private:
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;
     bool m_rightDown = false;
+
+    // OLE drag-and-drop (T-006-3). The drop target is created on attach() and
+    // registered with the window so the Explorer can drop files onto it; it is
+    // revoked and released on detach(). OleInitialize/Uninitialize are balanced
+    // against a single init on this thread.
+    std::function<void(const QPoint&, const QStringList&)> m_dropHandler;
+    ShellDropTarget* m_dropTarget = nullptr;
+    bool m_oleInit = false;
 
     // Builds a QMouseEvent from a surface mouse message and posts it to the
     // input target (see setInputTarget). Coordinates are client-local, which

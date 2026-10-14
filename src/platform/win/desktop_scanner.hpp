@@ -27,6 +27,13 @@ public:
 
     // The folders that were scanned, in scan order, for diagnostics.
     static QStringList desktopFolders();
+
+    // Resolves a single dropped file/folder path to a DesktopItem, using the
+    // same Shell resolution as the desktop scan (display name, shortcut
+    // target, hidden attribute). Returns an empty item when the path is empty
+    // or COM is unavailable. Used by the Explorer drop target (T-006-3) so a
+    // dropped item and a scanned desktop entry resolve identically.
+    static core::DesktopItem itemForPath(const QString& path);
 };
 
 } // namespace starfish::platform::win

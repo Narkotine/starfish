@@ -79,6 +79,13 @@ public:
     // for its UX (in FenceView, that's the bottom-right cell).
     int dropTargetIndex(const QPoint& contentLocalPoint, const QSize& contentSize) const;
 
+    // --- drop (T-006-3, from Explorer) ---------------------------------------
+    // Appends items coming from a drag-and-drop, de-duplicating by path, then
+    // re-sorts to the current order and clears the selection (a drop is a fresh
+    // batch, not a continuation of the current selection). Returns the number
+    // of items actually added (0 when all were duplicates or the list empty).
+    int appendItems(const QList<core::DesktopItem>& items);
+
     // The path QDesktopServices should open for a double-click (F-005 / T-005).
     // A .lnk/.url opens its resolved target, everything else opens itself.
     static QString launchPath(const core::DesktopItem& item);

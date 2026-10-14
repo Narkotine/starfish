@@ -167,6 +167,32 @@ int IconGrid::dropTargetIndex(const QPoint& contentLocalPoint, const QSize& cont
     return hitTest(contentLocalPoint, contentSize);
 }
 
+int IconGrid::appendItems(const QList<core::DesktopItem>& items)
+{
+    int added = 0;
+    for (const core::DesktopItem& item : items) {
+        if (item.path.isEmpty())
+            continue;
+        bool duplicate = false;
+        for (const core::DesktopItem& existing : m_items) {
+            if (existing.path == item.path) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate)
+            continue;
+        m_items.append(item);
+        ++added;
+    }
+    if (added > 0) {
+        core::sortForDisplay(m_items, m_sortBy, m_ascending);
+        m_selected.clear();
+        m_anchor = 0;
+    }
+    return added;
+}
+
 QString IconGrid::launchPath(const core::DesktopItem& item)
 {
     // A shortcut opens its target; QDesktopServices::openUrl on the .lnk already

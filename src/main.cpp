@@ -683,6 +683,22 @@ int main(int argc, char* argv[])
 
             if (surface) {
                 surface->setInputTarget(fence);
+                // T-006-3: accept files dropped from the Explorer onto the hosted
+                // surface and append them to the fence. The OLE drop target reports
+                // the drop point in surface client coordinates, which match the
+                // fence's local coordinates (rendered at (0,0) of the frame).
+                surface->setDropHandler([fence](const QPoint&, const QStringList& paths) {
+                    QList<starfish::core::DesktopItem> items;
+                    items.reserve(paths.size());
+                    for (const QString& p : paths) {
+                        const starfish::core::DesktopItem item =
+                            starfish::platform::win::DesktopScanner::itemForPath(p);
+                        if (!item.path.isEmpty())
+                            items.append(item);
+                    }
+                    if (!items.isEmpty())
+                        fence->addDroppedItems(items);
+                });
                 // Live re-render whenever selection changes so the desktop shows it.
                 QObject::connect(fence, &starfish::ui::FenceView::contentChanged, &app,
                                  [surface, fence, pixelAlpha] {
