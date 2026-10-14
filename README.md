@@ -62,6 +62,8 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Qt/6.8
 
 Détail et portabilité : `docs/technique.md` §6.
 
+Le build déploie le runtime Qt à côté du binaire (`POST_BUILD` → `windeployqt`) : `build\starfish.exe` est **autonome**, lançable depuis n'importe quel shell ou par double-clic, sans Qt ni MinGW dans le `PATH`.
+
 ### Lancer
 
 Sans argument, le binaire démarre et se termine immédiatement (utilisable en CI, aucune intégration bureau).
@@ -82,6 +84,8 @@ starfish --nav-demo --host --seconds 10       # les mêmes, avec les fenêtres r
 ```
 
 Le binaire est en sous-système GUI : quand la sortie est redirigée (`> log.txt`), elle est respectée ; sinon la console du parent est récupérée.
+
+Les sondes écrivent leur rapport PASS/FAIL dans `build/` **relativement au répertoire courant** : lance-les **depuis la racine du dépôt**, sinon le rapport atterrit dans `build/build/` et l'ancien reste en place.
 
 `--host-demo` journalise le verdict de placement (`below icon layer` attendu) — mais **le z-order seul ne prouve rien** (ADR-4) : confirmer visuellement que la zone est au-dessus du papier peint et sous les icônes, **avec le bureau réellement visible** (une fenêtre maximisée au premier plan donne un faux négatif).
 

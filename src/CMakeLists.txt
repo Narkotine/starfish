@@ -26,6 +26,31 @@ target_include_directories(starfish PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# Deployment is load bearing too, for the same reason as the manifest: the MinGW
+# build links Qt dynamically, so `build\starfish.exe` refuses to start with
+# "Qt6Widgets.dll introuvable" unless Qt's bin directory happens to be on PATH.
+# Nobody launching the demo from a plain shell has that. windeployqt copies the
+# Qt DLLs, the platform plugin and the MinGW runtime next to the executable, so
+# the binary is self-contained and double-clickable.
+# POST_BUILD only fires when the target relinks, so this costs nothing on
+# incremental builds. Skipped silently if windeployqt cannot be located.
+if(WIN32)
+    get_target_property(_starfish_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_starfish_qt_bin_dir "${_starfish_qmake}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXE windeployqt HINTS "${_starfish_qt_bin_dir}")
+    if(WINDEPLOYQT_EXE)
+        add_custom_command(TARGET starfish POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXE}" --release
+                    --no-translations --no-system-d3d-compiler --no-opengl-sw
+                    --compiler-runtime
+                    "$<TARGET_FILE:starfish>"
+            COMMENT "Deploying the Qt runtime next to starfish.exe"
+            VERBATIM)
+    else()
+        message(STATUS "windeployqt not found: build/starfish.exe will need Qt's bin on PATH")
+    endif()
+endif()
+
 target_link_libraries(starfish PRIVATE
     Qt6::Core
     Qt6::Gui
