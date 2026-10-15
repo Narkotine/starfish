@@ -667,6 +667,7 @@ Deux règles :
 
 1. **Non masquées par défaut.** La bascule est dans le tray et dans les réglages : c'est un choix de l'utilisateur, pas un effet de bord du lancement.
 2. **On ne restaure que ce qu'on a masqué.** La première version appelait `ShowWindow(SW_SHOW)` au shutdown sans condition : un utilisateur qui avait caché ses icônes lui-même les aurait vues réapparaître. `ProductApp` tient `m_iconsHidden` et ne restaure que dans ce cas ; si l'appel échoue, la case reste **décochée** plutôt que de mentir sur l'état du bureau.
+3. **Depuis T-046, masquer laisse une trace** : `setDesktopIconsHidden()` écrit un **marqueur** (`core::IconHidingMarker`) **avant** de masquer et ne le retire qu'après avoir rendu la couche ; un marqueur qui ne peut pas être écrit **refuse** le masquage. C'est ce qui permet la restauration inconditionnelle au démarrage suivant après une fin brutale — §18.
 
 ### Langue
 
@@ -768,4 +769,54 @@ Cette mesure est un **proxy** : `WindowFromPoint` et la pile de z-order disent q
 
 - **Aucune validation au vrai curseur** : la pile de z-order est un modèle de l'atteignabilité, pas un clic. T-021 reste ouverte, et c'est le critère qui manque pour dire « on peut bouger une zone à la souris ».
 - **L'option B** (zones au-dessus de la couche native, sans surface de fond) est documentée et **écartée** par la duplication d'affichage qu'elle crée — voir ADR-9.
-- **ADR-9 est à confirmer par l'utilisateur** avant d'écrire T-039 : elle engage le produit (le bureau passe sous notre rendu).
+- **ADR-9 est ✅ tranchée** (option A, confirmée par l'utilisateur en session 28 — voir sa section dédiée, §3). Le **filet** qui rend l'option A sûre (T-046) est décrit en **§18**.
+
+## 18. Le filet de sécurité : un marqueur, et une restauration inconditionnelle (T-046, session 29)
+
+**Le problème.** ADR-9 (option A) fait masquer la couche d'icônes natives (`SHELLDLL_DefView`) pendant que StarFish tourne. Ce masquage est un changement **de toute la session** : le seul processus qui l'aurait défait est celui qui l'a fait. Une **fin brutale** (plantage, `kill`, coupure) laissait donc le bureau **sans aucune icône**, sans rien à l'écran pour l'expliquer. La règle actée en session 28 : *on ne construit pas une dépendance sans son filet* — et le filet se fait **avant** la surface de fond de T-039.
+
+### Un marqueur sur disque, et deux ordres qui comptent
+
+`core::IconHidingMarker` (`src/core/icon_hiding_marker.{hpp,cpp}`, Qt Core seul, testé) possède une note écrite dans `%APPDATA%/StarFish/icons-hidden.marker` — le même dossier que le document, parce que c'est le même état produit. Elle ne dit pas *quoi* réparer (il n'y a rien à décrire : rendre la couche est un acte unique), elle dit **qu'il y a quelque chose à réparer**.
+
+Deux propriétés portent tout le reste :
+
+1. **C'est la *présence* du fichier qui décide, jamais son contenu.** Un marqueur illisible (tronqué par un disque plein, modifié à la main) compte quand même : « la couche a-t-elle été masquée ? » ne doit pas dépendre de la relecture de la note. Testé (`presenceIsDecidedByTheFileNotByItsContent`).
+2. **Les ordres sont choisis pour que le pire cas reste réparable.**
+   - **À l'aller** : le marqueur est écrit **avant** `ShowWindow(SW_HIDE)`. Un plantage entre les deux laisse un marqueur **sans** masquage — la « réparation » qui suivra sera un simple `SW_SHOW` sur une couche déjà visible, sans effet et sans dégât. L'inverse (masquer puis écrire) laisserait une fenêtre où le bureau est sans icônes **et** sans note : le seul état que rien ne peut réparer. **Si le marqueur ne peut pas être écrit, le masquage est refusé** (`setDesktopIconsHidden(true)` retourne `false`, journalisé en `critical`) — et la case du tray reste décochée plutôt que de mentir.
+   - **Au retour** : `ShowWindow(SW_SHOW)` **puis** suppression du marqueur. Un plantage entre les deux laisse un marqueur sans masquage : la réparation suivante est encore sans effet. L'inverse (supprimer puis montrer) recréerait l'état irréparable.
+
+Le marqueur n'est **pas** dans le document : la couche d'icônes appartient à la session, pas à une disposition — deux documents différents partagent le même bureau. `DesktopHost::setIconsHidden()` (chemin hérité, encore utilisé par les sondes `--host-demo` / `--render-probe`) **délègue** désormais à `DesktopSurface::setDesktopIconsHidden()` : le masquage et sa trace ne peuvent pas diverger.
+
+### La restauration au démarrage : inconditionnelle, et la première chose faite
+
+`ProductApp::start()` appelle `repairIconHidingFromPreviousRun()` **avant tout le reste** — avant le chargement du document, avant la première zone, et **quel que soit le mode** (une sonde headless comprise) : les icônes absentes sont un fait de la machine, pas de ce document ni de ces options. Si le marqueur est là, la couche est rendue, le marqueur disparaît ; si la restauration **échoue** (pas d'Explorer à cet instant), le marqueur est **conservé** — le lancement suivant, ou la sortie de secours, doit encore pouvoir réparer.
+
+C'est la restauration *inconditionnelle* de la session 28 : elle ne dépend **d'aucun** état interne du processus mort, seulement du fichier. Et elle est sûre parce que le marqueur ne peut exister que si un StarFish a **réellement** masqué la couche (règle 2 ci-dessus).
+
+### La sortie de secours : « Restore my icons »
+
+Le tray gagne une entrée **« Restore my icons »** (`TrayIcon::restoreIconsRequested` → `ProductApp::restoreDesktopIcons()`) — une **commande**, pas une bascule. La différence est le point : la bascule ordinaire (`setDesktopIconsHidden(false)`) n'agit **que** si l'état demandé diffère de l'état **mémorisé** (`m_iconsHidden`), donc elle ne peut rien faire dans le cas précis où l'on a besoin d'elle — la couche masquée par un autre run pendant que celui-ci ne se souvient de rien (mesuré : la vérification `the ordinary toggle cannot reach a state it does not know` de la sonde vit dans cet état). La sortie de secours demande au bureau de montrer les icônes et **croit sa réponse**.
+
+Déviation documentée : c'est le **seul** endroit qui touche la couche réelle même avec `--no-host` (mode fenêtré, où le produit ne gère pas la couche). C'est voulu — « rendez-moi mes icônes » est une demande de l'utilisateur au bureau, pas une pièce de notre comptabilité.
+
+### Vérification : la fin brutale est simulée, pour de vrai
+
+`starfish --crash-demo` : **20/20 PASS**, `rc=0`, rapport `build/crash_demo.txt`. La sonde **masque les vraies icônes du bureau** un instant, puis **tue le processus qui les a masquées** :
+
+1. **Première moitié** — un processus enfant (`starfish --crash-victim`, la moitié cachée de la sonde) masque les icônes **par le chemin du produit** (`ProductApp::setDesktopIconsHidden`, le même code que la bascule du tray) et attend d'être tué. Le parent **lit de l'extérieur** les deux faits : le marqueur sur disque et `SHELLDLL_DefView` masquée dans la fenêtre d'Explorer. Rien n'est un auto-rapport.
+2. **La fin brutale** — `QProcess::kill()` (`TerminateProcess`, aucun teardown ne s'exécute). Deux vérifications **prouvent que la fin était vraiment brutale** : le marqueur est encore là et les icônes encore masquées — si un atelier quelconque avait tourné, les deux seraient revenus et la suite ne mesurerait rien.
+3. **Le lancement suivant** — un `ProductApp::start()` neuf, **sans mémoire du processus mort**, rend les icônes (état relu dans la fenêtre d'Explorer, pas dans notre comptabilité) et supprime le marqueur.
+4. **La sortie de secours** — la sonde fabrique l'état pour lequel elle existe (couche masquée **derrière le dos** du produit, `m_iconsHidden == false`), **constate que la bascule ordinaire n'y peut rien** (prémisse — l'assertion passe quand les icônes restent masquées), puis `restoreDesktopIcons()` les rend quand même.
+5. **Nettoyage** — la sonde ne rend que ce qui est à elle (une couche masquée **avec** marqueur), retire le marqueur, supprime son dossier, et vérifie qu'elle a laissé le bureau **comme elle l'a trouvé**.
+
+**La prémisse est prouvée, pas affirmée** : en neutralisant la réparation (`repairIconHidingFromPreviousRun()` en `return;` — test temporaire, revert), `--crash-demo` tombe à `rc=1` avec **exactement deux `FAIL`** (`the next launch gives the icons back` et `...and removes the marker`), le reste restant vert. La sonde distingue donc réellement « un lancement qui répare » d'un lancement qui ne fait rien — et le rapport de cette exécution ratée montre au passage la limite que la sortie de secours comble : la ligne d'état du produit disait `desktop icons visible` alors que la couche était masquée (la comptabilité suit *ses* actions, pas celles du run mort).
+
+Messages de la sonde, pour mémoire : `--crash-victim` est aussi utilisable seul (« lance ça, tue-le, puis lance l'application et regarde »), et le journal du victime montre l'ordre réel (`icon-hiding marker written` **puis** `native desktop icons hidden`).
+
+### Limites assumées
+
+- **Planter *et* ne plus jamais relancer StarFish** laisse le bureau sans icônes : il faut alors relancer Explorer. C'est le risque résiduel assumé de la session 28, réduit ici au seul cas « on ne relance jamais ». La sortie de secours du tray n'existe que si StarFish tourne.
+- **Un marqueur ne dit pas qui a masqué.** Si l'utilisateur avait masqué ses icônes lui-même **avant** que StarFish les masque, la réparation les rendra visibles : c'est la même imprécision assumée que la sortie propre depuis T-038 (« on ne restaure que ce qu'on a masqué » vaut pour *notre* action, pas pour l'état antérieur). Une note sur disque ne peut pas mieux savoir ; le contraire — rester sans icônes pour épargner une préférence — serait pire.
+- L'ordre **write-ahead** (marqueur avant masquage) est **par construction**, pas mesurable de l'extérieur à la résolution d'une horloge (la fenêtre fait quelques microsecondes) : la sonde mesure ses **conséquences** (marqueur présent + couche masquée après la mort), pas la séquence. La séquence est fixée par une seule fonction et lue dans le journal du victime.
+
