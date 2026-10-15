@@ -56,7 +56,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-La CI GitHub Actions (`.github/workflows/ci.yml`) construit et teste automatiquement sur `windows-latest` (MSVC). Le build local est validé depuis le 2026-10-13 avec **Qt 6.8.3 `win64_mingw` + MinGW 13.1.0**, installés sans droits administrateur via `aqtinstall` (la machine de dev n'a pas MSVC) :
+La CI GitHub Actions (`.github/workflows/ci.yml`) construit et teste automatiquement sur `windows-latest` (MSVC) : elle est **validée depuis le 2026-10-15** (build MSVC + `ctest` **10/10**), et vérifie en plus que le **manifeste applicatif** est bien embarqué dans le binaire — c'est une ressource porteuse (ADR-4), son absence étant silencieuse. Le build local est validé depuis le 2026-10-13 avec **Qt 6.8.3 `win64_mingw` + MinGW 13.1.0**, installés sans droits administrateur via `aqtinstall` (la machine de dev n'a pas MSVC) :
 
 ```bash
 python -m aqt install-qt windows desktop 6.8.3 win64_mingw -O C:/Qt
