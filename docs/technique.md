@@ -162,6 +162,27 @@ Les trois comportements « dégager le bureau » (F-020 roll-up, F-021 Peek, F-0
 
 Corollaire assumé : Peek surélève la zone **dans le bureau** (au-dessus de la couche d'icônes), pas au-dessus des fenêtres d'application — c'est le maximum atteignable tant que les zones sont des enfants de `Progman` (ADR-4). Voir §11.
 
+### ADR-9 — Édition manuelle : StarFish possède la couche d'icônes (session 25)
+
+**Demande (utilisateur, session 25)** : créer des zones quand on veut, y déposer les icônes qu'on veut, organiser **à la main**, et qu'une zone déplacée **emporte ses icônes**. L'auto-organisation (F-017/F-018) n'est **pas** demandée : ne pas y investir (T-031/T-032 restent ⬜ et sans suite planifiée).
+
+**Fait mesuré 1 — les tuiles appartiennent à la zone, pas à l'écran.** Rendre deux fois la même zone, avant et après un déplacement, produit des images **identiques octet pour octet** (la frame est le rectangle de la zone), et la fenêtre hébergée est repositionnée. « Déplacer une zone emporte ses icônes » est donc **vrai par construction**, et désormais **prouvé** (`--fence-demo`, vérification `moving a fence carries its tiles`).
+
+**Fait mesuré 2 — sous la couche d'icônes, une zone ne reçoit pas la souris.** Au centre d'une zone hébergée, la fenêtre **visible** la plus haute de la hiérarchie du bureau est `SHELLDLL_DefView` (layered), puis `SysListView32` (plein écran, **plain**), puis notre surface — donc le clic va à la liste du bureau, pas à la zone. **Couche d'icônes masquée**, la plus haute devient `StarFishDesktopSurface`. Autrement dit : **masquer les icônes natives n'est pas cosmétique (ADR-3), c'est la condition pour qu'une zone soit utilisable.** Mesuré et vérifié par la sonde (`the fence is reachable only once the native icons are hidden`), qui restaure les icônes immédiatement après.
+
+**Décision.** Tant que StarFish tourne, il **prend la place de la couche d'icônes** :
+
+1. La couche native (`SHELLDLL_DefView`) est **masquée au démarrage** du mode produit, et StarFish dessine **lui-même toutes** les icônes du bureau — celles qui sont dans une zone (surfaces de zone, fait) **et celles qui n'y sont pas** (une surface de fond plein écran, **T-039**).
+2. **Les icônes hors zone sont calculées, jamais stockées** : *toutes les entrées du bureau − celles qu'une zone détient*. ADR-7 reste donc intact (le document est l'autorité sur les **zones**), et deux comportements tombent d'eux-mêmes : supprimer une zone **rend** ses icônes au bureau (F-007), et sortir une icône d'une zone est un déplacement **entre deux de nos surfaces** (F-011).
+3. **Un seul protocole de glisser-déposer, le nôtre.** Un geste à l'intérieur du bureau ne quitte jamais nos fenêtres ; le chemin `CF_HDROP` de la coquille reste nécessaire **uniquement** pour ce qui vient de l'Explorateur (déjà câblé, T-006-3). Déposer un fichier de l'Explorateur sur une zone continue de fonctionner.
+4. **Corollaire qui économise une tâche** : parce que nous possédons le fond, les gestes « sur le bureau vide » (F-001 créer une zone en glissant, F-022 quick hide au double-clic) arrivent **directement** à notre surface de fond. **Le hook souris global de T-028 n'est pas nécessaire** pour eux ; T-028 ne se justifie plus que pour un geste démarré **hors** de nos fenêtres.
+
+**Alternative écartée (Option B)** : garder la couche native visible et placer les zones **au-dessus** d'elle. Moins de travail, et le clic atteint la zone — mais **elle ne résout pas la demande** : un fichier rangé dans une zone existerait **deux fois** à l'écran (l'icône native à sa place, la tuile dans la zone), ce qui est précisément ce que l'utilisateur veut éviter en organisant à la main. B est donc écartée **par la duplication**, pas par le goût.
+
+**Ce que ça coûte, et ce qui reste à faire.** Réimplémenter les interactions de bureau sur les icônes hors zone (renommage, couper/coller, menu contextuel — le menu existe déjà, T-006-1) : c'est le prix assumé de l'ADR-3. `DefView` masquée doit être **rendue** à la sortie, y compris en cas de plantage (**T-042**). Le schéma du document **ne bouge pas** : aucune des trois tâches n'ajoute de champ.
+
+**À confirmer** : l'option A engage le produit (le bureau passe sous notre rendu). Elle suit la demande explicite de l'utilisateur, mais **avant d'écrire T-039** il faut son accord — l'alternative B et son prix sont documentés ci-dessus.
+
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
 | Besoin | API / technique |
@@ -673,3 +694,45 @@ Les libellés passent par `tr()` avec des chaînes sources **en anglais** : l'i1
 - Le manifeste reste **sans** entrée `dpiAware` : la sonde mesure `PER_MONITOR_AWARE (2)`, la mesure de la session 9 avait écarté le DPI comme cause des refus de `WS_EX_LAYERED` (ADR-4, finding 4), et Qt 6 ne s'en trouve pas empêché. Ne pas l'ajouter sans re-mesurer — c'est précisément ce que la sonde permet désormais.
 
 
+
+## 17. Édition manuelle : ce qui marche, et le mur du z-order (session 25)
+
+**Le contexte.** L'utilisateur a précisé ce qu'il veut : créer des zones quand il veut, y mettre les icônes qu'il veut, organiser **à la main**, et qu'une zone déplacée **emporte ses icônes** — l'auto-organisation (F-017/F-018) ne l'intéresse pas. La demande a été confrontée au code avant toute promesse, et deux vérifications ont été ajoutées à `--fence-demo` (elles tournent headless **et** en `--host`).
+
+### Ce qui est vrai, et maintenant prouvé
+
+**« Déplacer une zone emporte ses icônes » : vrai par construction, et mesuré.** `renderFence` produit une image **de la taille du rectangle de la zone** et peint le widget dedans : le contenu n'a aucune coordonnée écran. Rendre la même zone avant et après un déplacement (`1200,900` après avoir été à `80,600`) donne des images **identiques octet pour octet** — et la vérification exige **aussi** que le rectangle ait changé, sinon elle passerait sur une zone qui n'a pas bougé.
+
+**Les tuiles sont bien celles de la zone** : la sonde hôte la zone de démo avec les **85 entrées réelles** du bureau, et chaque tuile pointe sur le fichier lui-même.
+
+### Le mur : sous la couche d'icônes, une zone ne reçoit pas la souris
+
+La position **normale** d'une surface (ADR-4) est **juste sous `SHELLDLL_DefView`**. La sonde énumère donc les fenêtres du bureau qui couvrent le centre de la zone, **les plus hautes d'abord**, en ignorant les fenêtres masquées (une fenêtre masquée ne prend aucun clic — sans ce filtre, la mesure ne distingue pas « icônes masquées » de « rien n'a changé ») :
+
+| État | Fenêtre visible la plus haute au centre de la zone |
+|---|---|
+| icônes natives **visibles** | `SHELLDLL_DefView` (2560×1440, layered) |
+| | `SysListView32` (2560×1440, **plain**) |
+| | `StarFishDesktopSurface` (360×260, layered) ← **nous, en troisième** |
+| icônes natives **masquées** | `StarFishDesktopSurface` ← **nous, en premier** |
+
+Conséquence mesurée : avec les icônes natives visibles, **le clic va à la liste du bureau**, pas à la zone. Masquer la couche d'icônes n'est donc **pas cosmétique** : c'est la condition pour qu'une zone soit utilisable. La vérification est **falsifiable** — elle exige les deux moitiés (visible → pas nous ; masquée → nous), donc elle resterait rouge si la couche d'icônes cessait d'être au-dessus, ou si nous n'étions pas dessous. La sonde **restaure les icônes immédiatement** après la mesure (« restore only what we hid », décision 22).
+
+Cette mesure est un **proxy** : `WindowFromPoint` et la pile de z-order disent quelle fenêtre serait choisie, pas ce qu'un curseur réel fait (le bureau de la machine de dev est recouvert — la mesure a d'ailleurs renvoyé `Chrome_WidgetWin_1` au premier essai, ce qui ne dit rien du bureau). La validation au vrai curseur reste humaine (T-021).
+
+### Les deux moitiés de la demande, et la décision
+
+- **Mettre des icônes dans une zone : oui**, et ça marche déjà — déposer un fichier depuis l'Explorateur arrive par le `IDropTarget` OLE (`CF_HDROP`, T-006-3), et une règle (F-017) n'est pas nécessaire pour ranger à la main.
+- **Ranger les icônes *déjà* sur le bureau dans une zone : non**, et c'est l'écart n°2 de l'audit : il n'existe **aucune représentation d'une icône hors zone**. D'où la décision **ADR-9** : StarFish prend la place de la couche d'icônes et dessine lui-même toutes les icônes du bureau, celles des zones **et** celles qui n'y sont pas (T-039), les secondes étant **calculées** (toutes les entrées − celles qu'une zone détient) et donc **jamais stockées**. Trois comportements tombent alors d'eux-mêmes : F-007 (supprimer une zone **rend** ses icônes au bureau), F-011 (sortir une icône d'une zone), et — corollaire qui **économise T-028** — les gestes sur le bureau vide (F-001, F-022) arrivent directement à notre surface de fond, sans hook souris global.
+
+### Vérification (mesurée, session 25)
+
+- `--fence-demo` : **9/9** headless ; `--fence-demo --host` : **10/10**, dont `moving a fence carries its tiles` (prémisse : le rectangle a changé) et `the fence is reachable only once the native icons are hidden` (les deux moitiés).
+- Non-régression : `ctest` **10/10** ; `--persist-demo` 26/26, `--nav-demo` 22/22, `--rules-demo` 28/28, `--portal-demo` 29/29, `--snapshot-demo` 11/11, `--product-probe` 16/16, `--screen-demo` 19/19.
+- La sonde hôte la zone de démo avec les entrées réelles du bureau et **laisse les icônes de l'utilisateur dans l'état où elle les a trouvées** (rapport : `native icons restored: yes`).
+
+### Limites assumées
+
+- **Aucune validation au vrai curseur** : la pile de z-order est un modèle de l'atteignabilité, pas un clic. T-021 reste ouverte, et c'est le critère qui manque pour dire « on peut bouger une zone à la souris ».
+- **L'option B** (zones au-dessus de la couche native, sans surface de fond) est documentée et **écartée** par la duplication d'affichage qu'elle crée — voir ADR-9.
+- **ADR-9 est à confirmer par l'utilisateur** avant d'écrire T-039 : elle engage le produit (le bureau passe sous notre rendu).

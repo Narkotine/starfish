@@ -562,6 +562,63 @@ double measureBorderCoverage(qreal dpr)
     return coverage;
 }
 
+#if defined(_WIN32)
+// Enumeration state for the "which desktop window is on top at this point"
+// report below. EnumChildWindows needs a plain function pointer, so the state
+// lives at file scope.
+POINT g_zProbePoint{};
+QStringList* g_zProbeLines = nullptr;
+
+BOOL CALLBACK zProbeChildProc(HWND child, LPARAM)
+{
+    if (!g_zProbeLines)
+        return FALSE;
+    if (g_zProbeLines->size() >= 4)
+        return FALSE; // the first few covering windows are the whole story
+    RECT r{};
+    if (!::GetWindowRect(child, &r))
+        return TRUE;
+    if (g_zProbePoint.x < r.left || g_zProbePoint.x >= r.right || g_zProbePoint.y < r.top
+        || g_zProbePoint.y >= r.bottom)
+        return TRUE; // does not cover the point: irrelevant to z-order there
+    // A hidden window takes no input at all, so it is not part of the stack a
+    // click would be resolved against. Without this the report cannot tell
+    // "hidden the icon layer" from "did nothing".
+    if (!::IsWindowVisible(child))
+        return TRUE;
+    wchar_t cls[128] = {0};
+    ::GetClassNameW(child, cls, 128);
+    const LONG ex = ::GetWindowLongW(child, GWL_EXSTYLE);
+    QStringList flags;
+    if (ex & WS_EX_LAYERED)
+        flags << QStringLiteral("layered");
+    if (ex & WS_EX_TRANSPARENT)
+        flags << QStringLiteral("transparent");
+    if (!(ex & WS_EX_LAYERED) && !(ex & WS_EX_TRANSPARENT))
+        flags << QStringLiteral("plain");
+    *g_zProbeLines << QStringLiteral("  z: %1  %2x%3  %4")
+                          .arg(QString::fromWCharArray(cls))
+                          .arg(r.right - r.left)
+                          .arg(r.bottom - r.top)
+                          .arg(flags.join(QLatin1Char('|')));
+    return TRUE;
+}
+
+// Progman's children covering `pt`, topmost first (EnumChildWindows yields them
+// in z-order). This is the desktop's *own* hierarchy, so a covering application
+// window cannot hide the answer: it says whether the icon layer or our surface
+// is picked first at that point.
+QStringList zProbeAt(HWND progman, const QPoint& pt)
+{
+    QStringList lines;
+    g_zProbePoint = POINT{pt.x(), pt.y()};
+    g_zProbeLines = &lines;
+    ::EnumChildWindows(progman, &zProbeChildProc, 0);
+    g_zProbeLines = nullptr;
+    return lines;
+}
+#endif
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -1005,6 +1062,34 @@ int main(int argc, char* argv[])
               !container->removeFence(QStringLiteral("fence-999")),
               QStringLiteral("unknown id rejected"));
 
+        // T-039: the tiles belong to the fence, not to the screen. A frame is
+        // the zone's *own* rectangle, so rendering the same zone before and
+        // after a move must produce byte-identical images -- that is what
+        // "moving a fence carries its icons" means. The rect is asserted to
+        // have changed too, or the check would pass on a fence that never
+        // moved.
+        const QList<starfish::core::DesktopItem> tiles{
+            starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/one.txt")),
+            starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/two.txt")),
+            starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/three.txt")),
+        };
+        const QString idC =
+            container->createFence(QStringLiteral("with tiles"), QRect(80, 600, 320, 240), tiles);
+        const QImage frameBeforeMove = container->frame(idC);
+        const QRect movedC =
+            container->setFenceRect(idC, QRect(1200, 900, 320, 240), /*snap=*/false);
+        const QImage frameAfterMove = container->frame(idC);
+        check(QStringLiteral("moving a fence carries its tiles"),
+              movedC == QRect(1200, 900, 320, 240) && !frameBeforeMove.isNull()
+                  && frameBeforeMove == frameAfterMove,
+              QStringLiteral("%1 tile(s), rect %2,%3, frame %4x%5 identical after the move: %6")
+                  .arg(tiles.size())
+                  .arg(movedC.x())
+                  .arg(movedC.y())
+                  .arg(frameAfterMove.width())
+                  .arg(frameAfterMove.height())
+                  .arg(frameAfterMove == frameBeforeMove ? QStringLiteral("yes") : QStringLiteral("no")));
+
         if (hosted) {
             QString scanError;
             QList<starfish::core::DesktopItem> items =
@@ -1016,6 +1101,89 @@ int main(int argc, char* argv[])
             log << QStringLiteral("hosted fence %1 with %2 desktop item(s)")
                        .arg(idDemo)
                        .arg(items.size());
+
+#if defined(_WIN32)
+            // T-039: can the mouse actually reach a hosted fence? By design the
+            // native icon layer sits *above* the fences (ADR-4), so the whole
+            // manual workflow (drag a zone, drop a file on it) depends on
+            // hit-testing falling through the icon layer's transparent parts to
+            // us. WindowFromPoint is the test the mouse messages and the OLE
+            // drop target both use -- so it is reported rather than assumed.
+            if (starfish::platform::win::DesktopSurface* surface = container->surface(idDemo)) {
+                const QRect visual = container->fenceVisibleRect(idDemo);
+                const POINT centre{visual.center().x(), visual.center().y()};
+                const HWND hit = ::WindowFromPoint(centre);
+                wchar_t hitClass[128] = {0};
+                if (hit)
+                    ::GetClassNameW(hit, hitClass, 128);
+                const bool reachesUs = hit && reinterpret_cast<quintptr>(hit) == surface->hwnd();
+                log << QStringLiteral("attached=%1 hwnd=0x%2, mouse at %3,%4 reaches %5")
+                           .arg(surface->isAttached() ? QStringLiteral("yes") : QStringLiteral("no"))
+                           .arg(QString::number(surface->hwnd(), 16))
+                           .arg(centre.x)
+                           .arg(centre.y)
+                           .arg(reachesUs
+                                    ? QStringLiteral("the fence surface")
+                                    : QStringLiteral("class \"%1\" instead")
+                                          .arg(QString::fromWCharArray(hitClass)));
+
+                // Why it does (or does not): the icon layer's own ex-style.
+                const HWND defView =
+                    ::FindWindowExW(::FindWindowW(L"Progman", nullptr), nullptr,
+                                    L"SHELLDLL_DefView", nullptr);
+                const LONG defStyle = defView ? ::GetWindowLongW(defView, GWL_EXSTYLE) : 0;
+                QStringList flags;
+                if (defStyle & WS_EX_LAYERED)
+                    flags << QStringLiteral("LAYERED");
+                if (defStyle & WS_EX_TRANSPARENT)
+                    flags << QStringLiteral("TRANSPARENT (hit testing passes through)");
+                log << QStringLiteral("icon layer: %3, ex-style 0x%1 %2")
+                           .arg(static_cast<uint>(defStyle), 0, 16)
+                           .arg(flags.isEmpty() ? QStringLiteral("(none)") : flags.join(QLatin1Char('|')))
+                           .arg(defView ? QStringLiteral("found") : QStringLiteral("absent"));
+
+                // And the desktop's own hierarchy at that point, topmost first.
+                const QStringList stack = zProbeAt(::FindWindowW(L"Progman", nullptr), visual.center());
+                log << QStringLiteral("desktop z-order at %1,%2 (topmost first):")
+                           .arg(visual.center().x())
+                           .arg(visual.center().y());
+                if (stack.isEmpty())
+                    log << QStringLiteral("  nothing covers the point");
+                for (const QString& stackLine : stack)
+                    log << stackLine;
+
+                // What that stack means: our surface sits below BOTH a layered
+                // DefView and a plain, full-screen SysListView32, so at that
+                // point the desktop list view -- not the fence -- would take the
+                // click. Hiding the native icon layer is therefore not cosmetic
+                // (ADR-3): it is what makes a fence reachable at all. Measure it,
+                // then put the user's icons back straight away.
+                const bool wasHidden = starfish::platform::win::DesktopSurface::desktopIconsHidden();
+                starfish::platform::win::DesktopSurface::setDesktopIconsHidden(true);
+                const QStringList hiddenStack =
+                    zProbeAt(::FindWindowW(L"Progman", nullptr), visual.center());
+                if (!wasHidden)
+                    starfish::platform::win::DesktopSurface::setDesktopIconsHidden(false);
+                log << QLatin1String("with the native icon layer hidden:");
+                for (const QString& stackLine : hiddenStack)
+                    log << stackLine;
+                check(QStringLiteral("the fence is reachable only once the native icons are hidden"),
+                      !stack.isEmpty()
+                          && !stack.first().contains(QStringLiteral("StarFishDesktopSurface"))
+                          && !hiddenStack.isEmpty()
+                          && hiddenStack.first().contains(
+                                 QStringLiteral("StarFishDesktopSurface")),
+                      QStringLiteral("topmost visible at the point: %1 -> %2")
+                          .arg(stack.isEmpty() ? QStringLiteral("(nothing)")
+                                               : stack.first().trimmed(),
+                               hiddenStack.isEmpty() ? QStringLiteral("(nothing)")
+                                                     : hiddenStack.first().trimmed()));
+                log << QStringLiteral("native icons restored: %1")
+                           .arg(starfish::platform::win::DesktopSurface::desktopIconsHidden()
+                                    ? QStringLiteral("NO -- still hidden")
+                                    : QStringLiteral("yes"));
+            }
+#endif
         }
 
         const QString reportPath = QStringLiteral("build/fence_demo.txt");

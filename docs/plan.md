@@ -43,6 +43,7 @@ Recherche des fonctionnalités de Fences 6, rédaction `docs/produit.md`, `docs/
 
 - T-012 Snapshots (sauvegarde / restauration / export-import)
 - **T-038 Mode produit minimal** *(ajouté après l'audit de la session 19 : le projet livrait un moteur, pas encore un produit)* — tray (F-034), fenêtre de réglages, zones hébergées manipulables à la souris, watcher branché sur le vrai dossier Bureau (F-018)
+- **T-039 → T-042 Édition manuelle (ADR-9)** — *ajoutées en session 25, sur demande explicite de l'utilisateur* (« créer des zones quand je veux, y mettre les icônes que je veux, organiser à la main, et qu'une zone déplacée emporte ses icônes ») : StarFish prend la place de la couche d'icônes — surface de fond qui dessine les icônes **hors zone**, icônes natives masquées au démarrage (T-039) ; F-011 (sortir une icône d'une zone) et F-007 (supprimer une zone **rend** ses icônes) en découlent (T-040) ; F-001/F-022 par geste sur le bureau vide, **sans hook souris global** (T-041) ; renommage/couper-coller des icônes hors zone + restitution de `DefView` en cas de plantage (T-042). **L'auto-organisation (F-017/F-018, T-031/T-032) n'est pas demandée** — ne pas y investir.
 - T-013 Pages de bureau multiples
 - T-014a Multi-écran + awareness DPI (F-032, **P0** — l'arbitrage du 2026-10-15 donne raison à `produit.md` §6/§7 sur la ligne P1 d'origine)
 - T-014b i18n (en/fr) et thèmes de zones (F-036, F-004 — **P1, v0.2**)
