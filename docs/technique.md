@@ -280,6 +280,14 @@ Notes de format :
 - Comportement Peek quand aucune zone n'est définie.
 - Format exact des hotkeys configurables (JSON dans les réglages).
 
+### Les cellules d'icônes sont locales au contenu (session 27)
+
+`FenceView::contentRect()` réserve la barre de titre **et** une marge (`kTitleBarHeight + kPadding` = 42 px). `IconLayout::compute()` produit ses cellules dans cet espace **local au contenu** — c'est aussi celui que `hitTest` consomme —, mais `IconGrid::paint()` dessinait ces cellules **dans les coordonnées du widget**, sans translater le `painter`. La grille entière était donc peinte **42 px trop haut**, et le `setClipRect(contentRect)` qui suit **tranchait le haut de la première rangée**. Signalé de vive voix, capture à l'appui : « l'icône est à moitié cachée par la barre de titre ». La coupure, mesurée dans l'image, est exactement à `panelTop + 42`.
+
+Corrigé par `painter.translate(contentRect.topLeft())` puis un clip dans le repère local. `paintDropIndicator` translatait déjà ses cellules (`cells.at(index).icon.translated(content.topLeft())`) : c'est précisément cette **incohérence interne** entre deux consommateurs du même calcul qui a laissé le bug passer.
+
+**Leçon de sonde, plus importante que le bug.** La première vérification écrite pour l'attraper **passait avec le bug en place** : elle comptait les pixels différents dans la bande de la barre de titre (`y < kTitleBarHeight`), or cette bande est **au-dessus du clip** — elle est vide quoi que fasse le painter. Une vérification **bornée par le clip ne teste rien**. La bonne instrumentation porte sur la plage où les pixels faux **atterrissent** : le premier pixel peint doit être **strictement sous** le haut du contenu (`firstDifferingRow > contentRect.top()`) et près de son origine. Avec le bug, la première ligne peinte vaut **exactement** le haut du contenu (42) : l'icône est coupée net à cet endroit. La vérification est **colorimétrique-ment agnostique** — la même zone est rendue **avec** et **sans** ses tuiles, et seule la différence des deux est inspectée — donc aucune couleur d'icône n'est supposée.
+
 ## 8. Transparence par pixel (T-017, session 9)
 
 **Finding (spikes `experiments/spike_ulw.py` / `spike_ulw2.py`, ctypes)** : sur un enfant cross-process de `Progman`, `UpdateLayeredWindow` (ULW) :

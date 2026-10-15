@@ -1141,6 +1141,55 @@ int main(int argc, char* argv[])
                   .arg(expectedTopLeft.x())
                   .arg(expectedTopLeft.y()));
 
+        // T-045: the icon grid must be painted at the *content* origin. Its cells
+        // are content-local (the space hitTest already uses), and the painter was
+        // never moved into the content area -- so the grid is drawn
+        // `kTitleBarHeight + kPadding` (42 px) too high, and the clip at the top
+        // of the content area then cuts the first row in half. Reported from the
+        // real desktop with a screenshot: "l'icône est à moitié cachée par la
+        // barre de titre" -- the cut in that image is at y = panelTop + 42.
+        //
+        // Colour-agnostic on purpose: the same fence is rendered with and without
+        // its tiles, and only the difference between the two is inspected. And
+        // the range matters: the *content* top, not the title bar, is where the
+        // wrong pixels actually land -- a check bounded by the clip would pass
+        // with the bug in place (it did, once: the range tested was the title
+        // bar, which the clip empties whatever the painter does).
+        const starfish::ui::FenceView* tiledView = container->view(idC);
+        const QRect content = tiledView ? tiledView->contentRect() : QRect();
+        const QString idBare = container->createFence(QStringLiteral("with tiles"),
+                                                      container->fenceRect(idC));
+        const QImage bareFrame = container->frame(idBare);
+        const QImage tiledFrame = container->frame(idC);
+        int firstDifferingRow = -1;
+        int aboveContent = 0;
+        if (bareFrame.size() == tiledFrame.size()) {
+            for (int y = 0; y < tiledFrame.height(); ++y) {
+                for (int x = 0; x < tiledFrame.width(); ++x) {
+                    if (bareFrame.pixel(x, y) == tiledFrame.pixel(x, y))
+                        continue;
+                    if (firstDifferingRow < 0)
+                        firstDifferingRow = y;
+                    if (y < content.top())
+                        ++aboveContent;
+                }
+            }
+        }
+        // The first tile must start *inside* the content area (a clipped top row
+        // would land exactly on the content top) and near its origin (a second
+        // translation would push it far below).
+        const int offsetFromContent = firstDifferingRow - content.top();
+        check(QStringLiteral("the tiles are painted from the content origin down"),
+              !content.isEmpty() && firstDifferingRow > content.top() && offsetFromContent < 24
+                  && aboveContent == 0,
+              QStringLiteral("first painted row %1, content top %2 (offset %3), %4 pixel(s) "
+                             "above the content")
+                  .arg(firstDifferingRow)
+                  .arg(content.top())
+                  .arg(offsetFromContent)
+                  .arg(aboveContent));
+        container->removeFence(idBare);
+
         if (hosted) {
             QString scanError;
             QList<starfish::core::DesktopItem> items =

@@ -47,7 +47,15 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
                             m_items.size());
 
     painter.save();
-    painter.setClipRect(contentRect);
+    // The cells are in *content-local* coordinates -- the same space hitTest()
+    // consumes -- so the painter has to move to the content origin first. Without
+    // this the whole grid is painted `contentRect.top()` (title bar + padding)
+    // too high, and the clip below then cuts the top off the first row: reported
+    // from the real desktop as "l'icône est à moitié cachée par la barre de
+    // titre". The drop indicator already translated its cells, which is how the
+    // inconsistency went unnoticed.
+    painter.translate(contentRect.topLeft());
+    painter.setClipRect(QRect(QPoint(0, 0), contentRect.size()));
 
     const QFont baseFont = painter.font();
     QFont labelFont = baseFont;
