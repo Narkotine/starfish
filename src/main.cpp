@@ -14,6 +14,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QProcess>
 #include <QRect>
 #include <QScreen>
 #include <QTextStream>
@@ -24,6 +25,7 @@
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
+#include "core/icon_hiding_marker.hpp"
 #include "core/jsonstore.hpp"
 #include "core/layout_store.hpp"
 #include "core/portal.hpp"
@@ -840,6 +842,20 @@ int main(int argc, char* argv[])
                       "the monitor's ratio. Writes a PASS/FAIL report to build/screen_demo.txt."));
     parser.addOption(productProbeOption);
     parser.addOption(screenDemoOption);
+    const QCommandLineOption crashDemoOption(
+        QLatin1String("crash-demo"),
+        QLatin1String("T-046 diagnostic: hide the native desktop icons through the product's "
+                      "own path, kill the process that did it, and check that the next launch "
+                      "gives the icons back on its own (the safety net around ADR-9). Needs a "
+                      "real desktop and hides the icons for a moment. Writes a PASS/FAIL "
+                      "report to build/crash_demo.txt."));
+    const QCommandLineOption crashVictimOption(
+        QLatin1String("crash-victim"),
+        QLatin1String("Internal, the child half of --crash-demo: hide the native icons, then "
+                      "wait to be killed. Nothing here restores anything -- that is the "
+                      "point."));
+    parser.addOption(crashDemoOption);
+    parser.addOption(crashVictimOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -3797,6 +3813,296 @@ int main(int argc, char* argv[])
 
         const int exitCode = failures == 0 ? 0 : 1;
         QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(crashVictimOption)) {
+        // The child half of --crash-demo (T-046). It hides the native icons
+        // through the product's own path -- the very call the tray toggle runs --
+        // and then waits to be killed. Nothing here restores anything and no
+        // clean end is arranged on purpose: everything the product would have
+        // undone stays undone, which is exactly the state the parent measures.
+        starfish::app::ProductApp::Options options;
+        options.layoutPath = QLatin1String("build/crash_probe/victim.json");
+        options.hostOnDesktop = true; // the hiding has to be real
+        options.tray = false;
+        options.settingsWindow = false;
+        options.showSettingsOnStart = false;
+        options.hotkeys = false;
+        options.watchDesktop = false;
+        options.starterFence = false; // nothing appears on the user's desk
+
+        starfish::app::ProductApp product;
+        QString startError;
+        if (!product.start(options, &startError)) {
+            qCCritical(lc).noquote() << QStringLiteral("crash victim: %1").arg(startError);
+            return 2;
+        }
+
+        product.setDesktopIconsHidden(true);
+        if (!product.desktopIconsHidden()) {
+            qCCritical(lc) << "crash victim: the native icons could not be hidden";
+            return 3;
+        }
+
+        qCInfo(lc).noquote()
+            << QStringLiteral("crash victim: the native icons are hidden and recorded (%1); "
+                              "waiting to be killed")
+                   .arg(starfish::core::IconHidingMarker().description());
+        // Long enough that only the parent ends this process in practice.
+        QTimer::singleShot(10 * 60 * 1000, &app, &QCoreApplication::quit);
+        return app.exec();
+    }
+
+    if (parser.isSet(crashDemoOption)) {
+        // T-046: the safety net around ADR-9. Hiding the native icon layer is a
+        // change to the whole session and only the process that made it would
+        // undo it, so a hard kill would leave the desktop with no icons at all.
+        // The net is a marker on disk: written before the layer is hidden, read
+        // by the next launch, which restores the icons without needing anything
+        // from the dead process.
+        //
+        // This probe hides the *real* desktop icons for a moment and kills the
+        // process that did it. It needs a real desktop, and it expects the icons
+        // to be visible when it starts.
+        QStringList header;
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QLatin1String("%1  %2  %3")
+                       .arg(ok ? QLatin1String("PASS") : QLatin1String("FAIL"))
+                       .arg(step, -58)
+                       .arg(detail);
+        };
+        auto waitMs = [](int ms) {
+            QEventLoop loop;
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+
+        const QString probeDir = QLatin1String("build/crash_probe");
+        QDir().mkpath(probeDir);
+        const QString layoutPath = probeDir + QLatin1String("/layout.json");
+        QFile::remove(layoutPath);
+
+        starfish::core::IconHidingMarker marker;
+        auto iconsVisible = [] {
+            return !starfish::platform::win::DesktopSurface::desktopIconsHidden();
+        };
+        // Read once, before anything touches the layer: the probe promises to
+        // leave the desktop the way it found it.
+        const bool iconsVisibleAtStart = iconsVisible();
+
+        QProcess victim;
+        auto finish = [&](int exitCode) {
+            // Whatever happened above, give back what is ours -- and only that.
+            // A marker on disk is the proof that a hidden layer came from a
+            // StarFish run; the user's own hidden icons are none of our business.
+            // The victim goes first, so it cannot touch the layer mid-cleanup.
+            if (victim.state() != QProcess::NotRunning) {
+                victim.kill();
+                victim.waitForFinished(3000);
+            }
+            if (!iconsVisible() && marker.isPresent())
+                starfish::platform::win::DesktopSurface::setDesktopIconsHidden(false);
+            if (marker.isPresent())
+                marker.remove();
+            QDir(probeDir).removeRecursively();
+
+            check(QLatin1String("the probe left no marker behind"), !marker.isPresent(),
+                  marker.path());
+            check(QLatin1String("the probe left the desktop as it found it"),
+                  iconsVisible() == iconsVisibleAtStart,
+                  QStringLiteral("icons visible at the start: %1, at the end: %2")
+                      .arg(iconsVisibleAtStart ? QLatin1String("yes") : QLatin1String("no"),
+                           iconsVisible() ? QLatin1String("yes") : QLatin1String("no")));
+            check(QLatin1String("the probe cleaned up after itself"),
+                  !QFileInfo::exists(probeDir), probeDir);
+
+            const QString reportPath = QLatin1String("build/crash_demo.txt");
+            {
+                QFile report(reportPath);
+                if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                    QTextStream stream(&report);
+                    stream << QLatin1String("crash-repair probe (T-046)\n");
+                    for (const QString& line : header)
+                        stream << line << '\n';
+                    for (const QString& line : log)
+                        stream << line << '\n';
+                    stream << (failures == 0
+                                   ? QLatin1String("RESULT: all checks passed\n")
+                                   : QLatin1String("RESULT: %1 check(s) FAILED\n")
+                                         .arg(QString::number(failures)));
+                }
+            }
+            for (const QString& line : header)
+                qCInfo(lc).noquote() << line;
+            for (const QString& line : log)
+                qCInfo(lc).noquote() << line;
+            qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);
+
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        };
+
+        // --- the premise -------------------------------------------------------
+        const bool desktopUp = starfish::platform::win::DesktopSurface::isDesktopAvailable();
+        check(QLatin1String("a real desktop is available (Explorer is running)"), desktopUp,
+              desktopUp ? QLatin1String("Progman / SHELLDLL_DefView found")
+                        : QLatin1String("no desktop: this probe cannot run headless"));
+        if (!desktopUp) {
+            finish(1);
+            return app.exec();
+        }
+
+        // A marker already on disk is a real leftover from an earlier bad end --
+        // repaired here the way any launch would, before anything is measured.
+        if (marker.isPresent()) {
+            const QString leftover = marker.description();
+            const bool repaired =
+                starfish::platform::win::DesktopSurface::setDesktopIconsHidden(false);
+            check(QLatin1String("a marker already on disk is repaired the way a launch would"),
+                  repaired && !marker.isPresent(), leftover);
+        }
+
+        check(QLatin1String("the native icons are visible to begin with"), iconsVisibleAtStart,
+              QLatin1String("the measurement needs to see them hidden and shown again"));
+        if (!iconsVisibleAtStart) {
+            finish(1);
+            return app.exec();
+        }
+
+        header << QStringLiteral("victim: %1 --crash-victim")
+                      .arg(QCoreApplication::applicationFilePath());
+        header << QStringLiteral("marker: %1").arg(marker.path());
+
+        // --- the victim: hide through the product's own path, then die hard ----
+        victim.setProgram(QCoreApplication::applicationFilePath());
+        victim.setArguments({QLatin1String("--crash-victim")});
+        victim.setProcessChannelMode(QProcess::MergedChannels);
+        victim.start();
+        check(QLatin1String("the victim starts"),
+              victim.waitForStarted(10000),
+              QStringLiteral("pid %1").arg(QString::number(victim.processId())));
+
+        // Wait for the two facts that are visible from *outside* the victim: the
+        // marker on disk, and the layer really hidden inside Explorer's window.
+        // Both are read by this process, so neither can be a self-report.
+        bool markerSeen = false;
+        bool hiddenSeen = false;
+        QElapsedTimer clock;
+        clock.start();
+        while (clock.elapsed() < 20000 && victim.state() != QProcess::NotRunning) {
+            if (marker.isPresent())
+                markerSeen = true;
+            if (!iconsVisible())
+                hiddenSeen = true;
+            if (markerSeen && hiddenSeen)
+                break;
+            waitMs(50);
+        }
+        const QString victimOutput = QString::fromLocal8Bit(victim.readAll()).trimmed();
+        if (!victimOutput.isEmpty())
+            log << QLatin1String("victim said: ") + victimOutput;
+
+        check(QLatin1String("the victim recorded the hiding (marker on disk)"), markerSeen,
+              marker.description());
+        check(QLatin1String("the hiding is real (read from outside the victim)"), hiddenSeen,
+              QLatin1String("shell reports SHELLDLL_DefView hidden"));
+        if (!markerSeen || !hiddenSeen) {
+            finish(1);
+            return app.exec();
+        }
+
+        // --- the brutal end ----------------------------------------------------
+        const bool wasRunning = victim.state() != QProcess::NotRunning;
+        if (wasRunning)
+            victim.kill(); // TerminateProcess: no teardown, no handlers, nothing
+        const bool victimGone = victim.waitForFinished(5000);
+        check(QLatin1String("the victim died hard (no clean shutdown ran)"),
+              wasRunning && victimGone && victim.exitStatus() == QProcess::CrashExit,
+              QStringLiteral("exit code %1, %2")
+                  .arg(victim.exitCode())
+                  .arg(victim.exitStatus() == QProcess::CrashExit ? QLatin1String("crash exit")
+                                                                  : QLatin1String("normal exit")));
+
+        // The crash must really be one. Had any teardown run, the marker would be
+        // gone and the icons back -- which would make the next check vacuous.
+        check(QLatin1String("the crash left the marker on disk"), marker.isPresent(),
+              marker.description());
+        check(QLatin1String("the crash left the native icons hidden"), !iconsVisible(), {});
+
+        // --- the next launch repairs it ----------------------------------------
+        {
+            starfish::app::ProductApp::Options options;
+            options.layoutPath = layoutPath;
+            options.hostOnDesktop = false;
+            options.tray = false;
+            options.settingsWindow = false;
+            options.showSettingsOnStart = false;
+            options.hotkeys = false;
+            options.watchDesktop = false;
+            options.starterFence = false;
+
+            starfish::app::ProductApp next;
+            QString startError;
+            const bool started = next.start(options, &startError);
+            check(QLatin1String("the next launch starts"), started,
+                  started ? next.statusText() : startError);
+            check(QLatin1String("the next launch gives the icons back, with no memory of the crash"),
+                  started && iconsVisible(), QLatin1String("restored from the marker alone"));
+            check(QLatin1String("...and removes the marker"), !marker.isPresent(),
+                  marker.path());
+            next.shutdown();
+        }
+
+        // --- the emergency exit, in a state the ordinary toggle cannot reach ---
+        {
+            starfish::app::ProductApp::Options options;
+            options.layoutPath = probeDir + QLatin1String("/emergency.json");
+            options.hostOnDesktop = false; // the exit must work even here
+            options.tray = false;
+            options.settingsWindow = false;
+            options.showSettingsOnStart = false;
+            options.hotkeys = false;
+            options.watchDesktop = false;
+            options.starterFence = false;
+
+            starfish::app::ProductApp product;
+            QString startError;
+            const bool started = product.start(options, &startError);
+            check(QLatin1String("a product instance starts again"), started,
+                  started ? product.statusText() : startError);
+
+            // Put the desktop in exactly the state the emergency exit exists for:
+            // really hidden, while this instance remembers nothing about it (it
+            // never asked for the hiding -- which is what a crash leaves behind).
+            const bool hid =
+                starfish::platform::win::DesktopSurface::setDesktopIconsHidden(true);
+            check(QLatin1String("the layer can be hidden behind the product's back"),
+                  hid && !iconsVisible(),
+                  hid ? QLatin1String("hidden") : QLatin1String("refused"));
+            check(QLatin1String("...and the marker records it"), marker.isPresent(),
+                  marker.description());
+
+            // The premise of the exit: the ordinary toggle is a no-op here -- it
+            // only acts when the requested state differs from the remembered one.
+            product.setDesktopIconsHidden(false);
+            check(QLatin1String("the ordinary toggle cannot reach a state it does not know"),
+                  !iconsVisible(),
+                  QLatin1String("still hidden after an ordinary \"show icons\" request"));
+
+            product.restoreDesktopIcons();
+            check(QLatin1String("the emergency exit gives the icons back anyway"),
+                  iconsVisible(), {});
+            check(QLatin1String("the emergency exit clears the marker"), !marker.isPresent(),
+                  marker.path());
+
+            product.shutdown();
+        }
+
+        finish(failures == 0 ? 0 : 1);
         return app.exec();
     }
 

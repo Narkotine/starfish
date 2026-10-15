@@ -98,6 +98,12 @@ bool TrayIcon::show()
             emit desktopIconsToggled(checked);
         });
 
+        // The emergency exit (T-046), next to the toggle on purpose: it is a
+        // plain command, and it exists for the states the toggle cannot reach
+        // (the icons hidden by a run that never came back).
+        m_restoreIcons = m_menu->addAction(tr("Restore my icons"));
+        connect(m_restoreIcons, &QAction::triggered, this, &TrayIcon::restoreIconsRequested);
+
         m_menu->addSeparator();
 
         m_settings = m_menu->addAction(tr("Settings..."));

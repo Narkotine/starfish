@@ -58,6 +58,9 @@ signals:
     void fencesVisibilityToggled(bool visible);
     void peekToggled(bool active);
     void desktopIconsToggled(bool hidden);
+    // The emergency exit (T-046): "give me my icons back", as a command rather
+    // than a toggle. The product answers it by asking the desktop directly.
+    void restoreIconsRequested();
     void settingsRequested();
     void quitRequested();
 
@@ -72,6 +75,7 @@ private:
     QAction* m_showFences = nullptr;
     QAction* m_peek = nullptr;
     QAction* m_hideIcons = nullptr;
+    QAction* m_restoreIcons = nullptr;
     QAction* m_settings = nullptr;
 };
 

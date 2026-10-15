@@ -10,6 +10,7 @@
 #include <QTimer>
 
 #include "core/desktop_watcher.hpp"
+#include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
@@ -112,6 +113,14 @@ bool ProductApp::start(const Options& options, QString* error)
 
     m_options = options;
 
+    // The safety net, first (T-046). If a previous run hid the native icon layer
+    // and never came back -- crash, kill, power cut -- the desktop has been
+    // without icons since, and the marker that run left is the only surviving
+    // evidence of why. Repair it before anything else exists, and regardless of
+    // the mode: the icons being gone is a fact about the machine, not about this
+    // document or this options set.
+    repairIconHidingFromPreviousRun();
+
     if (m_options.hostOnDesktop && !platform::win::DesktopSurface::isDesktopAvailable()) {
         if (error)
             *error = tr("the Windows desktop is not reachable (is Explorer running?)");
@@ -186,6 +195,29 @@ bool ProductApp::start(const Options& options, QString* error)
         showSettings();
 
     return true;
+}
+
+void ProductApp::repairIconHidingFromPreviousRun()
+{
+    core::IconHidingMarker marker;
+    if (!marker.isPresent())
+        return;
+
+    qCWarning(lc).noquote()
+        << QStringLiteral("a previous run hid the desktop icons and never restored them "
+                          "(%1): restoring")
+               .arg(marker.description());
+
+    if (platform::win::DesktopSurface::setDesktopIconsHidden(false)) {
+        qCInfo(lc) << "the desktop icons are back";
+        return;
+    }
+
+    // The marker is deliberately kept: this run could not repair the desktop (no
+    // Explorer, say), and the next launch -- or the tray's "Restore my icons" --
+    // must still find out that it has to.
+    qCWarning(lc) << "the desktop icons could not be restored; the marker stays on disk "
+                     "so a later run can still repair this";
 }
 
 void ProductApp::applyDocument()
@@ -294,6 +326,8 @@ void ProductApp::wireTray()
             [this](bool active) { m_container->setPeekActive(active); });
     connect(m_tray, &ui::TrayIcon::desktopIconsToggled, this,
             &ProductApp::onDesktopIconsToggled);
+    connect(m_tray, &ui::TrayIcon::restoreIconsRequested, this,
+            &ProductApp::restoreDesktopIcons);
 
     if (!m_tray->show())
         qCWarning(lc) << "the tray icon could not be shown";
@@ -481,6 +515,30 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
         } else {
             qCWarning(lc) << "could not change the desktop icon visibility";
         }
+    }
+
+    if (m_tray)
+        m_tray->setDesktopIconsHidden(m_iconsHidden);
+    if (m_settings)
+        m_settings->setDesktopIconsHidden(m_iconsHidden);
+
+    refreshStatus();
+}
+
+void ProductApp::restoreDesktopIcons()
+{
+    // The emergency exit (F-034 / T-046), reachable from the tray. It is a
+    // *command*, not a state toggle: it asks the desktop to show the icons and
+    // believes the answer, so it also reaches the states a toggle cannot -- the
+    // layer hidden by an earlier run while this one remembers nothing about it,
+    // for instance. It is the one place that touches the real layer even when the
+    // product is not hosting (--no-host): "give me my icons back" is a request
+    // from the user to the desktop, not a piece of our own bookkeeping.
+    qCInfo(lc) << "restoring the desktop icons on request";
+    if (platform::win::DesktopSurface::setDesktopIconsHidden(false)) {
+        m_iconsHidden = false;
+    } else {
+        qCWarning(lc) << "the desktop icons could not be restored";
     }
 
     if (m_tray)

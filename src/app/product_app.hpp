@@ -85,6 +85,13 @@ public:
     bool desktopIconsHidden() const;
     void setDesktopIconsHidden(bool hidden);
 
+    // The emergency exit (F-034 / T-046): asks the desktop to show the native
+    // icons right now, whatever our own bookkeeping believes. Deliberately not a
+    // toggle -- the ordinary path only acts when the requested state differs from
+    // the remembered one, which is exactly the situation a confused run cannot
+    // rely on. Wired to the tray's "Restore my icons".
+    void restoreDesktopIcons();
+
     // One line describing what is actually running: fences, rules, what is
     // watched, which hot keys Windows accepted. Used by the settings window and
     // by --product-probe, so both report the same thing.
@@ -99,6 +106,10 @@ signals:
 
 private:
     void applyDocument();
+    // The safety net (T-046): if a previous run hid the native icon layer and
+    // never came back, the marker it left is the only surviving evidence. Any
+    // launch -- whichever mode -- repairs it before anything else is built.
+    void repairIconHidingFromPreviousRun();
     // Wires every document-level signal to `onChange`, so auto-save and the
     // settings list cannot drift apart.
     void connectLifecycle(const std::function<void()>& onChange);

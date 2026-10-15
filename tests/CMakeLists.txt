@@ -148,3 +148,19 @@ target_include_directories(test_starfish_screen_layout PRIVATE
 target_link_libraries(test_starfish_screen_layout PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME ui_screen_layout COMMAND test_starfish_screen_layout)
+
+# The crash-repair marker (T-046): the note that lets a later run give the
+# native desktop icons back after a hard kill. Pure Qt Core -- a file, and the
+# rule that its *presence* alone decides.
+add_executable(test_starfish_icon_hiding_marker
+    test_icon_hiding_marker.cpp
+    ../src/core/icon_hiding_marker.cpp
+)
+
+target_include_directories(test_starfish_icon_hiding_marker PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_icon_hiding_marker PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_icon_hiding_marker COMMAND test_starfish_icon_hiding_marker)

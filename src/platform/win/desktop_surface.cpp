@@ -9,6 +9,8 @@
 
 #include "platform/win/shell_drop_target.hpp"
 
+#include "core/icon_hiding_marker.hpp"
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -672,7 +674,27 @@ bool DesktopSurface::setDesktopIconsHidden(bool hidden)
         qCWarning(lc) << "setDesktopIconsHidden: SHELLDLL_DefView not found";
         return false;
     }
+
+    // The safety net (T-046). Hiding the icon layer changes the whole session and
+    // only this process would undo it, so the marker is written *first*: a crash
+    // anywhere after this point leaves a note the next run reads, and a marker
+    // that cannot be written means the layer is not hidden at all. Hiding the
+    // icons without recording it is the one state nothing could repair.
+    core::IconHidingMarker marker;
+    if (hidden && !marker.write()) {
+        qCCritical(lc) << "refusing to hide the desktop icons: the marker could not be "
+                          "written, and an unrecorded hiding is one nothing can repair";
+        return false;
+    }
+
     ::ShowWindow(handles.defView, hidden ? SW_HIDE : SW_SHOW);
+
+    // On the way out the order is the mirror image: the record must outlive the
+    // state it describes, so it is removed only once the layer is really back. A
+    // marker left behind by a failed removal costs one harmless restore next run.
+    if (!hidden && !marker.remove())
+        qCWarning(lc) << "the desktop icons are back, but the marker could not be removed";
+
     qCInfo(lc).noquote() << QStringLiteral("native desktop icons %1")
                                 .arg(hidden ? QStringLiteral("hidden")
                                             : QStringLiteral("restored"));

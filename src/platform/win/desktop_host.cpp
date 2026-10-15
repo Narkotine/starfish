@@ -5,6 +5,8 @@
 #include <QLoggingCategory>
 #include <QWidget>
 
+#include "platform/win/desktop_surface.hpp"
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -302,20 +304,16 @@ void DesktopHost::syncZOrder()
 
 bool DesktopHost::setIconsHidden(bool hidden)
 {
-    refreshDesktopHandles();
-    if (!m_defView) {
-        qCWarning(lc) << "setIconsHidden: SHELLDLL_DefView not found";
-        return false;
-    }
-    ::ShowWindow(toHwnd(m_defView), hidden ? SW_HIDE : SW_SHOW);
-    qCInfo(lc) << "native desktop icons" << (hidden ? "hidden" : "restored");
-    return true;
+    // One implementation of the hiding, and it owns the crash-repair marker
+    // (T-046): the hide and its record must never be able to drift apart. This
+    // host is no longer the render path, but it is still asked to hide the icons
+    // by the older probes -- those must leave the same net behind.
+    return DesktopSurface::setDesktopIconsHidden(hidden);
 }
 
 bool DesktopHost::iconsHidden() const
 {
-    const DesktopHandles handles = discoverDesktop();
-    return handles.defView && !::IsWindowVisible(handles.defView);
+    return DesktopSurface::desktopIconsHidden();
 }
 
 bool DesktopHost::setWindowAlpha(QWidget* window, int alpha)

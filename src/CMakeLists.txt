@@ -7,6 +7,7 @@ qt_add_executable(starfish WIN32
     app/product_app.cpp
     core/desktop_item.cpp
     core/desktop_watcher.cpp
+    core/icon_hiding_marker.cpp
     core/portal.cpp
     core/rules.cpp
     core/jsonstore.cpp
