@@ -144,11 +144,16 @@ public:
         return QRect(x, y, w, h);
     }
 
-    // Snaps `moving` against the screen `bounds` and every rect in `others`:
-    // left/centre/right on X, top/middle/bottom on Y, within `threshold` px.
-    // The closest candidate on each axis wins, independently. `snappedX` and
-    // `snappedY` report whether that axis moved, so the caller can draw a guide.
-    static QRect snap(const QRect& moving, const QList<QRect>& others, const QSize& bounds,
+    // Snaps `moving` against every rect in `frames` (the screens, T-014) and
+    // every rect in `others` (the other fences): left/centre/right on X,
+    // top/middle/bottom on Y, within `threshold` px. The closest candidate on
+    // each axis wins, independently. `snappedX` and `snappedY` report whether
+    // that axis moved, so the caller can draw a guide.
+    //
+    // Snapping against a *list* of screens rather than one bounding box is what
+    // lets a fence dock to the inner edge of a neighbouring monitor: each screen
+    // contributes its own left/centre/right and top/middle/bottom lines.
+    static QRect snap(const QRect& moving, const QList<QRect>& others, const QList<QRect>& frames,
                       int threshold, bool* snappedX = nullptr, bool* snappedY = nullptr)
     {
         bool sx = false;
@@ -165,8 +170,14 @@ public:
                           moving.left() + moving.width()};
         QList<int> linesY{moving.top(), moving.top() + moving.height() / 2,
                           moving.top() + moving.height()};
-        QList<int> targetsX{0, bounds.width() / 2, bounds.width()};
-        QList<int> targetsY{0, bounds.height() / 2, bounds.height()};
+        QList<int> targetsX;
+        QList<int> targetsY;
+        for (const QRect& frame : frames) {
+            targetsX << frame.left() << frame.left() + frame.width() / 2
+                     << frame.left() + frame.width();
+            targetsY << frame.top() << frame.top() + frame.height() / 2
+                     << frame.top() + frame.height();
+        }
         for (const QRect& other : others) {
             targetsX << other.left() << other.left() + other.width() / 2
                      << other.left() + other.width();
@@ -186,20 +197,43 @@ public:
         return result;
     }
 
+    // The single-screen case of the above: one screen whose origin is (0,0), so
+    // its frame is its size. The logic lives in the frames version only.
+    static QRect snap(const QRect& moving, const QList<QRect>& others, const QSize& bounds,
+                      int threshold, bool* snappedX = nullptr, bool* snappedY = nullptr)
+    {
+        const QList<QRect> frames{QRect(QPoint(0, 0), bounds)};
+        return snap(moving, others, frames, threshold, snappedX, snappedY);
+    }
+
     // Keeps a rect fully inside `bounds`, shrinking it first when it does not
     // fit. Used after a move so a fence can never be dragged out of reach.
-    static QRect clampToBounds(const QRect& rect, const QSize& bounds)
+    //
+    // Offset aware (T-014): `bounds` is a screen, and a screen is not
+    // necessarily anchored at (0,0) -- a monitor left of or above the primary
+    // one has negative coordinates.
+    static QRect clampIntoRect(const QRect& rect, const QRect& bounds)
     {
+        if (bounds.width() <= 0 || bounds.height() <= 0)
+            return rect;
+
         QRect result = rect;
-        if (bounds.width() > 0 && result.width() > bounds.width())
+        if (result.width() > bounds.width())
             result.setWidth(bounds.width());
-        if (bounds.height() > 0 && result.height() > bounds.height())
+        if (result.height() > bounds.height())
             result.setHeight(bounds.height());
 
-        const int maxX = qMax(0, bounds.width() - result.width());
-        const int maxY = qMax(0, bounds.height() - result.height());
-        result.moveTopLeft(QPoint(qBound(0, result.x(), maxX), qBound(0, result.y(), maxY)));
+        const int maxX = bounds.left() + bounds.width() - result.width();
+        const int maxY = bounds.top() + bounds.height() - result.height();
+        result.moveTopLeft(QPoint(qBound(bounds.left(), result.x(), maxX),
+                                  qBound(bounds.top(), result.y(), maxY)));
         return result;
+    }
+
+    // The single-screen case: a screen anchored at (0,0), described by its size.
+    static QRect clampToBounds(const QRect& rect, const QSize& bounds)
+    {
+        return clampIntoRect(rect, QRect(QPoint(0, 0), bounds));
     }
 
     // Resolves a move/resize request into the rect that gets stored, honouring
@@ -212,11 +246,15 @@ public:
     //    snaps its title bar against the screen edge and may sit flush with the
     //    bottom edge with its hidden body hanging off-screen.
     //
-    // `others` are the visible rects of the other fences. Pure; this is the
-    // whole of FenceContainer::setFenceRect minus the bookkeeping.
+    // `others` are the visible rects of the other fences, `frames` the screens
+    // the request snaps against, and `clampTo` the single screen the fence must
+    // end up inside (T-014: `ScreenLayout::clampRectFor()` picks it -- the
+    // screen under the requested rect's centre). Pure; this is the whole of
+    // FenceContainer::setFenceRect minus the bookkeeping.
     static QRect applyRequest(const QRect& stored, bool rolledUp, const QRect& requested,
-                              const QList<QRect>& others, const QSize& bounds,
-                              const QSize& minSize, int snapThreshold, bool snap)
+                              const QList<QRect>& others, const QList<QRect>& frames,
+                              const QRect& clampTo, const QSize& minSize, int snapThreshold,
+                              bool snap)
     {
         QRect target = requested;
 
@@ -227,12 +265,12 @@ public:
 
             if (snap) {
                 const QRect visible = visibleRect(target, true);
-                const QRect snapped = FenceGeometry::snap(visible, others, bounds, snapThreshold);
+                const QRect snapped = FenceGeometry::snap(visible, others, frames, snapThreshold);
                 target.translate(snapped.topLeft() - visible.topLeft());
             }
 
             const QRect visible = visibleRect(target, true);
-            const QRect clamped = clampToBounds(visible, bounds);
+            const QRect clamped = clampIntoRect(visible, clampTo);
             target.setWidth(clamped.width());
             target.moveTopLeft(target.topLeft() + clamped.topLeft() - visible.topLeft());
             target.setHeight(stored.height());
@@ -244,8 +282,19 @@ public:
         if (target.height() < minSize.height())
             target.setHeight(minSize.height());
         if (snap)
-            target = FenceGeometry::snap(target, others, bounds, snapThreshold);
-        return clampToBounds(target, bounds);
+            target = FenceGeometry::snap(target, others, frames, snapThreshold);
+        return clampIntoRect(target, clampTo);
+    }
+
+    // The single-screen case: one screen at (0,0), which is both the snapping
+    // frame and the area to stay inside.
+    static QRect applyRequest(const QRect& stored, bool rolledUp, const QRect& requested,
+                              const QList<QRect>& others, const QSize& bounds,
+                              const QSize& minSize, int snapThreshold, bool snap)
+    {
+        const QRect screen(QPoint(0, 0), bounds);
+        return applyRequest(stored, rolledUp, requested, others, QList<QRect>{screen}, screen,
+                            minSize, snapThreshold, snap);
     }
 
 private:

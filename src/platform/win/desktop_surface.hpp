@@ -64,8 +64,8 @@ public:
     static bool desktopIconsHidden();
 
     // Creates the window and hosts it just below the icon layer. `rect` is in
-    // Progman client coordinates, which match the primary monitor on a single
-    // screen (multi-screen offsetting is T-014).
+    // Progman client coordinates -- physical pixels of Windows' virtual screen
+    // (T-014), which is also what a fence's stored rect uses.
     bool attach(const QRect& rect);
 
     // Destroys the window.
@@ -111,18 +111,29 @@ public:
     // size or after something was stacked above the icon layer.
     void syncZOrder();
 
+    // The scaling of the monitor this surface sits on (T-014). A surface owns a
+    // raw Win32 window, whose coordinates are physical pixels, while the Qt
+    // widget rendered into it works in logical pixels: mouse positions coming
+    // from this window's WndProc are divided by this ratio before being posted
+    // to the input target. 1.0 (the default) is the 100 % monitor, where the
+    // two spaces coincide.
+    void setDevicePixelRatio(qreal ratio);
+    qreal devicePixelRatio() const { return m_dpr; }
+
     // Routes mouse input coming from this surface's own WndProc to a target
     // QObject (typically the FenceView rendered into this surface), so selection
     // and double-click work on the live desktop. Coordinates are the surface's
-    // client coordinates, which match the fence's local coordinates because the
-    // fence is rendered at (0,0) of the frame. Set to nullptr to stop routing.
+    // client coordinates converted to the *widget's* logical coordinates, which
+    // match the fence's local coordinates because the fence is rendered at
+    // (0,0) of the frame. Set to nullptr to stop routing.
     void setInputTarget(QObject* target);
     QObject* inputTarget() const;
 
     // Handler invoked when the Explorer drops files onto this surface (T-006-3).
-    // `clientPos` is in surface client coordinates (== fence local coordinates),
-    // `paths` are the dropped file/folder paths. Set before attach() so the
-    // OLE drop target is registered against the window.
+    // `clientPos` is in the surface's **physical** client pixels (unlike the
+    // mouse events above: this one is OLE's, not ours); paths are the dropped
+    // file/folder paths. Set before attach() so the OLE drop target is
+    // registered against the window.
     void setDropHandler(std::function<void(const QPoint&, const QStringList&)> handler);
     const std::function<void(const QPoint&, const QStringList&)>& dropHandler() const;
 
@@ -160,6 +171,9 @@ private:
     QRect m_rect;
     QImage m_frame;
     QTimer m_watchdog;
+    // T-014: the monitor's scaling, used to convert the physical mouse
+    // coordinates this window receives into the widget's logical ones.
+    qreal m_dpr = 1.0;
     bool m_placed = false;
     bool m_perPixelAlpha = false;
     // Navigation state (T-009), both honoured by place() so the watchdog cannot

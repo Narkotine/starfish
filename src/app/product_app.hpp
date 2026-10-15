@@ -8,6 +8,8 @@
 #include <functional>
 #include <memory>
 
+#include "ui/screen_layout.hpp"
+
 namespace starfish::core {
 class DesktopWatcher;
 class LayoutStore;
@@ -112,13 +114,19 @@ private:
     void refreshStatus();
     void showSettings();
 
+    // The monitors, as the fence geometry needs them (T-014 / F-032): physical
+    // rects in virtual-screen coordinates, each with its device pixel ratio.
+    static ui::ScreenLayout screenLayout();
+    // Called when the set of screens changes: the fences are revalidated onto
+    // the screens that are actually there, so unplugging a monitor brings its
+    // fences back instead of stranding them off-screen.
+    void refreshScreens();
+
     void onNewFence();
     void onRenameFence(const QString& id, const QString& title);
     void onRemoveFence(const QString& id);
     void onRollUpToggled(const QString& id, bool rolledUp);
     void onDesktopIconsToggled(bool hidden);
-
-    static QSize desktopBounds();
 
     Options m_options;
     bool m_started = false;

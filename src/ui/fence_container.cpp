@@ -48,6 +48,17 @@ QStringList pathsOf(const QList<core::DesktopItem>& items)
     return paths;
 }
 
+// The two halves of the physical/logical conversion (T-014). A fence's rect is
+// stored in physical pixels -- Progman's client space -- while a Qt widget is
+// sized and painted in logical pixels, i.e. physical / devicePixelRatio. Both
+// live here so the frame, the widget and the mouse routing cannot disagree.
+QSize logicalSize(const QSize& physical, qreal dpr)
+{
+    if (dpr <= 0.0 || qFuzzyCompare(dpr, 1.0))
+        return physical;
+    return QSize(qMax(1, qRound(physical.width() / dpr)), qMax(1, qRound(physical.height() / dpr)));
+}
+
 } // namespace
 
 FenceContainer::FenceContainer(QObject* parent)
@@ -149,11 +160,50 @@ int FenceContainer::applyRulesTo(const QList<core::DesktopItem>& items)
     return placed;
 }
 
+void FenceContainer::setScreens(const ScreenLayout& layout)
+{
+    if (layout.isEmpty())
+        return; // no information: keep what we know rather than losing the screen
+    m_screens = layout;
+    // A change of screens is exactly when fences end up off-screen (a monitor
+    // unplugged, moved, or its resolution changed): put them back now.
+    revalidateScreens();
+}
+
 void FenceContainer::setDesktopBounds(const QSize& bounds)
 {
     if (bounds.isEmpty())
         return;
-    m_bounds = bounds;
+    m_screens = ScreenLayout::single(bounds);
+}
+
+int FenceContainer::revalidateScreens()
+{
+    int moved = 0;
+    for (FenceWindow& fence : m_fences) {
+        const QRect restored = m_screens.restoreRect(fence.rect, fence.monitor);
+        const QString monitor = m_screens.nameFor(restored);
+        if (restored == fence.rect && monitor == fence.monitor)
+            continue; // untouched: no signal, so the product writes nothing
+
+        qCInfo(lc).noquote() << QStringLiteral("fence %1 brought back on screen: %2,%3 %4x%5 -> "
+                                               "%6,%7 %8x%9")
+                                    .arg(fence.id)
+                                    .arg(fence.rect.x())
+                                    .arg(fence.rect.y())
+                                    .arg(fence.rect.width())
+                                    .arg(fence.rect.height())
+                                    .arg(restored.x())
+                                    .arg(restored.y())
+                                    .arg(restored.width())
+                                    .arg(restored.height());
+        fence.rect = restored;
+        fence.monitor = monitor;
+        applyVisibleGeometry(fence);
+        emit fenceRectChanged(fence.id, restored);
+        ++moved;
+    }
+    return moved;
 }
 
 QString FenceContainer::nextId()
@@ -459,19 +509,28 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                                  const core::FenceStyle& style, const QString& sortBy,
                                  bool sortAscending, bool rolledUp,
                                  const QList<core::DesktopItem>& items,
-                                 const QStringList& portalPaths)
+                                 const QStringList& portalPaths, const QString& monitorHint)
 {
     FenceWindow fence;
     fence.id = requestedId.isEmpty() ? nextId() : requestedId;
     fence.title = title;
     fence.style = style;
     fence.rolledUp = rolledUp;
-    fence.rect = FenceGeometry::clampToBounds(rect, m_bounds);
+    // The rect comes from the document in virtual-screen coordinates (T-014),
+    // so where it belongs is decided by ScreenLayout -- which keeps it as it is
+    // when it still lands on a screen, and brings it back onto the recorded
+    // monitor (or the nearest one) when it does not. Then the minimum size is
+    // applied, and the result is clamped once more: growing to the minimum must
+    // not push a fence off its screen.
+    fence.rect = m_screens.restoreRect(rect, monitorHint);
     if (fence.rect.width() < m_minSize.width())
         fence.rect.setWidth(m_minSize.width());
     if (fence.rect.height() < m_minSize.height())
         fence.rect.setHeight(m_minSize.height());
-    fence.rect = FenceGeometry::clampToBounds(fence.rect, m_bounds);
+    fence.rect = FenceGeometry::clampIntoRect(fence.rect, m_screens.clampRectFor(fence.rect));
+    // Derived from where the fence ended up, never from where it claimed to be:
+    // the document must not name a monitor the fence does not sit on.
+    fence.monitor = m_screens.nameFor(fence.rect);
 
     // A restored id must not be handed out again by nextId().
     static const QRegularExpression numbered(QStringLiteral("^fence-(\\d+)$"));
@@ -486,8 +545,11 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     fence.view->setCornerRadius(style.radius);
     fence.view->setRolledUp(rolledUp);
     // The widget is sized to what is visible: a restored rolled-up fence comes
-    // back as a title bar, not as a full panel.
-    fence.view->resize(FenceGeometry::visibleRect(fence.rect, fence.rolledUp).size());
+    // back as a title bar, not as a full panel. Logical pixels -- the stored
+    // rect is physical, so on a scaled monitor the widget is smaller than the
+    // rect it fills (T-014).
+    fence.view->resize(logicalSize(FenceGeometry::visibleRect(fence.rect, fence.rolledUp).size(),
+                                   m_screens.devicePixelRatioFor(fence.rect)));
     fence.view->setSort(sortBy, sortAscending);
     fence.view->setItems(items);
 
@@ -641,9 +703,8 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
             if (!item.path.isEmpty())
                 items.append(item);
         }
-        const QString id = addFence(stored.id, stored.title, stored.rect, stored.style, stored.sortBy,
-                                    stored.sortAscending, stored.rolledUp, items, portalPaths);
-        find(id)->monitor = stored.monitor;
+        addFence(stored.id, stored.title, stored.rect, stored.style, stored.sortBy,
+                 stored.sortAscending, stored.rolledUp, items, portalPaths, stored.monitor);
     }
     qCInfo(lc).noquote() << QStringLiteral("applied layout: %1 fence(s), %2 rule(s), %3 portal(s)")
                                 .arg(m_fences.size())
@@ -676,11 +737,17 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
         return {};
 
     // All the roll-up aware math lives in the pure geometry (T-009); this is
-    // just the bookkeeping.
+    // just the bookkeeping. Since T-014 the screens are a list (snapping docks
+    // to a neighbouring monitor's inner edge) and the fence is clamped to the
+    // one screen its centre is on -- never into the dead zone between two
+    // monitors of different sizes, where it would be invisible and unreachable.
     const QRect target = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, rect,
-                                                     otherRects(id), m_bounds, m_minSize,
+                                                     otherRects(id), m_screens.frames(),
+                                                     m_screens.clampRectFor(rect), m_minSize,
                                                      m_snapThreshold, snap);
     fence->rect = target;
+    // Moving a fence to another monitor updates the monitor it is recorded on.
+    fence->monitor = m_screens.nameFor(target);
     applyVisibleGeometry(*fence);
 
     emit fenceRectChanged(id, target);
@@ -690,12 +757,21 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
 void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
 {
     const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    // The stored rect is physical; the widget is logical. On a 100 % monitor the
+    // two are the same size, which is why this conversion can be added without
+    // changing a single pixel of the v1 behaviour (T-014).
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     if (fence.view) {
         fence.view->setRolledUp(fence.rolledUp);
-        fence.view->resize(visible.size());
+        fence.view->resize(logicalSize(visible.size(), dpr));
     }
-    if (fence.surface)
+    if (fence.surface) {
+        // The surface owns a raw Win32 window, whose coordinates are physical
+        // pixels: it gets the physical rect, plus the ratio it needs to turn the
+        // mouse coordinates it receives back into widget coordinates.
+        fence.surface->setDevicePixelRatio(dpr);
         fence.surface->setGeometry(visible);
+    }
     renderFence(fence.id);
 }
 
@@ -778,7 +854,15 @@ void FenceContainer::renderFence(const QString& id)
         return;
 
     const bool perPixel = fence->surface && fence->surface->perPixelAlpha();
-    QImage frame(fence->view->size(), QImage::Format_ARGB32_Premultiplied);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
+    // The frame is always the size of the fence's *visible physical* rect: that
+    // is exactly the hosted window's client area, so the surface blits it 1:1 on
+    // any monitor. The device pixel ratio is what makes Qt paint the logical
+    // widget into those physical pixels, so a fence keeps the same apparent size
+    // (and the same icon density) on a 150 % monitor as on a 100 % one.
+    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
+    frame.setDevicePixelRatio(dpr);
     // The opaque GDI blit ignores the alpha channel, so the pixels outside the
     // rounded corners are filled with the panel's own colour instead of staying
     // transparent (which GDI would render black). Derived from the view, so a

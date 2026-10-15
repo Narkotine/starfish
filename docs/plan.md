@@ -44,9 +44,12 @@ Recherche des fonctionnalités de Fences 6, rédaction `docs/produit.md`, `docs/
 - T-012 Snapshots (sauvegarde / restauration / export-import)
 - **T-038 Mode produit minimal** *(ajouté après l'audit de la session 19 : le projet livrait un moteur, pas encore un produit)* — tray (F-034), fenêtre de réglages, zones hébergées manipulables à la souris, watcher branché sur le vrai dossier Bureau (F-018)
 - T-013 Pages de bureau multiples
-- T-014 Multi-écran, DPI mixte, i18n (en/fr), thèmes de zones
+- T-014a Multi-écran + awareness DPI (F-032, **P0** — l'arbitrage du 2026-10-15 donne raison à `produit.md` §6/§7 sur la ligne P1 d'origine)
+- T-014b i18n (en/fr) et thèmes de zones (F-036, F-004 — **P1, v0.2**)
 
 **Sortie :** passe de tests manuels multi-écrans documentée ; capture d'écran avant/après restauration de snapshot.
+
+> ⚠️ **État de ces deux critères (2026-10-15)** : la capture avant/après restauration relève de la session humaine ; la **passe multi-écrans est bloquée par le matériel** — la machine de dev n'a qu'**un seul moniteur** (2560×1440 à 100 %, mesuré : `Progman` = `0,0 2560x1440`, DPI 96). Elle exige un second écran, si possible à une **échelle différente** (le cas DPI mixte est celui qui a motivé F-032).
 
 ## Phase 6 — Qualité et release
 

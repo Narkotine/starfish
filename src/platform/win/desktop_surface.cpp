@@ -522,6 +522,13 @@ void DesktopSurface::syncZOrder()
         m_placed = place();
 }
 
+void DesktopSurface::setDevicePixelRatio(qreal ratio)
+{
+    if (ratio <= 0.0)
+        return;
+    m_dpr = ratio;
+}
+
 void DesktopSurface::setInputTarget(QObject* target)
 {
     m_inputTarget = target;
@@ -548,20 +555,27 @@ void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
     if (!m_inputTarget)
         return;
 
-    // Client coordinates of this surface == the fence's local coordinates: the
+    // Physical client coordinates of this surface == the frame's pixels: the
     // fence is rendered at (0,0) of the frame, and the surface has no border.
-    const QPointF pos(static_cast<qreal>(GET_X_LPARAM(lParam)),
-                      static_cast<qreal>(GET_Y_LPARAM(lParam)));
-    // Translate the client position to screen coordinates. Posted QMouseEvents
-    // need a real screen position so widgets that pop up a menu (the shell
-    // context menu on right-click) can place it under the actual cursor; using
-    // `pos, pos` would put the menu at the top-left of the primary monitor.
-    QPointF screenPos = pos;
+    const QPointF physical(static_cast<qreal>(GET_X_LPARAM(lParam)),
+                           static_cast<qreal>(GET_Y_LPARAM(lParam)));
+    // The widget paints in *logical* pixels (T-014). On a 150 % monitor the
+    // surface's client area is 1.5x the fence's logical size, so a position in
+    // it has to be divided by the ratio before the widget can hit-test it --
+    // without this a drag would move a fence 1.5x as far as the cursor. On a
+    // 100 % monitor the two spaces coincide, which is why v1 never noticed.
+    const qreal dpr = m_dpr > 0.0 ? m_dpr : 1.0;
+    const QPointF pos = physical / dpr;
+    // Screen position stays physical on purpose: what consumes it is
+    // TrackPopupMenuEx (the shell context menu), a Win32 call that works in
+    // physical screen pixels. Qt's own convention for global positions is
+    // logical, so this is documented rather than assumed -- see T-014 notes.
+    QPointF screenPos = physical;
     if (m_hwnd) {
         RECT r{};
         if (::GetWindowRect(toHwnd(m_hwnd), &r))
-            screenPos = QPointF(static_cast<qreal>(r.left) + pos.x(),
-                                static_cast<qreal>(r.top) + pos.y());
+            screenPos = QPointF(static_cast<qreal>(r.left) + physical.x(),
+                                static_cast<qreal>(r.top) + physical.y());
     }
 
     // Remembered so releaseStuckGesture() can end a gesture that is taken away

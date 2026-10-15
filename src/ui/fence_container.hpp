@@ -16,6 +16,7 @@
 #include "core/rules.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
+#include "ui/screen_layout.hpp"
 
 namespace starfish::platform::win {
 class DesktopSurface;
@@ -30,12 +31,18 @@ class FenceView;
 struct FenceWindow {
     QString id;
     QString title;
-    // Persisted device name of the monitor (T-008). v1 only ever runs on the
-    // primary one, so it is stored and reported but not acted upon (T-014).
+    // Device name of the screen the fence sits on ("\\.\DISPLAY1"), persisted
+    // since T-008 and **acted upon** since T-014: it is what brings a fence back
+    // to the right monitor when a stored rect no longer lands on any screen
+    // (ScreenLayout::restoreRect). It always describes where the fence *is* --
+    // it is derived from the rect, never the other way round.
     QString monitor;
     // The *stored* rect: the expanded body, even while rolled up. Roll-up only
     // changes what is visible -- FenceGeometry::visibleRect derives that.
-    QRect rect; // desktop coordinates (Progman client == primary monitor, v1)
+    // Physical pixels in Windows' virtual-screen coordinates, which is exactly
+    // Progman's client space; a monitor left of or above the primary one has
+    // negative coordinates (T-014).
+    QRect rect;
     core::FenceStyle style; // panel colour + radius are applied to the view
     bool rolledUp = false;  // F-020: persisted (T-008) and acted upon (T-009)
     // T-011: the folder portals this fence mirrors, in declaration order. Each
@@ -89,10 +96,25 @@ public:
     using ItemResolver = std::function<core::DesktopItem(const QString& path)>;
     void setItemResolver(ItemResolver resolver);
 
-    // The area fences are kept inside and snapped to. In v1 this is the primary
-    // monitor; multi-monitor offsets are T-014.
+    // The screens the fences live on: which monitor each fence belongs to,
+    // which edges it snaps to and how large its frame must be rendered (T-014 /
+    // F-032). Setting a layout also **revalidates** every fence, so a monitor
+    // that has just been unplugged brings its fences back on screen instead of
+    // leaving them unreachable.
+    void setScreens(const ScreenLayout& layout);
+    const ScreenLayout& screens() const { return m_screens; }
+
+    // The single-screen case: one screen anchored at (0,0), no scaling. Kept
+    // because most callers (the probes, the older tests) only know a size.
     void setDesktopBounds(const QSize& bounds);
-    QSize desktopBounds() const { return m_bounds; }
+    QSize desktopBounds() const { return m_screens.bounds().size(); }
+
+    // Puts every fence back on a screen: the rect a stored document describes
+    // may no longer land on any monitor (unplugged, re-arranged, resolution
+    // changed). Returns how many fences actually moved, and emits
+    // fenceRectChanged() for those only -- a fence that did not move must not
+    // make the product rewrite the document.
+    int revalidateScreens();
 
     void setHostOnDesktop(bool enabled) { m_host = enabled; }
     bool hostsOnDesktop() const { return m_host; }
@@ -269,10 +291,12 @@ private:
     // document is stable across restarts. `portalPaths` are the folders the
     // restored fence mirrors (T-011); they are listed before the fence is
     // announced, so fenceCreated() never describes half a fence.
+    // `monitorHint` is the screen the document recorded for this fence (T-014),
+    // used only when the stored rect no longer lands on any screen.
     QString addFence(const QString& requestedId, const QString& title, const QRect& rect,
                      const core::FenceStyle& style, const QString& sortBy, bool sortAscending,
                      bool rolledUp, const QList<core::DesktopItem>& items,
-                     const QStringList& portalPaths = {});
+                     const QStringList& portalPaths = {}, const QString& monitorHint = {});
 
     core::DesktopItem resolveItem(const QString& path) const;
 
@@ -302,7 +326,9 @@ private:
     ItemResolver m_itemResolver;
     // T-010: the automation rules, in priority order (first match wins).
     QList<core::Rule> m_rules;
-    QSize m_bounds{1920, 1080};
+    // T-014: every screen the fences may live on. Defaults to the v1 single
+    // screen, so a caller that only knows a size behaves exactly as before.
+    ScreenLayout m_screens = ScreenLayout::single(QSize(1920, 1080));
     QSize m_minSize{160, 120};
     int m_snapThreshold = 8;
     bool m_host = false;

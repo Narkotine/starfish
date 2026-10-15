@@ -54,10 +54,55 @@ ProductApp::~ProductApp()
     shutdown();
 }
 
-QSize ProductApp::desktopBounds()
+ui::ScreenLayout ProductApp::screenLayout()
 {
-    const QScreen* screen = QGuiApplication::primaryScreen();
-    return screen ? screen->geometry().size() : QSize(1920, 1080);
+    ui::ScreenLayout layout;
+    QScreen* primary = QGuiApplication::primaryScreen();
+    const QList<QScreen*> screens = QGuiApplication::screens();
+    for (QScreen* screen : screens) {
+        if (!screen)
+            continue;
+        ui::ScreenInfo info;
+        // Qt hands over *logical* (device-independent) pixels; every coordinate
+        // in StarFish is physical, because that is Progman's client space and
+        // what the Win32 window calls take (T-014). Qt's logical origin is the
+        // primary monitor's top-left, so scaling by the ratio keeps the primary
+        // at (0,0) -- exactly Windows' virtual-screen convention.
+        const qreal dpr = screen->devicePixelRatio();
+        const QRect logical = screen->geometry();
+        info.geometry = QRect(qRound(logical.x() * dpr), qRound(logical.y() * dpr),
+                              qRound(logical.width() * dpr), qRound(logical.height() * dpr));
+        info.devicePixelRatio = dpr;
+        info.name = screen->name();
+        info.primary = (screen == primary);
+        layout.addScreen(info);
+    }
+    // Screens can also be reported while a monitor is being switched off; an
+    // empty list means "no information", so the last known layout is kept
+    // (FenceContainer::setScreens refuses it) rather than stranding everything.
+    return layout;
+}
+
+void ProductApp::refreshScreens()
+{
+    if (!m_container)
+        return;
+    const ui::ScreenLayout layout = screenLayout();
+    if (layout.isEmpty()) {
+        qCWarning(lc) << "no screen reported: keeping the last known arrangement";
+        return;
+    }
+    qCInfo(lc).noquote() << QStringLiteral("screens changed: %1 screen(s), virtual desktop %2,%3 "
+                                           "%4x%5")
+                                .arg(layout.count())
+                                .arg(layout.bounds().x())
+                                .arg(layout.bounds().y())
+                                .arg(layout.bounds().width())
+                                .arg(layout.bounds().height());
+    // setScreens() revalidates every fence, so a monitor that just disappeared
+    // brings its fences back on a screen that exists -- and only the fences that
+    // really moved emit fenceRectChanged(), so the document is written only then.
+    m_container->setScreens(layout);
 }
 
 bool ProductApp::start(const Options& options, QString* error)
@@ -85,7 +130,10 @@ bool ProductApp::start(const Options& options, QString* error)
 
     // --- the fences --------------------------------------------------------
     m_container = new ui::FenceContainer(this);
-    m_container->setDesktopBounds(desktopBounds());
+    // The real monitors, read before the first frame: a restored fence must come
+    // back on the screen it belongs to, and a fence must never be clamped onto
+    // the primary monitor just because that used to be the only one (T-014).
+    m_container->setScreens(screenLayout());
     m_container->setHostOnDesktop(m_options.hostOnDesktop);
     m_container->setSnapThreshold(8);
     m_container->setMinimumFenceSize(QSize(160, 120));
@@ -121,6 +169,15 @@ bool ProductApp::start(const Options& options, QString* error)
     wireSettings();
     wireWatcher();
     wireHotkeys();
+
+    // The screen arrangement changes while StarFish is running: a monitor is
+    // unplugged, docked, re-arranged, or its scaling changes. Qt is the
+    // authority on what exists; the fences are revalidated onto whatever is
+    // really there (T-014 / F-032).
+    connect(qApp, &QGuiApplication::screenAdded, this, [this](QScreen*) { refreshScreens(); });
+    connect(qApp, &QGuiApplication::screenRemoved, this, [this](QScreen*) { refreshScreens(); });
+    connect(qApp, &QGuiApplication::primaryScreenChanged, this,
+            [this](QScreen*) { refreshScreens(); });
 
     refreshStatus();
     m_started = true;
@@ -355,8 +412,11 @@ QString ProductApp::createFenceWithDefaultPlacement()
 
     // To the right of everything, wrapping to a new row when the line would run
     // off the screen: a fence created under an existing one looks like nothing
-    // happened. The container clamps the rect to the desktop anyway.
-    const QSize bounds = m_container->desktopBounds();
+    // happened. The container clamps the rect to the screen it lands on anyway.
+    // A new fence starts on the *primary* monitor -- the one the user is looking
+    // at -- rather than on whichever screen happens to be last in the list.
+    const ui::ScreenInfo* primaryScreen = m_container->screens().primary();
+    const QSize bounds = primaryScreen ? primaryScreen->geometry.size() : QSize(1920, 1080);
     const QStringList ids = m_container->fenceIds();
 
     int x = 80;

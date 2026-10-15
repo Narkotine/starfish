@@ -132,3 +132,19 @@ target_include_directories(test_starfish_snapshot PRIVATE
 target_link_libraries(test_starfish_snapshot PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_snapshot COMMAND test_starfish_snapshot)
+
+# Multi-monitor model (T-014 / F-032): which screen a fence belongs to, where a
+# stored rect comes back to, and snapping against every screen's edges instead
+# of a single bounding box. Pure -- a mixed-DPI two-monitor arrangement is
+# unit-tested on a machine that owns one monitor.
+add_executable(test_starfish_screen_layout
+    test_screen_layout.cpp
+)
+
+target_include_directories(test_starfish_screen_layout PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_screen_layout PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME ui_screen_layout COMMAND test_starfish_screen_layout)
