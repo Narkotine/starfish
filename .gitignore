@@ -32,5 +32,8 @@ experiments/out/
 .cursor/
 .claude/
 
+# Local scratch notes -- not part of the project
+/IDEA.md
+
 # aqtinstall (local Qt/MinGW toolchain)
 aqtinstall.log
