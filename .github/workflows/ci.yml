@@ -30,5 +30,17 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # The manifest is load bearing (ADR-4): without it Windows applies its
+      # pre-Windows-8 compatibility behaviour, WS_EX_LAYERED is refused on a
+      # child window and the hosted zones are never drawn -- silently. The build
+      # turns MSVC's own manifest generation off (src/CMakeLists.txt) and lets
+      # starfish.rc supply ours, so this step proves the resource really landed
+      # in the binary instead of trusting the link to have kept it.
+      - name: Check the embedded manifest
+        shell: cmd
+        run: |
+          mt.exe -nologo -inputresource:build\starfish.exe;#1 -out:embedded.manifest
+          findstr /C:"supportedOS" embedded.manifest
+
       - name: Test
         run: ctest --test-dir build --output-on-failure

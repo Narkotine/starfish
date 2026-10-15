@@ -32,6 +32,17 @@ target_include_directories(starfish PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# MSVC embeds a manifest of its own (/MANIFEST:EMBED,ID=1) while starfish.rc
+# already embeds ours under resource id 1 -- two RT_MANIFEST resources with the
+# same id, which CVTRES refuses ("CVT1100: duplicate resource") and the link then
+# dies with LNK1123. MinGW has no such default step, which is why this was
+# invisible until the first MSVC build on CI (2026-10-15). The manifest has to
+# stay embedded by hand on both toolchains: it is what makes WS_EX_LAYERED
+# work on a child window (ADR-4), and its absence is silent.
+if(MSVC)
+    target_link_options(starfish PRIVATE "/MANIFEST:NO")
+endif()
+
 # Deployment is load bearing too, for the same reason as the manifest: the MinGW
 # build links Qt dynamically, so `build\starfish.exe` refuses to start with
 # "Qt6Widgets.dll introuvable" unless Qt's bin directory happens to be on PATH.
