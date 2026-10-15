@@ -215,7 +215,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight);
     if (handle != FenceHandle::None) {
         m_geometryHandle = handle;
-        m_geometryStartPos = event->pos();
+        m_geometryStartScreen = event->globalPosition();
         m_geometryDragging = true;
         m_dragOriginIndex = -1;
         m_dragging = false;
@@ -251,7 +251,13 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
     // Fence gesture (T-007) takes priority: while the title bar or a border
     // grip is held, the pointer moves the fence, never an icon.
     if (m_geometryDragging) {
-        emit geometryDragDelta(m_geometryHandle, event->pos() - m_geometryStartPos);
+        // Measured against the *screen*, not against this widget: the widget
+        // moves with the fence, so a widget-local delta (`event->pos()`) shrinks
+        // as the fence catches up with the cursor and the drag ends up covering
+        // only about half the distance the cursor actually travelled, in lagging
+        // steps. Screen coordinates are the one frame that does not move.
+        emit geometryDragDelta(m_geometryHandle,
+                               (event->globalPosition() - m_geometryStartScreen).toPoint());
         return;
     }
 

@@ -998,6 +998,40 @@ int main(int argc, char* argv[])
             QCoreApplication::sendEvent(widget, &release);
         };
 
+        // The same gesture, delivered the way the desktop actually delivers it:
+        // as a *sequence* of moves, each reporting the cursor relative to where
+        // the fence is **right now** -- because with the mouse captured the
+        // window follows the cursor and Windows reports client coordinates.
+        // A single dispatched move cannot see that feedback loop, which is
+        // exactly why a widget-local drag reference survived every probe until
+        // session 26 while being wrong on the real desktop (the user's report:
+        // "ça le fait mais pas très très bien, c'est un peu bizarre").
+        auto dragTitleBarInSteps = [&container](const QString& id, const QPoint& step, int steps) {
+            starfish::ui::FenceView* view = container->view(id);
+            if (!view)
+                return;
+            // 160 px along the title bar, in screen pixels: inside the bar and
+            // clear of the resize grips.
+            const QPoint grab = container->fenceRect(id).topLeft() + QPoint(160, 15);
+            // What Windows reports for a captured drag: client coordinates.
+            const auto local = [&container, &id](const QPoint& screen) {
+                return QPointF(screen - container->fenceRect(id).topLeft());
+            };
+            QMouseEvent press(QEvent::MouseButtonPress, local(grab), QPointF(grab),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &press);
+            QPoint cursor = grab;
+            for (int i = 0; i < steps; ++i) {
+                cursor += step;
+                QMouseEvent move(QEvent::MouseMove, local(cursor), QPointF(cursor),
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(view, &move);
+            }
+            QMouseEvent release(QEvent::MouseButtonRelease, local(cursor), QPointF(cursor),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &release);
+        };
+
         log << QStringLiteral("desktop bounds %1x%2, snap threshold %3 px, hosting %4")
                    .arg(bounds.width())
                    .arg(bounds.height())
@@ -1089,6 +1123,23 @@ int main(int argc, char* argv[])
                   .arg(frameAfterMove.width())
                   .arg(frameAfterMove.height())
                   .arg(frameAfterMove == frameBeforeMove ? QStringLiteral("yes") : QStringLiteral("no")));
+
+        // And the same gesture over several moves, which is where a drag whose
+        // reference moves with the window shows up: the fence must land exactly
+        // where the cursor went, not halfway there.
+        const QRect beforeSteps = container->fenceRect(idC);
+        dragTitleBarInSteps(idC, QPoint(5, 4), 12);
+        const QRect afterSteps = container->fenceRect(idC);
+        const QPoint expectedTopLeft = beforeSteps.topLeft() + QPoint(5 * 12, 4 * 12);
+        check(QStringLiteral("a multi-step drag lands where the cursor went"),
+              afterSteps.topLeft() == expectedTopLeft,
+              QStringLiteral("%1,%2 + 12 moves of (5,4) -> %3,%4 (expected %5,%6)")
+                  .arg(beforeSteps.x())
+                  .arg(beforeSteps.y())
+                  .arg(afterSteps.x())
+                  .arg(afterSteps.y())
+                  .arg(expectedTopLeft.x())
+                  .arg(expectedTopLeft.y()));
 
         if (hosted) {
             QString scanError;
@@ -3709,6 +3760,28 @@ int main(int argc, char* argv[])
     // machine is not the only way to leave: closing the settings window only
     // hides it, and quitting goes through the tray.
     {
+        // One instance at a time (session 26). Two copies fight over exactly the
+        // two things that make the product look broken: the layout document
+        // (last write wins, so fences disappear) and the state of the native
+        // icon layer (each copy restores icons the other expected to stay
+        // hidden). Measured on the real desktop: two instances started a minute
+        // apart, and the confusion reads as a bug in the fences themselves.
+        //
+        // Scoped to the product on purpose: the diagnostic probes must stay
+        // runnable while the application is open, or they stop being useful.
+        // The handle is deliberately *not* closed -- holding it is the lock, and
+        // the OS releases it when this process ends.
+#if defined(_WIN32)
+        HANDLE singleInstance = ::CreateMutexW(nullptr, TRUE, L"Local\\StarFish.Desktop");
+        if (singleInstance && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+            ::CloseHandle(singleInstance);
+            qCWarning(lc).noquote()
+                << "StarFish is already running -- not starting a second copy "
+                   "(its icon is in the notification area)";
+            return 0;
+        }
+#endif
+
         starfish::app::ProductApp product;
         starfish::app::ProductApp::Options options;
         if (parser.isSet(layoutOption))

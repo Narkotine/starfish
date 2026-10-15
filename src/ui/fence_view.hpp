@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QPointF>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -151,7 +152,14 @@ private:
     // above: a press that lands on the title bar or a border grip never arms an
     // icon drag, and vice versa.
     FenceHandle m_geometryHandle = FenceHandle::None;
-    QPoint m_geometryStartPos;
+    // The gesture reference is a **screen** position, deliberately not a
+    // widget-local one. The widget -- and the hosted surface that carries it --
+    // *moves under the cursor* while the drag runs, so a local reference stops
+    // measuring the cursor: each step reports the cursor's position relative to
+    // a window that has already followed it, and the fence then only travels a
+    // fraction of the displacement (measured: it converges to **half** of it,
+    // and lags on the way). Screen coordinates do not move with the window.
+    QPointF m_geometryStartScreen;
     bool m_geometryDragging = false;
 };
 

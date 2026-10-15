@@ -319,15 +319,24 @@ Le candidat retenu sur chaque axe est le plus proche ; les deux axes sont indép
 - `FenceContainer` capture le rect de référence au début du geste et applique chaque delta à **ce même** rect : l'arrondi ne s'accumule pas.
 - Le delta est appliqué **en direct** (la zone suit le curseur) ; le relâchement ne fait que clore le geste — c'est là que T-008 persistera le layout.
 
+### ⚠️ Le geste se mesure à l'écran, jamais dans le widget (session 26)
+
+Le delta de geste était calculé depuis `event->pos()`, une position **relative au widget** — or ce widget (et la surface hébergée qui le porte) **se déplace sous le curseur** pendant le geste. Chaque événement décrit alors le curseur par rapport à une fenêtre qui l'a déjà suivi : le déplacement appliqué vaut `réel − appliqué`, ce qui **converge vers la moitié** de la distance parcourue, en saccades. C'est ce que l'utilisateur a décrit de vive voix (« ça le fait mais pas très très bien, c'est un peu bizarre ») avant que le code soit lu : **la zone se déplaçait de la moitié** de ce que le curseur parcourait.
+
+Corrigé en prenant la référence **à l'écran** (`event->globalPosition()`), le seul repère qui ne bouge pas. La surface poste déjà des positions écran **physiques** (ce que `TrackPopupMenuEx` attend), et le conteneur raisonne en physique : les deux espaces coïncident donc, et à 100 % le correctif ne change rien d'autre.
+
+**Pourquoi aucune sonde ne l'avait vu** : elles envoient **un seul** `QMouseEvent` de déplacement, donc il n'y a pas de boucle de rétroaction. La vérification ajoutée (`--fence-demo`, `a multi-step drag lands where the cursor went`) livre un geste **réaliste** — 12 mouvements de (5,4), chaque événement rapportant le curseur **relatif au rect courant de la zone**, comme le fait Windows sous capture. La prémisse est prouvée : avec l'ancienne référence locale, la zone finit à **1230,924** au lieu de **1260,948**, soit exactement la moitié du déplacement — la vérification resterait donc rouge sur l'ancien code.
+
 ### Vérification
 
 - `tests/test_fence_geometry.cpp` — **14 cas** : classement des régions, priorité des coins, croissance est/sud, épinglage du bord opposé, clamp ouest et nord, no-op sur un handle non-redimensionnant, aimantation bords/centre/autre zone, absence d'aimantation au-delà du seuil, seuil 0, `clampToBounds` (dedans, débordement, négatif, surdimensionné).
-- `starfish --fence-demo [--host] [--seconds N]` — scénario **non interactif** qui exerce la vraie chaîne `FenceView → signaux → FenceContainer` en envoyant de vrais `QMouseEvent` au widget ; rapport PASS/FAIL dans `build/fence_demo.txt`, code de sortie 0/1. Mesuré : **8/8 PASS**, dont aimantation 394 → **400** (bord droit d'une autre zone), (3,5) → **(0,0)**, clamp 50×40 → **160×120**, drag de barre de titre (-77,+37) → **(0,120,320,240)**, poignée bas-droite +60,+60 → **380×300**, suppression → count 1.
+- `starfish --fence-demo [--host] [--seconds N]` — scénario **non interactif** qui exerce la vraie chaîne `FenceView → signaux → FenceContainer` en envoyant de vrais `QMouseEvent` au widget ; rapport PASS/FAIL dans `build/fence_demo.txt`, code de sortie 0/1. Mesuré : **8/8 PASS** (session 13), dont aimantation 394 → **400** (bord droit d'une autre zone), (3,5) → **(0,0)**, clamp 50×40 → **160×120**, drag de barre de titre (-77,+37) → **(0,120,320,240)**, poignée bas-droite +60,+60 → **380×300**, suppression → count 1. **Session 26 : 10/10 headless, 11/11 `--host`**, avec `a multi-step drag lands where the cursor went` en plus des deux vérifications de la session 25.
 - `--fence-demo --host` héberge **3 surfaces simultanément** (`layered ex 0x80000`, `alpha 1 (err 0)`, `placed 1`) : la coexistence de plusieurs `DesktopSurface` sur le même Progman est donc vérifiée, la zone de démo étant remplie des 83 entrées réelles du bureau.
 
 ### Limites assumées
 
-- Le geste à la souris **sur le bureau hébergé** (barre de titre / poignées) n'est pas vérifiable depuis l'agent : la sonde prouve le câblage, pas le ressenti. Validation humaine, comme T-021.
+- Le geste à la souris **sur le bureau hébergé** (barre de titre / poignées) n'est pas vérifiable depuis l'agent : la sonde prouve le câblage et la **géométrie** du geste, pas le ressenti. Validation humaine, comme T-021 — et c'est l'utilisateur qui a trouvé ce bug.
+- Une sonde qui envoie **un** mouvement ne peut pas voir une boucle de rétroaction : tout geste dont l'objet se déplace doit être testé par une **séquence** de mouvements dont les coordonnées locales sont recalculées à chaque étape.
 - Coordonnées en client de `Progman`, donc moniteur principal uniquement — offsets multi-écrans en T-014.
 - Pas encore d'aimantation magnétique « collante » (la zone ne reste pas accrochée) ni de guides visuels dessinés ; ni de redimensionnement au clavier.
 
@@ -648,7 +657,18 @@ Deux règles :
 
 ### Langue
 
-Les libellés passent par `tr()` avec des chaînes sources **en anglais** : l'i18n (F-036 / T-014) devient un fichier de traduction au lieu d'une chasse. L'interface est donc en anglais pour l'instant — assumé et noté.
+Les libellés passent par `tr()` avec des chaînes sources **en anglais** : l'i18n (F-036 / T-014) devient un fichier de traduction au lieu d'une chasse. L'interface est donc **en anglais** pour l'instant — assumé et noté.
+
+### Une seule instance à la fois (session 26)
+
+Deux copies de l'application se disputent exactement les deux choses qui font paraître le produit cassé : le **document** (dernier écrivain gagne, donc des zones disparaissent) et l'**état de la couche d'icônes natives** (chaque copie restaure des icônes que l'autre croyait masquées). Mesuré sur le vrai bureau : l'utilisateur en avait lancé **deux** à une minute d'intervalle, et la confusion se lit comme un bug des zones.
+
+`main()` prend donc un `CreateMutexW(L"Local\\StarFish.Desktop")` au démarrage du **mode produit** : si le mutex existe déjà, la seconde copie journalise et sort `0` sans rien toucher. Deux choix explicites :
+
+- **Le garde est dans le mode produit seulement.** Une application ouverte ne doit pas empêcher les **sondes** de tourner — c'est précisément ce qui les rend utiles pour diagnostiquer une application vivante.
+- **Pas de boîte de dialogue.** Un utilitaire de zone de notification qui ne fait rien au second lancement est le comportement attendu ; une boîte modale à chaque double-clic serait pire que le mal, et elle rendrait le garde non testable sans intervention humaine. Le message va dans le journal, qui est capturé quand la sortie est redirigée.
+
+Le descripteur n'est **pas** fermé : c'est lui qui tient le verrou, et le système le libère à la fin du processus.
 
 ### Vérification
 
