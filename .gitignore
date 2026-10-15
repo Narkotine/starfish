@@ -3,6 +3,9 @@
 /out/
 CMakeUserPresets.json
 
+# CTest artifacts (written when ctest uses the repo root as test dir)
+/Testing/
+
 # IDE
 .vs/
 x64/

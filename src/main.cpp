@@ -27,6 +27,7 @@
 #include "core/layout_store.hpp"
 #include "core/portal.hpp"
 #include "core/rules.hpp"
+#include "core/snapshot.hpp"
 #include "core/zorder.hpp"
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_scanner.hpp"
@@ -632,6 +633,23 @@ int main(int argc, char* argv[])
     parser.addOption(watchOption);
     parser.addOption(portalDemoOption);
     parser.addOption(portalFolderOption);
+    const QCommandLineOption snapshotDemoOption(
+       QLatin1String("snapshot-demo"),
+       QLatin1String("T-012 diagnostic: run the snapshot save/restore and export/import "
+                       "round trips (F-027/F-028) through the real wiring and write a "
+                       "PASS/FAIL report to build/snapshot_demo.txt."));
+    const QCommandLineOption snapshotIdOption(
+       QLatin1String("snapshot-id"),
+       QLatin1String("With --snapshot-demo: the id to save under. Defaults to "
+                       "\"snapshot-demo\"."),
+       QLatin1String("id"));
+    const QCommandLineOption snapshotNoteOption(
+       QLatin1String("snapshot-note"),
+       QLatin1String("With --snapshot-demo: the note attached to the snapshot."),
+       QLatin1String("note"));
+    parser.addOption(snapshotDemoOption);
+    parser.addOption(snapshotIdOption);
+    parser.addOption(snapshotNoteOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -2404,6 +2422,138 @@ int main(int argc, char* argv[])
         const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
         QTimer::singleShot((parsedSeconds && seconds > 0 ? seconds : 10) * 1000, &app,
                            [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(snapshotDemoOption)) {
+        // T-012: snapshots (F-027) and export/import (F-028). A snapshot is a
+        // named copy of the layout document; restore is applying that layout.
+        // Export/import is the plain schema-1 round trip. Nothing here touches
+        // the disk beyond the layout document and its snapshots directory.
+        const QString layoutPath = parser.isSet(layoutOption)
+                                       ? parser.value(layoutOption)
+                                       : QString();
+        const QString id = parser.isSet(snapshotIdOption)
+                                ? parser.value(snapshotIdOption)
+                                :QLatin1String("snapshot-demo");
+        const QString note = parser.value(snapshotNoteOption);
+
+        const QScreen* screen = QGuiApplication::primaryScreen();
+        const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
+
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log <<QLatin1String("%1  %2  %3")
+                       .arg(ok ?QLatin1String("PASS") :QLatin1String("FAIL"))
+                       .arg(step, -52)
+                       .arg(detail);
+        };
+
+        starfish::core::SnapshotManager m;
+        starfish::core::Layout layout;
+        layout.schema = 1;
+        starfish::core::Fence f;
+        f.id =QLatin1String("f-main");
+        f.title =QLatin1String("Main");
+        f.rect = QRect(0, 0, bounds.width() / 3, bounds.height() / 2);
+        f.items.append({QLatin1String("file"),QLatin1String("C:/Desktop/a.txt")});
+        layout.fences.append(f);
+
+        const QString dir = layoutPath.isEmpty()
+                                ? m.defaultSnapshotsDir()
+                                : m.snapshotsDirFor(layoutPath);
+        if (!QDir().mkpath(dir)) {
+            log <<QLatin1String("FAIL  could not create snapshots directory  %1").arg(dir);
+            ++failures;
+        }
+
+        const bool saved = m.saveSnapshot(dir, layout, id, note);
+        check(QLatin1String("snapshot saved"), saved,
+             QLatin1String("%1 -> %2").arg(id, m.snapshotFilePath(dir, id)));
+
+        const QStringList listed = m.listSnapshots(dir);
+        check(QLatin1String("snapshot is listed"), listed.contains(id),
+             QLatin1String("%1 id(s)").arg(QString::number(listed.size())));
+
+        starfish::core::Snapshot loaded;
+        const bool loadedOk = m.loadSnapshot(dir, id, loaded);
+        check(QLatin1String("snapshot loads"), loadedOk, {});
+        if (loadedOk) {
+            check(QLatin1String("loaded layout matches"), loaded.layout.fences.size() == 1
+                  && loaded.layout.fences.at(0).id ==QLatin1String("f-main"),
+                 QLatin1String("%1 fence(s)").arg(QString::number(loaded.layout.fences.size())));
+            check(QLatin1String("loaded note is preserved"),
+                  note.isEmpty() ? loaded.note.isEmpty() : loaded.note == note,
+                 QLatin1String("note=%1").arg(loaded.note));
+
+            // F-027's "restore" is applying the snapshot's layout to the live
+            // fences -- that is what the product does, and nothing else. Prove it
+            // rebuilds the fence with the same id and the same rect.
+            starfish::ui::FenceContainer restored;
+            QString restoreError;
+            const bool restoreOk = restored.applyLayout(loaded.layout, &restoreError);
+            check(QLatin1String("restore rebuilds the fence"),
+                  restoreOk && restored.fenceCount() == 1
+                      && restored.fenceIds().value(0) ==QLatin1String("f-main")
+                      && restored.fenceRect(QLatin1String("f-main")) == layout.fences.at(0).rect,
+                 restoreOk ?QLatin1String("%1 fence(s), %2")
+                                 .arg(QString::number(restored.fenceCount()))
+                                 .arg(restored.fenceIds().join(QLatin1Char(',')))
+                           : restoreError);
+        }
+
+        const QString exportPath = dir +QLatin1String("/snapshot-demo-export.json");
+        const bool exported = m.exportLayout(layout, exportPath);
+        check(QLatin1String("layout exported"), exported,
+             QLatin1String("-> %1").arg(exportPath));
+        if (exported) {
+            const auto imported = m.importLayout(exportPath);
+            check(QLatin1String("exported layout re-imports"),
+                  imported.has_value() && imported->fences.size() == 1,
+                 QLatin1String("%1 fence(s)").arg(QString::number(
+                     imported.has_value() ? imported->fences.size() : qsizetype(-1))));
+        }
+
+        const bool removed = m.removeSnapshot(dir, id);
+        check(QLatin1String("snapshot removed"), removed, {});
+
+        // Leave nothing behind: the probe wrote a snapshot (now removed) and an
+        // exported file in the snapshots directory -- which, with no --layout, is
+        // the user's real %APPDATA%/StarFish/snapshots. A probe must not leave
+        // junk in a real profile.
+        const bool exportCleaned = !QFileInfo::exists(exportPath) || QFile::remove(exportPath);
+        check(QLatin1String("export file cleaned up"), exportCleaned, {});
+        check(QLatin1String("snapshot file is gone"),
+              !QFileInfo::exists(m.snapshotFilePath(dir, id)), {});
+
+        const QString reportPath =QLatin1String("build/snapshot_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream <<QLatin1String("layout document: %1\n").arg(layoutPath.isEmpty()
+                                  ?QLatin1String("(default, not written)")
+                                  : layoutPath);
+                stream <<QLatin1String("snapshots directory: %1\n").arg(dir);
+                stream <<QLatin1String("id: %1\n").arg(id);
+                stream <<QLatin1String("note: %1\n").arg(note.isEmpty()
+                                  ?QLatin1String("(none)") : note);
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ?QLatin1String("RESULT: all checks passed\n")
+                               :QLatin1String("RESULT: %1 check(s) FAILED\n").arg(QString::number(failures)));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() <<QLatin1String("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
         return app.exec();
     }
 

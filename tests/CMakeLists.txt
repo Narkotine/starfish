@@ -116,3 +116,19 @@ target_include_directories(test_starfish_portal PRIVATE
 target_link_libraries(test_starfish_portal PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_portal COMMAND test_starfish_portal)
+
+# Named snapshots (T-012 / F-027/F-028): save, restore, list, delete a layout
+# under a name, and export/import it as a plain file. Pure Qt Core.
+add_executable(test_starfish_snapshot
+    test_snapshot.cpp
+    ../src/core/snapshot.cpp
+    ../src/core/jsonstore.cpp
+)
+
+target_include_directories(test_starfish_snapshot PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_snapshot PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_snapshot COMMAND test_starfish_snapshot)

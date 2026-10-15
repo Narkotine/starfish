@@ -25,6 +25,7 @@
 │  ├─ RuleEngine     évaluation des règles (F-017)   │
 │  ├─ DesktopWatcher nouveaux fichiers (F-018)       │
 │  ├─ LayoutStore    lecture/écriture JSON atomique  │
+│  ├─ SnapshotManager snapshots nommées (F-027/F-028)│
 │  ├─ DesktopScanner lecture du dossier Bureau       │
 │  ├─ ShellIconCache icônes shell (image list)       │
 │  ├─ ShellBridge    menu contextuel, DnD            │
@@ -47,6 +48,7 @@
 - **FenceContainer** (`src/ui/fence_container.{hpp,cpp}`, T-007) : propriétaire du **cycle de vie des zones**. Une `FenceWindow` = id + titre + moniteur + `QRect` (**le corps déplié**, même enroulé) + `FenceStyle` + `FenceView` + `DesktopSurface` optionnelle + la dernière frame rendue. Deux modes : **headless** (défaut — géométrie et widget seulement, aucun bureau requis, ce qui rend les tests et la sonde possibles) et **hébergé** (`setHostOnDesktop(true)` — chaque zone reçoit sa `DesktopSurface`, `IDropTarget` OLE câblé comme en T-006-3). `removeFence()` supprime la zone, **jamais les fichiers**. Depuis T-008 il porte aussi le mapping vers/depuis le document : `toLayout()` / `applyLayout()`. Depuis T-009 il porte l'état de navigation (roll-up, visibilité globale, Peek) — voir §11 et ADR-8. Depuis T-010 il porte aussi les **règles** (`setRules()` / `rules()`) et les applique (`classify()`, `applyRulesTo()`), sans jamais toucher au disque — voir §12.
 - **FenceGeometry** (`src/ui/fence_geometry.hpp`, T-007) : géométrie **pure** du cycle de vie et de la navigation — `FenceHandle`, `hitTest`, `resize` (avec taille minimale), `snap` (bords + centres, écran et autres zones), `clampToBounds`, `visibleRect` (roll-up) et `applyRequest` (la demande de déplacement/redimensionnement résolue en rect stocké). Aucun widget, aucun Win32 : c'est ce qui rend les règles de T-007 **et** de T-009 unit-testables.
 - **HotkeyManager** (`src/platform/win/hotkey_manager.{hpp,cpp}`, T-009) : `RegisterHotKey` sur une fenêtre message-only (`HWND_MESSAGE`), signal `triggered(id)`. Déclencheur de Peek (F-021) et de quick hide (F-022) tant que les raccourcis ne sont pas configurables (F-033). L'échec d'enregistrement est **remonté**, jamais avalé — `Win+Space` est refusé par Windows.
+- **SnapshotManager** (`src/core/snapshot.{hpp,cpp}`, T-012) : **snapshots nommées** (F-027) et **export/import** (F-028). Une snapshot est une disposition schéma 1 **plus** une enveloppe `snapshot:{createdAt,note}` : restaurer, c'est appliquer une disposition, et il n'y a **aucun second format**. `saveSnapshot` / `loadSnapshot` / `removeSnapshot` / `listSnapshots` / `snapshotsDirFor` (dossier à côté du document) / `exportLayout` / `importLayout`. Qt Core seul — testable sans écran. Voir §14.
 - **JsonStore / LayoutStore** (`src/core/jsonstore.{hpp,cpp}`, `src/core/layout_store.{hpp,cpp}`, T-008) : seule source de vérité pour « quelle icône dans quelle zone, où ». `JsonStore` ne connaît que le format (schéma 1, écriture atomique, sérialisation déterministe) ; `LayoutStore` possède le document (chemin, chargement, écriture différée — voir §10 et ADR-7). Les fichiers, eux, restent où ils sont sur le disque.
 - **RuleEngine** (`src/core/rules.{hpp,cpp}`) : **pure** — entrée = métadonnées d'un fichier (`core::FileMeta`) + liste ordonnée de règles, sortie = id de la zone cible ou rien. Critères ET-és : extension, motif de nom, fenêtre d'âge (relative à un `now` injectable, donc testable sans horloge). Depuis T-010 le `Layout` transporte les règles et `FenceContainer::applyRulesTo()` les applique — voir §12.
 - **DesktopWatcher** (`src/core/desktop_watcher.{hpp,cpp}`, T-010) : déclencheur de F-018. `QFileSystemWatcher` + instantané des entrées + diff pur (`newEntries()`) + debounce, Qt Core seul, donc testable sans bureau. Il **signale** (`itemsAdded`) ; c'est le conteneur qui range. Voir §12.
@@ -210,6 +212,7 @@ Notes de format :
 - `style.background` est en **`#AARRGGBB`**, c'est-à-dire exactement ce que produit `QColor::name(QColor::HexArgb)` : la chaîne se relit sans perte. `iconTint` est omis quand il est vide.
 - `items` est la **composition de la zone** (voir ADR-7) ; `kind` vaut `"file"` ou `"portal"` (§13, T-011). Une entrée `"portal"` ne désigne pas une tuile mais **un dossier à refléter** : ses tuiles sont listées depuis le dossier à chaque chargement et ne sont donc **jamais** écrites comme items `"file"` — le document ne contient que le chemin du dossier.
 - `rules` est **écrit depuis T-010** (§12). Les critères vivent dans un objet `match` (`type`, `name`, `newerThanDays`, `olderThanDays`) pour qu'un futur critère soit un ajout plutôt qu'une rupture de schéma ; un `match` vide est la règle « attrape-tout ». Un document **sans** `rules` (ce que T-008 écrivait) se charge normalement — le tableau vaut alors vide. Le schéma reste **1** : `rules` était réservé depuis l'origine, ce n'est pas une rupture.
+- Un **fichier de snapshot** (§14) est ce même document **plus** une enveloppe `snapshot: {"createdAt", "note"}` : `JsonStore` n'a pas à la connaître, la snapshot est relue en retirant l'enveloppe puis en parsant le reste comme un document schéma 1. L'id d'une snapshot **n'est pas un champ** : c'est le **nom du fichier** (`<id>.json`).
 - Règle d'or : `moveFiles: false` par défaut — les règles ne **déplacent jamais un fichier sur le disque**. Le déplacement réel n'est d'ailleurs pas implémenté (T-031).
 
 ## 6. Build, packaging, qualité
@@ -219,9 +222,9 @@ Notes de format :
   - **Manifeste applicatif obligatoire** (`src/starfish.manifest` + `src/starfish.rc`, `enable_language(RC)`) : MinGW n'a **pas** d'étape manifeste par défaut, contrairement à MSVC. Sans lui, Windows applique le comportement pré-Windows 8, `WS_EX_LAYERED` est refusé sur les fenêtres enfants et **les zones hébergées ne s'affichent jamais** — silencieusement (ADR-4, finding 4). Ne pas retirer ce fichier du `CMakeLists.txt` : la panne ne produit aucun message.
 - **CI** : GitHub Actions `windows-latest` → configure/build + tests unitaires (`RuleEngine`, `LayoutStore`) à chaque PR.
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
-- **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau, listage d'un portail) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
+- **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau, listage d'un portail, snapshots) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]`, `--snapshot-demo [--layout FILE] [--snapshot-id ID] [--snapshot-note NOTE]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -511,5 +514,60 @@ Le reste de F-024 (F-025, F-026) reste en P2 : taille d'icônes propre aux porta
 - **Pas de récursion** : seul le premier niveau du dossier est listé ; naviguer dans un sous-dossier est F-026 (P2), et surveiller récursivement est T-033.
 - **Pas d'interface** : un portail se déclare en JSON (`{"kind":"portal","path":...}`) ou par `addPortal()`. Créer un portail en déposant un dossier n'existe pas encore.
 - **Pas de taille d'icônes propre au portail** (F-025, P2) : un portail utilise le style de sa zone.
+
+## 14. Snapshots et export/import (T-012, session 20)
+
+F-027 (« sauvegarder / restaurer une disposition ») et F-028 (« export / import d'une disposition »). T-012 ouvre la Phase 5.
+
+### Un seul format, pas deux
+
+Une **snapshot** est une **disposition nommée** :
+
+```json
+{
+  "schema": 1,
+  "fences": [ … ],
+  "rules": [ … ],
+  "snapshot": { "createdAt": "2026-10-15T15:52:03", "note": "avant la modif" }
+}
+```
+
+- C'est **exactement** le document schéma 1, **plus une enveloppe**. Conséquence directe : **restaurer une snapshot, c'est appliquer une disposition** (`FenceContainer::applyLayout`), et rien d'autre — il n'existe donc **aucun second format** à tenir synchronisé avec le premier. `JsonStore` n'a pas eu à apprendre les snapshots : `fromJson` retire l'enveloppe et parse le reste avec ses validations habituelles.
+- **L'id d'une snapshot n'est pas un champ du document** : c'est le **nom du fichier** (`<id>.json`). Il est donc **validé avant de devenir un chemin** — séparateurs, `:`, jokers, `.`/`..`, espace initial et point final refusés (Windows rogne les deux derniers, ce qui ferait entrer deux ids en collision sur disque).
+- **Le dossier `snapshots/` vit à côté du document** (`SnapshotManager::snapshotsDirFor`) : `--layout FILE` déplace donc zones **et** snapshots ensemble.
+
+### Sauver, restaurer, lister, supprimer
+
+| Opération | API | Remarque |
+|---|---|---|
+| sauver | `saveSnapshot(dir, layout, id, note)` | `QSaveFile` (atomique) ; le dossier est créé au besoin |
+| restaurer | `loadSnapshot(dir, id, out)` | refuse un **fichier de disposition** (sans enveloppe) : c'est une disposition, pas une snapshot |
+| lister | `listSnapshots(dir)` | ids triés, insensibles à la casse |
+| supprimer | `removeSnapshot(dir, id)` | `false` si absent — et `false` aussi sur un id invalide |
+
+### Export / import (F-028)
+
+`exportLayout` écrit le document **schéma 1** tel quel ; `importLayout` le relit par `JsonStore`. Une snapshot **n'est pas** une disposition, d'où deux gardes :
+
+- l'**import** refuse un fichier de snapshot : l'avaliser perdrait l'enveloppe en silence ;
+- l'**export** refuse d'écraser un fichier de snapshot, pour la même raison.
+
+### ⚠️ Piège trouvé par le test : un préfixe d'octets ne décide pas d'un JSON
+
+La première version détectait l'enveloppe en lisant les **4096 premiers octets** du fichier. Or `QJsonObject` **trie ses clés** — `fences`, `rules`, `schema`, `snapshot` — donc l'enveloppe est écrite **en dernier**. Au-delà de ~4 Ko la lecture ne trouvait plus rien : `exportLayout` **écrasait** la snapshot et `importLayout` l'**avalait**. Le test existant passait, parce que sa disposition témoin faisait moins de 4 Ko.
+
+Correction : **parser** le fichier (`hasSnapshotEnvelope`). Le test `largeSnapshotIsNotALayoutFile` construit une snapshot de plus de 4 Ko, **vérifie que le marqueur est bien au-delà de la fenêtre** (sinon il n'exercerait plus rien), puis exige que l'import **et** l'export la refusent. Généralisation : **ne jamais conclure du contenu d'un JSON en lisant un préfixe d'octets quand la sérialisation trie les clés.**
+
+### Vérification
+
+- `tests/test_snapshot.cpp` — **13 cas** : ids invalides refusés, aller-retour save/list, métadonnées relues, fichier de disposition refusé comme snapshot, id inconnu, suppression (et double suppression), deux snapshots indépendantes, export/import, export refusé sur un fichier de snapshot, dossier à côté du document, **grande snapshot refusée** (la régression ci-dessus).
+- `starfish --snapshot-demo [--layout FILE] [--snapshot-id ID] [--snapshot-note NOTE]` — **11/11 PASS**, `rc=0`, rapport `build/snapshot_demo.txt`. Mesuré : snapshot écrite sur disque et listée ; rechargée **avec sa note** ; **restaurée** — `FenceContainer::applyLayout` reconstruit la zone avec le **même id** et le **même rect** ; disposition exportée puis ré-importée ; snapshot supprimée et **fichier exporté nettoyé** (rien n'est laissé dans `%APPDATA%`).
+- Non-régression (session 20) : `ctest` **9/9** ; `--fence-demo` **8/8** ; `--persist-demo` **26/26** ; `--nav-demo` **22/22** headless / **29/29** `--host` ; `--rules-demo` **28/28** ; `--portal-demo` **29/29** / **31/31** `--host`.
+
+### Limites assumées
+
+- **Pas d'interface** : les snapshots se pilotent par `SnapshotManager` ou la sonde. L'écran (liste, restauration, export guidé) viendra avec la page de réglages du mode produit (**T-015**).
+- La restauration n'est **pas** branchée sur un mode produit — il n'existe pas encore (T-015). La sonde exerce exactement la séquence prévue, mais c'est elle qui l'orchestre.
+- Les deux critères de sortie de la Phase 5 — **passe de tests manuels multi-écrans** et **capture avant/après restauration de snapshot** — restent des validations humaines (bureau libre + yeux, décision 13 de `STATE.md`).
 
 
