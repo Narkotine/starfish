@@ -464,6 +464,104 @@ bool blitViaPaintCycle(HWND hwnd, const QImage& image, QString* detail)
 }
 #endif
 
+// --- T-014a (F-032): monitors, DPI, and the paint scale ----------------------
+
+// The monitor a fence is **recorded on**, read back from the document. That is
+// the value that matters -- the next launch restores from it -- and it is
+// derived from the rect, so reading it here also checks that the derivation is
+// the one that got persisted.
+QString monitorOf(const starfish::ui::FenceContainer& container, const QString& id)
+{
+    for (const starfish::core::Fence& fence : container.toLayout().fences) {
+        if (fence.id == id)
+            return fence.monitor;
+    }
+    return QString();
+}
+
+#if defined(_WIN32)
+// The DPI awareness context the process really ended up with. Read, never
+// assumed: the manifest deliberately declares no `dpiAware` entry (ADR-4), so
+// whatever Windows granted -- after Qt's platform plugin asked -- is the fact
+// worth reporting. Resolved through GetProcAddress because the SDK guards the
+// declaration behind WINVER and the probe must build on any toolchain.
+QString dpiAwarenessText()
+{
+    using ThreadContextFn = void* (WINAPI*)();
+    using AwarenessFn = int (WINAPI*)(void*);
+    const HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+    if (!user32)
+        return QStringLiteral("unavailable (no user32)");
+    const auto threadContext = reinterpret_cast<ThreadContextFn>(
+        ::GetProcAddress(user32, "GetThreadDpiAwarenessContext"));
+    const auto awarenessOf = reinterpret_cast<AwarenessFn>(
+        ::GetProcAddress(user32, "GetAwarenessFromDpiAwarenessContext"));
+    if (!threadContext || !awarenessOf)
+        return QStringLiteral("unavailable (older than Windows 10 1607)");
+    switch (awarenessOf(threadContext())) {
+    case 0:
+        return QStringLiteral("DPI_AWARENESS_UNAWARE (0)");
+    case 1:
+        return QStringLiteral("DPI_AWARENESS_SYSTEM_AWARE (1)");
+    case 2:
+        return QStringLiteral("DPI_AWARENESS_PER_MONITOR_AWARE (2)");
+    case 3:
+        return QStringLiteral("DPI_AWARENESS_PER_MONITOR_AWARE_V2 (3)");
+    case 4:
+        return QStringLiteral("DPI_AWARENESS_UNAWARE_GDISCALED (4)");
+    default:
+        return QStringLiteral("unrecognised (%1)").arg(awarenessOf(threadContext()));
+    }
+}
+#endif
+
+// How many **physical** pixels thick the fence's 1.0-logical-pixel top border
+// covers once Qt has painted it (T-014a).
+//
+// This is the measurement the DPI work was missing. `FenceContainer::renderFence`
+// paints the widget into an image whose devicePixelRatio is the monitor's, which
+// is what keeps a fence looking the same size on a 150 % display -- and it was
+// only ever *assumed*. The border is drawn with a 1.0 pen, so a painter that is
+// scaled by the ratio must cover exactly `dpr` physical pixels along the top
+// edge; a painter that ignored the ratio would cover exactly 1, on every
+// monitor. Nothing else in the pipeline can tell those two apart.
+//
+// Coverage is a blue-channel fraction rather than a pixel count, so the
+// half-covered pixel of a 1.5 ratio is counted instead of rounded away: the
+// panel fill (#1F2937) has blue 55, the border (#3B82F6) blue 246.
+double measureBorderCoverage(qreal dpr)
+{
+    starfish::ui::ScreenLayout layout;
+    starfish::ui::ScreenInfo screen;
+    screen.geometry = QRect(0, 0, 2560, 1440); // physical pixels, as everywhere
+    screen.devicePixelRatio = dpr;
+    screen.name = QStringLiteral("\\\\.\\MEASURED");
+    screen.primary = true;
+    layout.addScreen(screen);
+
+    starfish::ui::FenceContainer container;
+    container.setScreens(layout);
+    const QString id =
+        container.createFence(QStringLiteral("scaled"), QRect(100, 100, 400, 300));
+    const QImage frame = container.frame(id);
+    if (frame.isNull())
+        return -1.0;
+
+    constexpr int fillBlue = 55;    // #1F2937 panel fill
+    constexpr int borderBlue = 246; // #3B82F6 panel border
+    const int x = frame.width() / 2; // a column clear of the rounded corners
+    double coverage = 0.0;
+    for (int y = 0; y < frame.height(); ++y) {
+        const int blue = frame.pixelColor(x, y).blue();
+        const double covered =
+            qBound(0.0, double(blue - fillBlue) / double(borderBlue - fillBlue), 1.0);
+        if (covered <= 0.0)
+            break; // past the border band: everything below is panel fill
+        coverage += covered;
+    }
+    return coverage;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -676,7 +774,15 @@ int main(int argc, char* argv[])
         QLatin1String("no-settings"),
         QLatin1String("With the product: do not create the settings window."));
     parser.addOption(productOption);
+    const QCommandLineOption screenDemoOption(
+        QLatin1String("screen-demo"),
+        QLatin1String("T-014a diagnostic: report the monitors Windows really reports and the "
+                      "DPI awareness context the process obtained, exercise synthetic "
+                      "arrangements (a monitor left of the primary, mixed DPI, one unplugged) "
+                      "through a real FenceContainer, and measure that Qt scales the paint to "
+                      "the monitor's ratio. Writes a PASS/FAIL report to build/screen_demo.txt."));
     parser.addOption(productProbeOption);
+    parser.addOption(screenDemoOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -3120,6 +3226,303 @@ int main(int argc, char* argv[])
                                      .arg(QString::number(failures)));
             }
         }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(screenDemoOption)) {
+        // T-014a (F-032): what Windows really reports, then the multi-monitor
+        // rules driven through a real FenceContainer, then the one thing that had
+        // only ever been *assumed* -- that Qt scales the paint to the monitor's
+        // ratio. Headless throughout: no desktop, nothing written outside build/.
+        QStringList header;
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QLatin1String("%1  %2  %3")
+                       .arg(ok ? QLatin1String("PASS") : QLatin1String("FAIL"))
+                       .arg(step, -58)
+                       .arg(detail);
+        };
+
+        // --- what this machine really reports -------------------------------
+        header << QLatin1String("-- the monitors Qt sees --");
+        const QList<QScreen*> realScreens = QGuiApplication::screens();
+        for (QScreen* screen : realScreens) {
+            const qreal dpr = screen->devicePixelRatio();
+            const QRect logical = screen->geometry();
+            const QString role = (screen == QGuiApplication::primaryScreen())
+                                     ? QStringLiteral(" (primary)")
+                                     : QString();
+            header << QStringLiteral(
+                          "display %1  logical %2,%3 %4x%5  dpr %6  physical %7,%8 %9x%10%11")
+                          .arg(screen->name())
+                          .arg(logical.x())
+                          .arg(logical.y())
+                          .arg(logical.width())
+                          .arg(logical.height())
+                          .arg(QString::number(dpr))
+                          .arg(qRound(logical.x() * dpr))
+                          .arg(qRound(logical.y() * dpr))
+                          .arg(qRound(logical.width() * dpr))
+                          .arg(qRound(logical.height() * dpr))
+                          .arg(role);
+        }
+        check(QLatin1String("at least one monitor is reported"), !realScreens.isEmpty(),
+              QStringLiteral("%1 screen(s)").arg(realScreens.size()));
+#if defined(_WIN32)
+        const HDC screenDc = ::GetDC(nullptr);
+        const int systemDpi = screenDc ? ::GetDeviceCaps(screenDc, LOGPIXELSX) : 0;
+        if (screenDc)
+            ::ReleaseDC(nullptr, screenDc);
+        header << QLatin1String("DPI awareness context obtained: %1").arg(dpiAwarenessText());
+        header << QStringLiteral("system DPI: %1 (%2 %)")
+                      .arg(systemDpi)
+                      .arg(qRound(systemDpi * 100.0 / 96.0));
+#else
+        header << QLatin1String("DPI awareness context: Windows only");
+#endif
+
+        // --- the multi-monitor rules, on a real container --------------------
+        //
+        // Synthetic on purpose. The dev machine has one monitor (measured), and
+        // the arrangements that actually break are the ones it cannot show: a
+        // monitor to the left of the primary (negative coordinates), monitors of
+        // different sizes (a dead zone that no monitor draws), mixed DPI. They
+        // are built here and driven through the same FenceContainer the product
+        // uses, so what is exercised is the real code, not a model of it.
+        starfish::ui::ScreenLayout mixed;
+        {
+            starfish::ui::ScreenInfo left;
+            left.geometry = QRect(-1920, 0, 1280, 1024); // left of the primary
+            left.devicePixelRatio = 1.5;
+            left.name = QLatin1String("\\\\.\\DISPLAY2");
+            mixed.addScreen(left);
+
+            starfish::ui::ScreenInfo right;
+            right.geometry = QRect(0, 0, 1920, 1080);
+            right.devicePixelRatio = 1.0;
+            right.name = QLatin1String("\\\\.\\DISPLAY1");
+            right.primary = true;
+            mixed.addScreen(right);
+        }
+        const QRect primaryRect(0, 0, 1920, 1080);
+        const QRect leftRect(-1920, 0, 1280, 1024);
+
+        starfish::ui::ScreenLayout primaryOnly;
+        {
+            starfish::ui::ScreenInfo only;
+            only.geometry = primaryRect;
+            only.devicePixelRatio = 1.0;
+            only.name = QLatin1String("\\\\.\\DISPLAY1");
+            only.primary = true;
+            primaryOnly.addScreen(only);
+        }
+
+        starfish::ui::FenceContainer container;
+        container.setHostOnDesktop(false);
+        container.setScreens(mixed);
+        int rectChanges = 0;
+        QObject::connect(&container, &starfish::ui::FenceContainer::fenceRectChanged, &container,
+                         [&rectChanges](const QString&, const QRect&) { ++rectChanges; });
+
+        const QRect virtualDesktop = container.screens().bounds();
+        check(QLatin1String("the virtual desktop spans both monitors"),
+              virtualDesktop.left() == -1920 && virtualDesktop.right() == 1919
+                  && virtualDesktop.top() == 0 && virtualDesktop.bottom() == 1079,
+              QStringLiteral("%1,%2 %3x%4")
+                  .arg(virtualDesktop.x())
+                  .arg(virtualDesktop.y())
+                  .arg(virtualDesktop.width())
+                  .arg(virtualDesktop.height()));
+
+        // -1000,500 is on the left monitor; a point at x = -100 would fall in the
+        // gap between the two (the left one only reaches x = -641).
+        const starfish::ui::ScreenInfo* leftHit = container.screens().screenAt(QPoint(-1000, 500));
+        check(QLatin1String("a negative coordinate resolves to the left monitor"),
+              leftHit && leftHit->name == QLatin1String("\\\\.\\DISPLAY2"),
+              leftHit ? leftHit->name : QLatin1String("none"));
+
+        // The hole is real: the left monitor is shorter than the primary, so
+        // there are coordinates inside the bounding box that no monitor draws.
+        // Without this, the clamp check below would be vacuous.
+        check(QLatin1String("the gap between the two monitors belongs to no screen"),
+              container.screens().screenAt(QPoint(-100, 1050)) == nullptr,
+              QLatin1String("x -100, y 1050: below the left monitor, left of the primary"));
+
+        const starfish::ui::ScreenInfo* primary = container.screens().primary();
+        check(QLatin1String("the primary monitor is still anchored at (0,0)"),
+              primary && primary->geometry.topLeft() == QPoint(0, 0),
+              primary ? QStringLiteral("%1 at %2,%3")
+                            .arg(primary->name)
+                            .arg(primary->geometry.x())
+                            .arg(primary->geometry.y())
+                      : QLatin1String("none"));
+
+        const QString first =
+            container.createFence(QStringLiteral("primary"), QRect(100, 100, 320, 240));
+        check(QLatin1String("a fence records the monitor it actually sits on"),
+              monitorOf(container, first) == QLatin1String("\\\\.\\DISPLAY1"),
+              QStringLiteral("recorded \"%1\"").arg(monitorOf(container, first)));
+
+        const QRect docked = container.setFenceRect(first, QRect(1570, 200, 344, 240), true);
+        check(QLatin1String("snapping docks to the inner edge of the neighbouring monitor"),
+              docked.x() + docked.width() == 1920,
+              QStringLiteral("right edge landed on %1 (intended 1920)")
+                  .arg(docked.x() + docked.width()));
+
+        const QRect deadZoned = container.setFenceRect(first, QRect(-1900, 1000, 500, 200), false);
+        check(QLatin1String("a fence in the dead zone between two monitors is pushed back on one"),
+              leftRect.contains(deadZoned.topLeft()) && leftRect.contains(deadZoned.bottomRight()),
+              QStringLiteral("%1,%2 %3x%4, dead zone was y 1024..1079")
+                  .arg(deadZoned.x())
+                  .arg(deadZoned.y())
+                  .arg(deadZoned.width())
+                  .arg(deadZoned.height()));
+
+        const QRect onLeft = container.fenceRect(first);
+        const qreal leftDpr = container.screens().devicePixelRatioFor(onLeft);
+        const starfish::ui::FenceView* leftView = container.view(first);
+        const QImage scaledFrame = container.frame(first);
+        check(QLatin1String("a fence on the 150 % monitor is rendered at its physical size"),
+              qFuzzyCompare(leftDpr, 1.5) && leftView && leftView->size() == QSize(333, 133)
+                  && scaledFrame.size() == QSize(500, 200)
+                  && qFuzzyCompare(scaledFrame.devicePixelRatio(), 1.5),
+              QStringLiteral("dpr %1, widget %2x%3, frame %4x%5 at dpr %6")
+                  .arg(QString::number(leftDpr))
+                  .arg(leftView ? leftView->width() : -1)
+                  .arg(leftView ? leftView->height() : -1)
+                  .arg(scaledFrame.width())
+                  .arg(scaledFrame.height())
+                  .arg(QString::number(scaledFrame.devicePixelRatio())));
+
+        // --- a monitor goes away --------------------------------------------
+        const QString second =
+            container.createFence(QStringLiteral("second"), QRect(600, 600, 320, 240));
+        const QRect secondBefore = container.fenceRect(second);
+
+        rectChanges = 0;
+        container.setScreens(primaryOnly);
+        const QRect broughtBack = container.fenceRect(first);
+        check(QLatin1String("unplugging a monitor brings its fence back onto the primary"),
+              primaryRect.contains(broughtBack.topLeft())
+                  && primaryRect.contains(broughtBack.bottomRight())
+                  && monitorOf(container, first) == QLatin1String("\\\\.\\DISPLAY1"),
+              QStringLiteral("%1,%2 %3x%4 on %5")
+                  .arg(broughtBack.x())
+                  .arg(broughtBack.y())
+                  .arg(broughtBack.width())
+                  .arg(broughtBack.height())
+                  .arg(monitorOf(container, first)));
+        check(QLatin1String("only the fence that moved announced a change"), rectChanges == 1,
+              QStringLiteral("%1 signal(s)").arg(rectChanges));
+        check(QLatin1String("a fence that did not move keeps its rect"),
+              container.fenceRect(second) == secondBefore,
+              QStringLiteral("%1,%2 %3x%4")
+                  .arg(container.fenceRect(second).x())
+                  .arg(container.fenceRect(second).y())
+                  .arg(container.fenceRect(second).width())
+                  .arg(container.fenceRect(second).height()));
+
+        rectChanges = 0;
+        container.setScreens(primaryOnly);
+        check(QLatin1String("re-applying the same arrangement moves nothing"), rectChanges == 0,
+              QStringLiteral("%1 signal(s) -- the document must not be rewritten")
+                  .arg(rectChanges));
+
+        // --- a document written on another desk ------------------------------
+        starfish::core::Layout document;
+        {
+            starfish::core::Fence stored;
+            stored.id = QLatin1String("fence-900");
+            stored.title = QLatin1String("From the document");
+            stored.rect = QRect(-1500, 200, 320, 240); // off every screen here
+            stored.monitor = QLatin1String("\\\\.\\DISPLAY2");
+            document.fences.append(stored);
+        }
+
+        starfish::ui::FenceContainer restoredContainer;
+        restoredContainer.setHostOnDesktop(false);
+        restoredContainer.setScreens(primaryOnly);
+        const bool applied = restoredContainer.applyLayout(document);
+        const QRect restoredRect = restoredContainer.fenceRect(QLatin1String("fence-900"));
+        check(QLatin1String("a document naming a monitor that is gone restores onto one that is here"),
+              applied && primaryRect.contains(restoredRect.topLeft())
+                  && primaryRect.contains(restoredRect.bottomRight())
+                  && monitorOf(restoredContainer, QLatin1String("fence-900"))
+                         == QLatin1String("\\\\.\\DISPLAY1"),
+              QStringLiteral("%1,%2 %3x%4 on %5")
+                  .arg(restoredRect.x())
+                  .arg(restoredRect.y())
+                  .arg(restoredRect.width())
+                  .arg(restoredRect.height())
+                  .arg(monitorOf(restoredContainer, QLatin1String("fence-900"))));
+
+        starfish::ui::FenceContainer twoScreens;
+        twoScreens.setHostOnDesktop(false);
+        twoScreens.setScreens(mixed);
+        const bool appliedBack = twoScreens.applyLayout(document);
+        const QRect backOnSecond = twoScreens.fenceRect(QLatin1String("fence-900"));
+        check(QLatin1String("with the monitor back, the fence returns to it unchanged"),
+              appliedBack && backOnSecond == QRect(-1500, 200, 320, 240)
+                  && monitorOf(twoScreens, QLatin1String("fence-900"))
+                         == QLatin1String("\\\\.\\DISPLAY2"),
+              QStringLiteral("%1,%2 %3x%4 on %5")
+                  .arg(backOnSecond.x())
+                  .arg(backOnSecond.y())
+                  .arg(backOnSecond.width())
+                  .arg(backOnSecond.height())
+                  .arg(monitorOf(twoScreens, QLatin1String("fence-900"))));
+
+        // --- the paint scale, measured ---------------------------------------
+        //
+        // The whole DPI story rests on Qt scaling the painter by the monitor's
+        // ratio. Measure it, do not believe it: a 1.0-logical-pixel border must
+        // cover `dpr` physical pixels once painted, and would cover exactly 1 at
+        // every ratio if the scaling were not happening.
+        header << QLatin1String("-- the paint scale, measured --");
+        for (const qreal dpr : {1.0, 1.5, 2.0}) {
+            const double coverage = measureBorderCoverage(dpr);
+            header << QStringLiteral("1.0-logical-pixel border at dpr %1 measured %2 physical px")
+                          .arg(QString::number(dpr))
+                          .arg(QString::number(coverage, 'f', 2));
+            check(QStringLiteral("Qt scales the paint to the monitor's ratio (border, dpr %1)")
+                      .arg(QString::number(dpr)),
+                  qAbs(coverage - dpr) <= 0.25,
+                  QStringLiteral("measured %1 px, expected about %2")
+                      .arg(QString::number(coverage, 'f', 2))
+                      .arg(QString::number(dpr, 'f', 1)));
+        }
+        check(QLatin1String("the measurement can tell a scaled paint from an unscaled one"),
+              measureBorderCoverage(2.0) > 1.5,
+              QLatin1String("a painter ignoring the ratio would measure 1.00 at every dpr"));
+
+        const QString reportPath = QLatin1String("build/screen_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QLatin1String("screen probe (T-014a, F-032)\n");
+                for (const QString& line : header)
+                    stream << line << '\n';
+                stream << '\n';
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QLatin1String("RESULT: all checks passed\n")
+                               : QLatin1String("RESULT: %1 check(s) FAILED\n")
+                                     .arg(QString::number(failures)));
+            }
+        }
+        for (const QString& line : header)
+            qCInfo(lc).noquote() << line;
         for (const QString& line : log)
             qCInfo(lc).noquote() << line;
         qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);

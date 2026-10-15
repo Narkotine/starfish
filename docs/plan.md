@@ -49,7 +49,9 @@ Recherche des fonctionnalités de Fences 6, rédaction `docs/produit.md`, `docs/
 
 **Sortie :** passe de tests manuels multi-écrans documentée ; capture d'écran avant/après restauration de snapshot.
 
-> ⚠️ **État de ces deux critères (2026-10-15)** : la capture avant/après restauration relève de la session humaine ; la **passe multi-écrans est bloquée par le matériel** — la machine de dev n'a qu'**un seul moniteur** (2560×1440 à 100 %, mesuré : `Progman` = `0,0 2560x1440`, DPI 96). Elle exige un second écran, si possible à une **échelle différente** (le cas DPI mixte est celui qui a motivé F-032).
+> ⚠️ **État de ces deux critères (2026-10-15)** : la capture avant/après restauration relève de la session humaine ; la **passe multi-écrans est bloquée par le matériel** — la machine de dev n'a qu'**un seul moniteur** (2560×1440 à 100 %, mesuré : **la sonde `--screen-demo` lit 1 écran, `dpr 1`, DPI 96**). Elle exige un second écran, si possible à une **échelle différente** (le cas DPI mixte est celui qui a motivé F-032).
+>
+> ✅ **Ce que la session 24 a établi à la place** (T-014a, 19/19 PASS) : l'arrangement réel est **lu** (et non supposé), le **contexte d'awareness DPI** obtenu est lu lui aussi (`PER_MONITOR_AWARE (2)`), les arrangements **synthétiques** (moniteur à gauche → coordonnées négatives, trou entre deux moniteurs de tailles différentes, DPI mixte, écran débranché) passent par un **vrai** `FenceContainer`, et la **mise à l'échelle de la peinture par Qt est mesurée** (1,00 / 1,50 / 2,00 px physiques pour une bordure de 1,0 px logique, prémisse prouvée par un test qui la casse). Il ne reste à la passe multi-écrans que ce qui exige **deux écrans et des yeux**.
 
 ## Phase 6 — Qualité et release
 
