@@ -13,6 +13,9 @@
 ```
 ┌────────────────────────────────────────────────────┐
 │ Application (Qt, thread UI)                        │
+│  ├─ ProductApp     l'application (T-038)           │
+│  ├─ TrayIcon       icône de notification (F-034)   │
+│  ├─ SettingsDialog fenêtre de réglages (F-034)     │
 │  ├─ DesktopHost    héberge les zones sur le bureau │
 │  ├─ DesktopSurface surface hébergée (rendu)        │
 │  ├─ FenceContainer cycle de vie des zones (T-007)  │
@@ -29,8 +32,7 @@
 │  ├─ DesktopScanner lecture du dossier Bureau       │
 │  ├─ ShellIconCache icônes shell (image list)       │
 │  ├─ ShellBridge    menu contextuel, DnD            │
-│  ├─ HotkeyManager  raccourcis globaux (T-009)      │
-│  └─ Tray/Settings  réglages, hotkeys (F-033)       │
+│  └─ HotkeyManager  raccourcis globaux (T-009)      │
 └────────────────────────────────────────────────────┘
      │ dépend de
      ▼
@@ -42,6 +44,8 @@
 ```
 
 - **DesktopHost** (`src/platform/win/desktop_host.{hpp,cpp}`) : découverte et placement bureau (parentage sous `Progman`, z-order sous `SHELLDLL_DefView`, flag layered, masquage des icônes natives, watchdog, verdict de placement). Implémenté en Phase 1 (T-016).
+- **ProductApp** (`src/app/product_app.{hpp,cpp}`, T-038) : **le mode produit** — la séquence qui manquait, pas un moteur de plus. Charge le document avant la première frame, héberge les zones, câble l'auto-save, démarre le watcher (F-018) sur le vrai dossier Bureau et les dossiers des portails, enregistre les hotkeys, synchronise le tray et les réglages, puis écrit le document en sortant. Options granulaires → exécutable sans bureau. Voir §15.
+- **TrayIcon / SettingsDialog** (`src/ui/tray_icon.{hpp,cpp}`, `src/ui/settings_dialog.{hpp,cpp}`, T-038) : l'icône de notification (F-034) et la fenêtre de réglages (F-034 : renommer F-002, enrouler F-020, supprimer F-007, masquage des icônes). Les deux **signalent** et ne décident de rien — même règle que `FenceView` (décision 15). Voir §15.
 - **DesktopSurface** (`src/platform/win/desktop_surface.{hpp,cpp}`) : **le chemin de rendu retenu (T-020, §7 piste (a))**. Surface Win32 brute hébergée sous `Progman` qui possède son propre `WNDPROC` : elle blitte sur `WM_PAINT` une image produite par Qt hors écran (`QWidget::render()` dans un `QImage`). Qt ne touche jamais au HWND hébergé, ce qui contourne le blocage d'ADR-4 finding 3. `WS_EX_LAYERED` est posé dès `CreateWindowExW` (finding 4). Expose `attach()` / `setFrame()` / `detach()`, `syncZOrder()`, un garde `WM_WINDOWPOSCHANGING` (le `hwndInsertAfter` est réécrit en `SHELLDLL_DefView`) et un watchdog 2 s. Compteurs de peinture (`paintReport()`) pour diagnostiquer un « rien à l'écran ».
 - **DesktopScanner** (`src/platform/win/desktop_scanner.{hpp,cpp}`) : lit les deux dossiers Bureau fusionnés par le Shell (`FOLDERID_Desktop` + `FOLDERID_PublicDesktop`) et remplit un `core::DesktopItem` par entrée — nom d'affichage Shell, cible des `.lnk` (via `IShellLink`) et des `.url`, attributs caché/système, taille, date. T-004.
 - **ShellIconCache** (`src/platform/win/shell_icon_cache.{hpp,cpp}`) : icône telle que le Shell la dessinerait, via la liste d'images système (`SHGetFileInfo` → `SHGetImageList` → `IImageList::GetIcon` → `QImage::fromHICON`), mise en cache par (chemin, taille). T-004.
@@ -224,7 +228,7 @@ Notes de format :
 - **Packaging** : zip portable (`windeployqt`) pour les nightly ; installeur (WiX ou Inno Setup) pour les releases ; publication `winget` plus tard.
 - **Tests** : unitaires pour la logique pure (règles, sérialisation, verdict de z-order, ordre/fusion des entrées du bureau, listage d'un portail, snapshots) ; manuels documentés pour l'intégration shell (checklist dans `devlog/`).
 - **Style** : clang-format (LLVM, 2 espaces), commits en anglais, Conventional Commits.
-- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]`, `--snapshot-demo [--layout FILE] [--snapshot-id ID] [--snapshot-note NOTE]`, `--context-menu-verbs PATH`. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
+- **Diagnostics CLI** (binaire en sous-système GUI) : `--dump`, `--list-desktop [--icons] [--icon-size N] [--icon-dump DIR]`, `--host-demo [--seconds N] [--hide-icons]`, `--render-probe [--surface] [--no-parent] [--show-desktop]`, `--fence-demo [--host] [--seconds N]`, `--persist-demo [--host] [--seconds N] [--layout FILE]`, `--nav-demo [--host] [--seconds N]`, `--rules-demo [--host] [--seconds N] [--layout FILE] [--watch DIR]`, `--portal-demo [--host] [--seconds N] [--layout FILE] [--portal-folder DIR]`, `--snapshot-demo [--layout FILE] [--snapshot-id ID] [--snapshot-note NOTE]`, `--product-probe`, `--context-menu-verbs PATH`. **Sans option, `starfish.exe` démarre le mode produit** ; `--seconds N` le referme au bout de N secondes, et `--no-host` / `--no-tray` / `--no-settings` / `--no-watch` / `--no-hotkeys` en retirent une pièce à la fois. Si l'appelant a redirigé stdout/stderr (fichier ou pipe), `main.cpp` **ne détourne pas** la sortie vers `CONOUT$` et force `QT_ASSUME_STDERR_HAS_CONSOLE=1` : sans quoi Qt route `qCInfo`/`qCWarning` vers `OutputDebugString` et tous les diagnostics CLI sont perdus.
   - `--render-probe --surface` est la commande de vérification de T-020 : elle mesure ce que l'écran montre réellement (avant/après, bbox, % du rectangle de la zone) **et** ce que la fenêtre contient (`PrintWindow`). Les deux sont nécessaires — un z-order correct ne prouve pas le rendu, et une capture faite pendant qu'une autre fenêtre couvre le bureau ne prouve rien.
 
 ## 7. Chemin de rendu des zones (tranché, session 8)
@@ -569,5 +573,70 @@ Correction : **parser** le fichier (`hasSnapshotEnvelope`). Le test `largeSnapsh
 - **Pas d'interface** : les snapshots se pilotent par `SnapshotManager` ou la sonde. L'écran (liste, restauration, export guidé) viendra avec la page de réglages du mode produit (**T-015**).
 - La restauration n'est **pas** branchée sur un mode produit — il n'existe pas encore (T-015). La sonde exerce exactement la séquence prévue, mais c'est elle qui l'orchestre.
 - Les deux critères de sortie de la Phase 5 — **passe de tests manuels multi-écrans** et **capture avant/après restauration de snapshot** — restent des validations humaines (bureau libre + yeux, décision 13 de `STATE.md`).
+
+## 15. Mode produit (T-038, session 21)
+
+Jusqu'ici, `starfish.exe` sans argument affichait « skeleton starting » et sortait : le projet livrait un **moteur joignable par des sondes**, pas une application (écart n°1 de l'audit de la session 19). Le mode produit est la **séquence** qui manquait, pas un moteur de plus.
+
+### Ce que le produit fait, et dans quel ordre
+
+| Étape | Ce qui se passe | Pourquoi cet ordre |
+|---|---|---|
+| 1. Document | `LayoutStore::load()` puis `FenceContainer::applyLayout()` | **avant la première frame** : ce que l'utilisateur voit est ce que le document dit, jamais un bureau vide qui se remplit après coup |
+| 2. Premier lancement | une zone **vide** est matérialisée | sinon lancer l'application ne montre rien du tout. Elle reste **vide exprès** (voir Limites) |
+| 3. Câblage | auto-save sur les signaux de cycle de vie, watcher, hotkeys, tray, réglages | **après** le chargement, pour qu'un chargement ne ressemble jamais à une modification — et n'arme donc pas d'écriture |
+| 4. Sortie | arrêter le watcher → désenregistrer les hotkeys → **écrire le document** → détruire les zones → **restaurer les icônes** | écrire **avant** de détruire les zones (ce sont elles qu'on décrit) ; restaurer les icônes **en dernier**, sinon elles réapparaissent sous les zones pendant un instant |
+
+`--seconds N` referme l'application au bout de N secondes : c'est la seule façon d'exercer une sortie **propre** sans main sur le tray, et l'essai le plus simple pour un humain.
+
+### Les trois pièces
+
+| Pièce | Rôle | Ne fait jamais |
+|---|---|---|
+| `app/product_app.{hpp,cpp}` (`ProductApp`) | la séquence ci-dessus | décider à la place des pièces |
+| `ui/tray_icon.{hpp,cpp}` (`TrayIcon`) | l'icône de notification et son menu (F-034) | appliquer quoi que ce soit : il **émet** |
+| `ui/settings_dialog.{hpp,cpp}` (`SettingsDialog`) | la fenêtre de réglages (F-034) | posséder les zones : elle **lit** le conteneur et **demande** |
+
+Les deux interfaces suivent la règle de la décision 15 — **le widget signale, le propriétaire décide** — exactement comme `FenceView` et `FenceContainer`.
+
+`ProductApp::Options` porte `layoutPath`, `hostOnDesktop`, `tray`, `settingsWindow`, `showSettingsOnStart`, `hotkeys`, `watchDesktop`, `starterFence`. Chacune peut être éteinte, ce qui rend **la même séquence** exécutable sans bureau — c'est ce que fait `--product-probe`.
+
+### ⚠️ Le blocage réel : la capture souris
+
+`DesktopSurface::forwardMouse` routait correctement la souris, et pourtant **une zone hébergée était impossible à déplacer** : rien ne prenait la **capture**. Windows cesse d'envoyer `WM_MOUSEMOVE` à une fenêtre dès que le curseur sort de son rectangle, donc un déplacement de barre de titre mourait au premier pixel franchi.
+
+Aucune sonde ne pouvait le voir : elles envoient leurs `QMouseEvent` **directement au widget**, ce qui contourne exactement le mécanisme en cause. C'est l'écart n°6 de l'audit, et il ne s'est révélé qu'en écrivant le mode produit — c'est-à-dire en se demandant ce qu'un utilisateur ferait vraiment.
+
+Correction, entièrement dans `DesktopSurface` :
+
+1. `SetCapture` sur `WM_LBUTTONDOWN` / `WM_RBUTTONDOWN` ;
+2. `ReleaseCapture` sur le button-up correspondant, **après** avoir transmis l'événement (sinon le `WM_CAPTURECHANGED` déclenché par le relâchement ressemble à un geste perdu) ;
+3. `WM_CAPTURECHANGED` → `releaseStuckGesture()`, qui poste les relâchements manquants au dernier endroit connu. Sans lui, une zone à demi tirée continue de suivre le curseur sans bouton enfoncé.
+
+### Masquage des icônes natives (ADR-3)
+
+`setDesktopIconsHidden()` / `desktopIconsHidden()` sont désormais **statiques sur `DesktopSurface`** — la couche d'icônes appartient au bureau, pas à une surface — au lieu de vivre sur `DesktopHost`, qui n'est plus le chemin de rendu (écart n°5 de l'audit).
+
+Deux règles :
+
+1. **Non masquées par défaut.** La bascule est dans le tray et dans les réglages : c'est un choix de l'utilisateur, pas un effet de bord du lancement.
+2. **On ne restaure que ce qu'on a masqué.** La première version appelait `ShowWindow(SW_SHOW)` au shutdown sans condition : un utilisateur qui avait caché ses icônes lui-même les aurait vues réapparaître. `ProductApp` tient `m_iconsHidden` et ne restaure que dans ce cas ; si l'appel échoue, la case reste **décochée** plutôt que de mentir sur l'état du bureau.
+
+### Langue
+
+Les libellés passent par `tr()` avec des chaînes sources **en anglais** : l'i18n (F-036 / T-014) devient un fichier de traduction au lieu d'une chasse. L'interface est donc en anglais pour l'instant — assumé et noté.
+
+### Vérification
+
+- `starfish --product-probe` — **16/16 PASS**, `rc=0`, rapport `build/product_probe.txt`, **sans bureau, sans tray, sans hotkey**, contre un document jetable dans `build/product_probe/` **supprimé en fin de sonde**. Mesuré : démarrage, matérialisation de la première zone, existence de la fenêtre de réglages, renommage, enroulement, bascule des icônes (mémorisée **et** réversible), placement d'une nouvelle zone **sans recouvrement** (x = 423, à droite de la précédente), suppression, écriture du document, contenu relu, **restauration au second démarrage avec le titre conservé**, nettoyage.
+- **Mode produit réel** (`--product --layout build/product_live/layout.json --seconds 6`, mesuré) : surface hébergée — `layered: ex 0x80000 (expected 0x80000); alpha call 1 (err 0)` puis `surface 0xd0d7a hosted at 80,80 320x240 (layered, alpha 255, placed 1)` ; watcher sur les **2 dossiers Bureau** (Desktop + Public Desktop, 86 entrées connues) ; hotkeys `Alt+Win+Space` et `Shift+Win+H` **enregistrés** ; `saved 1 fence(s)` à la sortie ; document relu conforme ; `native desktop icons restored` **absent** (les icônes n'avaient pas été masquées).
+- Non-régression (session 21) : `ctest` **9/9** ; `--fence-demo` **8/8** ; `--persist-demo` **26/26** ; `--nav-demo` **22/22** headless / **29/29** `--host` ; `--rules-demo` **28/28** ; `--portal-demo` **29/29** / **31/31** `--host` ; `--snapshot-demo` **11/11**.
+
+### Limites assumées
+
+- **Pas de création de zone par geste** (F-001) : dessiner une zone sur le bureau vide demande un **hook souris global** — la création passe par le tray et les réglages (**T-028**, comme le geste de quick hide).
+- **Le premier lancement ne remplit pas la zone** : y verser le bureau revendiquerait des fichiers que l'utilisateur n'a pas mis là, et il n'existe **aucune représentation d'une icône hors zone** (F-011/F-007, arbitrage non tranché — audit point 2). Les icônes entrent par glisser-déposer depuis l'Explorer.
+- Hotkeys **en dur** (T-030) ; **pas de libellés français** (T-014 / F-036) ; pas de lancement au démarrage (F-035) ; la fenêtre de réglages ne configure rien qui survive à la session ; les placements restent en coordonnées client de `Progman` (**moniteur principal**, T-014).
+- **Un essai à la main reste nécessaire** : la souris sur une zone hébergée, l'icône de notification et la fenêtre de réglages ne se valident pas depuis l'agent (bureau libre + yeux, décision 13).
 
 

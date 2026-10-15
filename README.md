@@ -6,6 +6,8 @@
 
 ## État du projet
 
+**Un mode produit existe (T-038).** Lancé **sans argument**, `starfish.exe` *est* l'application : il charge la disposition, pose les zones sur le bureau, affiche une **icône de notification** (« New fence », afficher/masquer les zones, Peek, masquer les icônes du bureau, réglages, quitter) et une **fenêtre de réglages** (renommer, enrouler, supprimer une zone), surveille le **vrai dossier Bureau** pour les règles, et réécrit le document en sortant. Les zones se déplacent et se redimensionnent **à la souris** : la capture souris manquait (`SetCapture`), ce qui rendait tout déplacement impossible — c'était l'écart n°6 de l'audit. Sonde `--product-probe` : **16/16 PASS**. ⚠️ L'interface est en **anglais** pour l'instant (i18n = T-014 / F-036).
+
 **Phase 5 — Finitions fonctionnelles, entamée.** T-012 (snapshots) est faite : une **snapshot** est une disposition nommée (`SnapshotManager`, `src/core/snapshot.{hpp,cpp}`), la **restaurer** c'est appliquer la disposition aux zones, et l'export/import réutilise le document schéma 1 — aucun second format à tenir synchronisé. `--snapshot-demo` le prouve de bout en bout (**11/11 PASS**), y compris le retour dans une zone réelle (`FenceContainer::applyLayout`). Restent **T-013** (pages de bureau) et **T-014** (multi-écran / DPI / i18n / thèmes) avant la passe de tests manuels multi-écrans que la phase réclame.
 
 **Phase 4 — Fonctions phares, terminée.** L'auto-organisation est en place (T-010) : des règles déclaratives (type, motif de nom, fenêtre d'âge, zone cible) rangent automatiquement les fichiers qui apparaissent dans un dossier surveillé — vérifié pour de vrai par `--rules-demo`, un fichier créé dans un dossier surveillé étant signalé en 300 ms puis rangé dans la bonne zone (28/28 PASS). **Aucun fichier n'est jamais déplacé sur le disque** : une règle décide quelle zone *montre* un item, point. Roll-up, quick hide et Peek sont faits (T-009) : enrouler une zone ne change que ce qu'elle **montre** (le rect stocké reste le corps déplié, donc dérouler restaure la zone exactement), quick hide masque et rappelle toutes les zones, et Peek les fait passer au-dessus de la couche d'icônes — le tout mesuré par `--nav-demo` (22/22 PASS headless, 29/29 en `--host`). Les **folder portals** sont faits (T-011) : une zone peut refléter un dossier arbitraire, le document ne stockant que le chemin du dossier — le miroir suit le dossier (ajouts **et** suppressions) sans jamais réécrire le document, et **sans jamais déplacer un fichier** (`--portal-demo`, 29/29 PASS headless, 31/31 en `--host`). Voir la **Phase 5** ci-dessus (T-013 / T-014 à suivre).
@@ -68,9 +70,13 @@ Le build déploie le runtime Qt à côté du binaire (`POST_BUILD` → `windeplo
 
 ### Lancer
 
-Sans argument, le binaire démarre et se termine immédiatement (utilisable en CI, aucune intégration bureau).
+**Sans argument, StarFish démarre l'application elle-même** (zones sur le bureau, icône de notification, fenêtre de réglages). `--seconds N` la referme au bout de N secondes, ce qui est la façon la plus simple de l'essayer ; `--no-tray`, `--no-settings`, `--no-watch`, `--no-host` retirent une pièce à la fois. Un `--product-probe` exécute la même séquence **sans bureau ni tray**, donc dans n'importe quelle session. En CI, les points d'entrée non interactifs restent `ctest` et les sondes `--xxx-demo`.
 
 ```bash
+starfish                    # l'application : zones sur le bureau, icône de notification, réglages
+starfish --seconds 30       # ...et se referme au bout de 30 s
+starfish --product --no-watch     # l'application, sans surveiller le dossier Bureau
+starfish --product-probe    # la séquence produit sans bureau ni tray, rapport PASS/FAIL, puis quitte
 starfish --dump                 # hiérarchie Progman / SHELLDLL_DefView, puis quitte
 starfish --list-desktop         # contenu du Bureau tel que le Shell le voit, puis quitte
 starfish --list-desktop --icons --icon-size 48 --icon-dump out/icons

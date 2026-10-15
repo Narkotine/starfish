@@ -564,6 +564,11 @@ void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
                                 static_cast<qreal>(r.top) + pos.y());
     }
 
+    // Remembered so releaseStuckGesture() can end a gesture that is taken away
+    // from us (WM_CAPTURECHANGED) at the position where it was actually lost.
+    m_lastPos = pos;
+    m_lastScreenPos = screenPos;
+
     const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
 
     QEvent::Type type = QEvent::None;
@@ -620,6 +625,50 @@ void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
     // Posted, not sent: the WndProc must not re-enter the Qt event loop.
     auto* event = new QMouseEvent(type, pos, screenPos, button, buttons, mods);
     QCoreApplication::postEvent(m_inputTarget, event);
+}
+
+void DesktopSurface::releaseStuckGesture()
+{
+    if (!m_inputTarget || (!m_leftDown && !m_rightDown))
+        return;
+
+    // The widget is waiting for a release it will never receive: post it now, at
+    // the last position we saw, so the gesture ends where it was interrupted.
+    const Qt::KeyboardModifiers mods = QGuiApplication::queryKeyboardModifiers();
+    if (m_leftDown) {
+        m_leftDown = false;
+        QCoreApplication::postEvent(
+            m_inputTarget,
+            new QMouseEvent(QEvent::MouseButtonRelease, m_lastPos, m_lastScreenPos,
+                            Qt::LeftButton, m_rightDown ? Qt::RightButton : Qt::NoButton, mods));
+    }
+    if (m_rightDown) {
+        m_rightDown = false;
+        QCoreApplication::postEvent(m_inputTarget,
+                                    new QMouseEvent(QEvent::MouseButtonRelease, m_lastPos,
+                                                    m_lastScreenPos, Qt::RightButton,
+                                                    Qt::NoButton, mods));
+    }
+}
+
+bool DesktopSurface::setDesktopIconsHidden(bool hidden)
+{
+    const DesktopHandles handles = discoverDesktop();
+    if (!handles.defView) {
+        qCWarning(lc) << "setDesktopIconsHidden: SHELLDLL_DefView not found";
+        return false;
+    }
+    ::ShowWindow(handles.defView, hidden ? SW_HIDE : SW_SHOW);
+    qCInfo(lc).noquote() << QStringLiteral("native desktop icons %1")
+                                .arg(hidden ? QStringLiteral("hidden")
+                                            : QStringLiteral("restored"));
+    return true;
+}
+
+bool DesktopSurface::desktopIconsHidden()
+{
+    const DesktopHandles handles = discoverDesktop();
+    return handles.defView && !::IsWindowVisible(handles.defView);
 }
 
 bool DesktopSurface::refreshDesktopHandles()
@@ -770,10 +819,17 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         return true;
 
     case WM_LBUTTONDOWN:
-    case WM_LBUTTONUP:
-    case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
+        // Take the mouse capture. Without it Windows stops delivering
+        // WM_MOUSEMOVE to this window the moment the cursor steps outside its
+        // rectangle, so a title-bar drag dies at the first pixel past the edge
+        // and a hosted fence can never be moved. Given back on the matching
+        // button-up, dropped if something else steals it.
+        ::SetCapture(toHwnd(m_hwnd));
+        forwardMouse(message, lParam);
+        return false;
+
+    case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDBLCLK:
     case WM_MOUSEMOVE:
         // Input is owned by the surface's WndProc; it is forwarded to the Qt
@@ -783,6 +839,24 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         // these on a layered child.
         forwardMouse(message, lParam);
         return false;
+
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+        // Forwarded first: the widget has already let go of the button by the
+        // time ReleaseCapture() raises WM_CAPTURECHANGED, which would otherwise
+        // look like a gesture lost mid-drag.
+        forwardMouse(message, lParam);
+        if (::GetCapture() == toHwnd(m_hwnd))
+            ::ReleaseCapture();
+        return false;
+
+    case WM_CAPTURECHANGED:
+        // Somebody else took the capture -- another window, Alt-Tab, a popup
+        // menu. End the gesture the widget still thinks it is in, otherwise a
+        // half-dragged fence keeps following the cursor with no button down.
+        releaseStuckGesture();
+        *result = 0;
+        return true;
 
     case WM_DESTROY:
         m_hwnd = 0;

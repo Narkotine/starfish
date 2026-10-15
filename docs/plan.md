@@ -42,6 +42,7 @@ Recherche des fonctionnalités de Fences 6, rédaction `docs/produit.md`, `docs/
 ## Phase 5 — Finitions fonctionnelles
 
 - T-012 Snapshots (sauvegarde / restauration / export-import)
+- **T-038 Mode produit minimal** *(ajouté après l'audit de la session 19 : le projet livrait un moteur, pas encore un produit)* — tray (F-034), fenêtre de réglages, zones hébergées manipulables à la souris, watcher branché sur le vrai dossier Bureau (F-018)
 - T-013 Pages de bureau multiples
 - T-014 Multi-écran, DPI mixte, i18n (en/fr), thèmes de zones
 

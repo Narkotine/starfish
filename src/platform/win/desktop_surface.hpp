@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QObject>
 #include <QPoint>
+#include <QPointF>
 #include <QRect>
 #include <QStringList>
 #include <QTimer>
@@ -54,6 +55,13 @@ public:
 
     // True when Progman and SHELLDLL_DefView are found (i.e. Explorer is up).
     static bool isDesktopAvailable();
+
+    // The native desktop icons (ADR-3). The icon layer belongs to the desktop,
+    // not to one surface, so these are static: the product hides the icons once
+    // and restores them on the way out. ShowWindow on SHELLDLL_DefView is
+    // reversible and writes nothing to the registry (ADR-4).
+    static bool setDesktopIconsHidden(bool hidden);
+    static bool desktopIconsHidden();
 
     // Creates the window and hosts it just below the icon layer. `rect` is in
     // Progman client coordinates, which match the primary monitor on a single
@@ -162,6 +170,10 @@ private:
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;
     bool m_rightDown = false;
+    // Last position seen from this surface's own messages, so a gesture lost to
+    // WM_CAPTURECHANGED can be ended where it actually was.
+    QPointF m_lastPos;
+    QPointF m_lastScreenPos;
 
     // OLE drag-and-drop (T-006-3). The drop target is created on attach() and
     // registered with the window so the Explorer can drop files onto it; it is
@@ -176,6 +188,12 @@ private:
     // match the fence's local coordinates because the fence is rendered at
     // (0,0) of the frame.
     void forwardMouse(unsigned message, quintptr lParam);
+
+    // Ends a gesture the widget still believes is running, by posting the
+    // releases it is waiting for. Called when the mouse capture is taken away
+    // (WM_CAPTURECHANGED): without it, a fence whose title bar was being dragged
+    // when something else grabbed the mouse would follow the cursor forever.
+    void releaseStuckGesture();
 
     // Paint-cycle counters, for paintReport().
     int m_paintCount = 0;

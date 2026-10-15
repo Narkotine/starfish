@@ -4,6 +4,7 @@ qt_add_executable(starfish WIN32
     main.cpp
     # Application manifest. Load bearing: see src/starfish.manifest (ADR-4).
     starfish.rc
+    app/product_app.cpp
     core/desktop_item.cpp
     core/desktop_watcher.cpp
     core/portal.cpp
@@ -20,6 +21,8 @@ qt_add_executable(starfish WIN32
     platform/win/shell_drop_target.cpp
     platform/win/hotkey_manager.cpp
     ui/fence_container.cpp
+    ui/settings_dialog.cpp
+    ui/tray_icon.cpp
     ui/fence_view.cpp
     ui/icon_grid.cpp
 )

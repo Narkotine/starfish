@@ -21,6 +21,7 @@
 #include <QWheelEvent>
 #include <QWindow>
 
+#include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
 #include "core/jsonstore.hpp"
@@ -650,6 +651,37 @@ int main(int argc, char* argv[])
     parser.addOption(snapshotDemoOption);
     parser.addOption(snapshotIdOption);
     parser.addOption(snapshotNoteOption);
+    const QCommandLineOption productOption(
+        QLatin1String("product"),
+        QLatin1String("Run the application: fences on the desktop, tray icon, settings "
+                      "window, hot keys. This is also what happens when no diagnostic "
+                      "option is given, so a double click lands here."));
+    const QCommandLineOption productProbeOption(
+        QLatin1String("product-probe"),
+        QLatin1String("T-038 diagnostic: exercise the product sequence (document, settings "
+                      "window, first-launch fence, rename, roll-up, delete, auto-save) "
+                      "against a throwaway document, without hosting, tray or hot keys, and "
+                      "write a PASS/FAIL report to build/product_probe.txt."));
+    const QCommandLineOption noHostOption(
+        QLatin1String("no-host"),
+        QLatin1String("With the product: do not put the fences on the desktop."));
+    const QCommandLineOption noTrayOption(
+        QLatin1String("no-tray"), QLatin1String("With the product: no tray icon."));
+    const QCommandLineOption noHotkeysOption(
+        QLatin1String("no-hotkeys"), QLatin1String("With the product: no global hot keys."));
+    const QCommandLineOption noWatchOption(
+        QLatin1String("no-watch"),
+        QLatin1String("With the product: do not watch the desktop folder (F-018)."));
+    const QCommandLineOption noSettingsOption(
+        QLatin1String("no-settings"),
+        QLatin1String("With the product: do not create the settings window."));
+    parser.addOption(productOption);
+    parser.addOption(productProbeOption);
+    parser.addOption(noHostOption);
+    parser.addOption(noTrayOption);
+    parser.addOption(noHotkeysOption);
+    parser.addOption(noWatchOption);
+    parser.addOption(noSettingsOption);
     parser.process(app);
 
     if (parser.isSet(dumpOption)) {
@@ -2950,10 +2982,201 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
-    qCInfo(lc) << "StarFish" << STARFISH_VERSION
-               << "skeleton starting (no desktop integration; use --host-demo)";
+    if (parser.isSet(productProbeOption)) {
+        // T-038: the product sequence, headless. Hosting, tray and hot keys are
+        // off on purpose so the probe runs anywhere; what it exercises is exactly
+        // what a real launch does -- read the document, apply it to the fences,
+        // materialise a first-launch fence, auto-save, rename, roll up, delete,
+        // then start again and restore.
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QLatin1String("%1  %2  %3")
+                       .arg(ok ? QLatin1String("PASS") : QLatin1String("FAIL"))
+                       .arg(step, -54)
+                       .arg(detail);
+        };
 
-    // Keep the skeleton headless-friendly so CI can run it.
-    QTimer::singleShot(0, &app, &QCoreApplication::quit);
-    return app.exec();
+        const QString probeDir = QLatin1String("build/product_probe");
+        QDir().mkpath(probeDir);
+        const QString layoutPath = probeDir + QLatin1String("/layout.json");
+        QFile::remove(layoutPath);
+
+        starfish::app::ProductApp::Options options;
+        options.layoutPath = layoutPath;
+        options.hostOnDesktop = false;
+        options.tray = false;
+        options.settingsWindow = true;
+        options.showSettingsOnStart = false;
+        options.hotkeys = false;
+        options.watchDesktop = false;
+        options.starterFence = true;
+
+        {
+            starfish::app::ProductApp product;
+            QString startError;
+            const bool started = product.start(options, &startError);
+            check(QLatin1String("the product starts"), started,
+                  started ? product.statusText() : startError);
+
+            if (started) {
+                check(QLatin1String("a first launch materialises one fence"),
+                      product.container()->fenceCount() == 1,
+                      QLatin1String("count=%1")
+                          .arg(QString::number(product.container()->fenceCount())));
+                check(QLatin1String("the settings window exists"),
+                      product.settingsDialog() != nullptr, {});
+                check(QLatin1String("no tray was created (none was asked for)"),
+                      product.tray() == nullptr, {});
+
+                const QString id = product.container()->fenceIds().value(0);
+                product.container()->setFenceTitle(id, QLatin1String("Renamed"));
+                check(QLatin1String("renaming a fence takes"),
+                      product.container()->fenceTitle(id) == QLatin1String("Renamed"),
+                      product.container()->fenceTitle(id));
+
+                product.container()->setFenceRolledUp(id, true);
+                check(QLatin1String("rolling a fence up takes"),
+                      product.container()->fenceRolledUp(id), {});
+                product.container()->setFenceRolledUp(id, false);
+
+                // The icon toggle is tracked even without hosting, and never
+                // claims a state the desktop is not in.
+                product.setDesktopIconsHidden(true);
+                check(QLatin1String("the desktop icon toggle is remembered"),
+                      product.desktopIconsHidden(), product.statusText());
+                product.setDesktopIconsHidden(false);
+                check(QLatin1String("the desktop icon toggle is reversible"),
+                      !product.desktopIconsHidden(), {});
+
+                const QString secondId = product.createFenceWithDefaultPlacement();
+                check(QLatin1String("a new fence does not land under another one"),
+                      !secondId.isEmpty()
+                          && !product.container()->fenceRect(secondId).intersects(
+                                 product.container()->fenceRect(id)),
+                      QLatin1String("new fence at x=%1")
+                          .arg(QString::number(product.container()->fenceRect(secondId).x())));
+
+                check(QLatin1String("deleting a fence works"),
+                      product.container()->removeFence(secondId)
+                          && product.container()->fenceCount() == 1, {});
+
+                QString saveError;
+                const bool saved = product.store()->saveNow(&saveError);
+                check(QLatin1String("the document is written"),
+                      saved && QFileInfo::exists(layoutPath), saved ? layoutPath : saveError);
+
+                const auto document = starfish::core::JsonStore::load(layoutPath, nullptr);
+                check(QLatin1String("the document holds exactly one fence"),
+                      document.has_value() && document->fences.size() == 1,
+                      document.has_value()
+                          ? QLatin1String("fences=%1")
+                                .arg(QString::number(document->fences.size()))
+                          : QLatin1String("unreadable"));
+                check(QLatin1String("the rename reached the document"),
+                      document.has_value()
+                          && document->fences.at(0).title == QLatin1String("Renamed"),
+                      document.has_value() ? document->fences.at(0).title : QString());
+            }
+
+            product.shutdown();
+        }
+
+        // Starting again must restore what was there, not start over.
+        {
+            options.starterFence = false;
+            starfish::app::ProductApp second;
+            QString startError;
+            const bool started = second.start(options, &startError);
+            check(QLatin1String("an existing document is restored"), started,
+                  started ? second.statusText() : startError);
+            check(QLatin1String("the restored fence keeps its title"),
+                  started && second.container()->fenceCount() == 1
+                      && second.container()->fenceTitle(
+                             second.container()->fenceIds().value(0))
+                             == QLatin1String("Renamed"),
+                  started ? second.container()->fenceIds().join(QLatin1Char(',')) : startError);
+            second.shutdown();
+        }
+
+        // Leave nothing behind: the probe owns this directory and only removes it.
+        QDir(probeDir).removeRecursively();
+        check(QLatin1String("the probe cleaned up after itself"),
+              !QFileInfo::exists(layoutPath), probeDir);
+
+        const QString reportPath = QLatin1String("build/product_probe.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QLatin1String("product probe (T-038)\n");
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QLatin1String("RESULT: all checks passed\n")
+                               : QLatin1String("RESULT: %1 check(s) FAILED\n")
+                                     .arg(QString::number(failures)));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    // ---- product mode ------------------------------------------------------
+    //
+    // Reaching this point means no diagnostic probe was asked for: this is the
+    // application itself, the thing a double click launches. It reads the
+    // document, puts the fences on the desktop, shows the tray icon and the
+    // settings window, and writes everything back on the way out. Suspending the
+    // machine is not the only way to leave: closing the settings window only
+    // hides it, and quitting goes through the tray.
+    {
+        starfish::app::ProductApp product;
+        starfish::app::ProductApp::Options options;
+        if (parser.isSet(layoutOption))
+            options.layoutPath = parser.value(layoutOption);
+        options.hostOnDesktop = !parser.isSet(noHostOption);
+        options.tray = !parser.isSet(noTrayOption);
+        options.settingsWindow = !parser.isSet(noSettingsOption);
+        options.showSettingsOnStart = !parser.isSet(noSettingsOption);
+        options.hotkeys = !parser.isSet(noHotkeysOption);
+        options.watchDesktop = !parser.isSet(noWatchOption);
+
+        QString startError;
+        if (!product.start(options, &startError)) {
+            qCCritical(lc).noquote() << startError;
+            return 1;
+        }
+
+        QObject::connect(&product, &starfish::app::ProductApp::quitRequested, &app,
+                         &QCoreApplication::quit);
+
+        // `--seconds N` closes the application after N seconds, like every other
+        // demo. It is how the product mode is exercised without a hand on the
+        // tray, and the only path that runs a *clean* shutdown (document written,
+        // native icons restored).
+        if (parser.isSet(secondsOption)) {
+            bool parsedSeconds = false;
+            const int seconds = parser.value(secondsOption).toInt(&parsedSeconds);
+            if (parsedSeconds && seconds > 0)
+                QTimer::singleShot(seconds * 1000, &app, &QCoreApplication::quit);
+        }
+
+        qCInfo(lc).noquote() << QStringLiteral("StarFish %1").arg(STARFISH_VERSION);
+        qCInfo(lc).noquote() << product.statusText();
+
+        const int exitCode = app.exec();
+        // Restore the native icons and write the last change before handing back
+        // to main: the destructor would do it too, but only after Qt starts
+        // tearing itself down.
+        product.shutdown();
+        return exitCode;
+    }
 }
