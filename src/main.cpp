@@ -793,12 +793,12 @@ int main(int argc, char* argv[])
         // hosted on the real desktop when --host is passed.
         const QScreen* screen = QGuiApplication::primaryScreen();
         const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
-        const bool host = parser.isSet(hostOption);
+        const bool hosted = parser.isSet(hostOption);
 
         starfish::platform::win::ShellIconCache demoIcons;
         auto* container = new starfish::ui::FenceContainer(&app);
         container->setDesktopBounds(bounds);
-        container->setHostOnDesktop(host);
+        container->setHostOnDesktop(hosted);
         container->setSnapThreshold(8);
         container->setMinimumFenceSize(QSize(160, 120));
         container->setIconProvider([&demoIcons](const starfish::core::DesktopItem& item,
@@ -839,7 +839,7 @@ int main(int argc, char* argv[])
                    .arg(bounds.width())
                    .arg(bounds.height())
                    .arg(container->snapThreshold())
-                   .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
+                   .arg(hosted ? QStringLiteral("yes") : QStringLiteral("no"));
 
         const QString idA = container->createFence(QStringLiteral("A"), QRect(80, 80, 320, 240));
         const QString idB = container->createFence(QStringLiteral("B"), QRect(520, 80, 320, 240));
@@ -899,7 +899,7 @@ int main(int argc, char* argv[])
               !container->removeFence(QStringLiteral("fence-999")),
               QStringLiteral("unknown id rejected"));
 
-        if (host) {
+        if (hosted) {
             QString scanError;
             QList<starfish::core::DesktopItem> items =
                 starfish::platform::win::DesktopScanner::scan(&scanError);
@@ -929,7 +929,7 @@ int main(int argc, char* argv[])
         qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
-        if (!host) {
+        if (!hosted) {
             QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
             return app.exec();
         }
@@ -954,7 +954,7 @@ int main(int argc, char* argv[])
 
         const QScreen* screen = QGuiApplication::primaryScreen();
         const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
-        const bool host = parser.isSet(hostOption);
+        const bool hosted = parser.isSet(hostOption);
 
         starfish::core::LayoutStore store;
         store.setFilePath(layoutPath);
@@ -982,10 +982,10 @@ int main(int argc, char* argv[])
         // `persist` wires the container to the store exactly like the product
         // will: every lifecycle signal updates the document, and the store
         // decides whether anything really changed and when to write.
-        auto makeContainer = [&store, &bounds, host](bool persist) {
+        auto makeContainer = [&store, &bounds, hosted](bool persist) {
             auto* container = new starfish::ui::FenceContainer;
             container->setDesktopBounds(bounds);
-            container->setHostOnDesktop(host);
+            container->setHostOnDesktop(hosted);
             container->setSnapThreshold(8);
             container->setMinimumFenceSize(QSize(160, 120));
             if (persist) {
@@ -1214,7 +1214,7 @@ int main(int argc, char* argv[])
               fresh.load() && fresh.layout().fences.isEmpty(),
               QStringLiteral("fences=%1").arg(fresh.layout().fences.size()));
 
-        if (host) {
+        if (hosted) {
 #if defined(_WIN32)
             // The same restart, but on the real desktop: the user can see the
             // restored fences, plus one filled with the actual desktop entries.
@@ -1255,7 +1255,7 @@ int main(int argc, char* argv[])
         qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
-        if (!host)
+        if (!hosted)
             return exitCode;
 
         bool parsedSeconds = false;
@@ -1273,12 +1273,12 @@ int main(int argc, char* argv[])
         // direct container call.
         const QScreen* screen = QGuiApplication::primaryScreen();
         const QSize bounds = screen ? screen->geometry().size() : QSize(1920, 1080);
-        const bool host = parser.isSet(hostOption);
+        const bool hosted = parser.isSet(hostOption);
 
         starfish::platform::win::ShellIconCache demoIcons;
         auto* container = new starfish::ui::FenceContainer(&app);
         container->setDesktopBounds(bounds);
-        container->setHostOnDesktop(host);
+        container->setHostOnDesktop(hosted);
         container->setSnapThreshold(8);
         container->setMinimumFenceSize(QSize(160, 120));
         container->setIconProvider([&demoIcons](const starfish::core::DesktopItem& item,
@@ -1328,7 +1328,7 @@ int main(int argc, char* argv[])
                    .arg(bounds.width())
                    .arg(bounds.height())
                    .arg(starfish::ui::FenceGeometry::kTitleBarHeight)
-                   .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
+                   .arg(hosted ? QStringLiteral("yes") : QStringLiteral("no"));
 
         const QString idA = container->createFence(QStringLiteral("A"), QRect(80, 80, 320, 240));
         const QString idB = container->createFence(QStringLiteral("B"), QRect(520, 80, 320, 240));
@@ -1520,7 +1520,7 @@ int main(int argc, char* argv[])
         // validation (STATE.md decision 13).
         hotkeys.unregisterHotkey(2);
 
-        if (host) {
+        if (hosted) {
 #if defined(_WIN32)
             // On the real desktop: the geometry of the hosted windows is what
             // the user sees, so it is checked directly.
@@ -1607,7 +1607,7 @@ int main(int argc, char* argv[])
         qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
-        if (!host) {
+        if (!hosted) {
             QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
             return app.exec();
         }
@@ -1623,7 +1623,7 @@ int main(int argc, char* argv[])
         // (F-018). This is also the exit criterion of Phase 4, checked for
         // real: a file created in a watched folder ends up inside a fence --
         // and the file itself never moves.
-        const bool host = parser.isSet(hostOption);
+        const bool hosted = parser.isSet(hostOption);
         const QString layoutPath = parser.isSet(layoutOption)
                                        ? parser.value(layoutOption)
                                        : QStringLiteral("build/rules_demo_layout.json");
@@ -1665,7 +1665,7 @@ int main(int argc, char* argv[])
 
         auto* container = new starfish::ui::FenceContainer;
         container->setDesktopBounds(bounds);
-        container->setHostOnDesktop(host);
+        container->setHostOnDesktop(hosted);
         container->setMinimumFenceSize(QSize(160, 120));
         {
             auto sync = [container, &store] {
@@ -2000,7 +2000,7 @@ int main(int argc, char* argv[])
         qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
-        if (!host) {
+        if (!hosted) {
             QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
             return app.exec();
         }
@@ -2017,7 +2017,7 @@ int main(int argc, char* argv[])
         // folder *path*, and the mirror follows the folder. The folder itself is
         // never drawn as a tile, and nothing is ever moved into it: this is the
         // read half of F-024, the write half is T-035.
-        const bool host = parser.isSet(hostOption);
+        const bool hosted = parser.isSet(hostOption);
         const QString layoutPath = parser.isSet(layoutOption)
                                        ? parser.value(layoutOption)
                                        : QStringLiteral("build/portal_demo_layout.json");
@@ -2132,7 +2132,7 @@ int main(int argc, char* argv[])
 
         auto* container = new starfish::ui::FenceContainer;
         container->setDesktopBounds(bounds);
-        container->setHostOnDesktop(host);
+        container->setHostOnDesktop(hosted);
         container->setMinimumFenceSize(QSize(160, 120));
         {
             auto sync = [container, &store] {
@@ -2207,7 +2207,7 @@ int main(int argc, char* argv[])
               container->portalFolders() == QStringList{folder},
               QStringLiteral("%1").arg(container->portalFolders().join(QStringLiteral(" | "))));
 
-        if (host) {
+        if (hosted) {
             check(QStringLiteral("the fence is hosted on the desktop"),
                   container->surface(idInbox) != nullptr,
                   container->surface(idInbox) ? QStringLiteral("surface attached")
@@ -2283,7 +2283,7 @@ int main(int argc, char* argv[])
 
         auto* restored = new starfish::ui::FenceContainer;
         restored->setDesktopBounds(bounds);
-        restored->setHostOnDesktop(host);
+        restored->setHostOnDesktop(hosted);
         restored->setItemResolver([](const QString& path) {
             return starfish::core::itemFromPathOnly(path);
         });
@@ -2433,7 +2433,7 @@ int main(int argc, char* argv[])
                                    customFolder ? QStringLiteral(" (--portal-folder)")
                                                 : QStringLiteral(" (scratch)"));
                 stream << QStringLiteral("hosted: %1\n")
-                              .arg(host ? QStringLiteral("yes") : QStringLiteral("no"));
+                              .arg(hosted ? QStringLiteral("yes") : QStringLiteral("no"));
                 for (const QString& line : log)
                     stream << line << '\n';
                 stream << (failures == 0
@@ -2446,7 +2446,7 @@ int main(int argc, char* argv[])
         qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
-        if (!host) {
+        if (!hosted) {
             QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
             return app.exec();
         }
