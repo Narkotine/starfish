@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QRect>
+#include <QTimer>
 #include <QSize>
 #include <QString>
 #include <QStringList>
@@ -19,6 +21,7 @@ class LayoutStore;
 namespace starfish::platform::win {
 class HotkeyManager;
 class ShellIconCache;
+struct NativeDesktopIcon;
 } // namespace starfish::platform::win
 
 namespace starfish::ui {
@@ -60,12 +63,15 @@ public:
         bool hotkeys = true;
         bool watchDesktop = true;  // F-018 on the real Desktop folder
         bool starterFence = true;  // materialise one fence on a first launch
-        // T-056: StarFish takes the desktop at launch -- it hides the native icon
-        // layer and draws the desktop itself, which is what makes a fence
-        // clickable and what brings the empty desktop's gestures into existence.
-        // On by default because ADR-3 has always said StarFish owns the icon
-        // layer; the tray can still hand it back.
-        bool claimDesktop = true;
+        // T-056 used to be on here: StarFish took the desktop at launch by hiding
+        // the native icon layer and drawing the desktop itself. ADR-13 took it
+        // back, and the reason is the user's own: "the normal mode is having the
+        // wallpaper displayed", with the icons they arranged. The desktop now
+        // stays theirs -- nothing is hidden, nothing is replaced -- and what
+        // StarFish owns is the *bare* desktop's right button, not the desktop.
+        // Off by default; a probe or a future option can still ask for the old
+        // behaviour (and then the tray offers the entries that undo it).
+        bool claimDesktop = false;
     };
 
     explicit ProductApp(QObject* parent = nullptr);
@@ -155,6 +161,29 @@ private:
     // folder.
     void refreshDesktopItems();
 
+    // ADR-13: reads the native desktop icon list -- positions, slots and names --
+    // and hands it to the backdrop, which is what lets our surfaces (a) step the
+    // mouse aside over the user's icons and (b) move an icon a fence holds out of
+    // the way and put it back exactly where it was (F-007/F-011). Nothing is
+    // hidden: a parked icon is a moved icon, and the only icons StarFish ever
+    // moves are the ones a fence actually holds.
+    //
+    // Idempotent and cheap (a handful of SendMessage per icon), so it runs on a
+    // timer as well: the user may drag one of their icons, or turn auto-arrange
+    // on, and the click zones have to follow.
+    void syncNativeIcons();
+    // The fallback ADR-13 needs and does not want: an icon a fence holds has to
+    // stop being drawn by the desktop, and moving it is how that is done. When the
+    // desktop refuses to be moved one icon at a time (auto-arrange on), the whole
+    // list is taken over instead -- hidden, and drawn here at the positions just
+    // read, so the desktop still looks like the user's own. Called and given back
+    // by syncNativeIcons; never a mode, only a consequence.
+    void takeOverDesktopIcons();
+    void giveBackDesktopIcons();
+    // Puts every parked icon back where it was read. Called from shutdown(), and
+    // it is the whole restore path -- the positions were kept, not computed.
+    void restoreParkedIcons();
+
     // T-039: turns the backdrop on, and reports whether it really took. Hiding
     // the native icon layer on the strength of a backdrop that could not be
     // hosted would leave the user with no icons at all -- the same "refuse the
@@ -166,6 +195,13 @@ private:
     // the screens that are actually there, so unplugging a monitor brings its
     // fences back instead of stranding them off-screen.
     void refreshScreens();
+
+    // The icons StarFish moved out of the way on behalf of a fence, as they were
+    // when it moved them. Keyed by the shell's own item index.
+    QHash<int, platform::win::NativeDesktopIcon> m_parkedIcons;
+    // True while the icons are ours to draw (see takeOverDesktopIcons).
+    bool m_ownsIcons = false;
+    QTimer m_nativeSync;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

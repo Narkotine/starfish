@@ -218,6 +218,25 @@ Retour utilisateur : « ça marche uniquement quand on est dans ce **fond d'écr
 
 **Coût accepté, et il reste** : les icônes que nous dessinons sont **disposées par nous** (flux en colonnes depuis le haut-gauche), pas aux positions où l'utilisateur les avait. Les lire demanderait `LVM_GETITEMPOSITION` sur la liste native **avant** de la masquer (tâche ouverte).
 
+### ADR-13 — Le bureau reste celui de l'utilisateur : StarFish n'en masque plus rien (T-061/T-062, session 34)
+
+Deuxième demande de la même session, et elle est sans ambiguïté : *« le mode Hide Desktop Icons n'a pas lieu d'être. Jamais. Encore moins que ce soit le défaut de lancement »*, et *« je voudrais que le clic droit marche sur le bureau normal, et que ça rajoute l'entrée au menu contextuel normal de Windows »*.
+
+**Ce que la mesure de la session a établi**
+- Masquer `SHELLDLL_DefView` efface le **papier peint** (87 % du bureau remplacés par un gris uni `(20,20,20)`) : c'était le « fond d'écran gris très bizarre ». Masquer `SysListView32` — ce que fait Windows — ne change que les icônes (**6 %**). Le papier peint est la surface du DefView ; les icônes sont son enfant. (**ADR-12**.)
+- Le clic : notre fond vit au-dessus du papier peint, donc le clic sur un point **nu** nous arrive **même avec les icônes natives visibles** (mesuré : **1 398 / 1 523** points). Et `WM_NCHITTEST` peut répondre `HTTRANSPARENT` **là où une icône se trouve** : mesuré sur la vraie liste de cette machine, **88 icônes** contournées, un point d'icône → `HTTRANSPARENT` (le clic va à l'icône de l'utilisateur, à sa position, avec son menu et son glisser), un point nu → `HTCLIENT` (il est à nous).
+
+**Décision**
+1. **Rien n'est masqué au lancement.** `Options::claimDesktop` passe à **faux** ; `--claim-desktop` devient le chemin de développement, et le menu de la zone de notification ne propose plus « Hide desktop icons » ni « Restore my icons » (`TrayIcon::setIconHidingOffered`, faux par défaut).
+2. **Les icônes du bureau sont celles du bureau.** Notre couche ne dessine plus les icônes libres (`setDrawFreeIcons(false)` par défaut ; mesuré : **0 pixel peint**, 86 icônes laissées au bureau). Ce qu'elle fait, c'est **répondre au bouton droit du bureau nu** : tracer une zone (F-001) puis le menu du bureau, **construit depuis le vrai `IContextMenu` de la coquille** avec notre entrée en tête (T-055).
+3. **Le clic passe à travers nos surfaces partout où il ne nous appartient pas** : `HTTRANSPARENT` sur un rectangle d'icône native, et sur tout point quand le **bouton gauche** est enfoncé (la sélection rectangulaire du bureau est celle de Windows, StarFish n'a rien à y ajouter). `HTCLIENT` ailleurs.
+4. **Une icône n'est déplacée que pour une zone qui la détient, et remise exactement où elle était** (`LVM_SETITEMPOSITION`, avec la position gardée depuis la lecture) — F-007/F-011. « Parquer » n'est pas « masquer » : c'est déplacer, et c'est réversible.
+5. **Deux replis, tous les deux mesurés plutôt que supposés** :
+   - `LVM_GETITEMPOSITION` et `LVM_GETITEMTEXTW` sont des **lectures inter-processus** (tampon alloué dans `explorer.exe` par `VirtualAllocEx`) ; un échec rend un vecteur **vide** et un avertissement — jamais une valeur inventée.
+   - **Si Windows refuse de déplacer une icône isolée** — « Aligner sur la grille » activé, mesuré sur cette machine : `placeItem: item 8 landed at QPoint(8,2) instead of QPoint(-32000,-32000)` — alors, **et seulement alors**, StarFish reprend la liste à sa charge : elle est masquée (**la liste, jamais le DefView** : le papier peint reste) et nos tuiles sont dessinées **aux positions lues de la coquille** (`BackdropLayout::compute(..., boxes)`, `setNativeIconBoxes`), pour que le bureau garde l'air du sien. Ce n'est pas un mode : c'est ce que le bureau impose.
+
+**Invariants inchangés** : le plancher d'alpha (ADR-11), « jamais de cadre layered transparent », la discipline du marqueur (T-046), et la règle d'or des fichiers — rien n'est déplacé sur le disque.
+
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
 | Besoin | API / technique |
@@ -1188,3 +1207,26 @@ Trois vérifications encodaient l'ancien ordre et ont été **requalifiées**, p
 
 - **Les positions des icônes** : nous les disposons en colonnes depuis le haut-gauche, pas là où l'utilisateur les avait (`LVM_GETITEMPOSITION` avant masquage = tâche ouverte).
 - **Le geste sur un bureau *complètement* intact** (icônes natives en place, clic droit qui crée une zone sans rien changer à l'écran) demanderait d'intercepter un clic destiné à la fenêtre d'un **autre processus** : c'est le hook souris global de **T-028**, que Fences 6 installe, et la décision revient à l'utilisateur.
+
+## 25. « Normal comme Fences 6 » : ce que ça a coûté, et ce qui reste (session 34)
+
+L'utilisateur a demandé deux fois la même chose dans une session, ce qui a requalifié T-061 : non pas « le geste du clic droit ne marche pas », mais « **il ne marche que dans un état du bureau que je ne veux pas** ». La réponse tient en deux mesures et une décision (ADR-13).
+
+### La chaîne, mesurée de bout en bout
+| question | mesure |
+|---|---|
+| Le lancement prend-il encore le bureau ? | **non** : aucun marqueur écrit, le statut dit `desktop icons visible` |
+| Le clic atteint-il les icônes de l'utilisateur ? | **oui** : `WM_NCHITTEST` sur « starfish - Raccourci » → `HTTRANSPARENT`, **88 icônes** contournées |
+| Le bureau nu est-il à nous ? | **oui** : point nu → `HTCLIENT` |
+| Le papier peint survit-il au repli ? | **oui** : 5 409 des 5 409 pixels hors de notre disposition **inchangés** |
+| Le geste marche-t-il pour de vrai ? | **oui** : un glisser-droit réel (`SendInput`) ouvre le menu du bureau — `#32768`, 257×209 — avec **« Create a fence here (76 x 255) »** en tête, puis « Configure Fences », « Open Git GUI here », « Nouveau », « Paramètres d'affichage », « Personnaliser » |
+| Le repli auto-arrange se déclenche-t-il ? | **oui**, et il le dit : *« the desktop will not let a single icon be moved (auto-arrange is on): drawing the desktop's icons here instead, at the positions read from the shell »* |
+| La sortie est-elle propre ? | **oui** : `native desktop icons restored (SysListView32)`, marqueur retiré, aucun processus restant |
+
+Capture de contrôle (locale, non commitée, comme les rapports de sonde) : `build/t061_bureau_papier_peint.png` (le bureau pendant que le produit tourne : papier peint visible, zones, menu ouvert).
+
+### Ce que la session a appris au-delà du code
+- **`SetWindowPos(hwnd, X)` place la fenêtre *sous* X** : « au-dessus du papier peint » s'écrit donc « sous la fenêtre déjà au-dessus du papier peint » (ADR-12), sinon le watchdog remonte le fond devant les zones.
+- **Windows ne laisse pas déplacer une icône isolée quand l'alignement sur la grille est actif**, et la liste le dit (`placeItem: item 8 landed at QPoint(8,2)`) — un repli qui *mesure* son échec vaut mieux qu'un repli qui suppose.
+- **Le clic droit sur le bureau nu n'a pas besoin du hook souris global** (T-028) : notre surface *est* le point nu. Le hook ne resterait nécessaire que pour ajouter notre entrée au menu d'une **icône** native, ou pour tracer un rectangle qui **commence sur une icône** — deux choses à décider, pas à supposer.
+- **Lire la coquille est bon marché** : 88 icônes, deux messages chacune, toutes les deux secondes, sans effet mesurable.

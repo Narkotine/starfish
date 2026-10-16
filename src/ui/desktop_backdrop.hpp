@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -44,16 +45,23 @@ namespace starfish::ui {
 // a fence puts the icon back on the desktop with no restore code at all
 // (F-007/F-011 -> T-040).
 //
-// It is **click-through** (DesktopSurface::setClickThrough) as long as it has
-// nothing to do with a click: it paints icons but owns none of their behaviour
-// yet (renaming, cut/paste, drops = T-042), and swallowing a click it cannot
-// honour would be a silent regression. The empty desktop's own gestures are the
-// exception, and they are what turns the click-through off (T-041): a drag on
-// bare desktop draws a fence (F-001) and a double-click hides or shows them all
-// (F-022). Both are honoured here, so the backdrop stops being a decoration and
-// becomes the desktop's input surface -- but only where it has an answer. It
-// still registers no drop target (T-052), because dropping onto the desktop
-// means *moving a file*, which is a different decision.
+// Since ADR-13 it does **not** draw the desktop's icons by default. The user's
+// own words: "the normal mode is having the wallpaper displayed", and the icons
+// belong to that desktop -- so they stay the *native* ones, where the user put
+// them, with their own clicks, drags and menus. What is left of this window is
+// the empty desktop's input: it stands over the wallpaper, steps aside wherever
+// an icon is (DesktopSurface::setNativeIconRects) or wherever the left button is
+// down (that drag is Windows' own icon selection), and answers only the *bare*
+// right button -- the draw-a-fence gesture (F-001) and the desktop's own menu
+// with StarFish's entry in it (T-055). setDrawFreeIcons(true) brings the old
+// behaviour back, and is what the probes compare it against.
+//
+// It is therefore **click-through** (DesktopSurface::setClickThrough) wherever
+// it has nothing to do with a click (T-042: swallowing a click it cannot honour
+// would be a silent regression), and the draw-a-fence gesture plus F-022's
+// double-click are the exceptions (T-041). It still registers no drop target
+// (T-052), because dropping onto the desktop means *moving a file*, which is a
+// different decision.
 class DesktopBackdrop : public QObject
 {
     Q_OBJECT
@@ -88,6 +96,33 @@ public:
     static constexpr int kInputAlphaFloor = 1;
 
     void setIconProvider(IconGrid::IconProvider provider);
+
+    // The native desktop icons, in virtual-screen physical pixels -- the space
+    // WM_NCHITTEST and this class's own mouse events use. Read from the shell's
+    // list view by platform/win/desktop_icons and handed over by the product.
+    //
+    // Two jobs, and they are the same job: the surface steps the mouse aside
+    // over them (so the icons keep their own behaviour), and the gesture machine
+    // reads them to know whether a right press was on an icon or on the bare
+    // desktop -- which is the difference between the shell's *item* menu and its
+    // *background* menu (T-055).
+    void setNativeIconRects(const QVector<QRect>& rects);
+    const QVector<QRect>& nativeIconRects() const { return m_nativeRects; }
+
+    // The slot the shell gives each icon, keyed by its display name -- the same
+    // read as the rectangles above, kept in the form the layout needs. It is what
+    // makes the fence-less icons land where *they* are when this layer has to
+    // draw them (auto-arrange on: a single icon cannot be moved aside, so the
+    // whole list is taken over instead of duplicating the icons a fence holds).
+    void setNativeIconBoxes(const QHash<QString, QRect>& boxes);
+    const QHash<QString, QRect>& nativeIconBoxes() const { return m_nativeBoxes; }
+
+    // Whether this layer draws the fence-less icons itself (ADR-9 option A,
+    // which is what the probes measure this against) or leaves them to the
+    // desktop (ADR-13, the default). Off means: paint nothing but the input
+    // floor, and let the native icons show through.
+    void setDrawFreeIcons(bool draw);
+    bool freeIconsDrawn() const { return m_drawFreeIcons; }
 
     // The monitors, so the backdrop covers exactly the virtual screen and picks
     // up the primary monitor's scaling.
@@ -194,6 +229,8 @@ private:
     QImage buildFrame() const;
 
     bool handleMouse(QMouseEvent* mouse);
+    // True when `screen` (virtual-screen pixels) is inside a native icon.
+    bool overNativeIcon(const QPoint& screen) const;
     bool applyGesture(const BackdropGesture::Result& result);
     // Points the hosted window at the gestures or back at nothing, depending on
     // m_gestures. Called on attach and whenever the switch flips.
@@ -207,6 +244,9 @@ private:
     QSet<QString> m_occupied;
     QList<core::DesktopItem> m_free;
     QVector<BackdropCell> m_cells;
+    QVector<QRect> m_nativeRects;
+    QHash<QString, QRect> m_nativeBoxes;
+    bool m_drawFreeIcons = false;
     QImage m_frame;
 
     platform::win::DesktopSurface* m_surface = nullptr;

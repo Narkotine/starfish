@@ -47,6 +47,14 @@ public:
     void setFencesVisible(bool visible);
     void setPeekActive(bool active);
     void setDesktopIconsHidden(bool hidden);
+
+    // ADR-13: StarFish never hides the desktop's icons, so the two entries that
+    // exist for that ("Hide desktop icons" and the repair command beside it) are
+    // not offered at all unless the caller asks for them. A menu entry the user
+    // must never click, whose only effect is to change their desktop for the
+    // worse, is a trap -- it is a development tool now, and it is hidden as one.
+    void setIconHidingOffered(bool offered);
+    bool iconHidingOffered() const { return m_offerIconHiding; }
     void setFenceCount(int count);
 
     // A short balloon message, for an action whose effect is on the desktop and
@@ -76,6 +84,10 @@ private:
     QAction* m_peek = nullptr;
     QAction* m_hideIcons = nullptr;
     QAction* m_restoreIcons = nullptr;
+    // ADR-13: whether the two desktop-icon entries are offered at all. See
+    // setIconHidingOffered -- off unless the caller asks, and no caller in the
+    // product does.
+    bool m_offerIconHiding = false;
     QAction* m_settings = nullptr;
 };
 

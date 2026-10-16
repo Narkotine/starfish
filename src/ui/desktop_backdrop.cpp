@@ -159,7 +159,13 @@ QImage DesktopBackdrop::buildFrame() const
     frame.fill(QColor(0, 0, 0, kInputAlphaFloor));
     QPainter painter(&frame);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
+    // ADR-13: nothing is painted on the fence-less desktop by default -- the
+    // native icons are there, they are the ones the user arranged, and drawing a
+    // second copy of them would be exactly the duplication this decision is
+    // about. What is left on screen is the rubber band, and the one alpha level
+    // that keeps the frame findable.
+    if (m_drawFreeIcons)
+        paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
 
     // The fence being drawn (T-041). The rubber band carries virtual-screen
     // pixels like the cells do, so the painter is translated once -- and only
@@ -176,6 +182,40 @@ QImage DesktopBackdrop::buildFrame() const
     }
 
     return frame;
+}
+
+void DesktopBackdrop::setNativeIconRects(const QVector<QRect>& rects)
+{
+    if (m_nativeRects == rects)
+        return;
+    m_nativeRects = rects;
+    if (m_surface)
+        m_surface->setNativeIconRects(rects);
+}
+
+void DesktopBackdrop::setNativeIconBoxes(const QHash<QString, QRect>& boxes)
+{
+    if (m_nativeBoxes == boxes)
+        return;
+    m_nativeBoxes = boxes;
+    refresh();
+}
+
+void DesktopBackdrop::setDrawFreeIcons(bool draw)
+{
+    if (m_drawFreeIcons == draw)
+        return;
+    m_drawFreeIcons = draw;
+    refresh();
+}
+
+bool DesktopBackdrop::overNativeIcon(const QPoint& screen) const
+{
+    for (const QRect& icon : m_nativeRects) {
+        if (icon.contains(screen))
+            return true;
+    }
+    return false;
 }
 
 void DesktopBackdrop::setDesktopItems(QList<core::DesktopItem> items)
@@ -275,7 +315,13 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     // space a fence's stored rect uses (T-014), so the drawn rect needs no
     // conversion at all.
     const QPoint screen = mouse->globalPosition().toPoint();
-    const bool onIcon = BackdropGesture::iconAt(m_cells, screen) >= 0;
+    // Which icons are under the cursor depends on which ones are *there*: the
+    // native ones (ADR-13, the default) or the ones this layer would draw. Asking
+    // the wrong set is how a right press on an icon would open the background
+    // menu -- the cells are laid out in columns for a desktop that is no longer
+    // in columns.
+    const bool onIcon = m_drawFreeIcons ? BackdropGesture::iconAt(m_cells, screen) >= 0
+                                        : overNativeIcon(screen);
 
     BackdropGesture::Result result;
     switch (mouse->type()) {
@@ -359,6 +405,7 @@ bool DesktopBackdrop::attach()
     surface->setLayer(platform::win::DesktopSurface::Layer::Backdrop);
     applyGestureMode(surface, m_gestures, this);
     surface->setDevicePixelRatio(1.0); // the frame is already in physical pixels
+    surface->setNativeIconRects(m_nativeRects);
     surface->setFrame(m_frame);
     if (!surface->setPerPixelAlpha(true)) {
         qCWarning(lcBackdrop) << "the per-pixel path was refused; no backdrop";
@@ -422,7 +469,9 @@ bool DesktopBackdrop::isAttached() const
 void DesktopBackdrop::recompute()
 {
     m_free = BackdropLayout::freeItems(m_desktop, m_occupied);
-    m_cells = BackdropLayout::compute(area(), physicalMetrics(), m_free);
+    // The shell's own boxes are handed to the layout: an icon the user can see
+    // through no fault of ours must not move because StarFish started drawing.
+    m_cells = BackdropLayout::compute(area(), physicalMetrics(), m_free, m_nativeBoxes);
 }
 
 void DesktopBackdrop::refresh()
@@ -458,9 +507,11 @@ QString DesktopBackdrop::statusText() const
         return tr("desktop backdrop off");
     if (!isAttached())
         return tr("desktop backdrop: %1 icon(s), not hosted").arg(m_free.size());
-    return tr("desktop backdrop: %1 icon(s) on the desktop, %2 held by fences")
+    return tr("desktop backdrop: %1 icon(s) on the desktop, %2 held by fences%3")
         .arg(m_free.size())
-        .arg(m_occupied.size());
+        .arg(m_occupied.size())
+        .arg(m_drawFreeIcons ? QString()
+                             : tr(" (drawn by the desktop, not by us)"));
 }
 
 } // namespace starfish::ui

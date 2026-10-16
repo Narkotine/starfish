@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QList>
 #include <QRect>
 #include <QSet>
@@ -105,8 +106,17 @@ public:
     // One cell per item, column-major inside `area`. Items past the right edge
     // are still computed (the caller clips), so the vector length always equals
     // `items.size()`.
+    //
+    // `boxes`, when given, is what the *shell* says about an icon: the slot it
+    // occupies on the desktop, keyed by the item's display name. An item it names
+    // is laid out there instead of in the flow -- which is what lets StarFish draw
+    // a desktop that looks like the user's own when it has to draw it at all
+    // (ADR-13: auto-arrange on, so a single icon cannot be moved out of the way).
+    // A named box wins over the flow; anything unnamed still flows, so a caller
+    // that knows about two icons out of eighty still gets a full desktop.
     static QVector<BackdropCell> compute(const QRect& area, const Metrics& metrics,
-                                         const QList<core::DesktopItem>& items)
+                                         const QList<core::DesktopItem>& items,
+                                         const QHash<QString, QRect>& boxes = {})
     {
         QVector<BackdropCell> cells;
         cells.reserve(items.size());
@@ -122,14 +132,41 @@ public:
         const int columnPitch = cellWidth + gap;
         const int rows = rowsForHeight(area.height(), metrics);
 
+        // Where the shell put each icon, for the ones it named. Looked up by the
+        // display name (the scanner and the read both ask the shell, so the two
+        // spell a name the same way), then by the on-disk name.
+        const auto boxFor = [&boxes](const core::DesktopItem& item) -> QRect {
+            if (boxes.isEmpty())
+                return {};
+            const auto byName = boxes.constFind(item.name);
+            if (byName != boxes.constEnd())
+                return byName.value();
+            const auto byFile = boxes.constFind(item.fileName);
+            if (byFile != boxes.constEnd())
+                return byFile.value();
+            return {};
+        };
+
         for (int i = 0; i < items.size(); ++i) {
+            BackdropCell cell;
+            cell.item = items.at(i);
+
+            const QRect box = boxFor(cell.item);
+            if (box.isValid() && !box.isEmpty()) {
+                // The icon sits at the top of the slot the shell reported, centred
+                // in it; the caption goes under it, exactly as the flow does it.
+                cell.icon = QRect(box.x() + (box.width() - iconSize) / 2, box.y(), iconSize,
+                                  iconSize);
+                cell.label = QRect(box.x(), box.y() + iconSize, box.width(), labelHeight);
+                cells.append(cell);
+                continue;
+            }
+
             const int column = i / rows;
             const int row = i % rows;
             const int x = area.x() + margin + column * columnPitch;
             const int y = area.y() + margin + row * rowPitch;
 
-            BackdropCell cell;
-            cell.item = items.at(i);
             cell.icon = QRect(x + (cellWidth - iconSize) / 2, y, iconSize, iconSize);
             cell.label = QRect(x, y + iconSize, cellWidth, labelHeight);
             cells.append(cell);

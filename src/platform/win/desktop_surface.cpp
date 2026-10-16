@@ -930,19 +930,41 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         return false;
     }
 
-    case WM_NCHITTEST:
+    case WM_NCHITTEST: {
+        // Hand the mouse to whatever is under this window: it is a surface of
+        // ours standing over the desktop's own layers, and every click it cannot
+        // honour itself belongs to them (T-042 -- a replayed click is a different
+        // click).
         if (m_clickThrough) {
-            // Hand the mouse to whatever is under this window. The backdrop
-            // paints the desktop's icons but owns none of their behaviour yet
-            // (T-042): swallowing the click would be a silent regression, while
-            // letting it through keeps the desktop reachable exactly as it was.
             *result = HTTRANSPARENT;
             return true;
         }
-        // Empty fence areas should let the click through to the desktop icon
-        // layer in Phase 2 (T-006); for now the whole surface is a client area.
+        // ADR-13, and the reason the native icons can stay: an icon's own
+        // rectangle is not ours. Its click, its drag, its menu and its tooltip
+        // are the shell's, and they only stay the shell's because the mouse is
+        // never taken to begin with.
+        // lParam is the cursor in *screen* pixels, which is also the space the
+        // icon rectangles are read in (platform/win/desktop_icons), so no
+        // conversion is involved at all.
+        const QPoint screen(static_cast<short>(LOWORD(lParam)),
+                            static_cast<short>(HIWORD(lParam)));
+        for (const QRect& icon : m_nativeIconRects) {
+            if (icon.contains(screen)) {
+                *result = HTTRANSPARENT;
+                return true;
+            }
+        }
+        // The left button belongs to the desktop: dragging a rectangle over the
+        // bare desktop is Windows' own icon selection, and StarFish has nothing
+        // to add to it. The right button is the one it does answer (F-001/
+        // T-055), so the gesture is what is left of a *bare* point.
+        if (::GetAsyncKeyState(VK_LBUTTON) < 0) {
+            *result = HTTRANSPARENT;
+            return true;
+        }
         *result = HTCLIENT;
         return true;
+    }
 
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:

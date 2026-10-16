@@ -13,6 +13,7 @@
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
+#include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
@@ -183,16 +184,27 @@ bool ProductApp::start(const Options& options, QString* error)
     wireHotkeys();
     wireBackdrop();
 
-    // The desktop is ours from the start (T-056). Until this existed, nothing
-    // ever called setDesktopIconsHidden(true) outside the tray, so a launch left
-    // the fences *under* the native icon layer -- unclickable -- and the backdrop
-    // (and therefore every gesture on the empty desktop) simply did not exist.
-    // ADR-3 has always said StarFish draws the icons; this is where it starts
-    // doing it. The order is the safe one, and it lives in setDesktopIconsHidden:
-    // the backdrop is hosted and proved *first*, and the native layer is only
-    // taken away once it can be stood in for.
-    if (m_options.claimDesktop)
+    // ADR-13, and the end of a whole class of trouble: nothing is taken from the
+    // desktop at launch. The backdrop is still hosted -- it is what carries the
+    // empty desktop's right button (F-001/T-055) and F-022's double-click -- but
+    // the wallpaper and the user's icons stay exactly where they are, so the
+    // desktop the user sees is the desktop they arranged. The surfaces of ours
+    // sit above the wallpaper and step the mouse aside over every native icon
+    // (DesktopSurface::setNativeIconRects), which is why taking the icons away is
+    // no longer a precondition for a fence being clickable.
+    //
+    // The order still matters for the gestures: host first, then read.
+    if (m_options.claimDesktop) {
         setDesktopIconsHidden(true);
+    } else if (enableBackdrop()) {
+        syncNativeIcons();
+        // The user may move one of their own icons, or turn auto-arrange on, and
+        // the click zones have to follow. Two seconds is the same beat as the
+        // fence watchdog.
+        m_nativeSync.setInterval(2000);
+        connect(&m_nativeSync, &QTimer::timeout, this, &ProductApp::syncNativeIcons);
+        m_nativeSync.start();
+    }
 
     // The screen arrangement changes while StarFish is running: a monitor is
     // unplugged, docked, re-arranged, or its scaling changes. Qt is the
@@ -315,6 +327,10 @@ void ProductApp::onLifecycleChanged()
         syncWatchedFolders();
     }
 
+    // A fence that just took an icon (or let one go) changes which native icons
+    // have to move out of the way: react now rather than at the next timer tick.
+    syncNativeIcons();
+
     refreshStatus();
 }
 
@@ -332,6 +348,11 @@ void ProductApp::wireTray()
     }
 
     m_tray = new ui::TrayIcon(this);
+    // ADR-13: the entries that hide the desktop's icons are only offered on the
+    // development path that still claims the desktop (--claim-desktop / the
+    // probes). In the product they do not exist, because clicking them does
+    // nothing the user could want.
+    m_tray->setIconHidingOffered(m_options.claimDesktop);
     connect(m_tray, &ui::TrayIcon::newFenceRequested, this, &ProductApp::onNewFence);
     connect(m_tray, &ui::TrayIcon::settingsRequested, this, &ProductApp::showSettings);
     connect(m_tray, &ui::TrayIcon::quitRequested, this, &ProductApp::quitRequested);
@@ -622,6 +643,11 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
                               "stay visible";
         } else if (platform::win::DesktopSurface::setDesktopIconsHidden(hidden)) {
             m_iconsHidden = hidden;
+            // Same state, same consequences: whoever hid the list, StarFish is the
+            // one drawing the icons now (or no longer is). See takeOverDesktopIcons.
+            m_ownsIcons = hidden;
+            if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr)
+                backdrop->setDrawFreeIcons(hidden);
             if (!hidden) {
                 // The native layer is back first, then ours goes: the desktop is
                 // never left without icons, not even for a frame.
@@ -667,6 +693,146 @@ bool ProductApp::enableBackdrop()
     return false;
 }
 
+void ProductApp::syncNativeIcons()
+{
+    if (!m_container || !m_options.hostOnDesktop)
+        return;
+    ui::DesktopBackdrop* backdrop = m_container->backdrop();
+    if (!backdrop)
+        return;
+
+    const QVector<platform::win::NativeDesktopIcon> icons =
+        platform::win::readNativeDesktopIcons();
+
+    // Where the user's icons are, in screen pixels: the rectangles our surfaces
+    // step aside for, so every one of them keeps its own click, drag and menu.
+    // A parked icon is off screen, so its rectangle matches nothing -- which is
+    // right: the fence above it is what answers there.
+    //
+    // The same read, in the other shape, is what the layout draws into when the
+    // icons end up being ours (takeOverDesktopIcons): the boxes are keyed by the
+    // shell's own display name, which is how the scanner spells an item too.
+    QVector<QRect> rects;
+    QHash<QString, QRect> boxes;
+    rects.reserve(icons.size());
+    boxes.reserve(icons.size());
+    for (const platform::win::NativeDesktopIcon& icon : icons) {
+        const QRect box(icon.position, icon.slot);
+        rects.append(box);
+        boxes.insert(icon.name, box);
+    }
+    backdrop->setNativeIconBoxes(boxes);
+
+    // The names a fence holds, i.e. the icons StarFish has to move out of the
+    // way because it draws its own copy of them inside a fence. `name` is the
+    // shell's own display name on both sides (the scanner asks the shell too),
+    // and the on-disk name is kept as a fallback for the types the shell strips
+    // the extension from.
+    QSet<QString> held;
+    for (const core::DesktopItem& item : backdrop->desktopItems()) {
+        if (!backdrop->occupiedPaths().contains(ui::BackdropLayout::pathKey(item.path)))
+            continue;
+        held.insert(item.name);
+        held.insert(item.fileName);
+    }
+
+    bool moveRefused = false;
+    if (!m_ownsIcons) {
+        for (const platform::win::NativeDesktopIcon& icon : icons) {
+            const bool wanted = held.contains(icon.name);
+            const auto parked = m_parkedIcons.constFind(icon.index);
+            if (wanted && parked == m_parkedIcons.constEnd()) {
+                if (platform::win::parkNativeDesktopIcon(icon.index))
+                    m_parkedIcons.insert(icon.index, icon);
+                else
+                    moveRefused = true; // the shell put it straight back
+            } else if (!wanted && parked != m_parkedIcons.constEnd()) {
+                if (platform::win::restoreNativeDesktopIcon(icon.index, parked->position))
+                    m_parkedIcons.erase(m_parkedIcons.find(icon.index));
+                else
+                    qCWarning(lc).noquote()
+                        << QStringLiteral("could not put the desktop icon %1 back at %2,%3")
+                               .arg(icon.name)
+                               .arg(parked->position.x())
+                               .arg(parked->position.y());
+            }
+        }
+    }
+
+    if (moveRefused && !m_ownsIcons) {
+        qCWarning(lc).noquote()
+            << QStringLiteral("the desktop will not let a single icon be moved (auto-arrange "
+                              "is on): drawing the desktop's icons here instead, at the "
+                              "positions read from the shell");
+        takeOverDesktopIcons();
+    } else if (m_ownsIcons && held.isEmpty()) {
+        // Nothing is held any more: the desktop's own icons can have the job back.
+        giveBackDesktopIcons();
+    }
+
+    // Only while the user's icons are the ones on screen does the surface step
+    // aside over them. With the list hidden there is nothing behind this window,
+    // so a step-aside would hand the click to the wallpaper and turn a click on an
+    // icon into a click on the bare desktop.
+    backdrop->setNativeIconRects(m_ownsIcons ? QVector<QRect>() : rects);
+}
+
+void ProductApp::takeOverDesktopIcons()
+{
+    if (m_ownsIcons)
+        return;
+    if (!platform::win::DesktopSurface::setDesktopIconsHidden(true)) {
+        qCWarning(lc) << "could not take the desktop's icon list away; the icons a fence holds "
+                         "will show twice";
+        return;
+    }
+    m_ownsIcons = true;
+    m_iconsHidden = true;
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr)
+        backdrop->setDrawFreeIcons(true);
+    if (m_tray)
+        m_tray->setDesktopIconsHidden(true);
+    if (m_settings)
+        m_settings->setDesktopIconsHidden(true);
+    refreshStatus();
+}
+
+void ProductApp::giveBackDesktopIcons()
+{
+    if (!m_ownsIcons)
+        return;
+    // The static call, not setDesktopIconsHidden(): the backdrop is *not* to be
+    // detached here -- it is the bare desktop's input surface (ADR-13), and it has
+    // to outlive the icons StarFish was drawing.
+    if (!platform::win::DesktopSurface::setDesktopIconsHidden(false)) {
+        qCWarning(lc) << "could not give the desktop's icon list back";
+        return;
+    }
+    m_ownsIcons = false;
+    m_iconsHidden = false;
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr)
+        backdrop->setDrawFreeIcons(false);
+    if (m_tray)
+        m_tray->setDesktopIconsHidden(false);
+    if (m_settings)
+        m_settings->setDesktopIconsHidden(false);
+    refreshStatus();
+}
+
+void ProductApp::restoreParkedIcons()
+{
+    for (auto it = m_parkedIcons.cbegin(); it != m_parkedIcons.cend(); ++it) {
+        if (!platform::win::restoreNativeDesktopIcon(it.key(), it.value().position)) {
+            qCWarning(lc).noquote()
+                << QStringLiteral("could not put the desktop icon %1 back at %2,%3")
+                       .arg(it.value().name)
+                       .arg(it.value().position.x())
+                       .arg(it.value().position.y());
+        }
+    }
+    m_parkedIcons.clear();
+}
+
 void ProductApp::refreshDesktopItems()
 {
     if (!m_container)
@@ -675,9 +841,10 @@ void ProductApp::refreshDesktopItems()
     QList<core::DesktopItem> items = platform::win::DesktopScanner::scan(&error);
     if (!error.isEmpty())
         qCWarning(lc).noquote() << QStringLiteral("could not read the desktop: %1").arg(error);
-    // The Windows desktop sorts by name unless the user turned auto-arrange off;
-    // the backdrop has no per-item positions to honour, so it uses the same order
-    // rather than inventing one.
+    // The Windows desktop sorts by name unless the user turned auto-arrange off.
+    // This is only the *enumeration* order: since ADR-13 the positions come from
+    // the shell itself (syncNativeIcons -> the backdrop's native rectangles), and
+    // the icons on screen are the native ones, in the order the user put them.
     core::sortForDisplay(items, QStringLiteral("name"), true);
     m_container->setDesktopItems(std::move(items));
 }
@@ -785,6 +952,13 @@ void ProductApp::shutdown()
 
     delete m_container;
     m_container = nullptr;
+
+    // ADR-13: the icons a fence made us move go back exactly where they were
+    // read, and then (dev path only) the layer we hid, if we hid one. Both come
+    // last, after the fences are gone, so the desktop is never left showing an
+    // icon twice or none at all.
+    m_nativeSync.stop();
+    restoreParkedIcons();
 
     // Restore only what we hid ourselves (see setDesktopIconsHidden).
     if (m_iconsHidden) {

@@ -123,6 +123,19 @@ public:
     void setClickThrough(bool clickThrough);
     bool clickThrough() const { return m_clickThrough; }
 
+    // The rectangles the *native* desktop icons occupy, in this window's own
+    // (physical) coordinates -- client coordinates, because that is what a child
+    // window's hit test works in.
+    //
+    // With ADR-13 StarFish no longer hides the desktop's icons: they stay where
+    // the user put them and keep their behaviour, and a surface of ours sits
+    // *above* them. The mouse has to keep reaching them, so the hit test steps
+    // aside exactly where an icon is (see WM_NCHITTEST). Taken and replayed
+    // would be a different click (T-042); stepped aside is the same click.
+    // Filled by whoever just read the list view (platform/win/desktop_icons).
+    void setNativeIconRects(const QVector<QRect>& rects) { m_nativeIconRects = rects; }
+    const QVector<QRect>& nativeIconRects() const { return m_nativeIconRects; }
+
     // Frame to display. The image is copied, so the caller may release it.
     // A null image clears the surface.
     void setFrame(const QImage& frame);
@@ -213,6 +226,7 @@ private:
     Layer m_layer = Layer::BelowIconLayer;
     bool m_clickThrough = false;
 
+    QVector<QRect> m_nativeIconRects;
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;
     bool m_rightDown = false;

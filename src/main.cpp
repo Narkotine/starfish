@@ -33,6 +33,7 @@
 #include "core/snapshot.hpp"
 #include "core/zorder.hpp"
 #include "platform/win/desktop_host.hpp"
+#include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
@@ -1019,12 +1020,13 @@ int main(int argc, char* argv[])
                       "window, first-launch fence, rename, roll-up, delete, auto-save) "
                       "against a throwaway document, without hosting, tray or hot keys, and "
                       "write a PASS/FAIL report to build/product_probe.txt."));
-    const QCommandLineOption noClaimDesktopOption(
-        QStringLiteral("no-claim-desktop"),
-        QStringLiteral("Do not take the desktop at launch (T-056): the native icons stay "
-                       "visible, so the fences are unclickable and the empty desktop's "
-                       "gestures do not exist. For a demo that must not touch the layer."));
-    const QCommandLineOption noHostOption(
+    const QCommandLineOption claimDesktopOption(
+        QStringLiteral("claim-desktop"),
+        QStringLiteral("Take the desktop at launch (T-056), which is now opt-in: the native "
+                       "icon layer is hidden and StarFish draws the desktop itself. ADR-13 "
+                       "made this the exception -- the product leaves the user's icons "
+                       "alone -- so it is here for the development path and for the probes "
+                       "that still measure the old behaviour."));    const QCommandLineOption noHostOption(
         QLatin1String("no-host"),
         QLatin1String("With the product: do not put the fences on the desktop."));
     const QCommandLineOption noTrayOption(
@@ -1071,7 +1073,7 @@ int main(int argc, char* argv[])
                       "point."));
     parser.addOption(crashDemoOption);
     parser.addOption(crashVictimOption);
-    parser.addOption(noClaimDesktopOption);
+    parser.addOption(claimDesktopOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -3810,12 +3812,14 @@ int main(int argc, char* argv[])
                       product.container()->fenceCount() == 1,
                       QLatin1String("count=%1")
                           .arg(QString::number(product.container()->fenceCount())));
-                // T-056: the launch takes the desktop. Hosting is off here, so
-                // nothing real is touched (setDesktopIconsHidden only tracks the
-                // intent) -- which is exactly what lets this probe check the
-                // sequence without owning the developer's icons.
-                check(QLatin1String("the launch claims the desktop"),
-                      product.desktopIconsHidden(), product.statusText());
+                // ADR-13: the launch leaves the desktop alone -- nothing is
+                // hidden, and the fences are clickable anyway (they sit above the
+                // wallpaper, and the surface steps the mouse aside over the
+                // user's icons). T-056's "the launch claims the desktop" is gone
+                // with the behaviour it described; the dev path that still does it
+                // is checked just below.
+                check(QLatin1String("the launch leaves the desktop's icons alone"),
+                      !product.desktopIconsHidden(), product.statusText());
                 check(QLatin1String("the settings window exists"),
                       product.settingsDialog() != nullptr, {});
                 check(QLatin1String("no tray was created (none was asked for)"),
@@ -4122,6 +4126,11 @@ int main(int argc, char* argv[])
 
         // --- the frame ------------------------------------------------------
         log << QStringLiteral("-- the frame --");
+        // ADR-13: the product does not draw the fence-less icons any more -- the
+        // desktop's own are on screen. This section measures the layer that still
+        // exists for the case a caller wants StarFish to own them, so it asks for
+        // it explicitly; the default is what the next check is about.
+        backdrop->setDrawFreeIcons(true);
         // "Painted" now means *above the input floor*. Since T-060 every frame
         // carries one alpha level across the whole screen
         // (DesktopBackdrop::kInputAlphaFloor), so counting every pixel whose alpha
@@ -4188,6 +4197,21 @@ int main(int argc, char* argv[])
                   .arg(transparentPixels)
                   .arg(totalPixels)
                   .arg(starfish::ui::DesktopBackdrop::kInputAlphaFloor));
+
+        // ADR-13's default, measured rather than described: with the drawing
+        // switched off the frame paints nothing at all -- the icons on screen are
+        // the desktop's own, where the user put them, and all this layer is left
+        // with is the input floor that makes the bare desktop ours to answer.
+        backdrop->setDrawFreeIcons(false);
+        backdrop->renderNow();
+        const qint64 paintedDefault = paintedPixels(backdrop->frame());
+        check(QStringLiteral("by default the frame paints nothing and leaves the icons alone"),
+              paintedDefault == 0 && !backdrop->freeItems().isEmpty(),
+              QStringLiteral("%1 painted pixel(s), %2 icon(s) left to the desktop")
+                  .arg(paintedDefault)
+                  .arg(backdrop->freeItems().size()));
+        backdrop->setDrawFreeIcons(true);
+        backdrop->renderNow();
 
         // The one thing a frame can prove that a count cannot: the pixels really
         // go away when a fence claims an icon.
@@ -4640,6 +4664,70 @@ int main(int argc, char* argv[])
                 const HWND defView =
                     progman ? ::FindWindowExW(progman, nullptr, L"SHELLDLL_DefView", nullptr)
                             : nullptr;
+                // ADR-13, and the half the pixels cannot prove: with the user's
+                // icons left in place, the mouse still has to *reach* them. The
+                // surface is asked the question Windows asks it (WM_NCHITTEST) at
+                // a point on one of the native icons and at a bare point. Taken
+                // and replayed would be a different click (T-042); stepped aside is
+                // the same click. The rectangles come from the shell's own list
+                // view -- the same read the product runs on its timer.
+                backdrop->setGestureEnabled(true);
+                const QVector<starfish::platform::win::NativeDesktopIcon> nativeIcons =
+                    starfish::platform::win::readNativeDesktopIcons();
+                QVector<QRect> nativeRects;
+                nativeRects.reserve(nativeIcons.size());
+                for (const starfish::platform::win::NativeDesktopIcon& icon : nativeIcons)
+                    nativeRects.append(QRect(icon.position, icon.slot));
+                backdrop->setNativeIconRects(nativeRects);
+
+                const auto hitTest = [hwnd](const QPoint& point) {
+                    return ::SendMessageW(reinterpret_cast<HWND>(hwnd), WM_NCHITTEST, 0,
+                                          MAKELPARAM(point.x(), point.y()));
+                };
+                const auto insideANativeIcon = [&nativeRects](const QPoint& point) {
+                    for (const QRect& rect : nativeRects) {
+                        if (rect.contains(point))
+                            return true;
+                    }
+                    return false;
+                };
+
+                if (nativeIcons.isEmpty()) {
+                    check(QStringLiteral("the shell's own icons could be read"), false,
+                          QStringLiteral("no item in the desktop list view"));
+                } else {
+                    const QRect iconBox(nativeIcons.first().position, nativeIcons.first().slot);
+                    check(QStringLiteral("a point on one of the user's icons is not ours"),
+                          hitTest(iconBox.center()) == HTTRANSPARENT,
+                          QStringLiteral("WM_NCHITTEST at %1,%2 (%3) -> %4")
+                              .arg(iconBox.center().x())
+                              .arg(iconBox.center().y())
+                              .arg(nativeIcons.first().name)
+                              .arg(hitTest(iconBox.center())));
+                }
+
+                // A bare point: the first sample of a coarse grid that no native
+                // icon claims, so the answer is about the wallpaper and not about
+                // whatever happens to sit there.
+                QPoint barePoint(-1, -1);
+                for (int y = 40; y < area.height() - 40 && barePoint.x() < 0; y += 37) {
+                    for (int x = 40; x < area.width() - 40; x += 37) {
+                        const QPoint sample(x, y);
+                        if (!insideANativeIcon(sample)) {
+                            barePoint = sample;
+                            break;
+                        }
+                    }
+                }
+                check(QStringLiteral("a bare point is ours (that is the draw-a-fence gesture)"),
+                      barePoint.x() >= 0 && hitTest(barePoint) == HTCLIENT,
+                      QStringLiteral("WM_NCHITTEST at %1,%2 -> %3, %4 native icon(s) stepped "
+                                     "around")
+                          .arg(barePoint.x())
+                          .arg(barePoint.y())
+                          .arg(barePoint.x() >= 0 ? hitTest(barePoint) : -1)
+                          .arg(nativeRects.size()));
+
                 const int backdropIndex = progmanChildIndex(hwnd);
                 const int defViewIndex = progmanChildIndex(defView);
                 // ADR-12: above the wallpaper (the DefView), below the fences --
@@ -5328,10 +5416,11 @@ int main(int argc, char* argv[])
         // fences and creates them, which is what the desktop's own gesture is for.
         // It stays reachable from the tray; it does not open itself at launch.
         options.showSettingsOnStart = false;
-        // T-056: the desktop is StarFish's from the start, which is what makes a
-        // fence clickable and what brings the empty desktop's gestures into
-        // existence. --no-claim-desktop runs a demo that must not touch the layer.
-        options.claimDesktop = !parser.isSet(noClaimDesktopOption);
+        // ADR-13: nothing is taken from the desktop unless it is asked for. The
+        // ordinary launch leaves the wallpaper and the user's icons exactly as
+        // they are; --claim-desktop brings T-056's behaviour back, for the dev
+        // path and for the probes that measure it.
+        options.claimDesktop = parser.isSet(claimDesktopOption);
         options.hotkeys = !parser.isSet(noHotkeysOption);
         options.watchDesktop = !parser.isSet(noWatchOption);
 

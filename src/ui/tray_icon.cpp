@@ -90,6 +90,10 @@ bool TrayIcon::show()
             emit peekToggled(checked);
         });
 
+        // ADR-13: the desktop's icons are never StarFish's to hide, so these
+        // two entries do not exist unless a caller asks for them (the dev path
+        // that still claims the desktop). They are built either way so the
+        // actions are always valid pointers; visibility is what changes.
         m_menu->addSeparator();
 
         m_hideIcons = m_menu->addAction(tr("Hide desktop icons"));
@@ -97,12 +101,14 @@ bool TrayIcon::show()
         connect(m_hideIcons, &QAction::triggered, this, [this](bool checked) {
             emit desktopIconsToggled(checked);
         });
+        m_hideIcons->setVisible(m_offerIconHiding);
 
         // The emergency exit (T-046), next to the toggle on purpose: it is a
         // plain command, and it exists for the states the toggle cannot reach
         // (the icons hidden by a run that never came back).
         m_restoreIcons = m_menu->addAction(tr("Restore my icons"));
         connect(m_restoreIcons, &QAction::triggered, this, &TrayIcon::restoreIconsRequested);
+        m_restoreIcons->setVisible(m_offerIconHiding);
 
         m_menu->addSeparator();
 
@@ -148,6 +154,17 @@ void TrayIcon::setDesktopIconsHidden(bool hidden)
 {
     if (m_hideIcons)
         m_hideIcons->setChecked(hidden);
+}
+
+void TrayIcon::setIconHidingOffered(bool offered)
+{
+    m_offerIconHiding = offered;
+    // The actions may already exist (show() has run) or not yet: setVisibility
+    // covers both, because show() reads the flag when it builds them.
+    if (m_hideIcons)
+        m_hideIcons->setVisible(offered);
+    if (m_restoreIcons)
+        m_restoreIcons->setVisible(offered);
 }
 
 void TrayIcon::setFenceCount(int count)
