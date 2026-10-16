@@ -53,7 +53,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 
 | ID | Fonctionnalité | Prio |
 |---|---|---|
-| F-001 | Créer une zone : **glisser au bouton droit** sur le bureau vide (le geste ouvre le menu contextuel du bureau, avec une entrée StarFish en tête), ou clic droit simple sur le bureau vide | P0 |
+| F-001 | Créer une zone : **entrée « StarFish: create a fence » dans le menu clic droit *de Windows*** sur le bureau (**T-071** — le geste du bouton droit a été **abandonné** : il exigeait une fenêtre à nous sur tout le bureau, qui coûtait les clics et les glissers des icônes ainsi que les deux boutons du bureau nu). La zone se pose à la **première place libre**. Reste aussi la zone de notification | P0 |
 | F-002 | Renommer la zone (barre de titre) | P0 |
 | F-003 | Déplacer et redimensionner une zone (aimantation aux bords d'écran et aux autres zones) | P0 |
 | F-004 | Apparence : couleur de fond, opacité, coins arrondis, style de barre de titre | P0 |
@@ -126,7 +126,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 | F-035 | Lancement au démarrage (optionnel) | P1 |
 | F-036 | Interface au moins en anglais et français | P1 |
 | F-037 | Aucune télémétrie, aucun compte, données locales uniquement | P0 |
-| F-039 | **Le bureau reste celui de l'utilisateur : StarFish ne masque aucune icône native** (ADR-13, **T-066**). Le produit se pose **sur** le bureau normal — son papier peint, ses icônes à leurs places, leur clic, leur menu, leur glisser — **au lancement, en fonctionnement et à la fermeture**, y compris dans le cas qui a fait défaut : **une zone qui détient une icône du bureau**. Conséquence assumée et visible tant que **T-042** n'est pas écrit : cette icône s'affiche **deux fois** (sur le bureau **et** comme tuile dans la zone) — on ne peut pas laisser ses icônes à l'utilisateur *et* les faire disparaître de là où elles sont sans les déplacer, et StarFish ne déplace **jamais** un fichier. Reprendre la couche d'icônes (`--claim-desktop`) reste possible, mais uniquement comme **chemin de développement**, jamais comme effet de bord | P0 |
+| F-039 | **Le bureau reste celui de l'utilisateur : StarFish ne masque aucune icône native — et ne pose plus aucune fenêtre sur le bureau** (ADR-13, **T-066**). Le produit se pose **sur** le bureau normal — son papier peint, ses icônes à leurs places, leur clic, leur menu, leur glisser — **au lancement, en fonctionnement et à la fermeture**, y compris dans le cas qui a fait défaut : **une zone qui détient une icône du bureau**. Conséquence assumée et visible tant que **T-042** n'est pas écrit : cette icône s'affiche **deux fois** (sur le bureau **et** comme tuile dans la zone) — on ne peut pas laisser ses icônes à l'utilisateur *et* les faire disparaître de là où elles sont sans les déplacer, et StarFish ne déplace **jamais** un fichier. Reprendre la couche d'icônes (`--claim-desktop`) reste possible, mais uniquement comme **chemin de développement**, jamais comme effet de bord | P0 |
 
 Spécifiquement **hors périmètre** : édition entreprise (déploiement par GPO/comptes centralisés), skins avancés, support ARM (réévaluable plus tard).
 

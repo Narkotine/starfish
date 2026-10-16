@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 
+#include "platform/win/desktop_menu.hpp"
 #include "ui/screen_layout.hpp"
 
 namespace starfish::core {
@@ -62,6 +63,11 @@ public:
         bool showSettingsOnStart = true; // ...and open it at launch
         bool hotkeys = true;
         bool watchDesktop = true;  // F-018 on the real Desktop folder
+        // T-071: the desktop's own menu entry asked for a fence (`--new-fence`)
+        // and nothing was running to answer it, so *this* launch is the answer.
+        // Honoured even when the document already holds fences -- that is what the
+        // entry is for.
+        bool newFence = false;
         bool starterFence = true;  // materialise one fence on a first launch
         // T-056 used to be on here: StarFish took the desktop at launch by hiding
         // the native icon layer and drawing the desktop itself. ADR-13 took it
@@ -214,7 +220,6 @@ private:
 
     // True while the icons are ours to draw (see takeOverDesktopIcons).
     bool m_ownsIcons = false;
-    QTimer m_nativeSync;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.
@@ -240,6 +245,11 @@ private:
     ui::FenceContainer* m_container = nullptr;
     core::DesktopWatcher* m_watcher = nullptr;
     platform::win::HotkeyManager* m_hotkeys = nullptr;
+    // T-071: the desktop's own menu entry asks a *running* product for a fence
+    // through a named event -- the entry can be clicked while we are already here,
+    // and a second process would be refused by the single-instance guard (T-044).
+    platform::win::NewFenceWatcher* m_newFence = nullptr;
+
     ui::TrayIcon* m_tray = nullptr;
     ui::SettingsDialog* m_settings = nullptr;
     // Not a QObject: owned here, and it must outlive every fence that asks it

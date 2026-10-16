@@ -1382,6 +1382,56 @@ build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_geometry` portée à **
 - **Les trois zones empilées du document de l'utilisateur** : elles sont **toujours** au même rect (T-067 ne touche pas aux zones existantes). À proposer à l'utilisateur : un décalage en cascade le rangerait, mais c'est **son** bureau.
 - **L'acrylique** et **T-064** (matériau au clic droit) restent ouverts (§26).
 
+## 30. ADR-14 — le bureau reste au bureau : trois reproches, une fenêtre de trop (T-071, session 40)
+
+Retour utilisateur, trois symptômes rapportés ensemble :
+
+> - on ne peut plus bouger les icones du bureau (à part les rajouter dans fences. Est attendu ?)
+> - le menu clic droit sans bouger le curseur n'est plus le menu original de windows.
+> - le clic glissé ne dessine pas le rectangle habituel sous windows.
+> JE PENSE : si le fait de pouvoir faire une fence avec un glissé cliqué sur clic droit entraîne trop de contrainte, alors on annule la feature, on se contentera de faire une fence avec une entrée dans le menu clic droit sur le bureau de windows normal.
+
+### La cause unique, et la mesure qui manquait
+
+Le fond plein écran que le produit hébergeait sur le bureau (T-039, puis ADR-12/13) refusait **les dépôts** : un glisser d'icône se termine par un *dépôt*, Windows cherche une **cible de dépôt** sous le curseur, il trouve **notre** fenêtre — qui n'en enregistre **aucune**, volontairement, pour ne pas avaler un dépôt qu'elle ne saurait pas honorer (**T-052**). L'icône se laissait donc **attraper et jamais reposer**. C'est la famille de T-069 (*une réponse n'est pas une livraison*) poussée d'un cran : **une absence de cible est un refus**.
+
+Et la même fenêtre tenait les **deux boutons du bureau nu** : le **gauche** (le rectangle de sélection de la coquille, et le clic dans le vide qui désélectionne) et le **droit** (d'où un menu **reconstruit par nous** — T-055 demande le menu du fond au Shell et y insère notre entrée — que l'utilisateur a immédiatement reconnu comme « plus celui de Windows »). Le fond aura donc coûté **quatre** choses en quatre sessions : les clics des zones (T-068), les clics des icônes (T-069), les **dépôts** des icônes (T-071) et **les deux boutons du bureau nu** (T-071). Chacune a été « réparée » séparément avant que la vraie réponse n'apparaisse : **il n'y a rien à réparer, il y a une fenêtre à ne pas héberger.**
+
+### La décision (ADR-14)
+
+**Le produit ne pose plus aucune fenêtre sur le bureau**, et **F-001 change de porteur** :
+
+1. **Rien n'est hébergé.** `ProductApp::start()` n'active plus le fond (il ne vit que pour `--claim-desktop`, où il dessine les icônes, et pour les sondes qui le mesurent). Conséquence : papier peint, icônes (**clic, glisser, menu, renommage**), menu **original** de Windows, rectangle de sélection et désélection — tout est la coquille, **par construction**, sans trou d'alpha ni clause d'effacement. Les correctifs de T-068 (une zone prend son propre clic) et de T-069 (les trous d'alpha) restent : le premier est vrai pour les zones, le second pour le fond **là où il est encore hébergé**.
+2. **Créer une zone = une entrée du menu de Windows.** Un **verbe statique**, par utilisateur :
+
+   ```
+   HKCU\Software\Classes\DesktopBackground\Shell\StarFish
+     (défaut)  = StarFish: create a fence
+     Icon      = "<chemin>\starfish.exe",0
+     Position  = Top
+     command\(défaut) = "<chemin>\starfish.exe" --new-fence
+   ```
+
+   C'est **Explorer** qui construit son menu et nous appelle : on ne prend plus le bouton droit, on ne reconstruit plus aucun menu, et l'entrée est là **aussi quand StarFish ne tourne pas**. Aucune élévation (per-utilisateur), et `--uninstall-desktop-menu` la retire. Installée par `--install-desktop-menu` ; vérifiée par `reg query`.
+3. **`--new-fence`** : si une instance tourne, le CLI lui **demande** la zone par un **événement nommé** (`Local\StarFish.NewFence`, sondé toutes les 250 ms par `platform::win::NewFenceWatcher`) — un second processus serait refusé par le garde mono-instance (T-044) et l'entrée paraîtrait cassée ; sinon il **démarre** le produit, qui honore la demande au lancement. La zone se pose où `FenceGeometry::freeSpot` la met (première place libre).
+
+### Deux pièges mesurés, payés une fois
+
+- **Un événement nommé ne porte pas une demande vers un processus qui n'existe pas encore.** Le CLI crée l'événement, le signale, et **ferme son handle** : l'objet (et son état) meurt avant que le produit ne l'ouvre. Mesuré : le premier essai de `--new-fence` sans instance n'a créé **aucune** zone. Corrigé en passant la demande par l'**option** quand rien ne tourne.
+- **`LVM_HITTEST` attend un *pointeur* vers `LVHITTESTINFO`**, pas des coordonnées : passées dans `lParam`, elles deviennent un pointeur bidon que la **liste du bureau** lit… et **explorer plante et redémarre** (mesuré : le bureau est revenu intact, avec ses 88 icônes, mais une vérification de la sonde est passée au rouge le temps de la reconstruction — « 88 icônes avant, 0 après »). **Règle** : ne jamais envoyer à une fenêtre d'un autre processus un message dont l'argument est un pointeur qu'on n'a pas alloué **dans son** espace d'adressage.
+
+### Vérifications
+
+- `--icons-demo` passe de 10 à **12/12**, avec deux vérifications neuves : `the product puts no window of ours on the desktop` (`backdrop hosted=0, our surface(s) under Progman=1 for 1 fence(s), full-screen=0`) et `a click on one of the desktop's icons still reaches the shell` (l'instrument est le **compte de sélection de la coquille** : clic sur une icône → `0 -> 1`, nettoyage au `Ctrl+clic` → `0`, 0 `SendInput` refusé). Le nettoyage est **best-effort et journalisé** : deux façons de le faire ont été essayées et sont fausses (deviner un point « nu » depuis les rectangles d'icônes — la zone sensible du Shell inclut le libellé ; et `LVM_HITTEST`, pour la raison ci-dessus).
+- `--fence-demo` **31/31** `--host` (une vraie pression du bouton gauche) ; `--backdrop-demo` **36/36** / **50/50** (le fond est mesuré là où il vit encore : `--claim-desktop` et sa propre sonde) ; `--product-probe` **24/24** ; `ctest` **14/14** ; build **0 warning**.
+- **Bout en bout** : entrée **relue** par `reg query` (`command = "…\build\starfish.exe" --new-fence`) ; `--new-fence` **sans** instance → document `3 → 4` zones ; **avec** instance → `asked the running StarFish for a new fence` et **4 → 5** fenêtres hébergées, bureau inchangé (icônes visibles, aucun marqueur).
+
+### Ce que ça coûte, nommé
+
+- **T-072** : le **double-clic sur le bureau vide** (F-022, quick hide) était porté par le fond. Restent le raccourci `Win+Shift+H` et la notification. À trancher : s'en tenir là, ou une seconde entrée statique du menu du bureau.
+- **T-070 est annulé** : le hook souris n'a plus d'objet — il n'y a plus rien à intercepter.
+
+
 ## 29. Un trou d'alpha, pas une réponse : le bureau redevient atteignable (T-069, session 38)
 
 Suite directe de T-068, et c'est **la mesure qui a séparé les deux problèmes** :

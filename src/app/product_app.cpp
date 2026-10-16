@@ -191,26 +191,31 @@ bool ProductApp::start(const Options& options, QString* error)
     wireHotkeys();
     wireBackdrop();
 
-    // ADR-13, and the end of a whole class of trouble: nothing is taken from the
-    // desktop at launch. The backdrop is still hosted -- it is what carries the
-    // empty desktop's right button (F-001/T-055) and F-022's double-click -- but
-    // the wallpaper and the user's icons stay exactly where they are, so the
-    // desktop the user sees is the desktop they arranged. The surfaces of ours
-    // sit above the wallpaper and step the mouse aside over every native icon
-    // (DesktopSurface::setNativeIconRects), which is why taking the icons away is
-    // no longer a precondition for a fence being clickable.
+    // ⚠️ T-071 / ADR-14 -- and the product puts **no window of ours on the desktop
+    // at all**. Four user reports in a row came out of the one we used to host
+    // there: it took the mouse from the fences (T-068), it took it from the
+    // desktop's icons (T-069, patched with alpha holes), it went on refusing the
+    // *drop* half of every icon drag -- Windows looks for a drop target under the
+    // cursor, finds our window, and we register none on purpose (T-052), so an
+    // icon could be picked up and never put down -- and, on the bare desktop, our
+    // window held the left button (the shell's selection rectangle disappeared)
+    // and the right one (which replaced the desktop's own menu with one we
+    // rebuild, T-055).
     //
-    // The order still matters for the gestures: host first, then read.
+    // The user's decision: keep the desktop **normal** and move the gesture
+    // somewhere that costs nothing. So nothing of ours is hosted, nothing is read
+    // from the shell on a timer, nothing steps the mouse aside: the wallpaper, the
+    // icons, their drags, the shell's menu and its rubber band are the shell's, by
+    // construction, and creating a fence is an entry in the desktop's **own**
+    // menu, which Explorer builds and we only answer.
     if (m_options.claimDesktop) {
-        setDesktopIconsHidden(true);
-    } else if (enableBackdrop()) {
+        // The development path keeps the old world: the backdrop draws the icons
+        // (T-039/T-056), so it is hosted -- setDesktopIconsHidden() below does that
+        // first and refuses to hide anything if it cannot. The icons are read
+        // **before** they are taken over, since a hidden list view has nothing to
+        // describe (T-062).
         syncNativeIcons();
-        // The user may move one of their own icons, or turn auto-arrange on, and
-        // the click zones have to follow. Two seconds is the same beat as the
-        // fence watchdog.
-        m_nativeSync.setInterval(2000);
-        connect(&m_nativeSync, &QTimer::timeout, this, &ProductApp::syncNativeIcons);
-        m_nativeSync.start();
+        setDesktopIconsHidden(true);
     }
 
     // The screen arrangement changes while StarFish is running: a monitor is
@@ -221,6 +226,31 @@ bool ProductApp::start(const Options& options, QString* error)
     connect(qApp, &QGuiApplication::screenRemoved, this, [this](QScreen*) { refreshScreens(); });
     connect(qApp, &QGuiApplication::primaryScreenChanged, this,
             [this](QScreen*) { refreshScreens(); });
+
+    // T-071: `--new-fence` with nothing running. The named event cannot carry the
+    // request here -- the object dies with the CLI's handle, before this process
+    // opens it -- so the request is the *option*: this launch owes a fence.
+    if (m_options.newFence) {
+        const QString created = createFenceWithDefaultPlacement();
+        qCInfo(lc).noquote() << (created.isEmpty()
+                                     ? QStringLiteral("the desktop menu asked for a fence and it "
+                                                      "could not be created")
+                                     : QStringLiteral("the desktop menu asked for a fence: %1")
+                                           .arg(m_container->fenceTitle(created)));
+    }
+
+    // T-071: and the same entry can be clicked again at any time while we run.
+    m_newFence = new platform::win::NewFenceWatcher(this);
+    connect(m_newFence, &platform::win::NewFenceWatcher::requested, this, [this] {
+        const QString id = createFenceWithDefaultPlacement();
+        qCInfo(lc).noquote() << (id.isEmpty()
+                                     ? QStringLiteral("the desktop menu asked for a fence, and it "
+                                                      "could not be created")
+                                     : QStringLiteral("the desktop menu asked for a fence: %1")
+                                           .arg(m_container->fenceTitle(id)));
+        refreshStatus();
+    });
+    m_newFence->start();
 
     refreshStatus();
     m_started = true;
@@ -998,6 +1028,8 @@ void ProductApp::shutdown()
     // detaches every hosted surface -- and only then give the user their icons
     // back: restoring them earlier would leave the fences drawn over the real
     // icon layer for a moment.
+    if (m_newFence)
+        m_newFence->stop();
     if (m_watcher)
         m_watcher->stop();
     if (m_hotkeys)
@@ -1020,7 +1052,6 @@ void ProductApp::shutdown()
     // The layer we hid -- if we hid one -- comes back last, after the fences are
     // gone, so the desktop is never left showing an icon twice or none at all. The
     // icons themselves were never moved, so there is nothing else to put back.
-    m_nativeSync.stop();
 
     // Restore only what we hid ourselves (see setDesktopIconsHidden).
     if (m_iconsHidden) {

@@ -37,6 +37,7 @@
 #include "platform/win/desktop_host.hpp"
 #include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
+#include "platform/win/desktop_menu.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_context_menu.hpp"
@@ -1031,6 +1032,18 @@ int main(int argc, char* argv[])
                       "the desktop's icons are still the shell's -- visible, readable and "
                       "clickable -- during the launch and after the exit. Needs a real desktop "
                       "and visible icons; report in build/icons_demo.txt."));
+    const QCommandLineOption installMenuOption(
+        QLatin1String("install-desktop-menu"),
+        QLatin1String("T-071: add StarFish's entry to the desktop's *own* context menu "
+                      "(HKCU\\Software\\Classes\\DesktopBackground\\Shell, per user, no "
+                      "administrator needed), then quit."));
+    const QCommandLineOption uninstallMenuOption(
+        QLatin1String("uninstall-desktop-menu"),
+        QLatin1String("T-071: remove that entry and quit."));
+    const QCommandLineOption newFenceOption(
+        QLatin1String("new-fence"),
+        QLatin1String("T-071: what the desktop menu entry runs. Asks a running StarFish for a "
+                      "fence (first free spot), or starts one."));
     const QCommandLineOption claimDesktopOption(
         QStringLiteral("claim-desktop"),
         QStringLiteral("Take the desktop at launch (T-056), which is now opt-in: the native "
@@ -1086,6 +1099,9 @@ int main(int argc, char* argv[])
                       "point."));
     parser.addOption(crashDemoOption);
     parser.addOption(crashVictimOption);
+    parser.addOption(installMenuOption);
+    parser.addOption(uninstallMenuOption);
+    parser.addOption(newFenceOption);
     parser.addOption(claimDesktopOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
@@ -4485,32 +4501,181 @@ int main(int argc, char* argv[])
                                       .arg(answer));
                         }
 
-                        // The user's own icons: still drawn by the shell, and the
-                        // mouse still reaches them -- the backdrop steps aside over
-                        // each one (HTTRANSPARENT), so the click the shell receives
-                        // is the original one.
+                        // ⚠️ T-071 / ADR-14 -- and the claim is now a structural
+                        // one, not a hit-test answer: the product hosts **no window
+                        // of ours over the desktop at all**. Measured from outside:
+                        // of Progman's children, only the fences in the document are
+                        // ours, and none of them covers the screen. That is what
+                        // gives the icons their clicks *and* their drags (a drag is
+                        // a drop, and a drop needs a target under the cursor: our
+                        // window registered none on purpose, T-052, so an icon could
+                        // be picked up and never put down), the shell's own menu and
+                        // its rubber band.
                         starfish::ui::DesktopBackdrop* backdrop = product.container()->backdrop();
-                        auto* backdropSurface = backdrop ? backdrop->surface() : nullptr;
+                        const bool backdropOff = !backdrop || !backdrop->enabled();
+                        const HWND progman = ::FindWindowW(L"Progman", nullptr);
+                        int surfacesOfOurs = 0;
+                        int fullScreenOnes = 0;
+                        const QRect virtualScreen(
+                            QPoint(::GetSystemMetrics(SM_XVIRTUALSCREEN),
+                                   ::GetSystemMetrics(SM_YVIRTUALSCREEN)),
+                            QSize(::GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                                  ::GetSystemMetrics(SM_CYVIRTUALSCREEN)));
+                        HWND child = progman ? ::FindWindowExW(progman, nullptr, nullptr, nullptr)
+                                             : nullptr;
+                        while (child) {
+                            wchar_t klass[128] = {0};
+                            ::GetClassNameW(child, klass, 128);
+                            if (QString::fromWCharArray(klass) == QLatin1String("StarFishDesktopSurface")) {
+                                ++surfacesOfOurs;
+                                RECT box{};
+                                ::GetWindowRect(child, &box);
+                                if (box.left <= virtualScreen.left() && box.top <= virtualScreen.top()
+                                    && box.right >= virtualScreen.right()
+                                    && box.bottom >= virtualScreen.bottom())
+                                    ++fullScreenOnes;
+                            }
+                            child = ::FindWindowExW(progman, child, nullptr, nullptr);
+                        }
+                        check(QStringLiteral("the product puts no window of ours on the desktop"),
+                              backdropOff && surfacesOfOurs == product.container()->fenceCount()
+                                  && fullScreenOnes == 0,
+                              QStringLiteral("backdrop hosted=%1, our surface(s) under Progman=%2 "
+                                             "for %3 fence(s), full-screen=%4")
+                                  .arg(backdropOff ? 0 : 1)
+                                  .arg(surfacesOfOurs)
+                                  .arg(product.container()->fenceCount())
+                                  .arg(fullScreenOnes));
+
+                        // And the icons are therefore the shell's -- including for a
+                        // click, which is asked *there*: who does the system say is
+                        // under the point? Not asked (never failed) when one of the
+                        // user's own windows covers it: that would be a verdict about
+                        // their browser, not about StarFish (decision 13).
                         const QRect iconBox(iconsBefore.first().position, iconsBefore.first().slot);
-                        if (backdropSurface) {
-                            const QPoint client = iconBox.center()
-                                - backdropSurface->geometry().topLeft();
-                            const auto answer = ::SendMessageW(
-                                reinterpret_cast<HWND>(backdropSurface->hwnd()), WM_NCHITTEST, 0,
-                                MAKELPARAM(client.x(), client.y()));
-                            check(QStringLiteral("the mouse still reaches the user's own icon"),
-                                  answer == HTTRANSPARENT,
-                                  QStringLiteral("WM_NCHITTEST at %1,%2 (%3) -> %4 "
-                                                 "(%5 icon(s) stepped around)")
-                                      .arg(iconBox.center().x())
-                                      .arg(iconBox.center().y())
-                                      .arg(iconsBefore.first().name)
-                                      .arg(answer)
-                                      .arg(backdropSurface->nativeIconRects().size()));
+                        const POINT iconCentre{iconBox.center().x(), iconBox.center().y()};
+                        const HWND underIcon = ::WindowFromPoint(iconCentre);
+                        wchar_t underClass[128] = {0};
+                        if (underIcon)
+                            ::GetClassNameW(underIcon, underClass, 128);
+                        const QString underName = QString::fromWCharArray(underClass);
+                        if (underName == QLatin1String("SysListView32")) {
+                            check(QStringLiteral("the desktop's own icon is what the mouse finds "
+                                                 "at an icon"),
+                                  true,
+                                  QStringLiteral("%1,%2 -> the shell's list view")
+                                      .arg(iconCentre.x)
+                                      .arg(iconCentre.y));
+
+                            // The delivery half -- the one that would have caught T-069 --
+                            // and the instrument is the *shell's own* selection count: a
+                            // left click on an icon selects it, so the count moving is
+                            // proof that the click arrived, and nothing about menu classes
+                            // is assumed (Windows 11's modern menus are not the classic
+                            // #32768 any more -- measured: no such window appears even
+                            // without StarFish running). The point has to be the list view
+                            // (checked above), and the selection is cleared afterwards by
+                            // clicking empty desktop, which is also now the shell's.
+                            const HWND defView = ::FindWindowExW(progman, nullptr,
+                                                                 L"SHELLDLL_DefView", nullptr);
+                            const HWND listView = ::FindWindowExW(defView, nullptr,
+                                                                  L"SysListView32", nullptr);
+                            // LVM_GETSELECTEDCOUNT, spelled out: commctrl.h is not part of
+                            // this translation unit's diet and the value is stable.
+                            constexpr UINT kLvmGetSelectedCount = 0x1000 + 50;
+                            const LRESULT selectedBefore =
+                                listView
+                                    ? ::SendMessageW(listView, kLvmGetSelectedCount, 0, 0)
+                                    : -1;
+                            POINT savedCursor{};
+                            ::GetCursorPos(&savedCursor);
+                            ::SetCursorPos(iconCentre.x, iconCentre.y);
+                            auto mouse = [](DWORD flags) {
+                                INPUT in{};
+                                in.type = INPUT_MOUSE;
+                                in.mi.dwFlags = flags;
+                                return in;
+                            };
+                            INPUT click[2] = {mouse(MOUSEEVENTF_LEFTDOWN),
+                                              mouse(MOUSEEVENTF_LEFTUP)};
+                            int refused = 0;
+                            for (const INPUT& in : click) {
+                                if (::SendInput(1, const_cast<INPUT*>(&in), sizeof(INPUT)) == 0)
+                                    ++refused;
+                                ::Sleep(60);
+                            }
+                            ::Sleep(200);
+                            const LRESULT selectedAfter = listView
+                                ? ::SendMessageW(listView, kLvmGetSelectedCount, 0, 0)
+                                : -1;
+
+                            // Give the selection back, and **only one way is safe**:
+                            // Ctrl+click on the very same icon, which toggles it off
+                            // (measured by hand: 1 -> 0). Two traps, both paid for:
+                            //  - guessing a "bare" point from the icon rectangles does not
+                            //    work -- the shell's own hit area includes the label, so the
+                            //    click lands on another icon and the count stays at one;
+                            //  - `LVM_HITTEST` cannot be asked point-blank: it takes a
+                            //    *pointer* to an LVHITTESTINFO, and passing coordinates in
+                            //    lParam hands explorer a bogus pointer. It **crashes and
+                            //    restarts** (measured here: the desktop came back with the
+                            //    icons hidden for a few seconds, and this probe's own
+                            //    "the desktop is exactly the one it started with" check
+                            //    went red because the list view was rebuilding). Never
+                            //    send a list-view message whose argument is a pointer we
+                            //    have not allocated *in the shell's* process.
+                            // The cleanup is best effort: it is logged, not asserted --
+                            // the point of this check is the delivery above.
+                            auto key = [](WORD vk, bool up) {
+                                INPUT in{};
+                                in.type = INPUT_KEYBOARD;
+                                in.ki.wVk = vk;
+                                in.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+                                return in;
+                            };
+                            INPUT control[1] = {key(VK_CONTROL, false)};
+                            ::SendInput(1, control, sizeof(INPUT));
+                            ::Sleep(300);
+                            ::SetCursorPos(iconCentre.x, iconCentre.y);
+                            ::Sleep(150);
+                            for (const INPUT& in : click) {
+                                ::SendInput(1, const_cast<INPUT*>(&in), sizeof(INPUT));
+                                ::Sleep(80);
+                            }
+                            ::Sleep(150);
+                            INPUT controlUp[1] = {key(VK_CONTROL, true)};
+                            ::SendInput(1, controlUp, sizeof(INPUT));
+                            ::Sleep(300);
+                            const LRESULT selectedCleared = listView
+                                ? ::SendMessageW(listView, kLvmGetSelectedCount, 0, 0)
+                                : -1;
+                            ::SetCursorPos(savedCursor.x, savedCursor.y);
+
+                            if (selectedCleared == selectedAfter)
+                                log << QStringLiteral("(one icon of the desktop is left selected: "
+                                                      "\"%1\" -- Ctrl+click it to clear it, the "
+                                                      "click reaches the shell)")
+                                           .arg(iconsBefore.first().name);
+                            check(QStringLiteral("a click on one of the desktop's icons still "
+                                                 "reaches the shell"),
+                                  refused == 0 && selectedBefore >= 0
+                                      && selectedAfter != selectedBefore,
+                                  QStringLiteral("selection %1 -> %2 (a click on the icon at "
+                                                 "%5,%6) -> %3 (Ctrl+click puts it back), %4 "
+                                                 "SendInput refused")
+                                      .arg(selectedBefore)
+                                      .arg(selectedAfter)
+                                      .arg(selectedCleared)
+                                      .arg(refused)
+                                      .arg(iconCentre.x)
+                                      .arg(iconCentre.y));
                         } else {
-                            check(QStringLiteral("the mouse still reaches the user's own icon"), false,
-                                  QStringLiteral("the backdrop is not hosted, so nothing steps "
-                                                 "aside"));
+                            log << QStringLiteral("the icons' click was NOT asked: \"%1\" covers "
+                                                  "the icon at %2,%3 -- bring the desktop to the "
+                                                  "front and re-run to measure it")
+                                       .arg(underName)
+                                       .arg(iconCentre.x)
+                                       .arg(iconCentre.y);
                         }
 
                         // The two claims of the requirement, from outside: the shell
@@ -6079,6 +6244,44 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
+    // ---- the desktop's own menu entry (T-071) ------------------------------
+    //
+    // F-001 lives here now: a static verb Explorer draws in its own desktop menu,
+    // and a command line that asks the *running* product for a fence. Nothing of
+    // ours is on the desktop, so the icons keep their clicks, their drags and
+    // their menu, and the shell keeps its rubber band.
+    if (parser.isSet(installMenuOption)) {
+        QString installError;
+        const bool done = starfish::platform::win::installDesktopMenu(&installError);
+        qCInfo(lc).noquote() << (done
+                                     ? QStringLiteral("desktop menu entry installed: \"%1\" -> %2")
+                                           .arg(starfish::platform::win::desktopMenuLabel(),
+                                                starfish::platform::win::desktopMenuCommand())
+                                     : QStringLiteral("desktop menu entry NOT installed: %1")
+                                           .arg(installError));
+        return done ? 0 : 1;
+    }
+    if (parser.isSet(uninstallMenuOption)) {
+        QString removeError;
+        const bool done = starfish::platform::win::uninstallDesktopMenu(&removeError);
+        qCInfo(lc).noquote() << (done
+                                     ? QStringLiteral("desktop menu entry removed")
+                                     : QStringLiteral("desktop menu entry NOT removed: %1")
+                                           .arg(removeError));
+        return done ? 0 : 1;
+    }
+    if (parser.isSet(newFenceOption)) {
+        if (starfish::platform::win::requestFenceFromRunningInstance()) {
+            // The running product owns the document, so *it* has to be the one that
+            // makes the fence -- and it will, within a quarter of a second.
+            qCInfo(lc).noquote() << QStringLiteral("asked the running StarFish for a new fence");
+            return 0;
+        }
+        // Nothing running: fall through and start the product, which honours the
+        // request on its way up (the event is already set).
+        qCInfo(lc).noquote() << QStringLiteral("no StarFish running -- starting one, with a fence");
+    }
+
     // ---- product mode ------------------------------------------------------
     //
     // Reaching this point means no diagnostic probe was asked for: this is the
@@ -6115,6 +6318,8 @@ int main(int argc, char* argv[])
         if (parser.isSet(layoutOption))
             options.layoutPath = parser.value(layoutOption);
         options.hostOnDesktop = !parser.isSet(noHostOption);
+        // T-071: the desktop's own menu entry (`--new-fence`) created this launch.
+        options.newFence = parser.isSet(newFenceOption);
         options.tray = !parser.isSet(noTrayOption);
         options.settingsWindow = !parser.isSet(noSettingsOption);
         // The settings window is scaffolding, not the product (T-059): it lists the
