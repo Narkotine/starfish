@@ -9,6 +9,7 @@
 #include <QSet>
 
 #include "platform/win/desktop_surface.hpp"
+#include "ui/desktop_backdrop.hpp"
 #include "ui/fence_view.hpp"
 
 #if defined(_WIN32)
@@ -64,6 +65,24 @@ QSize logicalSize(const QSize& physical, qreal dpr)
 FenceContainer::FenceContainer(QObject* parent)
     : QObject(parent)
 {
+    // T-039: the backdrop exists from the start but is inert until enabled, so
+    // every caller -- headless probes included -- can ask it what the desktop
+    // would show without owning a window.
+    m_backdrop = new DesktopBackdrop(this);
+    // The backdrop is a *view* of the fences, so it follows the same signals the
+    // document does: whatever changes which icons a fence holds changes what the
+    // desktop shows. A self-connection keeps the call sites free of bookkeeping
+    // -- and there is exactly one place to look when an icon does not move.
+    connect(this, &FenceContainer::fenceCreated, this,
+            [this](const QString&) { refreshBackdrop(); });
+    connect(this, &FenceContainer::fenceRemoved, this,
+            [this](const QString&) { refreshBackdrop(); });
+    connect(this, &FenceContainer::fenceRectChanged, this,
+            [this](const QString&, const QRect&) { refreshBackdrop(); });
+    connect(this, &FenceContainer::fenceContentChanged, this,
+            [this](const QString&) { refreshBackdrop(); });
+    connect(this, &FenceContainer::fenceRolledUpChanged, this,
+            [this](const QString&, bool) { refreshBackdrop(); });
 }
 
 FenceContainer::~FenceContainer()
@@ -82,6 +101,8 @@ void FenceContainer::setIconProvider(IconGrid::IconProvider provider)
         if (fence.view)
             fence.view->setIconProvider(m_iconProvider);
     }
+    if (m_backdrop)
+        m_backdrop->setIconProvider(m_iconProvider);
 }
 
 void FenceContainer::setItemResolver(ItemResolver resolver)
@@ -165,6 +186,8 @@ void FenceContainer::setScreens(const ScreenLayout& layout)
     if (layout.isEmpty())
         return; // no information: keep what we know rather than losing the screen
     m_screens = layout;
+    if (m_backdrop)
+        m_backdrop->setScreens(m_screens);
     // A change of screens is exactly when fences end up off-screen (a monitor
     // unplugged, moved, or its resolution changed): put them back now.
     revalidateScreens();
@@ -175,6 +198,8 @@ void FenceContainer::setDesktopBounds(const QSize& bounds)
     if (bounds.isEmpty())
         return;
     m_screens = ScreenLayout::single(bounds);
+    if (m_backdrop)
+        m_backdrop->setScreens(m_screens);
 }
 
 int FenceContainer::revalidateScreens()
@@ -209,6 +234,50 @@ int FenceContainer::revalidateScreens()
 QString FenceContainer::nextId()
 {
     return QStringLiteral("fence-%1").arg(m_nextId++, 3, 10, QLatin1Char('0'));
+}
+
+// --- the desktop backdrop (T-039) ------------------------------------------
+
+bool FenceContainer::setBackdropEnabled(bool enabled)
+{
+    if (!m_backdrop)
+        return false;
+    m_backdrop->setIconProvider(m_iconProvider);
+    m_backdrop->setScreens(m_screens);
+    refreshBackdrop(); // so the first frame is drawn from a current free set
+    m_backdrop->setEnabled(enabled);
+    return !enabled || m_backdrop->isAttached();
+}
+
+bool FenceContainer::backdropEnabled() const
+{
+    return m_backdrop && m_backdrop->enabled();
+}
+
+void FenceContainer::setDesktopItems(QList<core::DesktopItem> items)
+{
+    if (m_backdrop)
+        m_backdrop->setDesktopItems(std::move(items));
+}
+
+void FenceContainer::refreshBackdrop()
+{
+    if (!m_backdrop)
+        return;
+    // Everything a fence holds. Computed here, on every change, and stored
+    // nowhere: the document keeps describing *fences*, and the desktop layer is
+    // whatever is left over (ADR-7, and the reason F-007/F-011 need no restore
+    // code).
+    QSet<QString> occupied;
+    for (const FenceWindow& fence : m_fences) {
+        if (!fence.view)
+            continue;
+        for (const core::DesktopItem& item : fence.view->items()) {
+            if (!item.path.isEmpty())
+                occupied.insert(BackdropLayout::pathKey(item.path));
+        }
+    }
+    m_backdrop->setOccupiedPaths(occupied);
 }
 
 FenceWindow* FenceContainer::find(const QString& id)

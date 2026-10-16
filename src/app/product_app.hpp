@@ -101,6 +101,13 @@ public:
     // its id.
     QString createFenceWithDefaultPlacement();
 
+    // The monitors, as the fence geometry needs them (T-014 / F-032): physical
+    // rects in virtual-screen coordinates, each with its device pixel ratio.
+    // Public because it is *the* definition of "where the screens are" for this
+    // process -- a probe that built its own could measure a different desktop
+    // than the product works on.
+    static ui::ScreenLayout screenLayout();
+
 signals:
     void quitRequested();
 
@@ -125,9 +132,20 @@ private:
     void refreshStatus();
     void showSettings();
 
-    // The monitors, as the fence geometry needs them (T-014 / F-032): physical
-    // rects in virtual-screen coordinates, each with its device pixel ratio.
-    static ui::ScreenLayout screenLayout();
+    // T-039: reads the real desktop folder and hands it to the container, which
+    // is what the backdrop subtracts the fences' own icons from. Called at
+    // startup and whenever a desktop folder changes -- the backdrop is a view of
+    // the desktop, so it has to follow it exactly like a portal follows its
+    // folder.
+    void refreshDesktopItems();
+
+    // T-039: turns the backdrop on, and reports whether it really took. Hiding
+    // the native icon layer on the strength of a backdrop that could not be
+    // hosted would leave the user with no icons at all -- the same "refuse the
+    // risky step when the safe one cannot be done" discipline as the crash
+    // marker (T-046).
+    bool enableBackdrop();
+
     // Called when the set of screens changes: the fences are revalidated onto
     // the screens that are actually there, so unplugging a monitor brings its
     // fences back instead of stranding them off-screen.
@@ -161,6 +179,9 @@ private:
     // re-arms the watcher when the set really changed.
     QStringList m_watchedFolders;
     QStringList m_portalFolders;
+    // The desktop folders themselves, kept apart from the portal folders so a
+    // change notification can be routed to the right consumer (T-039).
+    QStringList m_desktopFolders;
 };
 
 } // namespace starfish::app

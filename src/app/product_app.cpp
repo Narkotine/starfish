@@ -9,6 +9,7 @@
 #include <QScreen>
 #include <QTimer>
 
+#include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
@@ -16,6 +17,7 @@
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_icon_cache.hpp"
+#include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -374,10 +376,22 @@ void ProductApp::wireWatcher()
                 const int filed = m_container->applyRulesTo(items);
                 if (filed > 0 && m_tray)
                     m_tray->notify(tr("StarFish"), tr("%1 item(s) filed by the rules").arg(filed));
+                // T-039: a file dropped on the desktop must appear on the
+                // backdrop too, whether or not a rule claimed it.
+                if (m_container->backdropEnabled())
+                    refreshDesktopItems();
             });
 
     connect(m_watcher, &core::DesktopWatcher::folderChanged, this,
-            [this](const QString& folder) { m_container->refreshPortalsFor(folder); });
+            [this](const QString& folder) {
+                m_container->refreshPortalsFor(folder);
+                // The backdrop is a view of the desktop folder: a file leaving it
+                // has to leave the backdrop as well, and only this signal says so
+                // (itemsAdded never will).
+                if (m_container->backdropEnabled()
+                    && m_desktopFolders.contains(folder, Qt::CaseInsensitive))
+                    refreshDesktopItems();
+            });
 
     m_portalFolders = m_container->portalFolders();
     syncWatchedFolders();
@@ -391,6 +405,9 @@ void ProductApp::syncWatchedFolders()
     QStringList folders = m_options.watchDesktop
                               ? platform::win::DesktopScanner::desktopFolders()
                               : QStringList();
+    // Kept so a folderChanged() can tell "the desktop changed" (the backdrop
+    // follows) from "a portal's folder changed" (it does not).
+    m_desktopFolders = folders;
     folders += m_container->portalFolders();
     folders.removeDuplicates();
 
@@ -510,10 +527,23 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
     if (hidden != m_iconsHidden) {
         if (!m_options.hostOnDesktop) {
             m_iconsHidden = hidden; // windowed or headless: track the intent only
+        } else if (hidden && !enableBackdrop()) {
+            // T-039: from here on the native icon layer is the only thing drawing
+            // the desktop. Taking it away without a backdrop that can be
+            // transparent would leave an empty wallpaper -- so the icons stay.
+            qCCritical(lc) << "the desktop backdrop could not be hosted; the native icons "
+                              "stay visible";
         } else if (platform::win::DesktopSurface::setDesktopIconsHidden(hidden)) {
             m_iconsHidden = hidden;
+            if (!hidden) {
+                // The native layer is back first, then ours goes: the desktop is
+                // never left without icons, not even for a frame.
+                m_container->setBackdropEnabled(false);
+            }
         } else {
             qCWarning(lc) << "could not change the desktop icon visibility";
+            if (hidden)
+                m_container->setBackdropEnabled(false);
         }
     }
 
@@ -523,6 +553,38 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
         m_settings->setDesktopIconsHidden(m_iconsHidden);
 
     refreshStatus();
+}
+
+bool ProductApp::enableBackdrop()
+{
+    if (!m_container)
+        return false;
+    // The desktop is re-read first: a file added since the last scan must be on
+    // the backdrop the moment the native layer goes away, not after the next
+    // watcher tick.
+    refreshDesktopItems();
+    if (m_container->setBackdropEnabled(true))
+        return true;
+
+    qCWarning(lc) << "the backdrop could not be attached (no desktop, or the per-pixel "
+                     "push was refused)";
+    m_container->setBackdropEnabled(false);
+    return false;
+}
+
+void ProductApp::refreshDesktopItems()
+{
+    if (!m_container)
+        return;
+    QString error;
+    QList<core::DesktopItem> items = platform::win::DesktopScanner::scan(&error);
+    if (!error.isEmpty())
+        qCWarning(lc).noquote() << QStringLiteral("could not read the desktop: %1").arg(error);
+    // The Windows desktop sorts by name unless the user turned auto-arrange off;
+    // the backdrop has no per-item positions to honour, so it uses the same order
+    // rather than inventing one.
+    core::sortForDisplay(items, QStringLiteral("name"), true);
+    m_container->setDesktopItems(std::move(items));
 }
 
 void ProductApp::restoreDesktopIcons()
@@ -540,6 +602,10 @@ void ProductApp::restoreDesktopIcons()
     } else {
         qCWarning(lc) << "the desktop icons could not be restored";
     }
+    // Whatever happened to the native layer, the backdrop has no reason to stay:
+    // it exists to stand in for the icons, not to double them (T-039).
+    if (m_container)
+        m_container->setBackdropEnabled(false);
 
     if (m_tray)
         m_tray->setDesktopIconsHidden(m_iconsHidden);
@@ -574,6 +640,8 @@ QString ProductApp::statusText() const
     parts << tr("%1 fence(s)").arg(m_container->fenceCount());
     parts << tr("%1 rule(s)").arg(m_container->rules().size());
     parts << (m_iconsHidden ? tr("desktop icons hidden") : tr("desktop icons visible"));
+    if (m_container->backdrop() && m_container->backdrop()->enabled())
+        parts << m_container->backdrop()->statusText();
     parts << (m_watcher && m_watcher->isWatching()
                   ? tr("watching %1 folder(s)").arg(m_watcher->folders().size())
                   : tr("not watching any folder"));

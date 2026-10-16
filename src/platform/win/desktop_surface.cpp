@@ -281,7 +281,11 @@ bool DesktopSurface::attach(const QRect& rect)
     //    with OleUninitialize in detach(). m_oleInit is set on success (or when
     //    OLE was already initialised by somebody else) so exactly one init is
     //    balanced by one uninit.
-    if (!m_oleInit) {
+    //
+    //    A click-through surface registers nothing (T-039): it is decorative,
+    //    and swallowing a drop it cannot honour would be worse than letting the
+    //    drag reach whatever is underneath.
+    if (!m_clickThrough && !m_oleInit) {
         const HRESULT hr = ::OleInitialize(nullptr);
         if (SUCCEEDED(hr)) {
             m_oleInit = true;
@@ -506,13 +510,27 @@ void DesktopSurface::setVisible(bool visible)
     }
 }
 
-void DesktopSurface::setRaisedAboveIcons(bool raised)
+void DesktopSurface::setLayer(Layer layer)
 {
-    if (m_raisedAboveIcons == raised)
+    if (m_layer == layer)
         return;
-    m_raisedAboveIcons = raised;
+    m_layer = layer;
     if (isAttached())
         place();
+}
+
+void DesktopSurface::setRaisedAboveIcons(bool raised)
+{
+    setLayer(raised ? Layer::AboveIconLayer : Layer::BelowIconLayer);
+}
+
+void DesktopSurface::setClickThrough(bool clickThrough)
+{
+    if (m_clickThrough == clickThrough)
+        return;
+    m_clickThrough = clickThrough;
+    // The window style does not change: HTTRANSPARENT is answered from
+    // WM_NCHITTEST, which is a property of this WndProc and needs no repaint.
 }
 
 void DesktopSurface::syncZOrder()
@@ -728,11 +746,22 @@ bool DesktopSurface::place()
     if (!m_iconHost || !isAttached())
         return false;
 
-    // Peek (F-021) puts the surface at the top of Progman's child z-order, i.e.
-    // above the icon layer; the normal position is just below SHELLDLL_DefView.
-    const HWND anchor = m_raisedAboveIcons
-                            ? HWND_TOP
-                            : (m_defView ? toHwnd(m_defView) : HWND_BOTTOM);
+    // The three roles of T-039. Peek (F-021) puts the surface at the top of
+    // Progman's child z-order, i.e. above the icon layer; the normal position is
+    // just below SHELLDLL_DefView; the backdrop (ADR-9 option A) belongs at the
+    // very bottom, under the fences it decorates the desktop behind.
+    HWND anchor = HWND_BOTTOM;
+    switch (m_layer) {
+    case Layer::AboveIconLayer:
+        anchor = HWND_TOP;
+        break;
+    case Layer::BelowIconLayer:
+        anchor = m_defView ? toHwnd(m_defView) : HWND_BOTTOM;
+        break;
+    case Layer::Backdrop:
+        anchor = HWND_BOTTOM;
+        break;
+    }
     // A hidden surface (quick hide, F-022) is positioned but never shown: the
     // watchdog re-places every 2 s and must not resurrect it.
     UINT flags = SWP_NOACTIVATE;
@@ -840,15 +869,31 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         // for; owning the WndProc makes it trivial.
         auto* pos = reinterpret_cast<WINDOWPOS*>(lParam);
         if (pos && !(pos->flags & SWP_NOZORDER)) {
-            if (m_raisedAboveIcons)
+            switch (m_layer) {
+            case Layer::AboveIconLayer:
                 pos->hwndInsertAfter = HWND_TOP;
-            else if (m_defView)
-                pos->hwndInsertAfter = toHwnd(m_defView);
+                break;
+            case Layer::BelowIconLayer:
+                if (m_defView)
+                    pos->hwndInsertAfter = toHwnd(m_defView);
+                break;
+            case Layer::Backdrop:
+                pos->hwndInsertAfter = HWND_BOTTOM;
+                break;
+            }
         }
         return false;
     }
 
     case WM_NCHITTEST:
+        if (m_clickThrough) {
+            // Hand the mouse to whatever is under this window. The backdrop
+            // paints the desktop's icons but owns none of their behaviour yet
+            // (T-042): swallowing the click would be a silent regression, while
+            // letting it through keeps the desktop reachable exactly as it was.
+            *result = HTTRANSPARENT;
+            return true;
+        }
         // Empty fence areas should let the click through to the desktop icon
         // layer in Phase 2 (T-006); for now the whole surface is a client area.
         *result = HTCLIENT;

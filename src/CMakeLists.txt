@@ -22,6 +22,7 @@ qt_add_executable(starfish WIN32
     platform/win/shell_drop_target.cpp
     platform/win/hotkey_manager.cpp
     ui/fence_container.cpp
+    ui/desktop_backdrop.cpp
     ui/settings_dialog.cpp
     ui/tray_icon.cpp
     ui/fence_view.cpp

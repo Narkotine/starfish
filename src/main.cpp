@@ -38,6 +38,8 @@
 #include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
+#include "ui/backdrop_layout.hpp"
+#include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_view.hpp"
@@ -842,6 +844,16 @@ int main(int argc, char* argv[])
                       "the monitor's ratio. Writes a PASS/FAIL report to build/screen_demo.txt."));
     parser.addOption(productProbeOption);
     parser.addOption(screenDemoOption);
+    const QCommandLineOption backdropDemoOption(
+        QLatin1String("backdrop-demo"),
+        QLatin1String("T-039 diagnostic: the desktop layer StarFish draws itself (ADR-9 option "
+                      "A). Checks that the icons no fence holds are computed -- never stored, "
+                      "so the document does not move -- that the layout is column-major like "
+                      "the Windows desktop, and that the rendered frame really loses an icon "
+                      "when a fence claims it. With --host it also hosts the real full-screen "
+                      "window and reads back its z-order, its layered flag and its per-pixel "
+                      "mode. Writes a PASS/FAIL report to build/backdrop_demo.txt."));
+    parser.addOption(backdropDemoOption);
     const QCommandLineOption crashDemoOption(
         QLatin1String("crash-demo"),
         QLatin1String("T-046 diagnostic: hide the native desktop icons through the product's "
@@ -3513,6 +3525,336 @@ int main(int argc, char* argv[])
         for (const QString& line : log)
             qCInfo(lc).noquote() << line;
         qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(backdropDemoOption)) {
+        // T-039 (ADR-9 option A): the layer StarFish draws the desktop's own
+        // icons on while it owns the icon layer. Headless by default -- the free
+        // set, the layout, the frame and the document check need no desktop;
+        // --host additionally hosts the real full-screen window and measures it.
+        //
+        // Nothing here hides the native icons: the backdrop is proved *before*
+        // it is asked to stand in for them (the product only hides the layer
+        // once this succeeds -- see ProductApp::enableBackdrop).
+        QStringList header;
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -58)
+                       .arg(detail);
+        };
+
+        // --- the desktop, as the Shell reports it ---------------------------
+        header << QStringLiteral("-- the desktop, as the Shell reports it --");
+        QString scanError;
+        const QList<starfish::core::DesktopItem> scanned =
+            starfish::platform::win::DesktopScanner::scan(&scanError);
+        QList<starfish::core::DesktopItem> visible;
+        for (const starfish::core::DesktopItem& item : scanned) {
+            if (!item.isHidden)
+                visible.append(item);
+        }
+        header << QStringLiteral("  %1 entries, %2 of them visible to the Shell")
+                      .arg(scanned.size())
+                      .arg(visible.size());
+        if (!scanError.isEmpty())
+            header << QStringLiteral("  scan error: %1").arg(scanError);
+
+        starfish::ui::FenceContainer container;
+        // The real monitors, from the product's own definition of them: a probe
+        // that built its own could measure a different desktop than the product
+        // works on.
+        container.setScreens(starfish::app::ProductApp::screenLayout());
+        // A real desktop that has icons on it is the case this feature exists
+        // for; a probe on an empty one would measure nothing.
+        const bool enoughIcons = visible.size() >= 8;
+        check(QStringLiteral("the desktop has icons to draw"), enoughIcons,
+              QStringLiteral("%1 visible entries").arg(visible.size()));
+        if (!enoughIcons) {
+            header << QStringLiteral("  (stopping here: nothing to measure)");
+        }
+
+        const QRect area = container.screens().bounds();
+        header << QStringLiteral("-- the virtual screen --");
+        header << QStringLiteral("  %1,%2 %3x%4 (primary dpr %5)")
+                      .arg(area.x())
+                      .arg(area.y())
+                      .arg(area.width())
+                      .arg(area.height())
+                      .arg(container.screens().primary()
+                               ? container.screens().primary()->devicePixelRatio
+                               : 1.0);
+
+        container.setDesktopItems(visible);
+        starfish::ui::DesktopBackdrop* backdrop = container.backdrop();
+        check(QStringLiteral("the container owns a backdrop"), backdrop != nullptr, {});
+        if (!backdrop || !enoughIcons) {
+            // Nothing else can be measured; report what we have.
+            const QString reportPath = QStringLiteral("build/backdrop_demo.txt");
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("backdrop probe (T-039)\n");
+                for (const QString& line : header)
+                    stream << line << '\n';
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0 ? QStringLiteral("RESULT: all checks passed\n")
+                                         : QStringLiteral("RESULT: %1 check(s) FAILED\n")
+                                               .arg(QString::number(failures)));
+            }
+            for (const QString& line : log)
+                qCInfo(lc).noquote() << line;
+            const int exitCode = failures == 0 ? 0 : 1;
+            QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+            return app.exec();
+        }
+
+        // --- the free set ---------------------------------------------------
+        //
+        // The desktop's icons are what no fence holds. That set is *computed*
+        // here and stored nowhere: the document keeps describing fences (ADR-7),
+        // and F-007/F-011 come out of it for free.
+        log << QStringLiteral("-- the free set --");
+        check(QStringLiteral("with no fence, every icon is on the desktop"),
+              backdrop->freeCount() == visible.size(),
+              QStringLiteral("free=%1 of %2")
+                  .arg(backdrop->freeCount())
+                  .arg(visible.size()));
+
+        // ADR-7: the desktop layer is a *view*. Drawing it must not put a single
+        // byte in the document -- that is what keeps the schema still, and what
+        // makes F-007/F-011 fall out of the model instead of needing restore
+        // code.
+        const QByteArray emptyDocument = starfish::core::JsonStore::toJson(container.toLayout());
+        backdrop->renderNow();
+        backdrop->renderNow();
+        check(QStringLiteral("drawing the desktop never touches the document"),
+              starfish::core::JsonStore::toJson(container.toLayout()) == emptyDocument,
+              QStringLiteral("%1 bytes, unchanged after two full renders")
+                  .arg(emptyDocument.size()));
+
+        const QList<starfish::core::DesktopItem> claimed = visible.mid(0, 3);
+        const QString fenceId = container.createFence(
+            QStringLiteral("Backdrop probe"), QRect(200, 200, 320, 240), claimed);
+        check(QStringLiteral("a fence takes exactly its icons off the desktop"),
+              backdrop->freeCount() == visible.size() - claimed.size(),
+              QStringLiteral("free=%1, fence holds %2")
+                  .arg(backdrop->freeCount())
+                  .arg(claimed.size()));
+
+        const QSet<QString> freeKeys = [&backdrop] {
+            QSet<QString> keys;
+            for (const starfish::core::DesktopItem& item : backdrop->freeItems())
+                keys.insert(starfish::ui::BackdropLayout::pathKey(item.path));
+            return keys;
+        }();
+        bool noneClaimed = true;
+        for (const starfish::core::DesktopItem& item : claimed)
+            noneClaimed = noneClaimed && !freeKeys.contains(
+                                             starfish::ui::BackdropLayout::pathKey(item.path));
+        check(QStringLiteral("an icon a fence holds is not among the free ones"), noneClaimed,
+              QStringLiteral("%1 claimed, %2 free").arg(claimed.size()).arg(freeKeys.size()));
+
+        // The same file spelled differently is the same file: a fence can hold
+        // the path a Shell lookup returned while the scan returned the other
+        // spelling, and drawing it twice would be the visible bug.
+        const starfish::core::DesktopItem upper = [&visible] {
+            starfish::core::DesktopItem item = visible.at(3);
+            item.path = item.path.toUpper();
+            return item;
+        }();
+        const QString secondId =
+            container.createFence(QStringLiteral("Backdrop probe 2"), QRect(560, 200, 320, 240),
+                                  {upper});
+        check(QStringLiteral("the comparison ignores case and separators"),
+              backdrop->freeCount() == visible.size() - claimed.size() - 1,
+              QStringLiteral("free=%1 after claiming \"%2\"")
+                  .arg(backdrop->freeCount())
+                  .arg(upper.fileName));
+        container.removeFence(secondId);
+
+        // ADR-7, the other half: what the document holds is exactly the fences'
+        // icons -- never the desktop's. 80-odd icons are on screen and three
+        // paths are written.
+        const auto parsed =
+            starfish::core::JsonStore::fromJson(starfish::core::JsonStore::toJson(
+                                                    container.toLayout()),
+                                                nullptr);
+        int documentedItems = 0;
+        if (parsed) {
+            for (const starfish::core::Fence& fence : parsed->fences)
+                documentedItems += fence.items.size();
+        }
+        check(QStringLiteral("the document holds the fence's icons and none of the desktop's"),
+              parsed.has_value() && parsed->fences.size() == 1
+                  && documentedItems == claimed.size(),
+              QStringLiteral("%1 path(s) in the document, %2 icons on the desktop")
+                  .arg(documentedItems)
+                  .arg(visible.size()));
+
+        // F-007 / F-011, at the model level: deleting a fence is the whole of
+        // "give the icons back". No restore code exists, and none is needed.
+        container.removeFence(fenceId);
+        check(QStringLiteral("deleting the fence puts the icons back"),
+              backdrop->freeCount() == visible.size(),
+              QStringLiteral("free=%1 of %2")
+                  .arg(backdrop->freeCount())
+                  .arg(visible.size()));
+
+        // --- where it lands -------------------------------------------------
+        log << QStringLiteral("-- where it lands --");
+        const starfish::ui::BackdropLayout::Metrics physical = backdrop->physicalMetrics();
+        const int rows = starfish::ui::BackdropLayout::rowsForHeight(area.height(), physical);
+        const QVector<starfish::ui::BackdropCell> cells = backdrop->cells();
+        const bool enoughForColumns = cells.size() > rows + 1;
+        check(QStringLiteral("the desktop has enough icons for a column check"), enoughForColumns,
+              QStringLiteral("%1 cells, %2 rows").arg(cells.size()).arg(rows));
+        if (enoughForColumns) {
+            bool sameColumn = true;
+            for (int i = 1; i < rows; ++i)
+                sameColumn = sameColumn && cells.at(i).icon.x() == cells.at(0).icon.x();
+            const bool stepsRight = cells.at(rows).icon.x() > cells.at(0).icon.x();
+            check(QStringLiteral("the cells fill columns, like the Windows desktop"),
+                  sameColumn && stepsRight,
+                  QStringLiteral("first %1 share x=%2, cell %3 starts the next column at x=%4")
+                      .arg(rows)
+                      .arg(cells.at(0).icon.x())
+                      .arg(rows)
+                      .arg(cells.at(rows).icon.x()));
+        }
+
+        // --- the frame ------------------------------------------------------
+        log << QStringLiteral("-- the frame --");
+        const auto opaquePixels = [](const QImage& image) {
+            qint64 count = 0;
+            for (int y = 0; y < image.height(); ++y) {
+                const QRgb* line = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+                for (int x = 0; x < image.width(); ++x) {
+                    if (qAlpha(line[x]) != 0)
+                        ++count;
+                }
+            }
+            return count;
+        };
+
+        backdrop->renderNow();
+        const QImage full = backdrop->frame();
+        check(QStringLiteral("the frame is the size of the virtual screen"),
+              full.size() == area.size(),
+              QStringLiteral("%1x%2").arg(full.width()).arg(full.height()));
+        const qint64 paintedFull = opaquePixels(full);
+        const qint64 totalPixels = qint64(full.width()) * full.height();
+        check(QStringLiteral("the frame is mostly transparent (the wallpaper shows)"),
+              full.hasAlphaChannel() && paintedFull > 0
+                  && paintedFull * 100 / qMax<qint64>(1, totalPixels) < 10,
+              QStringLiteral("%1 of %2 pixels painted (%3 %)")
+                  .arg(paintedFull)
+                  .arg(totalPixels)
+                  .arg(totalPixels ? paintedFull * 100 / totalPixels : 0));
+
+        // The one thing a frame can prove that a count cannot: the pixels really
+        // go away when a fence claims an icon.
+        const QString claimedId = container.createFence(
+            QStringLiteral("Backdrop probe 3"), QRect(200, 200, 320, 240), claimed);
+        backdrop->renderNow();
+        const qint64 paintedClaimed = opaquePixels(backdrop->frame());
+        check(QStringLiteral("the frame loses an icon when a fence claims it"),
+              paintedClaimed < paintedFull,
+              QStringLiteral("%1 painted pixels, %2 after claiming %3 icon(s)")
+                  .arg(paintedFull)
+                  .arg(paintedClaimed)
+                  .arg(claimed.size()));
+        container.removeFence(claimedId);
+
+        // --- the real window (--host) ---------------------------------------
+        const bool hosted = parser.isSet(hostOption);
+        if (hosted) {
+            log << QStringLiteral("-- the real window (--host) --");
+            const bool attached = container.setBackdropEnabled(true);
+            check(QStringLiteral("the backdrop is hosted"), attached && backdrop->isAttached(),
+                  backdrop->statusText());
+
+            if (attached && backdrop->surface()) {
+                starfish::platform::win::DesktopSurface* surface = backdrop->surface();
+                const HWND hwnd = reinterpret_cast<HWND>(surface->hwnd());
+                const LONG exStyle = static_cast<LONG>(::GetWindowLongW(hwnd, GWL_EXSTYLE));
+                check(QStringLiteral("the window is layered (ADR-4)"),
+                      (exStyle & WS_EX_LAYERED) != 0,
+                      QStringLiteral("ex 0x%1")
+                          .arg(static_cast<qulonglong>(exStyle), 0, 16));
+                check(QStringLiteral("the per-pixel path took (no opaque fallback)"),
+                      surface->perPixelAlpha(),
+                      QStringLiteral("UpdateLayeredWindow succeeded, alpha honoured"));
+                check(QStringLiteral("the window covers the whole virtual screen"),
+                      surface->geometry() == area,
+                      QStringLiteral("%1,%2 %3x%4")
+                          .arg(surface->geometry().x())
+                          .arg(surface->geometry().y())
+                          .arg(surface->geometry().width())
+                          .arg(surface->geometry().height()));
+                check(QStringLiteral("the backdrop does not eat the clicks"), surface->clickThrough(),
+                      QStringLiteral("WM_NCHITTEST answers HTTRANSPARENT"));
+
+                const HWND progman = ::FindWindowW(L"Progman", nullptr);
+                const HWND defView =
+                    progman ? ::FindWindowExW(progman, nullptr, L"SHELLDLL_DefView", nullptr)
+                            : nullptr;
+                const int backdropIndex = progmanChildIndex(hwnd);
+                const int defViewIndex = progmanChildIndex(defView);
+                check(QStringLiteral("the backdrop sits under the fences and the icon layer"),
+                      backdropIndex >= 0 && defViewIndex >= 0 && backdropIndex > defViewIndex,
+                      QStringLiteral("z-order: backdrop [%1] vs DefView [%2] (0 is topmost)")
+                          .arg(backdropIndex)
+                          .arg(defViewIndex));
+
+                container.setBackdropEnabled(false);
+                check(QStringLiteral("turning it off leaves no window behind"),
+                      !backdrop->isAttached() && !::IsWindow(hwnd), {});
+            }
+        } else {
+            log << QStringLiteral("-- the real window -- skipped (pass --host to host it) --");
+        }
+
+        // The probe never hides the native icons, so the desktop is untouched by
+        // construction -- but say so, because that is the property the product
+        // depends on.
+        check(QStringLiteral("the probe left the native icons alone"),
+              !starfish::platform::win::DesktopSurface::desktopIconsHidden(),
+              QStringLiteral("SHELLDLL_DefView is %1")
+                  .arg(starfish::platform::win::DesktopSurface::desktopIconsHidden()
+                           ? QStringLiteral("hidden")
+                           : QStringLiteral("visible")));
+
+        const QString reportPath = QStringLiteral("build/backdrop_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("backdrop probe (T-039, ADR-9 option A)\n");
+                for (const QString& line : header)
+                    stream << line << '\n';
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n")
+                                     .arg(QString::number(failures)));
+            }
+        }
+        for (const QString& line : header)
+            qCInfo(lc).noquote() << line;
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
         QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });

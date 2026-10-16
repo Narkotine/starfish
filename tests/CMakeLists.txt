@@ -164,3 +164,20 @@ target_include_directories(test_starfish_icon_hiding_marker PRIVATE
 target_link_libraries(test_starfish_icon_hiding_marker PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_icon_hiding_marker COMMAND test_starfish_icon_hiding_marker)
+
+# The desktop backdrop (T-039 / ADR-9 option A): which entries a fence does NOT
+# hold, and where the icons StarFish draws itself land. Pure -- no Win32, no
+# window, so the two rules that matter (the free set is *computed*, and the
+# layout is column-major like the Windows desktop) are unit-tested anywhere.
+add_executable(test_starfish_backdrop_layout
+    test_backdrop_layout.cpp
+    ../src/core/desktop_item.cpp
+)
+
+target_include_directories(test_starfish_backdrop_layout PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_backdrop_layout PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME ui_backdrop_layout COMMAND test_starfish_backdrop_layout)

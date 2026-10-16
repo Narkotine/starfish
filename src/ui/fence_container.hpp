@@ -25,6 +25,7 @@ class DesktopSurface;
 namespace starfish::ui {
 
 class FenceView;
+class DesktopBackdrop;
 
 // One live fence (T-007): the model geometry, the widget that renders it and,
 // when hosted, the raw Win32 surface that shows it on the desktop.
@@ -253,6 +254,36 @@ public:
     // All rects except `excludeId`, for snapping.
     QList<QRect> otherRects(const QString& excludeId) const;
 
+    // --- the desktop backdrop (T-039, ADR-9 option A) -----------------------
+    //
+    // When StarFish owns the icon layer -- the native one is hidden, which is
+    // what makes a hosted fence clickable at all -- the icons no fence holds
+    // still have to be drawn somewhere. That is the backdrop: a click-through
+    // full-screen surface under the fences, whose content is *computed* from the
+    // fences on every change and never stored (ADR-7 stays intact, and
+    // F-007/F-011 follow from it for free).
+    //
+    // It is attached to the container because the container is the only object
+    // that knows which icons a fence holds; the surface and the painting live in
+    // DesktopBackdrop.
+    DesktopBackdrop* backdrop() const { return m_backdrop; }
+
+    // Turns the backdrop on. Returns false when it could not be hosted -- an
+    // opaque full-screen window would hide the wallpaper, so the caller must
+    // read this before hiding the native icons: no backdrop means the desktop
+    // keeps its own.
+    bool setBackdropEnabled(bool enabled);
+    bool backdropEnabled() const;
+
+    // The whole desktop, as the Shell presents it. The backdrop subtracts the
+    // fences' own items from it.
+    void setDesktopItems(QList<core::DesktopItem> items);
+
+    // Recomputes which icons the fences hold and refreshes the backdrop. Called
+    // by the container itself on every lifecycle signal; public so the product
+    // can force a pass after a desktop rescan.
+    void refreshBackdrop();
+
     // --- persistence (T-008) -------------------------------------------------
     // The live fences as a versioned document, ready for core::JsonStore. The
     // order of `fences` is the creation order.
@@ -324,6 +355,9 @@ private:
     QList<FenceWindow> m_fences;
     IconGrid::IconProvider m_iconProvider;
     ItemResolver m_itemResolver;
+    // T-039: the layer the desktop's own icons are drawn on while the native one
+    // is hidden. Owned here, and always present -- it is inert until enabled.
+    DesktopBackdrop* m_backdrop = nullptr;
     // T-010: the automation rules, in priority order (first match wins).
     QList<core::Rule> m_rules;
     // T-014: every screen the fences may live on. Defaults to the v1 single

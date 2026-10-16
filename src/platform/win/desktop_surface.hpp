@@ -84,13 +84,39 @@ public:
     void setVisible(bool visible);
     bool isVisible() const { return m_visible; }
 
-    // Peek (F-021): raises the surface above the icon layer while active.
-    // Within this window model -- a child of Progman -- HWND_TOP is the
-    // frontmost position a fence can reach, i.e. above SHELLDLL_DefView.
-    // Floating above *application* windows would need a top-level window, which
-    // is a different ownership model and is not part of v1.
+    // Where the surface sits among Progman's children (T-039). The three roles
+    // are all the window model of ADR-4 can express:
+    //
+    //   BelowIconLayer  the normal fence position: inserted just under
+    //                   SHELLDLL_DefView.
+    //   AboveIconLayer  Peek (F-021). HWND_TOP is the frontmost position a child
+    //                   of Progman can reach. Floating above *application*
+    //                   windows would need a top-level window, a different
+    //                   ownership model that is not part of v1.
+    //   Backdrop        the layer StarFish draws the desktop's own icons on
+    //                   (ADR-9 option A). It belongs under everything else, and
+    //                   since the native icon layer is hidden while StarFish
+    //                   runs, "under the fences" is all it has to be.
+    enum class Layer {
+        BelowIconLayer,
+        AboveIconLayer,
+        Backdrop,
+    };
+
+    void setLayer(Layer layer);
+    Layer layer() const { return m_layer; }
+
+    // Compatibility with the T-009 API: Peek is exactly the AboveIconLayer role.
     void setRaisedAboveIcons(bool raised);
-    bool raisedAboveIcons() const { return m_raisedAboveIcons; }
+    bool raisedAboveIcons() const { return m_layer == Layer::AboveIconLayer; }
+
+    // A purely decorative surface must not eat the clicks meant for whatever is
+    // under it. When set, WM_NCHITTEST answers HTTRANSPARENT, so Windows hands
+    // the mouse to the next window down the z-order, and the surface does not
+    // register an OLE drop target -- swallowing a drop it cannot honour would be
+    // worse than letting it through. Used by the backdrop (T-039).
+    void setClickThrough(bool clickThrough);
+    bool clickThrough() const { return m_clickThrough; }
 
     // Frame to display. The image is copied, so the caller may release it.
     // A null image clears the surface.
@@ -179,7 +205,8 @@ private:
     // Navigation state (T-009), both honoured by place() so the watchdog cannot
     // undo them.
     bool m_visible = true;
-    bool m_raisedAboveIcons = false;
+    Layer m_layer = Layer::BelowIconLayer;
+    bool m_clickThrough = false;
 
     QObject* m_inputTarget = nullptr;
     bool m_leftDown = false;
