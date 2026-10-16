@@ -40,8 +40,10 @@ public:
     bool sortAscending() const { return m_grid.ascending(); }
 
     // Visual style of the panel (T-008 persists these through FenceStyle). The
-    // colour is stored opaque on purpose: the alpha channel of the persisted
-    // style belongs to the per-pixel surface path (T-017), not to this widget.
+    // colour is kept as given, alpha included (T-057): a translucent material is
+    // carried by the panel's own alpha channel, and whether that alpha reaches
+    // the screen is the *surface's* mode (per-pixel pushes it, the opaque GDI
+    // blit ignores it). Dropping it here is what made F-038 impossible.
     void setPanelColor(const QColor& color);
     QColor panelColor() const { return m_panelColor; }
     void setCornerRadius(int px);

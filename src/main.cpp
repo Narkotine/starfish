@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QComboBox>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -10,6 +11,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QListWidget>
 #include <QLoggingCategory>
 #include <QMouseEvent>
 #include <QPainter>
@@ -43,7 +45,9 @@
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
+#include "ui/fence_material.hpp"
 #include "ui/fence_view.hpp"
+#include "ui/settings_dialog.hpp"
 #include "version.h"
 
 #if defined(_WIN32)
@@ -1577,6 +1581,145 @@ int main(int argc, char* argv[])
                   .arg(reorderFirst)
                   .arg(afterReorder.isEmpty() ? QStringLiteral("(none)") : afterReorder.first().path));
 
+        // -------------------------------------------------------------------
+        // T-057 / F-038 -- the fence materials.
+        //
+        // A material is the alpha channel of the fence's colour: the document has
+        // carried it since T-008 and it could never reach a pixel, because the
+        // widget dropped the alpha and the opaque GDI blit ignores whatever is
+        // left (docs/technique.md section 22). What is measured here is the whole
+        // chain at once -- the preset name against the document, the alpha in the
+        // frame that is pushed, and the input alpha floor in the corners that
+        // keeps a translucent fence reachable by the mouse (ADR-11, whose
+        // corollary is exactly this window). The *look* of it -- "the wallpaper
+        // really shows through" -- stays a human check: this machine has one
+        // screen and the user's own windows are on top of it.
+        // -------------------------------------------------------------------
+        const QString idM =
+            container->createFence(QStringLiteral("material"), QRect(40, 400, 200, 160));
+
+        // QImage::pixel() returns the *stored* value, which for a premultiplied
+        // frame is the premultiplied one: the alpha and the premultiplication
+        // invariant are both read from it, and nothing is assumed about either.
+        auto frameOf = [&container](const QString& id) { return container->frame(id); };
+        auto alphaAt = [&frameOf](const QString& id, const QPoint& at) {
+            const QImage frame = frameOf(id);
+            if (frame.isNull() || !frame.rect().contains(at))
+                return -1;
+            return static_cast<int>(qAlpha(frame.pixel(at)));
+        };
+        // Where the panel is (its centre) and where it is not (the very corner of
+        // the rectangle, outside the rounded panel).
+        auto panelAlpha = [&frameOf, &alphaAt](const QString& id) {
+            const QImage frame = frameOf(id);
+            if (frame.isNull())
+                return -1;
+            return alphaAt(id, QPoint(frame.width() / 2, frame.height() / 2));
+        };
+        const int kFloor = starfish::platform::win::DesktopSurface::kInputAlphaFloor;
+
+        const int defaultPanel = panelAlpha(idM);
+        check(QStringLiteral("a new fence is shown in the schema's default material"),
+              container->fenceMaterial(idM) == QStringLiteral("translucent") && defaultPanel == 204,
+              QStringLiteral("material %1, panel alpha %2 of 255 (%3)")
+                  .arg(container->fenceMaterial(idM))
+                  .arg(defaultPanel)
+                  .arg(starfish::ui::FenceMaterial::summary()));
+
+        const QImage defaultFrame = frameOf(idM);
+        int transparentPixels = 0;
+        int invalidPremultiplied = 0;
+        for (int y = 0; y < defaultFrame.height(); ++y) {
+            for (int x = 0; x < defaultFrame.width(); ++x) {
+                const QRgb pixel = defaultFrame.pixel(x, y);
+                const int a = qAlpha(pixel);
+                if (a == 0)
+                    ++transparentPixels;
+                if (qRed(pixel) > a || qGreen(pixel) > a || qBlue(pixel) > a)
+                    ++invalidPremultiplied;
+            }
+        }
+        const int defaultCorner = alphaAt(idM, QPoint(0, 0));
+        check(QStringLiteral("a translucent fence has nowhere the cursor falls through"),
+              defaultCorner == kFloor && transparentPixels == 0,
+              QStringLiteral("corner alpha %1 (floor %2), %3 of %4 pixel(s) at alpha 0 -- a "
+                             "transparent corner would hand the mouse to the desktop there")
+                  .arg(defaultCorner)
+                  .arg(kFloor)
+                  .arg(transparentPixels)
+                  .arg(defaultFrame.width() * defaultFrame.height()));
+
+        // A frame that is not valid premultiplied alpha renders as a bright
+        // artefact rather than as an almost invisible pixel, and the floor is
+        // exactly the case where that can happen (a large RGB under an alpha of 1).
+        check(QStringLiteral("the frame is valid premultiplied alpha"),
+              invalidPremultiplied == 0,
+              QStringLiteral("%1 pixel(s) with a channel above their own alpha")
+                  .arg(invalidPremultiplied));
+
+        int materialChanges = 0;
+        QObject::connect(container, &starfish::ui::FenceContainer::fenceContentChanged, &app,
+                         [&materialChanges](const QString&) { ++materialChanges; });
+
+        container->setFenceMaterial(idM, QStringLiteral("very-translucent"));
+        const starfish::core::FenceStyle veryStyle = container->fenceStyle(idM);
+        const int veryPanel = panelAlpha(idM);
+        const int veryCorner = alphaAt(idM, QPoint(0, 0));
+        check(QStringLiteral("a material rewrites only the alpha of the colour"),
+              container->fenceMaterial(idM) == QStringLiteral("very-translucent")
+                  && veryStyle.background == QStringLiteral("#801F2937") && veryPanel == 128
+                  && veryCorner == kFloor,
+              QStringLiteral("background %1, panel alpha %2, corner alpha %3")
+                  .arg(veryStyle.background)
+                  .arg(veryPanel)
+                  .arg(veryCorner));
+
+        const int beforeRepeat = materialChanges;
+        container->setFenceMaterial(idM, QStringLiteral("very-translucent"));
+        check(QStringLiteral("choosing the material it already has writes nothing"),
+              materialChanges == beforeRepeat,
+              QStringLiteral("%1 change signal(s) for a material it already had")
+                  .arg(materialChanges - beforeRepeat));
+
+        container->setFenceMaterial(idM, QStringLiteral("acrylic"));
+        check(QStringLiteral("an unknown material is refused"),
+              container->fenceMaterial(idM) == QStringLiteral("very-translucent"),
+              QStringLiteral("material after asking for acrylic: %1 (known: %2)")
+                  .arg(container->fenceMaterial(idM),
+                       starfish::ui::FenceMaterial::summary()));
+
+        // The material is a document value, not a session one: the bytes the
+        // container serialises carry it, and a second container that reads them
+        // shows the same thing. This is why the presets need no schema field of
+        // their own (and why a document written before T-057 already has one).
+        const QByteArray materialDoc = starfish::core::JsonStore::toJson(container->toLayout());
+        auto* materialReader = new starfish::ui::FenceContainer(&app);
+        materialReader->setDesktopBounds(bounds);
+        const auto parsedMaterial = starfish::core::JsonStore::fromJson(materialDoc);
+        QString materialApplyError;
+        const bool materialApplied = parsedMaterial.has_value()
+            && materialReader->applyLayout(*parsedMaterial, &materialApplyError);
+        check(QStringLiteral("the material is a document value, not a session one"),
+              materialApplied
+                  && materialReader->fenceMaterial(idM) == QStringLiteral("very-translucent"),
+              QStringLiteral("applied=%1, material after a round trip: %2%3")
+                  .arg(materialApplied ? 1 : 0)
+                  .arg(materialReader->fenceMaterial(idM))
+                  .arg(materialApplyError.isEmpty()
+                           ? QString()
+                           : QStringLiteral(" (%1)").arg(materialApplyError)));
+        delete materialReader;
+
+        container->setFenceMaterial(idM, QStringLiteral("opaque"));
+        const int opaquePanel = panelAlpha(idM);
+        const int opaqueCorner = alphaAt(idM, QPoint(0, 0));
+        check(QStringLiteral("an opaque fence has no transparency at all"),
+              container->fenceMaterial(idM) == QStringLiteral("opaque") && opaquePanel == 255
+                  && opaqueCorner == 255,
+              QStringLiteral("panel alpha %1, corner alpha %2 (the floor is for translucency only)")
+                  .arg(opaquePanel)
+                  .arg(opaqueCorner));
+
         if (hosted) {
             QString scanError;
             QList<starfish::core::DesktopItem> items =
@@ -1674,6 +1817,57 @@ int main(int argc, char* argv[])
                                     : QStringLiteral("yes"));
             }
 #endif
+
+            // T-057, hosted half: a translucent panel can only *be* translucent
+            // through the per-pixel push -- the opaque path blits with GDI, which
+            // ignores the alpha channel the material is. So the window has to be
+            // in that mode, and it has to come back out of it when the panel is
+            // opaque again.
+            container->setFenceMaterial(idM, QStringLiteral("very-translucent"));
+            auto* translucentSurface = container->surface(idM);
+            check(QStringLiteral("a translucent fence is hosted through the per-pixel push"),
+                  translucentSurface && translucentSurface->perPixelAlpha(),
+                  QStringLiteral("fence %1: hosted=%2, per-pixel=%3")
+                      .arg(idM)
+                      .arg(translucentSurface ? 1 : 0)
+                      .arg(translucentSurface && translucentSurface->perPixelAlpha() ? 1 : 0));
+
+            container->setFenceMaterial(idM, QStringLiteral("opaque"));
+            auto* opaqueSurface = container->surface(idM);
+            check(QStringLiteral("an opaque fence goes back to the blit path"),
+                  opaqueSurface && !opaqueSurface->perPixelAlpha(),
+                  QStringLiteral("fence %1: hosted=%2, per-pixel=%3")
+                      .arg(idM)
+                      .arg(opaqueSurface ? 1 : 0)
+                      .arg(opaqueSurface && opaqueSurface->perPixelAlpha() ? 1 : 0));
+
+            // And the creation path, which is a different thing from the switch:
+            // the layered mode is fixed when the window is created (attach()
+            // skips the one-way SetLayeredWindowAttributes call in per-pixel
+            // mode), so a fence restored from a document has to be *born*
+            // per-pixel rather than switched into it a moment later.
+            starfish::core::Layout bornLayout;
+            starfish::core::Fence born;
+            born.id = QStringLiteral("fence-born");
+            born.title = QStringLiteral("born translucent");
+            born.rect = QRect(600, 420, 200, 160);
+            born.style.background = QStringLiteral("#801F2937");
+            bornLayout.fences.append(born);
+            auto* bornHost = new starfish::ui::FenceContainer(&app);
+            bornHost->setDesktopBounds(bounds);
+            bornHost->setHostOnDesktop(true);
+            QString bornError;
+            const bool bornApplied = bornHost->applyLayout(bornLayout, &bornError);
+            auto* bornSurface = bornHost->surface(born.id);
+            check(QStringLiteral("a fence restored from a translucent document is born per-pixel"),
+                  bornApplied && bornSurface && bornSurface->perPixelAlpha(),
+                  QStringLiteral("applied=%1, hosted=%2, per-pixel=%3%4")
+                      .arg(bornApplied ? 1 : 0)
+                      .arg(bornSurface ? 1 : 0)
+                      .arg(bornSurface && bornSurface->perPixelAlpha() ? 1 : 0)
+                      .arg(bornError.isEmpty() ? QString()
+                                               : QStringLiteral(" (%1)").arg(bornError)));
+            delete bornHost;
         }
 
         const QString reportPath = QStringLiteral("build/fence_demo.txt");
@@ -3873,6 +4067,77 @@ int main(int argc, char* argv[])
                       document.has_value()
                           && document->fences.at(0).title == QLatin1String("Renamed"),
                       document.has_value() ? document->fences.at(0).title : QString());
+
+                // F-038 / T-057: the material as the *product* applies it. The
+                // tray's "apply to every fence" and the settings window's
+                // per-fence choice both end up in these two calls, and what they
+                // do is a style change -- so it is the document that carries the
+                // material, not the session, and the second launch below is what
+                // proves it.
+                product.applyMaterialToAllFences(QLatin1String("very-translucent"));
+                check(QLatin1String("a material reaches every fence"),
+                      product.sharedFenceMaterial() == QLatin1String("very-translucent")
+                          && product.container()->fenceStyle(id).background
+                                 == QLatin1String("#801F2937"),
+                      QLatin1String("material %1, colour %2")
+                          .arg(product.sharedFenceMaterial(),
+                               product.container()->fenceStyle(id).background));
+
+                // Two fences that disagree must not have the tray claim one of
+                // them: the product reports "mixed" instead of guessing.
+                const QString mixedId = product.createFenceWithDefaultPlacement();
+                product.applyMaterialToFence(mixedId, QLatin1String("opaque"));
+                check(QLatin1String("a mixed desktop is reported as mixed"),
+                      product.sharedFenceMaterial().isEmpty(),
+                      QLatin1String("shared material [%1] with %2 fences")
+                          .arg(product.sharedFenceMaterial())
+                          .arg(QString::number(product.container()->fenceCount())));
+                product.container()->removeFence(mixedId);
+
+                // ... and the settings window, which is the per-fence choice. Its
+                // two widgets are driven the way a user drives them (selecting a
+                // row, picking an entry), so what is measured is the window's
+                // *wiring* -- including the part that must **not** travel: putting
+                // the document's state on screen is not a choice, and a refresh
+                // that looked like one would rewrite the document on every change.
+                int contentChanges = 0;
+                QObject::connect(product.container(),
+                                 &starfish::ui::FenceContainer::fenceContentChanged, &product,
+                                 [&contentChanges](const QString&) { ++contentChanges; });
+                auto* fenceList = product.settingsDialog()->findChild<QListWidget*>(
+                    QLatin1String("fenceList"));
+                auto* materialCombo = product.settingsDialog()->findChild<QComboBox*>(
+                    QLatin1String("fenceMaterial"));
+
+                const int changesBefore = contentChanges;
+                product.settingsDialog()->refresh();
+                if (fenceList && fenceList->count() > 0)
+                    fenceList->setCurrentRow(0); // the user picking a fence
+                check(QLatin1String("the settings window shows the fence's material"),
+                      materialCombo && materialCombo->count() > 0
+                          && materialCombo->currentData().toString()
+                                 == QLatin1String("very-translucent"),
+                      QLatin1String("combo=%1 of %2, row selected=%3, shows %4")
+                          .arg(QString::number(materialCombo ? materialCombo->currentIndex() : -9))
+                          .arg(QString::number(materialCombo ? materialCombo->count() : -1))
+                          .arg(QString::number(fenceList ? fenceList->currentRow() : -9))
+                          .arg(materialCombo ? materialCombo->currentText()
+                                             : QLatin1String("(no combo)")));
+                check(QLatin1String("showing the state is not a choice"),
+                      contentChanges == changesBefore,
+                      QLatin1String("%1 document change(s) for a refresh and a selection")
+                          .arg(QString::number(contentChanges - changesBefore)));
+
+                const int opaqueIndex =
+                    materialCombo ? materialCombo->findData(QLatin1String("opaque")) : -1;
+                if (materialCombo && opaqueIndex >= 0)
+                    materialCombo->setCurrentIndex(opaqueIndex); // exactly what a click does
+                check(QLatin1String("a material chosen in the settings window takes"),
+                      opaqueIndex >= 0
+                          && product.sharedFenceMaterial() == QLatin1String("opaque"),
+                      product.statusText());
+                product.applyMaterialToAllFences(QLatin1String("very-translucent"));
+                product.store()->saveNow(nullptr);
             }
 
             product.shutdown();
@@ -3892,6 +4157,13 @@ int main(int argc, char* argv[])
                              second.container()->fenceIds().value(0))
                              == QLatin1String("Renamed"),
                   started ? second.container()->fenceIds().join(QLatin1Char(',')) : startError);
+            // F-038 / T-057, the other end of the material: it was written to the
+            // document, so it comes back with it -- and the status line, which is
+            // the only place the product describes itself in words, says so.
+            check(QLatin1String("the restored fence keeps its material"),
+                  started && second.sharedFenceMaterial() == QLatin1String("very-translucent")
+                      && second.statusText().contains(QLatin1String("Very translucent")),
+                  started ? second.statusText() : startError);
             second.shutdown();
         }
 

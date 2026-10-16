@@ -10,6 +10,7 @@
 
 #include "platform/win/desktop_surface.hpp"
 #include "ui/desktop_backdrop.hpp"
+#include "ui/fence_material.hpp"
 #include "ui/fence_view.hpp"
 
 #if defined(_WIN32)
@@ -412,9 +413,68 @@ void FenceContainer::setFenceStyle(const QString& id, const core::FenceStyle& st
         fence->view->setPanelColor(QColor(style.background));
         fence->view->setCornerRadius(style.radius);
     }
+    // F-038 / T-057: the panel's alpha is a *mode* of the hosted window, not a
+    // paint detail, so a style change can switch it -- and this is the only place
+    // that has to know, because every appearance change comes through here.
+    applyMaterialToSurface(*fence);
     // The render is driven by the view's contentChanged (see addFence): the
     // style reaches the desktop through exactly one path, like everything else.
     emit fenceContentChanged(id);
+}
+
+void FenceContainer::setFenceMaterial(const QString& id, const QString& material)
+{
+    const int alpha = FenceMaterial::alphaFor(material);
+    if (alpha < 0) {
+        // A name nobody defined is not a material: refuse it out loud rather than
+        // silently showing nothing (the same discipline as a failed hot key).
+        qCWarning(lc).noquote()
+            << QStringLiteral("unknown fence material %1 (known: %2)")
+                   .arg(material, FenceMaterial::summary());
+        return;
+    }
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return;
+
+    core::FenceStyle style = fence->style;
+    const QString updated = FenceMaterial::withAlpha(style.background, alpha);
+    if (updated == style.background)
+        return; // already shown in that material -- no document write
+    style.background = updated;
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: material %2 (background %3)")
+                                .arg(id, material, updated);
+    setFenceStyle(id, style);
+}
+
+QString FenceContainer::fenceMaterial(const QString& id) const
+{
+    if (!find(id))
+        return QString();
+    return FenceMaterial::materialOf(fenceStyle(id).background);
+}
+
+bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
+{
+    if (!fence.surface || !fence.view)
+        return true; // headless: nothing to switch, the mode is the surface's
+    const bool wantsPerPixel = FenceMaterial::isTranslucent(fence.view->panelColor().alpha());
+    if (fence.surface->perPixelAlpha() == wantsPerPixel)
+        return true;
+    if (!fence.surface->setPerPixelAlpha(wantsPerPixel)) {
+        qCWarning(lc).noquote()
+            << QStringLiteral("fence %1: could not switch the surface to the %2 path -- "
+                              "the panel stays opaque")
+                   .arg(fence.id,
+                        wantsPerPixel ? QStringLiteral("per-pixel") : QStringLiteral("GDI"));
+        return false;
+    }
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: %2 path (panel alpha %3)")
+                                .arg(fence.id)
+                                .arg(wantsPerPixel ? QStringLiteral("per-pixel")
+                                                   : QStringLiteral("opaque"))
+                                .arg(fence.view->panelColor().alpha());
+    return true;
 }
 
 void FenceContainer::setFenceSort(const QString& id, const QString& by, bool ascending)
@@ -713,6 +773,12 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                 target->view->addDroppedItems(dropped);
         });
 #endif
+        // F-038 / T-057: the material decides how the *window* is created, so it
+        // is set before attach() -- in per-pixel mode attach() skips the one-way
+        // SetLayeredWindowAttributes call, and changing the mode on a live surface
+        // means recreating it. A translucent panel needs the per-pixel push,
+        // because the opaque GDI blit ignores the alpha channel the material is.
+        surface->setPerPixelAlpha(FenceMaterial::isTranslucent(view->panelColor().alpha()));
         if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
             qCWarning(lc).noquote()
                 << QStringLiteral("fence %1: could not host the surface (no desktop?)").arg(id);
@@ -967,7 +1033,6 @@ void FenceContainer::renderFence(const QString& id)
     if (!fence || !fence->view)
         return;
 
-    const bool perPixel = fence->surface && fence->surface->perPixelAlpha();
     const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
     // The frame is always the size of the fence's *visible physical* rect: that
     // is exactly the hosted window's client area, so the surface blits it 1:1 on
@@ -977,13 +1042,39 @@ void FenceContainer::renderFence(const QString& id)
     const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
     QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
     frame.setDevicePixelRatio(dpr);
-    // The opaque GDI blit ignores the alpha channel, so the pixels outside the
-    // rounded corners are filled with the panel's own colour instead of staying
-    // transparent (which GDI would render black). Derived from the view, so a
-    // custom fence style cannot drift away from the fill behind it.
-    frame.fill(perPixel ? QColor(Qt::transparent) : fence->view->panelColor());
+
+    // F-038 / T-057: the frame's alpha channel *is* the material, and the layer
+    // under the panel is what makes it work.
+    //
+    //  * An opaque material fills with the panel colour at full alpha. That is
+    //    not decoration: the opaque GDI blit ignores alpha, so a transparent
+    //    pixel outside the rounded corners would come out black.
+    //  * A translucent material fills with the same colour at the **input alpha
+    //    floor** instead of staying transparent (ADR-11, whose corollary is
+    //    exactly this case). A per-pixel layered window is hit-tested against its
+    //    own alpha, so a fence whose corners were alpha 0 would lose the mouse on
+    //    the corners alone -- it would look like a bug in the rounded corners
+    //    rather than like the panel failing to answer. One level out of 255 is
+    //    invisible on any wallpaper, and it keeps the whole rectangle reachable.
+    //
+    // The fill goes through a QPainter rather than QImage::fill: QPainter's output
+    // on a premultiplied image is premultiplied by construction, and a "premultiplied"
+    // frame whose RGB is larger than its alpha is exactly the kind of value that
+    // renders as a bright artefact instead of an almost invisible one.
+    const QColor panel = fence->view->panelColor();
+    const bool translucent = FenceMaterial::isTranslucent(panel.alpha());
     {
         QPainter painter(&frame);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        // The rect is the frame's *logical* extent -- the same conversion the
+        // widget is sized with -- because the image carries the device pixel ratio.
+        painter.fillRect(QRect(QPoint(0, 0), logicalSize(visible.size(), dpr)),
+                         translucent ? QColor(panel.red(), panel.green(), panel.blue(),
+                                              starfish::platform::win::DesktopSurface::
+                                                  kInputAlphaFloor)
+                                     : QColor(panel.red(), panel.green(), panel.blue()));
+        // Back to the default mode: the widget itself paints *over* that layer.
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
         fence->view->render(&painter);
     }
     fence->frame = frame;

@@ -198,3 +198,19 @@ target_include_directories(test_starfish_backdrop_gesture PRIVATE
 target_link_libraries(test_starfish_backdrop_gesture PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME ui_backdrop_gesture COMMAND test_starfish_backdrop_gesture)
+
+# The fence materials (T-057 / F-038): what a preset name means, and the
+# #AARRGGBB arithmetic that applies one without rewriting the rest of the colour
+# the document holds. Pure -- and checked against QColor itself, because the
+# schema's colour form is defined by the toolkit that reads it back.
+add_executable(test_starfish_fence_material
+    test_fence_material.cpp
+)
+
+target_include_directories(test_starfish_fence_material PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_fence_material PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+
+add_test(NAME ui_fence_material COMMAND test_starfish_fence_material)

@@ -152,6 +152,30 @@ public:
     void setFenceStyle(const QString& id, const core::FenceStyle& style);
     void setFenceSort(const QString& id, const QString& by, bool ascending);
 
+    // --- materials (T-057 / F-038) ------------------------------------------
+    //
+    // The material a fence's panel is shown in: one of FenceMaterial's presets.
+    // It is deliberately **not** a field of its own in the document -- a material
+    // *is* the alpha channel of FenceStyle::background, which the schema has
+    // carried (and ignored) since T-008. So applying one goes through
+    // setFenceStyle like every other appearance change: no schema bump, no second
+    // source of truth, and a document written before T-057 is already the
+    // "translucent" preset.
+    //
+    // What is new is the *effect*: a panel that is not fully opaque needs the
+    // per-pixel push (the opaque GDI blit ignores alpha), so the hosted surface
+    // is switched to it -- and the frame keeps an invisible input alpha floor in
+    // the corners (ADR-11), so a translucent fence is still reachable by the
+    // mouse over its whole rectangle.
+    //
+    // An unknown material name is refused and logged; a name that changes nothing
+    // is a no-op, so a repeated choice does not rewrite the document.
+    void setFenceMaterial(const QString& id, const QString& material);
+
+    // The preset a fence's colour is shown in, or an empty string when its alpha
+    // is a value of its own (see FenceMaterial::materialOf).
+    QString fenceMaterial(const QString& id) const;
+
     // --- navigation (T-009) -------------------------------------------------
     //
     // The three "get the desktop out of the way" behaviours of docs/produit.md
@@ -363,6 +387,13 @@ private:
     void beginGeometryDrag(const QString& id);
     void applyGeometryDrag(const QString& id, FenceHandle handle, const QPoint& delta);
     void endGeometryDrag(const QString& id);
+
+    // Puts a fence's surface in the mode its panel needs (T-057): the per-pixel
+    // push while the material is translucent, the opaque path while it is not.
+    // Returns false only when the surface could not be switched -- the caller
+    // keeps going either way, because a fence that is opaque is a fence, while a
+    // fence whose window failed to come back is not.
+    bool applyMaterialToSurface(FenceWindow& fence);
 
     QString nextId();
 

@@ -101,9 +101,16 @@ void FenceView::setSort(const QString& by, bool ascending)
 
 void FenceView::setPanelColor(const QColor& color)
 {
-    // Alpha is dropped: this widget paints the opaque panel; translucency is a
-    // property of the hosted surface (T-017), not of the QImage that feeds it.
-    m_panelColor = QColor(color.red(), color.green(), color.blue());
+    // F-038 / T-057: the alpha is kept. It used to be dropped here, because the
+    // opaque GDI blit of the hosted surface ignores it -- but that is the
+    // surface's mode, not the widget's business, and while the alpha was thrown
+    // away here the persisted one could never reach a single pixel. The widget
+    // paints what the surface will push; a fence whose material is translucent
+    // gets the per-pixel path (DesktopSurface::setPerPixelAlpha) and its panel
+    // really does let the wallpaper through. The layer below the panel is filled
+    // by FenceContainer::renderFence, which is what keeps the corners of an
+    // *opaque* fence opaque (GDI would render a transparent pixel black).
+    m_panelColor = QColor(color.red(), color.green(), color.blue(), color.alpha());
     update();
     emit contentChanged();
 }

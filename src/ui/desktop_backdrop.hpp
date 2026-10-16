@@ -11,16 +11,13 @@
 #include <QVector>
 
 #include "core/desktop_item.hpp"
+#include "platform/win/desktop_surface.hpp"
 #include "ui/backdrop_gesture.hpp"
 #include "ui/backdrop_layout.hpp"
 #include "ui/icon_grid.hpp"
 #include "ui/screen_layout.hpp"
 
 class QMouseEvent;
-
-namespace starfish::platform::win {
-class DesktopSurface;
-}
 
 namespace starfish::ui {
 
@@ -74,26 +71,11 @@ public:
     DesktopBackdrop& operator=(const DesktopBackdrop&) = delete;
 
     // The lowest alpha any pixel of a frame may carry, and the reason it is not
-    // zero (T-060).
-    //
-    // A per-pixel layered window is hit-tested against its own alpha: Windows
-    // lets the mouse through wherever the alpha is zero (MSDN, "Layered
-    // Windows"). This window stands in for a desktop whose whole point is that
-    // the wallpaper shows through, so its frame used to be *fully* transparent --
-    // and a fully transparent frame is a window the cursor can never find. The
-    // empty desktop's gestures (F-001/T-055, F-022) then existed only in the
-    // probes, which post their events straight at this object instead of letting
-    // Windows deliver them. Measured: with an alpha-0 frame the cursor finds the
-    // *parent*; at this floor it finds the layered child itself
-    // (experiments/spike_layer_alpha_shape.cpp).
-    //
-    // One level out of 255 is invisible on any wallpaper, and it turns the frame
-    // from a shape into a rectangle. Whether the backdrop *answers* a click is a
-    // separate decision and it has not moved: while the gestures are off the
-    // surface replies HTTRANSPARENT from WM_NCHITTEST (setClickThrough). A window
-    // the cursor can find and that chooses to step aside is not the same thing as
-    // a window the cursor cannot find at all.
-    static constexpr int kInputAlphaFloor = 1;
+    // zero (T-060). The rule and its measurement now live with the layered
+    // window itself -- DesktopSurface::kInputAlphaFloor, which is also what a
+    // translucent fence uses for the corners outside its rounded panel (T-057).
+    // This alias keeps the name the probe and the docs already use.
+    static constexpr int kInputAlphaFloor = platform::win::DesktopSurface::kInputAlphaFloor;
 
     void setIconProvider(IconGrid::IconProvider provider);
 

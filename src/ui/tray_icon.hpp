@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QIcon>
 #include <QObject>
 #include <QString>
@@ -48,6 +49,14 @@ public:
     void setPeekActive(bool active);
     void setDesktopIconsHidden(bool hidden);
 
+    // F-038 / T-057: which material the fences are shown in, as a menu submenu
+    // entry. `material` is a FenceMaterial preset id, or an empty string when the
+    // fences do not agree (a mixed desktop): the submenu then shows nothing as
+    // current instead of picking one of them. The tray applies a material to
+    // **all** fences -- it has no way to point at one -- and the settings window
+    // is what chooses per fence.
+    void setFenceMaterial(const QString& material);
+
     // ADR-13: StarFish never hides the desktop's icons, so the two entries that
     // exist for that ("Hide desktop icons" and the repair command beside it) are
     // not offered at all unless the caller asks for them. A menu entry the user
@@ -66,6 +75,9 @@ signals:
     void fencesVisibilityToggled(bool visible);
     void peekToggled(bool active);
     void desktopIconsToggled(bool hidden);
+    // F-038 / T-057: a material was picked for the whole desktop (see
+    // setFenceMaterial -- the tray has no way to point at one fence).
+    void fenceMaterialRequested(const QString& material);
     // The emergency exit (T-046): "give me my icons back", as a command rather
     // than a toggle. The product answers it by asking the desktop directly.
     void restoreIconsRequested();
@@ -89,6 +101,10 @@ private:
     // product does.
     bool m_offerIconHiding = false;
     QAction* m_settings = nullptr;
+    // F-038 / T-057: the "Fence material" submenu and one entry per preset, keyed
+    // by FenceMaterial id so setFenceMaterial() cannot drift from the menu.
+    QMenu* m_materialMenu = nullptr;
+    QHash<QString, QAction*> m_materials;
 };
 
 } // namespace starfish::ui

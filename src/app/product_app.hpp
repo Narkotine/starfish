@@ -114,6 +114,21 @@ public:
     // its id.
     QString createFenceWithDefaultPlacement();
 
+    // F-038 / T-057 -- the materials, as the product applies them.
+    //
+    // Both are public because they are the *whole* effect of a click: the tray's
+    // submenu applies one material to every fence, the settings window's combo to
+    // the selected one, and a probe drives the same two calls. What they do is a
+    // style change (the material is the alpha of the fence's colour, which the
+    // document already stores), so the auto-save follows on its own and nothing
+    // else has to know about materials at all.
+    void applyMaterialToFence(const QString& id, const QString& material);
+    void applyMaterialToAllFences(const QString& material);
+
+    // The material every fence shares, or an empty string when they disagree --
+    // what the tray's check mark is allowed to claim.
+    QString sharedFenceMaterial() const;
+
     // The default title of the next fence ("Fence 3"), the single naming policy
     // shared by the tray, the settings window and a fence drawn on the desktop
     // (T-041).

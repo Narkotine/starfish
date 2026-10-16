@@ -1,6 +1,7 @@
 #include "ui/settings_dialog.hpp"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -13,6 +14,7 @@
 #include <QVBoxLayout>
 
 #include "ui/fence_container.hpp"
+#include "ui/fence_material.hpp"
 
 namespace starfish::ui {
 
@@ -26,6 +28,10 @@ SettingsDialog::SettingsDialog(FenceContainer* container, QWidget* parent)
     // --- fences -------------------------------------------------------------
     auto* fencesGroup = new QGroupBox(tr("Fences"), this);
     m_list = new QListWidget(fencesGroup);
+    // Object names are the probe's handles into this window (there is no API to
+    // click a widget from a script otherwise): `--product-probe` drives the
+    // material combo and the list exactly as a user would.
+    m_list->setObjectName(QStringLiteral("fenceList"));
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
 
     auto* newButton = new QPushButton(tr("New fence"), fencesGroup);
@@ -40,9 +46,26 @@ SettingsDialog::SettingsDialog(FenceContainer* container, QWidget* parent)
     buttonColumn->addWidget(m_delete);
     buttonColumn->addStretch(1);
 
-    auto* fencesLayout = new QHBoxLayout(fencesGroup);
+    auto* fencesLayout = new QHBoxLayout;
     fencesLayout->addWidget(m_list, 1);
     fencesLayout->addLayout(buttonColumn);
+
+    // F-038 / T-057: the material of the *selected* fence. The tray applies one
+    // material to every fence at once; this is the only place a single fence is
+    // chosen, which is why the choice lives here rather than disappearing with
+    // the rest of this window (T-059 keeps what survives).
+    m_material = new QComboBox(fencesGroup);
+    m_material->setObjectName(QStringLiteral("fenceMaterial")); // the probe's handle
+    for (const FenceMaterial::Preset& preset : FenceMaterial::presets())
+        m_material->addItem(FenceMaterial::presetLabel(QString::fromLatin1(preset.id)),
+                            QString::fromLatin1(preset.id));
+    auto* materialRow = new QHBoxLayout;
+    materialRow->addWidget(new QLabel(tr("Material:"), fencesGroup));
+    materialRow->addWidget(m_material, 1);
+
+    auto* fencesBox = new QVBoxLayout(fencesGroup);
+    fencesBox->addLayout(fencesLayout, 1);
+    fencesBox->addLayout(materialRow);
 
     // --- desktop ------------------------------------------------------------
     auto* desktopGroup = new QGroupBox(tr("Desktop"), this);
@@ -72,6 +95,16 @@ SettingsDialog::SettingsDialog(FenceContainer* container, QWidget* parent)
     connect(m_rollUp, &QPushButton::clicked, this, &SettingsDialog::onRollUpClicked);
     connect(m_delete, &QPushButton::clicked, this, &SettingsDialog::onDeleteClicked);
     connect(m_list, &QListWidget::itemSelectionChanged, this, &SettingsDialog::updateButtons);
+    connect(m_material, &QComboBox::currentIndexChanged, this, [this](int) {
+        // Only a real choice travels: the combo is also set programmatically when
+        // the selection or the document changes (see updateMaterialCombo), and a
+        // signal that bounced back out would write the document on every refresh.
+        const QString id = selectedId();
+        const QString material = m_material->currentData().toString();
+        if (id.isEmpty() || material.isEmpty())
+            return;
+        emit fenceMaterialRequested(id, material);
+    });
     connect(m_hideIcons, &QCheckBox::toggled, this, &SettingsDialog::desktopIconsToggled);
     // Closing hides rather than destroys: the tray icon brings the window back,
     // and quitting StarFish is the tray's job.
@@ -160,6 +193,38 @@ void SettingsDialog::updateButtons()
     m_rollUp->setEnabled(hasSelection);
     if (hasSelection && m_container)
         m_rollUp->setText(m_container->fenceRolledUp(id) ? tr("Roll down") : tr("Roll up"));
+
+    updateMaterialCombo();
+}
+
+void SettingsDialog::updateMaterialCombo()
+{
+    const QString id = selectedId();
+    // The combo follows the container; it never leads. Blocked so that putting
+    // the document's state on screen is not mistaken for the user choosing it.
+    const QSignalBlocker blocker(m_material);
+
+    // Drop the "Custom" entry another selection may have added: it describes one
+    // fence's colour, so it must not survive into the next one.
+    while (m_material->count() > static_cast<int>(FenceMaterial::presets().size()))
+        m_material->removeItem(m_material->count() - 1);
+
+    if (id.isEmpty() || !m_container) {
+        m_material->setEnabled(false);
+        m_material->setCurrentIndex(-1);
+        return;
+    }
+
+    m_material->setEnabled(true);
+    const QString material = m_container->fenceMaterial(id);
+    int index = material.isEmpty() ? -1 : m_material->findData(material);
+    if (index < 0) {
+        // An alpha that is nobody's preset (a hand-written document): say so
+        // instead of rounding it to the nearest preset and lying about it.
+        m_material->addItem(tr("Custom"), QString());
+        index = m_material->count() - 1;
+    }
+    m_material->setCurrentIndex(index);
 }
 
 void SettingsDialog::setDesktopIconsHidden(bool hidden)

@@ -1126,7 +1126,7 @@ Décision utilisateur : **la translucidité d'abord**.
 - **Faisable aujourd'hui** : l'alpha par pixel. `style.background` est déjà en `#AARRGGBB` et persisté, et le chemin per-pixel (`setPerPixelAlpha`, T-017) est **prouvé à l'exécution** depuis que le fond l'emploie sur une fenêtre plein écran (session 30). Il reste à l'activer **par zone** : aujourd'hui une zone prend `SetLayeredWindowAttributes`, dont le blit GDI **ignore l'alpha** — un panneau est donc opaque en pratique, et l'alpha persisté est inerte (T-051 le disait depuis la session 29 ; c'est maintenant spécifié).
 - **Pas faisable directement** : les matériaux DWM documentés (**Mica**, `DWMWA_SYSTEMBACKDROP_TYPE`) visent une **fenêtre de premier niveau avec un cadre DWM**. Une zone est une **enfant de `Progman`** : pas de flou système. Deux issues, aucune décidée — `SetWindowCompositionAttribute` (non documenté, donc **à mesurer**) ou un **flou calculé par nous** (le fond publie une image du papier peint que la zone réutilise comme panneau). **Un spike d'abord**, comme T-003 l'a été pour le placement : c'est la règle de la maison pour toute technique de composition non prouvée.
 
-Ce sera **ADR-10** quand ce sera tranché ; d'ici là c'est **T-057** (F-038), et le suivi du rapport d'origine est **T-051**.
+Ce sera **ADR-10** quand ce sera tranché ; d'ici là c'est **T-057** (F-038), et le suivi du rapport d'origine est **T-051**. *(Livré en session 35 : la translucidité, §26. L'acrylique reste ouvert, et toujours derrière un spike.)*
 
 ### Ce que la sonde mesure (`--backdrop-demo`)
 
@@ -1232,3 +1232,72 @@ Capture de contrôle (locale, non commitée, comme les rapports de sonde) : `bui
 - **Une lecture n'est valide que dans l'état où elle a été mesurée** : une vue liste masquée rend 88 items, des noms vides et des positions `1,1` / `1,2` / `1,3`. La précondition (`nativeDesktopIconsVisible()`) est désormais dans le code, et la minuterie saute le tour.
 - **Le clic droit sur le bureau nu n'a pas besoin du hook souris global** (T-028) : notre surface *est* le point nu. Le hook ne resterait nécessaire que pour ajouter notre entrée au menu d'une **icône** native, ou pour tracer un rectangle qui **commence sur une icône** — deux choses à décider, pas à supposer.
 - **Lire la coquille est bon marché** : 88 icônes, deux messages chacune, toutes les deux secondes, sans effet mesurable.
+
+## 26. Les matériaux de zone : la translucidité d'abord (T-057 / F-038, session 35)
+
+Décision utilisateur de la session 33 : **la translucidité d'abord**. Elle est livrée, et elle n'a demandé **aucun champ de schéma** — c'est le résultat le plus intéressant de la session.
+
+### Un matériau n'est pas un second style, c'est l'alpha qui dormait
+
+`FenceStyle::background` est écrit en **`#AARRGGBB`** depuis T-008, et son canal alpha était **persisté, relu, défauté** — et **inerte** : `FenceView::setPanelColor()` le *jetait* (`QColor(color.red(), green, blue)`), et même conservé il n'aurait pas atteint l'écran, puisque le chemin opaque blitte en GDI, qui **ignore l'alpha**. Conséquence : un document écrit avant T-057 (`"#CC1F2937"`, le défaut du schéma) est **déjà** le preset « translucide ». Les presets vivent donc dans un header **pur** (`src/ui/fence_material.hpp`) qui ne connaît que des noms et de l'arithmétique sur la chaîne :
+
+| preset | alpha | `#AARRGGBB` du fond par défaut |
+|---|---|---|
+| `opaque` | 255 | `#FF1F2937` |
+| `translucent` (**défaut du schéma**) | 204 | `#CC1F2937` |
+| `very-translucent` | 128 | `#801F2937` |
+
+`withAlpha()` **réécrit les deux chiffres d'alpha et recopie les six chiffres RGB verbatim** (casse comprise) : la chaîne que l'utilisateur ou un document ancien a écrite survit, et l'aller-retour octet pour octet du document n'est pas cassé. Une couleur illisible (un nom, un `#abc`) est **laissée telle quelle** et compte comme opaque — pas de matériau appliqué à l'aveugle, pas de réécriture. **16 cas** dans `tests/test_fence_material.cpp` (14ᵉ exécutable `ctest`), dont un qui vérifie que notre parseur **est d'accord avec `QColor`** : c'est le kit qui définit la forme du schéma, pas notre croyance.
+
+### La chaîne complète, et ce qui la rend vraie
+
+```
+document (#AARRGGBB)  ->  FenceView::setPanelColor (garde l'alpha)
+                      ->  FenceContainer::renderFence (l'alpha de la frame)
+                      ->  DesktopSurface::setPerPixelAlpha (mode de la fenêtre)
+                      ->  DWM compose sur le papier peint
+```
+
+Le **mode de la fenêtre** est décidé par le matériau : `setPerPixelAlpha(true)` si l'alpha < 255. Il est posé **avant `attach()`** quand une zone est créée ou restaurée, parce que le mode layered est fixé à la **création** (`attach()` saute l'appel `SetLayeredWindowAttributes` en per-pixel — la porte à sens unique de la session 9) ; changer de matériau sur une zone vivante passe donc par `setPerPixelAlpha()`, qui **recrée la fenêtre**. Les deux chemins sont mesurés séparément (`a translucent fence is hosted through the per-pixel push`, `a fence restored from a translucent document is born per-pixel`).
+
+### ⚠️ Le corollaire d'ADR-11 s'applique aux zones, et ce n'est pas théorique
+
+Une fenêtre layered **par pixel** est testée au toucher **contre son propre alpha** (T-060). Une zone translucide a des pixels **hors du panneau** — les quatre coins arrondis — qui resteraient à alpha 0 : la souris **les traverserait**, et seulement eux. Le symptôme aurait été « les coins de mes zones ne répondent pas », c'est-à-dire un bug attribué aux coins arrondis plutôt qu'au matériau. La frame est donc remplie à **`DesktopSurface::kInputAlphaFloor = 1`** avant que le panneau soit peint (le remplissage opaque pour un matériau opaque ; c'est la **même** constante que le fond de bureau, et la définition a déménagé chez `DesktopSurface` — la fenêtre layered — avec un alias `DesktopBackdrop::kInputAlphaFloor` pour ne pas casser les sondes ni la doc).
+
+**Prémisse prouvée** : plancher remis à 0 (patch temporaire, revert) → `--fence-demo` `rc=1`, **exactement 2 `FAIL`**, et le détail nomme le dégât : `corner alpha 0 (floor 1), 76 of 32000 pixel(s) at alpha 0` — les 76 pixels sont les quatre coins.
+
+### ⚠️ Et un piège de remplissage, mesuré plutôt que supposé
+
+Le remplissage passe par un **`QPainter`** (`CompositionMode_Source`) et **pas** par `QImage::fill(QColor)`, parce que la sortie de `QPainter` sur une image prémultipliée est prémultipliée **par construction**. Un pixel « prémultiplié » dont le RGB dépasse son alpha ne s'affiche pas comme un pixel presque invisible : la composition le **rajoute** au fond, et le coin devient une bande claire. La sonde vérifie donc l'invariant sur **chaque pixel** de la frame (`the frame is valid premultiplied alpha` : aucun canal au-dessus de son propre alpha), et pas seulement l'alpha attendu au centre.
+
+### Exposer le choix, sans faire de la fenêtre de réglages le produit
+
+- **Zone de notification → « Fence material »** : les trois presets, appliqués à **toutes** les zones (elle ne sait pas en désigner une). Une coche n'est mise que si toutes les zones s'accordent ; un bureau mixte n'affiche **rien** plutôt que de choisir pour l'utilisateur (`a mixed desktop is reported as mixed`).
+- **Fenêtre de réglages → « Material: »** : le choix **par zone**, à côté de la liste — c'est ce que T-059 garde de cette fenêtre, avec la ligne d'état (qui dit désormais `material: Translucent` / `materials: mixed`).
+- **La ligne de statut** est le seul endroit où le produit décrit son état en mots, donc le matériau y est écrit — et une sonde peut le lire sans capture d'écran.
+
+### Le bug que la sonde a attrapé
+
+Le câblage « fenêtre de réglages → produit » **manquait** dans `wireSettings()`, et la sonde l'a dit : `a material chosen in the settings window takes` est passée au **rouge** avec un statut qui disait encore `Very translucent`. C'est le genre de trou que le modèle ne peut pas révéler (le conteneur, lui, obéissait) — il fallait **piloter les vrais widgets** (`QListWidget` / `QComboBox` retrouvés par `objectName`, donc la même chose qu'un clic). Deux vérifications l'encadrent : le combo **suit** le document, et **mettre l'état à l'écran n'est pas un choix** (`0 document change(s) for a refresh and a selection`) — sans quoi un rafraîchissement aurait réécrit le document à chaque changement.
+
+### Prémisses prouvées (patch temporaire, revert + rebuild)
+
+| ce qui est neutralisé | résultat |
+|---|---|
+| le plancher d'alpha (`0` au lieu de `kInputAlphaFloor`) | headless `rc=1`, **2 `FAIL`** (`corner alpha 0`, `76 of 32000` pixels à alpha 0) |
+| l'alpha gardé par `FenceView::setPanelColor` | headless **3 `FAIL`**, `--host` **5 `FAIL`** — dont les deux vérifications de **mode**, donc toute la chaîne tient à ce seul `QColor(...)` |
+| le changement de mode (`applyMaterialToSurface` neutralisé) | `--host` **1 `FAIL`** (`an opaque fence goes back to the blit path`) : la paire de vérifications est porteuse **dans les deux sens** |
+
+### Ce qui n'est **pas** mesuré, et le dit
+
+**Le résultat visuel** — « le papier peint traverse la zone » — reste une validation **humaine** : la machine a un écran, et les fenêtres de l'utilisateur recouvrent le bureau (décision 13). Ce qui est mesuré ici, c'est la **décision** (le mode de la fenêtre) et le **contenu poussé** (l'alpha de chaque pixel de la frame), pas la composition finale à l'œil.
+
+### Comptes (session 35)
+
+build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_material`) ; `--fence-demo` **25/25** headless / **29/29** `--host` (17/18 avant) ; `--product-probe` **23/23** (17 avant) ; `--backdrop-demo` **36/36** / **50/50** ; `--persist-demo` 26/26 ; `--nav-demo` 22/22 / 29/29 ; `--rules-demo` 28/28 ; `--portal-demo` 30/30 / 32/32 ; `--snapshot-demo` 11/11 ; `--screen-demo` 19/19 — **inchangés**.
+
+### Reste ouvert
+
+- **L'acrylique** (le flou) : hors de portée d'une enfant de `Progman` par les matériaux DWM documentés → `SetWindowCompositionAttribute` (non documenté, à mesurer) ou un flou calculé par nous. **Un spike d'abord** (ADR-10 quand ce sera tranché).
+- **Le choix au clic droit sur une zone** (« Material ▸ » sur la barre de titre, comme Fences 6) : c'est la place naturelle, et elle n'existe pas encore — **T-064**.
+- Les autres champs de style persistés **restent inertes** (`iconSize`, `padding`, `gap`, `titleBar`) : c'est **T-014b**.

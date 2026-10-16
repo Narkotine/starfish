@@ -4,6 +4,7 @@
 #include <QString>
 
 class QCheckBox;
+class QComboBox;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -46,12 +47,20 @@ signals:
     void removeFenceRequested(const QString& id);
     void rollUpToggled(const QString& id, bool rolledUp);
     void desktopIconsToggled(bool hidden);
+    // F-038 / T-057: the material chosen for one fence (`material` is a
+    // FenceMaterial preset id). The tray applies a material to every fence at
+    // once; this is the per-fence choice.
+    void fenceMaterialRequested(const QString& id, const QString& material);
 
 private:
     void onRenameClicked();
     void onRollUpClicked();
     void onDeleteClicked();
     void updateButtons();
+    // Puts the material combo in step with the container for the selected fence:
+    // the preset it is shown in, or a one-off "Custom" entry when its alpha is
+    // nobody's preset. Programmatic, so it blocks the combo's own signal.
+    void updateMaterialCombo();
     QString selectedId() const;
 
     FenceContainer* m_container = nullptr;
@@ -59,6 +68,7 @@ private:
     QPushButton* m_rename = nullptr;
     QPushButton* m_rollUp = nullptr;
     QPushButton* m_delete = nullptr;
+    QComboBox* m_material = nullptr;
     QCheckBox* m_hideIcons = nullptr;
     QLabel* m_status = nullptr;
 };

@@ -1,10 +1,13 @@
 #include "ui/tray_icon.hpp"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QMenu>
 #include <QPainter>
 #include <QRectF>
 #include <QSystemTrayIcon>
+
+#include "ui/fence_material.hpp"
 
 namespace starfish::ui {
 
@@ -90,6 +93,26 @@ bool TrayIcon::show()
             emit peekToggled(checked);
         });
 
+        // F-038 / T-057: the fence material, for every fence at once. The tray
+        // cannot point at one fence, and that is exactly what makes it useful
+        // here: "make them all translucent" is one click. The settings window is
+        // where a single fence is chosen.
+        m_materialMenu = m_menu->addMenu(tr("Fence material"));
+        // Exclusive, so clicking one entry unchecks the others even before the
+        // product has reported the new state back (the menu closes first).
+        auto* materialGroup = new QActionGroup(this);
+        materialGroup->setExclusive(true);
+        for (const FenceMaterial::Preset& preset : FenceMaterial::presets()) {
+            const QString id = QString::fromLatin1(preset.id);
+            QAction* entry = m_materialMenu->addAction(FenceMaterial::presetLabel(id));
+            entry->setCheckable(true);
+            connect(entry, &QAction::triggered, this, [this, id] {
+                emit fenceMaterialRequested(id);
+            });
+            materialGroup->addAction(entry);
+            m_materials.insert(id, entry);
+        }
+
         // ADR-13: the desktop's icons are never StarFish's to hide, so these
         // two entries do not exist unless a caller asks for them (the dev path
         // that still claims the desktop). They are built either way so the
@@ -154,6 +177,14 @@ void TrayIcon::setDesktopIconsHidden(bool hidden)
 {
     if (m_hideIcons)
         m_hideIcons->setChecked(hidden);
+}
+
+void TrayIcon::setFenceMaterial(const QString& material)
+{
+    // An empty material means the fences disagree: nothing is checked, which is
+    // the only honest state for a menu that speaks for all of them at once.
+    for (auto it = m_materials.constBegin(); it != m_materials.constEnd(); ++it)
+        it.value()->setChecked(it.key() == material && !material.isEmpty());
 }
 
 void TrayIcon::setIconHidingOffered(bool offered)

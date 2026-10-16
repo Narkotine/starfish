@@ -56,6 +56,22 @@ public:
     // True when Progman and SHELLDLL_DefView are found (i.e. Explorer is up).
     static bool isDesktopAvailable();
 
+    // The lowest alpha any pixel of a per-pixel frame may carry, and the reason
+    // it is not zero (T-060, ADR-11). It is a property of the layered window
+    // itself, so it lives with the class that owns the window.
+    //
+    // A per-pixel layered window is hit-tested against its own alpha: Windows
+    // lets the mouse through wherever the alpha is zero (MSDN, "Layered
+    // Windows"). A frame that has to be transparent almost everywhere -- the
+    // desktop backdrop, or the rounded corners of a translucent fence -- would
+    // therefore be a window the cursor can only find in places, or not at all.
+    // One level out of 255 is invisible on any wallpaper and turns the frame
+    // back into a shape the cursor can find anywhere.
+    // (Measured: with an alpha-0 frame the cursor finds the *parent*; at this
+    // floor it finds the layered child itself --
+    // experiments/spike_layer_alpha_shape.cpp.)
+    static constexpr int kInputAlphaFloor = 1;
+
     // The native desktop icons (ADR-3). The icon layer belongs to the desktop,
     // not to one surface, so these are static: the product hides the icons once
     // and restores them on the way out. ShowWindow on SHELLDLL_DefView is

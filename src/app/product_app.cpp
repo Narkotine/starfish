@@ -21,6 +21,7 @@
 #include "platform/win/shell_icon_cache.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/fence_material.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 
@@ -317,6 +318,9 @@ void ProductApp::onLifecycleChanged()
         m_tray->setFencesVisible(m_container->fencesVisible());
         m_tray->setPeekActive(m_container->peekActive());
         m_tray->setDesktopIconsHidden(desktopIconsHidden());
+        // F-038 / T-057: the material entry follows the document like the other
+        // menu states -- a change made in the settings window shows up here.
+        m_tray->setFenceMaterial(sharedFenceMaterial());
     }
 
     // A portal appearing or leaving changes what has to be watched (F-018). The
@@ -364,6 +368,10 @@ void ProductApp::wireTray()
             &ProductApp::onDesktopIconsToggled);
     connect(m_tray, &ui::TrayIcon::restoreIconsRequested, this,
             &ProductApp::restoreDesktopIcons);
+    // F-038 / T-057: the tray speaks for the whole desktop, so its material entry
+    // applies to every fence (the settings window is the per-fence one).
+    connect(m_tray, &ui::TrayIcon::fenceMaterialRequested, this,
+            &ProductApp::applyMaterialToAllFences);
 
     if (!m_tray->show())
         qCWarning(lc) << "the tray icon could not be shown";
@@ -372,6 +380,7 @@ void ProductApp::wireTray()
     m_tray->setFencesVisible(m_container->fencesVisible());
     m_tray->setPeekActive(m_container->peekActive());
     m_tray->setDesktopIconsHidden(desktopIconsHidden());
+    m_tray->setFenceMaterial(sharedFenceMaterial());
 }
 
 void ProductApp::wireSettings()
@@ -386,6 +395,9 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::removeFenceRequested, this,
             &ProductApp::onRemoveFence);
     connect(m_settings, &ui::SettingsDialog::rollUpToggled, this, &ProductApp::onRollUpToggled);
+    // F-038 / T-057: the settings window is where one fence's material is chosen.
+    connect(m_settings, &ui::SettingsDialog::fenceMaterialRequested, this,
+            &ProductApp::applyMaterialToFence);
     connect(m_settings, &ui::SettingsDialog::desktopIconsToggled, this,
             &ProductApp::onDesktopIconsToggled);
     m_settings->setDesktopIconsHidden(desktopIconsHidden());
@@ -620,6 +632,46 @@ void ProductApp::onRollUpToggled(const QString& id, bool rolledUp)
 void ProductApp::onDesktopIconsToggled(bool hidden)
 {
     setDesktopIconsHidden(hidden);
+}
+
+// F-038 / T-057: the materials. Both are a one-line style change on purpose --
+// the container turns the preset into an alpha on the fence's colour (which the
+// document already carries), switches the hosted surface to the per-pixel path
+// when the panel stops being opaque, and emits the lifecycle signal that
+// auto-saves and refreshes the tray and the settings window. There is nothing
+// left for the product to remember.
+void ProductApp::applyMaterialToFence(const QString& id, const QString& material)
+{
+    m_container->setFenceMaterial(id, material);
+}
+
+void ProductApp::applyMaterialToAllFences(const QString& material)
+{
+    const QStringList ids = m_container->fenceIds();
+    for (const QString& id : ids)
+        m_container->setFenceMaterial(id, material);
+    qCInfo(lc).noquote()
+        << QStringLiteral("material %1 -> %2 fence(s)").arg(material).arg(ids.size());
+}
+
+QString ProductApp::sharedFenceMaterial() const
+{
+    if (!m_container)
+        return QString();
+    QString shared;
+    bool first = true;
+    for (const QString& id : m_container->fenceIds()) {
+        const QString material = m_container->fenceMaterial(id);
+        if (first) {
+            shared = material;
+            first = false;
+        } else if (material != shared) {
+            // A desktop whose fences do not agree: the tray says so by claiming
+            // nothing rather than by picking one of them.
+            return QString();
+        }
+    }
+    return shared;
 }
 
 bool ProductApp::desktopIconsHidden() const
@@ -873,6 +925,15 @@ QString ProductApp::statusText() const
 
     QStringList parts;
     parts << tr("%1 fence(s)").arg(m_container->fenceCount());
+    // F-038 / T-057: what the fences are made of. Stated once, here, because the
+    // status line is the only place the product describes itself in words -- and
+    // a material that is a document value has to be readable without a screenshot.
+    if (m_container->fenceCount() > 0) {
+        const QString material = sharedFenceMaterial();
+        parts << (material.isEmpty()
+                      ? tr("materials: mixed")
+                      : tr("material: %1").arg(ui::FenceMaterial::presetLabel(material)));
+    }
     parts << tr("%1 rule(s)").arg(m_container->rules().size());
     parts << (m_iconsHidden ? tr("desktop icons hidden") : tr("desktop icons visible"));
     if (m_container->backdrop() && m_container->backdrop()->enabled())
