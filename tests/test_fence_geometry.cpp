@@ -36,6 +36,14 @@ private slots:
     void applyRequestSnapsARolledFenceByItsTitleBar();
     void applyRequestKeepsARolledTitleBarOnScreen();
     void applyRequestStillClampsAnUnrolledFenceToTheMinimum();
+    // T-066: where a brand-new fence goes.
+    void freeSpotTakesTheFirstCandidateOnAnEmptyDesk();
+    void freeSpotAvoidsAnExistingFence();
+    void freeSpotMovesToTheNextRow();
+    void freeSpotSkipsTheColumnOfATallFence();
+    void freeSpotPicksTheLeastCoveredSpotWhenThereIsNoRoom();
+    void freeSpotNeverLeavesTheArea();
+    void freeSpotStillAnswersWhenNothingFits();
 };
 
 void TestFenceGeometry::hitTestClassifiesRegions()
@@ -275,6 +283,87 @@ void TestFenceGeometry::applyRequestStillClampsAnUnrolledFenceToTheMinimum()
                                                      QSize(160, 120), 8, /*snap=*/true);
     QCOMPARE(result.size(), QSize(160, 120));
     QCOMPARE(result.topLeft(), QPoint(0, 0));
+}
+
+// --- T-066: where a brand-new fence goes ------------------------------------
+//
+// The area below is already margin-adjusted (what the caller passes): 900x600 at
+// (80,80), fences 320x240, gap 24 -- so the candidates are (80,80), (424,80),
+// (80,344) and (424,344), in reading order, and the third column would run off the
+// right edge.
+namespace {
+const QRect kArea(80, 80, 900, 600);
+const QSize kFence(320, 240);
+const QRect kFirst(80, 80, 320, 240);
+const QRect kSecond(424, 80, 320, 240);
+const QRect kThird(80, 344, 320, 240);
+const QRect kFourth(424, 344, 320, 240);
+} // namespace
+
+void TestFenceGeometry::freeSpotTakesTheFirstCandidateOnAnEmptyDesk()
+{
+    QCOMPARE(FenceGeometry::freeSpot({}, kFence, kArea), kFirst);
+}
+
+void TestFenceGeometry::freeSpotAvoidsAnExistingFence()
+{
+    // A fence where the first candidate is: the next one along, not on top of it.
+    QCOMPARE(FenceGeometry::freeSpot({kFirst}, kFence, kArea), kSecond);
+}
+
+void TestFenceGeometry::freeSpotMovesToTheNextRow()
+{
+    // The whole first row taken: the search wraps, which is the part the old
+    // "right of everything" policy got wrong (it wrapped to the same point every
+    // time, and the container's clamp then made every later fence identical).
+    QCOMPARE(FenceGeometry::freeSpot({kFirst, kSecond}, kFence, kArea), kThird);
+}
+
+void TestFenceGeometry::freeSpotSkipsTheColumnOfATallFence()
+{
+    // A fence taller than one row occupies the second row of its *own* column, so
+    // the free spot is the other column -- not "the next row", blindly.
+    const QRect tall(80, 80, 320, 528);
+    QCOMPARE(FenceGeometry::freeSpot({tall, kSecond}, kFence, kArea), kFourth);
+}
+
+void TestFenceGeometry::freeSpotPicksTheLeastCoveredSpotWhenThereIsNoRoom()
+{
+    // Every candidate covered, and one of them only half: an overlap the user can
+    // see and drag apart beats a fence hidden under another one.
+    const QRect halfCovered(424, 344, 160, 240);
+    const QRect answer = FenceGeometry::freeSpot({kFirst, kSecond, kThird, halfCovered},
+                                                 kFence, kArea);
+    QCOMPARE(answer, kFourth);
+}
+
+void TestFenceGeometry::freeSpotNeverLeavesTheArea()
+{
+    const QList<QList<QRect>> fixtures{
+        {},
+        {kFirst},
+        {kFirst, kSecond},
+        {kFirst, kSecond, kThird},
+        {kFirst, kSecond, kThird, kFourth},
+    };
+    for (const QList<QRect>& others : fixtures) {
+        const QRect spot = FenceGeometry::freeSpot(others, kFence, kArea);
+        QVERIFY2(kArea.contains(spot), qPrintable(QStringLiteral("%1,%2 %3x%4 outside %5,%6 %7x%8")
+                                                      .arg(spot.x()).arg(spot.y())
+                                                      .arg(spot.width()).arg(spot.height())
+                                                      .arg(kArea.x()).arg(kArea.y())
+                                                      .arg(kArea.width()).arg(kArea.height())));
+        QCOMPARE(spot.size(), kFence);
+    }
+}
+
+void TestFenceGeometry::freeSpotStillAnswersWhenNothingFits()
+{
+    // A fence larger than the area: the first candidate, which the caller clamps.
+    // (The area's edges are inclusive, so a fence exactly as large as the area does
+    // *not* fit here -- the check is honest about which case it covers.)
+    const QRect small(0, 0, 100, 100);
+    QCOMPARE(FenceGeometry::freeSpot({}, kFence, small), QRect(0, 0, 320, 240));
 }
 
 QTEST_MAIN(TestFenceGeometry)

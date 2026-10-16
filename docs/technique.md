@@ -1301,3 +1301,83 @@ build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_material`) ; `--fence-d
 - **L'acrylique** (le flou) : hors de portée d'une enfant de `Progman` par les matériaux DWM documentés → `SetWindowCompositionAttribute` (non documenté, à mesurer) ou un flou calculé par nous. **Un spike d'abord** (ADR-10 quand ce sera tranché).
 - **Le choix au clic droit sur une zone** (« Material ▸ » sur la barre de titre, comme Fences 6) : c'est la place naturelle, et elle n'existe pas encore — **T-064**.
 - Les autres champs de style persistés **restent inertes** (`iconSize`, `padding`, `gap`, `titleBar`) : c'est **T-014b**.
+
+## 27. Le bureau n'est plus jamais pris, et les zones ne s'empilent plus (T-066 / T-067, session 36)
+
+Le retour utilisateur qui ouvre cette session, verbatim :
+
+> Je veux que : starfish ne masque pas les icones de bureau normaux. afficher les fences sur le bureau normal. ne pas masquer les icones qui ne sont pas dans les fences. et que ce soit comme ça dès le démarrage. Là en l'état c'est inutilisable.
+
+Deux défauts distincts, tous les deux **reproduits et chiffrés avant** d'être corrigés, et tous les deux **dans le chemin que le produit emprunte tout seul** — pas dans une option, pas dans une sonde.
+
+### 27.1 Le symptôme principal : la première icône rangée prenait le bureau (T-066)
+
+`ProductApp::syncNativeIcons()` (le rafraîchissement de deux secondes, **et le démarrage**) contenait :
+
+```cpp
+if (!held.isEmpty() && !m_ownsIcons)
+    takeOverDesktopIcons();   // masque SysListView32, le bureau devient le nôtre
+```
+
+`held` = les icônes du bureau qu'une zone **détient** (intersection « items du bureau » ∩ « chemins occupés par les zones »). Donc : **ranger une icône dans une zone suffisait à prendre le bureau**. Ce qui suit n'est pas un détail — masquer la liste veut dire que le bureau est désormais dessiné **par nous**, et que les icônes que nous dessinons ne répondent **à rien** : pas de clic, pas de sélection, pas de menu contextuel, pas de double-clic, pas de glisser. C'est **T-042**, non écrit. Le bureau devenait donc muet quelques minutes après un lancement normal, **sans retour possible** sinon quitter l'application.
+
+Pourquoi aucune sonde ne l'avait vu : `--claim-desktop` **choisit** cet état (les sondes de T-056/T-061 le mesurent donc volontairement), et les sondes de produit travaillent sur des documents jetables **sans icône du bureau** (`held` reste vide dans un dossier temporaire). Le produit, lui, atteignait cet état **tout seul** dès la première icône rangée. C'est l'exact inverse du piège de T-061 (une fonctionnalité n'existe pas tant que le produit ne se met pas dans l'état où elle s'applique) : **un état que le produit atteint seul n'avait jamais été regardé**.
+
+**Correctif** — la liste n'est plus jamais prise par le produit :
+
+```cpp
+if (!m_options.claimDesktop) {
+    if (m_ownsIcons)
+        giveBackDesktopIcons();   // reliquat du chemin claimDesktop, ou d'un ancien run
+    return;
+}
+```
+
+`takeOverDesktopIcons()` / `giveBackDesktopIcons()` survivent derrière **`--claim-desktop`** (chemin de développement et sondes qui mesurent l'ancien comportement), où les icônes sont réellement les nôtres à dessiner.
+
+**Le prix, assumé et écrit** : une icône qu'une zone détient est désormais dessinée **deux fois** — par le bureau à sa position, et comme tuile dans la zone. C'est la conséquence directe de « ne touche pas à mon bureau » tant que T-042 n'existe pas : on ne peut pas à la fois laisser à l'utilisateur ses icônes **et** les faire disparaître de là où elles sont sans les déplacer (déplacer est refusé : ADR-13, `LVM_SETITEMPOSITION` mesuré non fiable). Le jour où les icônes que nous dessinons seront utilisables, reprendre la couche redeviendra un **choix à offrir**, et non un effet de bord du rangement.
+
+### 27.2 « Afficher les fences » : trois zones au même endroit (T-067)
+
+Mesuré **dans le document de l'utilisateur** (`%APPDATA%/StarFish/layout.json`) : **5 zones**, dont **trois au même rect** `(80, 1200)` — empilées en bas de l'écran, n'en laissant voir qu'**une**. Ce n'était pas trois zones perdues : c'étaient trois zones **créées depuis la zone de notification**, à des moments différents, toutes posées au même point.
+
+La politique précédente était « à droite de tout, puis on passe à la ligne suivante ». Le calcul de la ligne suivante donnait `max(bas des zones) + 24`, et le **clamp à l'écran** ramenait ce y à l'intérieur des limites — c'est-à-dire, une fois la dernière ligne atteinte, **toujours au même endroit**. Chaque nouvelle zone repartait donc du même point, indéfiniment.
+
+**Correctif** : `FenceGeometry::freeSpot(others, size, bounds, gap)` (`src/ui/fence_geometry.hpp`, **pur**, sans Qt Widgets) — la **première place libre** en ordre de lecture (gauche→droite puis vers le bas) sur une grille espacée du `gap`, en excluant tout rect qui **touche** un rect existant. Le produit l'appelle sur l'écran **primaire**, avec une marge de `kPlacementMargin = 80` px — ce qui garde aussi la première rangée d'icônes dégagée (une zone qui se pose pile sur la première icône du coin serait « correcte » et désagréable). Si **rien** n'est libre (écran saturé), le candidat **le moins recouvert** gagne : un chevauchement se voit et se corrige à la souris, une zone cachée sous une autre ne se voit **pas** — c'est le même raisonnement que celui qui a produit `freeSpot`.
+
+**7 cas** ajoutés à `tests/test_fence_geometry.cpp` (**26 cas** au total). Le plus intéressant **prouve sa prémisse** : une zone **haute** occupe la deuxième ligne **de sa colonne seulement**, donc la place libre doit être **l'autre** colonne à la même hauteur — « la ligne suivante » à l'aveugle échoue là où `freeSpot` réussit.
+
+Vérifié par `--product-probe` (**24/24**, +1) : **six** zones créées depuis le tray, mesurées **0 doublon, 0 recouvrement, 0 hors écran** (`every fence created lands somewhere of its own`). ⚠️ Les zones **déjà** empilées dans le document de l'utilisateur ne sont **pas** déplacées : un document de l'utilisateur ne se corrige pas tout seul (à proposer, pas à imposer — décision 39).
+
+### 27.3 La sonde qui manquait : `--icons-demo`
+
+La question « le bureau est-il encore celui de l'utilisateur ? » est une question sur **le bureau**, pas sur notre modèle — donc la sonde mesure **de l'extérieur** : la liste du shell, le fichier marqueur, et le test de survol que Windows lui-même utilise.
+
+Elle construit un document jetable sous `build/` dont **une zone détient une vraie icône du bureau** (le premier item de `DesktopScanner` avec un chemin), la zone étant placée par `freeSpot` pour n'en recouvrir aucune, puis lance le produit **hébergé** dessus et vérifie dix choses :
+
+| vérification | ce qu'elle mesure |
+|---|---|
+| `the desktop's icons are the shell's to begin with` | **précondition** : liste visible, > 1 icône lisible, aucun marqueur. Sans elle, la sonde mesurerait « les icônes sont toujours là » sur un bureau dont les icônes étaient **déjà** masquées |
+| `the product starts with a fence that holds an icon` | le cas qui déclenchait le rachat est bien celui qu'on exécute (`1 fence(s)`), et le statut dit `desktop icons visible … (85 on the desktop, 1 held by fences)` |
+| `the fence is hosted and drawn on the normal desktop` | la zone existe **et est hébergée** (`isAttached`), avec une frame non vide — « afficher les fences » |
+| `the fence itself answers the mouse` | `WM_NCHITTEST` **sur la zone** → `HTCLIENT` : une zone posée sur un bureau normal est utilisable |
+| `the mouse still reaches the user's own icon` | `WM_NCHITTEST` **sur le fond** au centre de la première icône → `HTTRANSPARENT` (**88 rectangles** contournés) : le clic va à l'icône de l'utilisateur |
+| `the launch leaves the desktop's icons alone, even when a fence holds one` | **la demande exacte** : `SysListView32` est encore visible alors qu'une zone détient une icône |
+| `no icon-hiding marker was written` | rien sur le disque ne dit le contraire (le marqueur est ce que la réparation d'un crash relit) |
+| `the desktop is exactly the one it started with` | après la sortie : mêmes icônes (noms triés), même nombre devant/derrière, toujours visibles, pas de marqueur |
+| `a throwaway document holds one real desktop icon` / `the probe cleaned up after itself` | la sonde est honnête sur son montage et ne laisse rien derrière elle |
+
+**Prémisse prouvée** : l'ancien rachat remis en place (patch temporaire de `syncNativeIcons`, revert immédiat) → `rc=1` et **exactement 2 `FAIL`** : `the launch leaves the desktop's icons alone…` (statut `desktop icons hidden`) et `no icon-hiding marker was written` (`pid 24728, hidden at 2026-10-16T22:53:59`). Après la sonde, `SysListView32 visible = True` et marqueur **absent** : la sonde **rend ce qu'elle a pris**, y compris dans l'état cassé (c'est le chemin de réparation de T-046 qui le garantit).
+
+**Mesure de bout en bout sur le document réel de l'utilisateur** (copie dans `%TEMP%`, mode produit hébergé, sondé depuis un autre processus pendant que le produit tourne) : **6 surfaces** hébergées sous `Progman` — le fond (`0,0 2560x1440`) **et les 5 zones** de son document, chacune à son rect enregistré —, `SysListView32 visible = True`, `SHELLDLL_DefView visible = True`, marqueur **absent**, et après la sortie : **0** surface, bureau inchangé, document (copie) inchangé.
+
+### 27.4 Comptes (session 36)
+
+build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_geometry` portée à **26 cas**) ; `--icons-demo` **10/10** (nouvelle) ; `--product-probe` **24/24** (23 avant) ; **tous les autres compteurs inchangés** : `--fence-demo` 25/25 / 29/29 `--host`, `--backdrop-demo` 36/36 / 50/50, `--persist-demo` 26/26, `--nav-demo` 22/22 / 29/29, `--rules-demo` 28/28, `--portal-demo` 30/30 / 32/32, `--snapshot-demo` 11/11, `--screen-demo` 19/19.
+
+### 27.5 Ce qui reste ouvert
+
+- **T-042** (interactions sur les icônes qu'on dessine) — c'est **le** correctif de fond : tant qu'il n'existe pas, l'utilisateur a soit **ses** icônes (dessinées deux fois si elles sont dans une zone), soit les nôtres (utilisables pour nous, muettes pour lui). Le choix retenu aujourd'hui est explicite : **le bureau gagne**.
+- **Le rachat redevient un choix** : `--claim-desktop` est aujourd'hui le chemin de développement. Si un jour la couche reprise est utilisable, l'option pourra redevenir une case à cocher — mais jamais un effet de bord du rangement.
+- **Les trois zones empilées du document de l'utilisateur** : elles sont **toujours** au même rect (T-067 ne touche pas aux zones existantes). À proposer à l'utilisateur : un décalage en cascade le rangerait, mais c'est **son** bureau.
+- **L'acrylique** et **T-064** (matériau au clic droit) restent ouverts (§26).

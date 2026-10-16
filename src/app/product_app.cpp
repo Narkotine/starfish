@@ -21,6 +21,7 @@
 #include "platform/win/shell_icon_cache.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -47,6 +48,11 @@ constexpr Qt::Key kHideKey = Qt::Key_H;
 
 constexpr int kDefaultFenceWidth = 320;
 constexpr int kDefaultFenceHeight = 240;
+
+// How much of the screen a fence created from the tray keeps clear of the
+// screen's own edges -- and, on a normal desktop, of the first row of the user's
+// icons (T-066). The search grid adds its own gap between candidates.
+constexpr int kPlacementMargin = 80;
 
 } // namespace
 
@@ -507,28 +513,28 @@ QString ProductApp::createFenceWithDefaultPlacement()
     if (!m_container)
         return QString();
 
-    // To the right of everything, wrapping to a new row when the line would run
-    // off the screen: a fence created under an existing one looks like nothing
-    // happened. The container clamps the rect to the screen it lands on anyway.
-    // A new fence starts on the *primary* monitor -- the one the user is looking
-    // at -- rather than on whichever screen happens to be last in the list.
+    // A fence created under an existing one looks like nothing happened, so the
+    // spot is *searched*: the first place on the primary monitor (the screen the
+    // user is looking at) that no fence covers (T-066). This used to be "to the
+    // right of everything, wrapping to a new row", and the wrap put every later
+    // fence on the same point: measured on the user's own document, three fences
+    // at (80, 1200) -- stacked on each other at the bottom of the screen, looking
+    // like one. The margin keeps the screen's edges (and its first icons) clear,
+    // and the container clamps whatever comes back.
     const ui::ScreenInfo* primaryScreen = m_container->screens().primary();
-    const QSize bounds = primaryScreen ? primaryScreen->geometry.size() : QSize(1920, 1080);
+    const QRect bounds = primaryScreen ? primaryScreen->geometry
+                                       : QRect(QPoint(0, 0), QSize(1920, 1080));
+    QList<QRect> others;
     const QStringList ids = m_container->fenceIds();
-
-    int x = 80;
-    int y = 80;
+    others.reserve(ids.size());
     for (const QString& id : ids)
-        x = qMax(x, m_container->fenceRect(id).right() + 24);
-    if (x + kDefaultFenceWidth > bounds.width()) {
-        x = 80;
-        y = 80;
-        for (const QString& id : ids)
-            y = qMax(y, m_container->fenceRect(id).bottom() + 24);
-    }
+        others.append(m_container->fenceRect(id));
 
-    return m_container->createFence(nextFenceTitle(),
-                                    QRect(x, y, kDefaultFenceWidth, kDefaultFenceHeight));
+    const QRect spot = ui::FenceGeometry::freeSpot(
+        others, QSize(kDefaultFenceWidth, kDefaultFenceHeight),
+        bounds.adjusted(kPlacementMargin, kPlacementMargin, -kPlacementMargin, -kPlacementMargin));
+
+    return m_container->createFence(nextFenceTitle(), spot);
 }
 
 QString ProductApp::nextFenceTitle() const
@@ -808,8 +814,32 @@ void ProductApp::syncNativeIcons()
     // corner of the desktop instead of the parked point (LVM_SETITEMPOSITION with
     // (-32000,-32000) reading back as (8,2)) -- which is a worse outcome than the
     // duplicate it was meant to avoid, and it cannot be undone once the record of
-    // where the icon was is gone. The list is taken over instead: hidden, drawn
-    // here at the positions just read, and given back untouched on the way out.
+    // where the icon was is gone.
+    //
+    // ⚠️ T-066 -- and StarFish does **not** take the list over either, in the
+    // product. Hiding the desktop's icons and drawing them ourselves means the
+    // icons on screen stop being the user's: they cannot be clicked, dragged or
+    // right-clicked (that is T-042, unwritten), so the desktop answers nothing and
+    // reads as broken. What triggers it was not a mode the user chose but the
+    // *first* icon dropped into a fence -- the whole point of the application --
+    // so the desktop was taken over minutes after a normal launch, with no way
+    // back except quitting. The user reported exactly that: "starfish ne masque
+    // pas les icônes du bureau, affiche les fences sur le bureau normal, et que ce
+    // soit comme ça dès le démarrage".
+    //
+    // The price is stated rather than hidden: an icon a fence holds is drawn
+    // **twice**, once by the desktop at its place and once as a tile in the fence.
+    // Removing the duplicate is what T-042 is for; until then a duplicate is a
+    // cosmetic annoyance while a dead desktop is a broken product.
+    //
+    // The takeover survives behind `claimDesktop` (--claim-desktop, the
+    // development path and the probes), where the icons really are ours to draw.
+    if (!m_options.claimDesktop) {
+        if (m_ownsIcons)
+            giveBackDesktopIcons(); // left over from the claim path, or an older run
+        return;
+    }
+
     if (!held.isEmpty() && !m_ownsIcons)
         takeOverDesktopIcons();
     else if (held.isEmpty() && m_ownsIcons)

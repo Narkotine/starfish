@@ -297,6 +297,56 @@ public:
                             minSize, snapThreshold, snap);
     }
 
+    // Where a brand-new fence goes: the first spot that fits inside `bounds`
+    // without covering a fence that is already there (T-066). Candidates are
+    // visited in reading order -- left to right, top to bottom -- on a grid with
+    // `gap` between neighbours, which is the order a person looks for room. The
+    // caller decides the margin by shrinking `bounds` before the call.
+    //
+    // Why this exists: "to the right of everything" is enough while the first row
+    // has room, but the moment it wraps, every later fence lands on the same
+    // point -- and the clamp to the screen (which the container applies anyway)
+    // makes that point the same corner every time. Measured on a real document:
+    // five fences, three of them at (80, 1200), i.e. three fences stacked on each
+    // other at the bottom of the screen and looking like one. A fence created
+    // where the user cannot see it is worse than no fence at all.
+    //
+    // When there is genuinely no free spot (the area is full), the candidate that
+    // covers the least wins: an overlap is visible and can be dragged apart, while
+    // a fence hidden underneath another one is not. Pure.
+    static QRect freeSpot(const QList<QRect>& others, const QSize& size, const QRect& bounds,
+                          int gap = 24)
+    {
+        const int stepX = qMax(1, size.width() + gap);
+        const int stepY = qMax(1, size.height() + gap);
+        QRect best;
+        qint64 bestOverlap = -1;
+
+        for (int y = bounds.top(); y + size.height() <= bounds.bottom() + 1; y += stepY) {
+            for (int x = bounds.left(); x + size.width() <= bounds.right() + 1; x += stepX) {
+                const QRect candidate(x, y, size.width(), size.height());
+                qint64 overlap = 0;
+                for (const QRect& other : others) {
+                    const QRect hit = candidate.intersected(other);
+                    if (!hit.isEmpty())
+                        overlap += static_cast<qint64>(hit.width()) * hit.height();
+                }
+                if (overlap == 0)
+                    return candidate;
+                if (bestOverlap < 0 || overlap < bestOverlap) {
+                    bestOverlap = overlap;
+                    best = candidate;
+                }
+            }
+        }
+
+        if (bestOverlap >= 0)
+            return best;
+        // Nothing even fits (the fence is larger than the area): the caller clamps
+        // it, exactly as it does for a rect that came from the document.
+        return QRect(bounds.topLeft(), size);
+    }
+
 private:
     // Closest (target - line) offset within the threshold, 0 when none applies.
     // `snapped` is set accordingly, so callers can distinguish "already aligned"

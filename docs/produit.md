@@ -126,12 +126,13 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 | F-035 | Lancement au démarrage (optionnel) | P1 |
 | F-036 | Interface au moins en anglais et français | P1 |
 | F-037 | Aucune télémétrie, aucun compte, données locales uniquement | P0 |
+| F-039 | **Le bureau reste celui de l'utilisateur : StarFish ne masque aucune icône native** (ADR-13, **T-066**). Le produit se pose **sur** le bureau normal — son papier peint, ses icônes à leurs places, leur clic, leur menu, leur glisser — **au lancement, en fonctionnement et à la fermeture**, y compris dans le cas qui a fait défaut : **une zone qui détient une icône du bureau**. Conséquence assumée et visible tant que **T-042** n'est pas écrit : cette icône s'affiche **deux fois** (sur le bureau **et** comme tuile dans la zone) — on ne peut pas laisser ses icônes à l'utilisateur *et* les faire disparaître de là où elles sont sans les déplacer, et StarFish ne déplace **jamais** un fichier. Reprendre la couche d'icônes (`--claim-desktop`) reste possible, mais uniquement comme **chemin de développement**, jamais comme effet de bord | P0 |
 
 Spécifiquement **hors périmètre** : édition entreprise (déploiement par GPO/comptes centralisés), skins avancés, support ARM (réévaluable plus tard).
 
 ## 7. Périmètre par version
 
-- **v0.1 (MVP)** : noyau desktop (F-032, F-037) + zones basiques (F-001…F-004, F-007, F-013) + icônes drag & drop (F-010, F-011) + roll-up/Peek/quick hide (F-020…F-022) + snapshots (F-027) + tray/réglages minimaux (F-034).
+- **v0.1 (MVP)** : noyau desktop (F-032, F-037, **F-039**) + zones basiques (F-001…F-004, F-007, F-013) + icônes drag & drop (F-010, F-011) + roll-up/Peek/quick hide (F-020…F-022) + snapshots (F-027) + tray/réglages minimaux (F-034).
 - **v0.2** : apparence fine (F-005, F-006, **F-038**), tri (F-012, F-014), règles (F-017…F-019), portails (F-024), raccourcis (F-033, F-035), i18n (F-036).
 - **v1.0** : onglets (F-008), teinte/fondu (F-015, F-016), dispositions par moniteur (F-029), export/import (F-028), accessibilité clavier (F-023).
 - **Plus tard** : pages de bureau (F-030, F-031), Chameleon (F-009), navigation portails (F-025, F-026).

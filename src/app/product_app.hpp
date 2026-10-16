@@ -190,8 +190,13 @@ private:
     // stop being drawn by the desktop, and moving it is how that is done. When the
     // desktop refuses to be moved one icon at a time (auto-arrange on), the whole
     // list is taken over instead -- hidden, and drawn here at the positions just
-    // read, so the desktop still looks like the user's own. Called and given back
-    // by syncNativeIcons; never a mode, only a consequence.
+    // read, so the desktop still looks like the user's own.
+    //
+    // T-066: this is now **only** the claimDesktop path (`--claim-desktop`, the
+    // development mode and the probes). In the product it never runs, because the
+    // icons we would draw in the user's place are not yet usable (T-042) -- a
+    // desktop whose icons answer nothing is broken, while a duplicated icon is
+    // merely annoying. Called and given back by syncNativeIcons.
     void takeOverDesktopIcons();
     void giveBackDesktopIcons();
 

@@ -1024,13 +1024,21 @@ int main(int argc, char* argv[])
                       "window, first-launch fence, rename, roll-up, delete, auto-save) "
                       "against a throwaway document, without hosting, tray or hot keys, and "
                       "write a PASS/FAIL report to build/product_probe.txt."));
+    const QCommandLineOption iconsDemoOption(
+        QLatin1String("icons-demo"),
+        QLatin1String("T-066 diagnostic: run the product on a throwaway document whose fence "
+                      "holds one of the desktop's *real* icons, then measure from outside that "
+                      "the desktop's icons are still the shell's -- visible, readable and "
+                      "clickable -- during the launch and after the exit. Needs a real desktop "
+                      "and visible icons; report in build/icons_demo.txt."));
     const QCommandLineOption claimDesktopOption(
         QStringLiteral("claim-desktop"),
         QStringLiteral("Take the desktop at launch (T-056), which is now opt-in: the native "
                        "icon layer is hidden and StarFish draws the desktop itself. ADR-13 "
                        "made this the exception -- the product leaves the user's icons "
                        "alone -- so it is here for the development path and for the probes "
-                       "that still measure the old behaviour."));    const QCommandLineOption noHostOption(
+                       "that still measure the old behaviour."));
+    const QCommandLineOption noHostOption(
         QLatin1String("no-host"),
         QLatin1String("With the product: do not put the fences on the desktop."));
     const QCommandLineOption noTrayOption(
@@ -1052,6 +1060,7 @@ int main(int argc, char* argv[])
                       "through a real FenceContainer, and measure that Qt scales the paint to "
                       "the monitor's ratio. Writes a PASS/FAIL report to build/screen_demo.txt."));
     parser.addOption(productProbeOption);
+    parser.addOption(iconsDemoOption);
     parser.addOption(screenDemoOption);
     const QCommandLineOption backdropDemoOption(
         QLatin1String("backdrop-demo"),
@@ -4047,6 +4056,49 @@ int main(int argc, char* argv[])
                       QLatin1String("new fence at x=%1")
                           .arg(QString::number(product.container()->fenceRect(secondId).x())));
 
+                // T-066: and it keeps working once the first row is full. This used
+                // to be "to the right of everything, wrapping to the same row start",
+                // and the wrap put every later fence on the same point -- measured on
+                // the user's own document: three fences at (80, 1200), stacked on
+                // each other at the bottom of the screen and looking like one fence.
+                QList<QRect> placed;
+                placed.append(product.container()->fenceRect(id));
+                placed.append(product.container()->fenceRect(secondId));
+                QStringList spawned;
+                for (int i = 0; i < 4; ++i) {
+                    const QString made = product.createFenceWithDefaultPlacement();
+                    if (made.isEmpty())
+                        continue;
+                    spawned.append(made);
+                    placed.append(product.container()->fenceRect(made));
+                }
+                int overlapping = 0;
+                int outside = 0;
+                bool duplicated = false;
+                const QRect desktop(QPoint(0, 0), product.container()->desktopBounds());
+                for (int i = 0; i < placed.size(); ++i) {
+                    if (!desktop.contains(placed.at(i)))
+                        ++outside;
+                    for (int j = i + 1; j < placed.size(); ++j) {
+                        if (placed.at(i) == placed.at(j))
+                            duplicated = true;
+                        if (placed.at(i).intersects(placed.at(j)))
+                            ++overlapping;
+                    }
+                }
+                check(QLatin1String("every fence created lands somewhere of its own"),
+                      placed.size() == 6 && !duplicated && overlapping == 0 && outside == 0,
+                      QLatin1String("%1 fence(s): %2 duplicate(s), %3 overlapping pair(s), "
+                                    "%4 outside the desktop")
+                          .arg(QString::number(placed.size()))
+                          .arg(duplicated ? 1 : 0)
+                          .arg(QString::number(overlapping))
+                          .arg(QString::number(outside)));
+
+                // Back to one fence: the checks below describe the document.
+                for (const QString& extra : spawned)
+                    product.container()->removeFence(extra);
+
                 check(QLatin1String("deleting a fence works"),
                       product.container()->removeFence(secondId)
                           && product.container()->fenceCount() == 1, {});
@@ -4189,6 +4241,252 @@ int main(int argc, char* argv[])
         for (const QString& line : log)
             qCInfo(lc).noquote() << line;
         qCInfo(lc).noquote() << QLatin1String("report written to %1").arg(reportPath);
+
+        const int exitCode = failures == 0 ? 0 : 1;
+        QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(iconsDemoOption)) {
+        // T-066: the product must not take the desktop's icons away -- not at
+        // launch, not when a fence holds one of them, and not ever.
+        //
+        // The case that used to trigger it is the *first icon a fence holds*: the
+        // product hid SysListView32 and drew the icons itself, and the icons it
+        // drew could not be clicked, dragged or right-clicked (T-042 is unwritten),
+        // so the desktop stopped answering the mouse. The user's report:
+        // "starfish ne masque pas les icônes du bureau, affiche les fences sur le
+        // bureau normal, et que ce soit comme ça dès le démarrage".
+        //
+        // Everything below is measured from *outside* the product: the shell's own
+        // list view, the marker file, and the hit test Windows itself would use.
+        // "The icons are still there" is a claim about the desktop, not about our
+        // model, so the model is not asked.
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -58)
+                       .arg(detail);
+        };
+
+#if !defined(_WIN32)
+        check(QStringLiteral("this probe needs a real Windows desktop"), false,
+              QStringLiteral("not Windows"));
+#else
+        // The premise, checked first: the desktop's icons are the shell's, and they
+        // can be read. A probe that measured "the icons are still visible" on a
+        // desktop whose icons were already hidden would pass while measuring
+        // nothing.
+        const bool visibleBefore = starfish::platform::win::nativeDesktopIconsVisible();
+        const QVector<starfish::platform::win::NativeDesktopIcon> iconsBefore =
+            visibleBefore ? starfish::platform::win::readNativeDesktopIcons()
+                          : QVector<starfish::platform::win::NativeDesktopIcon>{};
+        const starfish::core::IconHidingMarker marker;
+        check(QStringLiteral("the desktop's icons are the shell's to begin with"),
+              visibleBefore && iconsBefore.size() > 1 && !marker.isPresent(),
+              QStringLiteral("SysListView32 visible=%1, %2 icon(s) readable, marker %3")
+                  .arg(visibleBefore ? 1 : 0)
+                  .arg(iconsBefore.size())
+                  .arg(marker.isPresent() ? marker.description() : QStringLiteral("absent")));
+
+        if (!visibleBefore || iconsBefore.isEmpty()) {
+            log << QStringLiteral("the probe stops here: it will not measure a desktop it cannot "
+                                  "read (hide nothing, and re-run with the icons shown)");
+        } else {
+            const QString probeDir = QStringLiteral("build/icons_demo");
+            QDir().mkpath(probeDir);
+            const QString layoutPath = probeDir + QStringLiteral("/layout.json");
+            QFile::remove(layoutPath);
+
+            // A fence holding one of the desktop's *real* items: that is what makes
+            // the fence "hold" an icon, and it is the exact state that used to take
+            // the desktop over. The fence itself goes to a free spot, found from the
+            // icons' own rectangles, so it covers none of them.
+            QString scanError;
+            const QList<starfish::core::DesktopItem> desktopItems =
+                starfish::platform::win::DesktopScanner::scan(&scanError);
+            QString heldPath;
+            QVector<QRect> iconRects;
+            iconRects.reserve(iconsBefore.size());
+            for (const starfish::platform::win::NativeDesktopIcon& icon : iconsBefore)
+                iconRects.append(QRect(icon.position, icon.slot));
+            for (const starfish::core::DesktopItem& item : desktopItems) {
+                if (item.path.isEmpty())
+                    continue;
+                heldPath = item.path; // the first real file/folder on the desktop
+                break;
+            }
+
+            const QRect desktopBounds = starfish::app::ProductApp::screenLayout().bounds();
+            const QRect fenceRect = starfish::ui::FenceGeometry::freeSpot(
+                iconRects, QSize(320, 240),
+                desktopBounds.adjusted(80, 80, -80, -80));
+
+            starfish::core::Layout seed;
+            starfish::core::Fence fence;
+            fence.id = QStringLiteral("fence-demo");
+            fence.title = QStringLiteral("holds one of your icons");
+            fence.rect = fenceRect;
+            starfish::core::FenceItem held;
+            held.kind = QStringLiteral("file");
+            held.path = heldPath;
+            fence.items.append(held);
+            seed.fences.append(fence);
+            QString seedError;
+            const bool seeded = !heldPath.isEmpty()
+                && starfish::core::JsonStore::save(seed, layoutPath, &seedError);
+            check(QStringLiteral("a throwaway document holds one real desktop icon"),
+                  seeded,
+                  seeded ? QStringLiteral("%1 at %2,%3 %4x%5")
+                               .arg(heldPath)
+                               .arg(fenceRect.x())
+                               .arg(fenceRect.y())
+                               .arg(fenceRect.width())
+                               .arg(fenceRect.height())
+                         : seedError);
+
+            if (!seeded) {
+                log << QStringLiteral("the probe stops here: it needs a document whose fence holds "
+                                      "a real desktop item");
+            } else {
+                starfish::app::ProductApp::Options options;
+                options.layoutPath = layoutPath;
+                options.hostOnDesktop = true;
+                options.tray = false;
+                options.settingsWindow = false;
+                options.hotkeys = false;
+                options.watchDesktop = false;
+                options.starterFence = false;
+
+                {
+                    starfish::app::ProductApp product;
+                    QString startError;
+                    const bool started = product.start(options, &startError);
+                    check(QStringLiteral("the product starts with a fence that holds an icon"),
+                          started && product.container()->fenceCount() == 1,
+                          started ? product.statusText() : startError);
+
+                    if (started) {
+                        const QString id = product.container()->fenceIds().value(0);
+                        auto* surface = product.container()->surface(id);
+                        const QImage frame = product.container()->frame(id);
+                        check(QStringLiteral("the fence is hosted and drawn on the normal desktop"),
+                              surface && surface->isAttached() && !frame.isNull(),
+                              QStringLiteral("hosted=%1, frame %2x%3, at %4,%5")
+                                  .arg(surface && surface->isAttached() ? 1 : 0)
+                                  .arg(frame.width())
+                                  .arg(frame.height())
+                                  .arg(fenceRect.x())
+                                  .arg(fenceRect.y()));
+
+                        // The fence answers for itself where it is: the mouse finds
+                        // *it* there, so a fence on a normal desktop is usable even
+                        // though the icons underneath are still the shell's.
+                        if (surface) {
+                            const QPoint centre = fenceRect.center() - fenceRect.topLeft();
+                            const auto answer =
+                                ::SendMessageW(reinterpret_cast<HWND>(surface->hwnd()),
+                                               WM_NCHITTEST, 0,
+                                               MAKELPARAM(centre.x(), centre.y()));
+                            check(QStringLiteral("the fence itself answers the mouse"),
+                                  answer == HTCLIENT,
+                                  QStringLiteral("WM_NCHITTEST at the fence's centre -> %1")
+                                      .arg(answer));
+                        }
+
+                        // The user's own icons: still drawn by the shell, and the
+                        // mouse still reaches them -- the backdrop steps aside over
+                        // each one (HTTRANSPARENT), so the click the shell receives
+                        // is the original one.
+                        starfish::ui::DesktopBackdrop* backdrop = product.container()->backdrop();
+                        auto* backdropSurface = backdrop ? backdrop->surface() : nullptr;
+                        const QRect iconBox(iconsBefore.first().position, iconsBefore.first().slot);
+                        if (backdropSurface) {
+                            const QPoint client = iconBox.center()
+                                - backdropSurface->geometry().topLeft();
+                            const auto answer = ::SendMessageW(
+                                reinterpret_cast<HWND>(backdropSurface->hwnd()), WM_NCHITTEST, 0,
+                                MAKELPARAM(client.x(), client.y()));
+                            check(QStringLiteral("the mouse still reaches the user's own icon"),
+                                  answer == HTTRANSPARENT,
+                                  QStringLiteral("WM_NCHITTEST at %1,%2 (%3) -> %4 "
+                                                 "(%5 icon(s) stepped around)")
+                                      .arg(iconBox.center().x())
+                                      .arg(iconBox.center().y())
+                                      .arg(iconsBefore.first().name)
+                                      .arg(answer)
+                                      .arg(backdropSurface->nativeIconRects().size()));
+                        } else {
+                            check(QStringLiteral("the mouse still reaches the user's own icon"), false,
+                                  QStringLiteral("the backdrop is not hosted, so nothing steps "
+                                                 "aside"));
+                        }
+
+                        // The two claims of the requirement, from outside: the shell
+                        // is still the one drawing the desktop, and nothing was left
+                        // on disk that says otherwise.
+                        check(QStringLiteral("the launch leaves the desktop's icons alone, even "
+                                             "when a fence holds one"),
+                              starfish::platform::win::nativeDesktopIconsVisible(),
+                              product.statusText());
+                        check(QStringLiteral("no icon-hiding marker was written"),
+                              !marker.isPresent(), marker.description());
+                    }
+
+                    product.shutdown();
+                }
+
+                // And after the exit the desktop is exactly the one it started with:
+                // same icons, still the shell's.
+                QStringList namesBefore;
+                QStringList namesAfter;
+                for (const starfish::platform::win::NativeDesktopIcon& icon : iconsBefore)
+                    namesBefore << icon.name;
+                const QVector<starfish::platform::win::NativeDesktopIcon> iconsAfter =
+                    starfish::platform::win::readNativeDesktopIcons();
+                for (const starfish::platform::win::NativeDesktopIcon& icon : iconsAfter)
+                    namesAfter << icon.name;
+                namesBefore.sort();
+                namesAfter.sort();
+                check(QStringLiteral("the desktop is exactly the one it started with"),
+                      starfish::platform::win::nativeDesktopIconsVisible()
+                          && !marker.isPresent() && namesBefore == namesAfter,
+                      QStringLiteral("%1 icon(s) before, %2 after, visible=%3, marker %4")
+                          .arg(namesBefore.size())
+                          .arg(namesAfter.size())
+                          .arg(starfish::platform::win::nativeDesktopIconsVisible() ? 1 : 0)
+                          .arg(marker.isPresent() ? marker.description()
+                                                  : QStringLiteral("absent")));
+            }
+
+            // Leave nothing behind: the probe owns this directory and removes it.
+            QDir(probeDir).removeRecursively();
+            check(QStringLiteral("the probe cleaned up after itself"),
+                  !QFileInfo::exists(layoutPath), probeDir);
+        }
+#endif
+
+        const QString reportPath = QStringLiteral("build/icons_demo.txt");
+        {
+            QFile report(reportPath);
+            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                QTextStream stream(&report);
+                stream << QStringLiteral("icons probe (T-066): the desktop's icons stay the "
+                                         "shell's\n");
+                for (const QString& line : log)
+                    stream << line << '\n';
+                stream << (failures == 0
+                               ? QStringLiteral("RESULT: all checks passed\n")
+                               : QStringLiteral("RESULT: %1 check(s) FAILED\n").arg(failures));
+            }
+        }
+        for (const QString& line : log)
+            qCInfo(lc).noquote() << line;
+        qCInfo(lc).noquote() << QStringLiteral("report written to %1").arg(reportPath);
 
         const int exitCode = failures == 0 ? 0 : 1;
         QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
