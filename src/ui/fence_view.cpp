@@ -180,8 +180,14 @@ void FenceView::paintEvent(QPaintEvent* event)
     }
 
     m_grid.paint(painter, content, m_iconProvider);
-    if (m_dragging)
-        paintDropIndicator(m_dropTargetIndex, painter);
+    if (m_dragging) {
+        // Either the grid is about to receive the tile, or the desktop is:
+        // never both, so the two hints are mutually exclusive by construction.
+        if (m_releaseArmed)
+            paintReleaseHint(painter);
+        else
+            paintDropIndicator(m_dropTargetIndex, painter);
+    }
 }
 
 void FenceView::mousePressEvent(QMouseEvent* event)
@@ -220,6 +226,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         m_dragOriginIndex = -1;
         m_dragging = false;
         m_dropTargetIndex = -1;
+        m_releaseArmed = false;
         emit geometryDragStarted();
         return;
     }
@@ -241,6 +248,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     m_dragStartPos = event->pos();
     m_dropTargetIndex = -1;
     m_dragging = false;
+    m_releaseArmed = false;
 
     update();
     emit contentChanged();
@@ -285,7 +293,15 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
     }
 
     m_dropTargetIndex = itemAt(event->pos());
-    update();
+    // F-011: outside the fence there is no cell to drop onto, and the release
+    // hands the tile back to the desktop instead of reordering the grid. The
+    // hint has to follow the cursor both ways -- dragging back inside re-arms
+    // the ordinary drop.
+    const bool outside = !rect().contains(event->pos());
+    if (outside != m_releaseArmed) {
+        m_releaseArmed = outside;
+        update();
+    }
 }
 
 void FenceView::mouseReleaseEvent(QMouseEvent* event)
@@ -307,6 +323,22 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
 
     if (m_dragging) {
         const int from = m_dragOriginIndex;
+        // F-011: letting go outside the fence gives the tile back to the
+        // desktop. Decided *before* the reorder, because it is a different
+        // gesture with a different owner: the fence stops holding the icon and
+        // the desktop layer draws it again, with no restore step in between.
+        if (!rect().contains(event->pos()) && from >= 0 && from < m_grid.items().size()
+            && !m_grid.items().at(from).path.isEmpty()) {
+            const QString path = m_grid.items().at(from).path;
+            m_dragging = false;
+            m_dragOriginIndex = -1;
+            m_dragStartPos = QPoint();
+            m_dropTargetIndex = -1;
+            m_releaseArmed = false;
+            update();
+            emit itemReleaseRequested({path});
+            return;
+        }
         // The drop target is the cell under the cursor; if the cursor is in
         // empty space (no cell), drop at the end of the grid.
         int to = itemAt(event->pos());
@@ -318,6 +350,7 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         m_dragOriginIndex = -1;
         m_dragStartPos = QPoint();
         m_dropTargetIndex = -1;
+        m_releaseArmed = false;
         update();
         emit contentChanged();
         return;
@@ -397,6 +430,20 @@ int FenceView::replaceItems(const QStringList& previousPaths, const QList<core::
         emit contentChanged();
     }
     return added;
+}
+
+int FenceView::removeItemsByPath(const QStringList& paths)
+{
+    // F-011: the tile is not hidden, moved or deleted -- the fence simply stops
+    // listing it, and the desktop backdrop draws it again because it is no
+    // longer in the occupied set (T-039). One place holds the fact, and it is
+    // the fence's item list.
+    const int removed = m_grid.removeItemsByPath(paths);
+    if (removed > 0) {
+        update();
+        emit contentChanged();
+    }
+    return removed;
 }
 
 void FenceView::dragEnterEvent(QDragEnterEvent* event)
@@ -480,6 +527,29 @@ void FenceView::paintDropIndicator(int index, QPainter& painter)
     painter.setPen(QPen(accent, 2.0));
     painter.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 60));
     painter.drawRoundedRect(combined, 6, 6);
+    painter.restore();
+}
+
+void FenceView::paintReleaseHint(QPainter& painter)
+{
+    // F-011: what letting go *now* would do. The cursor is outside the fence,
+    // so the tile is about to go back to the desktop. Drawn inside the fence
+    // because the fence is all we own -- and a dashed accent border is
+    // deliberately *not* the drop indicator: one means "the grid takes it",
+    // the other means "the desktop takes it".
+    const QColor accent(0x3B, 0x82, 0xF6);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(accent, 2.0, Qt::DashLine));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(QRectF(rect()).adjusted(2.0, 2.0, -2.0, -2.0), m_cornerRadius,
+                            m_cornerRadius);
+    const QRect content = contentRect();
+    if (!content.isEmpty()) {
+        painter.setPen(accent);
+        painter.drawText(content, Qt::AlignCenter,
+                         QStringLiteral("release to put it back on the desktop"));
+    }
     painter.restore();
 }
 

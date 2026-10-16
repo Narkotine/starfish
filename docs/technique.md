@@ -881,7 +881,9 @@ La cellule du fond est aussi **plus large que l'icône** (72 px pour une icône 
 
 ### Ce que la sonde mesure (`--backdrop-demo`)
 
-Headless : 86 entrées / 86 visibles ; 86 libres sans zone, 83 avec une zone de 3 ; la comparaison **casse + séparateur** retire une icône de plus ; **deux rendus complets ne changent pas un octet du document** (65 octets identiques) ; le document porte 3 chemins quand le bureau en a 86 ; supprimer la zone rend les 86 ; 16 lignes puis colonne suivante à x=98 ; la frame 2560×1440 est peinte à **231 738 / 3 686 400 px (6 %)** et le compte **tombe** à 223 887 quand une zone réclame 3 icônes. En `--host` : `layered ex 0x80000`, **push per-pixel confirmé** (aucun repli opaque), couverture de l'écran virtuel, `HTTRANSPARENT`, **z-order `backdrop [1]` vs `DefView [0]`**, et « turning it off leaves no window behind ». **15/15** headless, **21/21** en `--host`. Elle **ne masque jamais** les icônes natives.
+Headless : 86 entrées / 86 visibles ; 86 libres sans zone, 83 avec une zone de 3 ; la comparaison **casse + séparateur** retire une icône de plus ; **deux rendus complets ne changent pas un octet du document** (65 octets identiques) ; le document porte 3 chemins quand le bureau en a 86 ; supprimer la zone rend les 86 ; 16 lignes puis colonne suivante à x=98 ; la frame est peinte sur une petite fraction de l'écran (**231 738 px** — 6 % à 2560×1440, 11 % à 1920×1080) et le compte **tombe** à 223 887 quand une zone réclame 3 icônes. En `--host` : `layered ex 0x80000`, **push per-pixel confirmé** (aucun repli opaque), couverture de l'écran virtuel, `HTTRANSPARENT`, **z-order `backdrop [1]` vs `DefView [0]`**, et « turning it off leaves no window behind ». **15/15** headless, **22/22** en `--host`. Elle **ne masque jamais** les icônes natives.
+
+> **La vérification de transparence ne dépend plus de la taille de l'écran** (session 31) : elle comparait à `< 10 %` de l'**écran**, ce qui la rendait rouge sur un bureau 1920×1080 alors que le nombre de pixels peints n'avait pas bougé d'un pixel (**le dénominateur avait changé, pas la frame**). Elle se mesure maintenant contre le **budget de pixels des cellules** (507 744 pour 86 cellules) : elle tient à n'importe quelle résolution, et elle ne peut plus être satisfaite par un grand écran. Même famille : `--fence-demo` dérive désormais son rect cible de `desktopBounds()` au lieu de l'écrire en dur.
 
 ### T-017 est levé au passage
 
@@ -893,3 +895,59 @@ Le chemin per-pixel était « codé, jamais validé visuellement » depuis la se
 - **Les icônes libres sont ré-agencées en flux** : réclamer une icône décale les suivantes, au lieu de laisser un trou comme le fait le bureau Windows. Lire les vraies positions demanderait `LVM_GETITEMPOSITION` sur la liste native **avant** de la masquer, et ne couvrirait pas les fichiers ajoutés ensuite.
 - **Une seule échelle pour tout l'écran virtuel** (le `dpr` du moniteur primaire) : sur un poste à **DPI mixte**, les icônes du fond sont à la taille du primaire. Même famille que T-014a : validation humaine à deux écrans.
 - **La validation à l'œil reste humaine** : la sonde compte des pixels, elle ne juge pas une impression (position, lisibilité, scintillement).
+
+## 20. Sortir une icône d'une zone (F-011 / T-040, session 31)
+
+Le §19 avait laissé la conclusion la plus utile à exploiter : *ce qu'une zone ne détient pas est sur le bureau*. **F-007** (supprimer une zone **rend** ses icônes) n'était donc pas à écrire — la sonde du fond le mesurait déjà (86 → 83 → 86). Ce qui manquait était le **geste** de **F-011**, et une chose que personne n'avait vue : **une zone ne se redessinait jamais quand son contenu changeait**.
+
+### Le geste
+
+Tirer une tuile **hors** de la zone et lâcher là : l'icône retourne au bureau. La frontière entre les deux gestes est une seule expression, `rect().contains(release)`, et elle est vérifiée **des deux côtés** — un lâcher dedans reste un réordonnancement (`a tile released inside the fence still reorders`), un lâcher dehors rend la tuile (`a tile released outside the fence goes back to the desktop`).
+
+C'est le geste de Fences, il ne coûte **aucun hook global** (il démarre dans notre fenêtre), et il ne touche à rien :
+
+```
+   la zone cesse de lister la tuile
+ → l'icône sort de l'ensemble « occupé »
+ → le fond (T-039) la dessine
+```
+
+Aucun code de restauration, aucune écriture de plus dans le document (une entrée de moins), **aucun fichier déplacé, supprimé ni masqué** — la règle d'or d'`AGENTS.md` tient par construction.
+
+### Qui décide quoi
+
+La règle de la session 13 (« le widget signale, le conteneur décide ») reste tenue :
+
+- **`FenceView::itemReleaseRequested(paths)`** — l'intention. Le widget ne sait pas si la tuile est à lui.
+- **`FenceContainer::releaseItems(id, paths)`** — la décision. Une tuile qu'un **portail** fournit est **refusée** et journalisée : elle appartient au **dossier**, et le prochain rafraîchissement la remettrait aussitôt (T-011). Le refus est vérifié dans `--portal-demo` (`a folder's own icon is not the fence's to give back`).
+
+L'indice visuel est délibérément **autre chose** que le repère d'insertion : bordure pointillée accentuée + « release to put it back on the desktop » (`paintReleaseHint`). L'un dit « la grille prend », l'autre « le bureau prend » — et l'état est recalculé à **chaque** mouvement, donc revenir dans la zone redésarme le retour au bureau.
+
+### ⚠️ Ce que la session a trouvé en chemin : une zone ne se redessinait pas
+
+`DesktopSurface` blitte une **image** produite hors écran. Le `paintEvent` du widget ne va **jamais** au bureau, et **rien** ne connectait `FenceView::contentChanged` à `renderFence` : un fichier déposé, un rafraîchissement de portail ou une icône relâchée n'existaient donc que **dans le modèle**, jusqu'au prochain changement de géométrie (qui, lui, rendait). Corrigé par une connexion dans `addFence()`, et les deux `renderFence()` devenus redondants (`setFenceStyle`, `setFenceSort`) ont disparu : **un seul chemin mène le contenu à l'écran**.
+
+La vérification `the fence was redrawn without the released tile` compare la frame **avant/après** la sortie de la tuile — sans nommer aucune tuile, donc agnostique des couleurs. **Prémisse prouvée** : connexion neutralisée → `rc=1`, **exactement 1 `FAIL`**.
+
+### Ce que la sonde mesure (`--fence-demo`, `--portal-demo`)
+
+`--fence-demo` : **17/17** headless / **18/18** `--host` (11/12 avant). Les vérifications neuves, dans l'ordre où elles se tiennent :
+
+1. `the drag starts on the first tile` — **la prémisse**. Les centres de cellules sont calculés avec les métriques de la grille **puis hit-testés** : un changement de métriques fait donc échouer cette vérification au lieu de laisser les suivantes tester le vide.
+2. `a tile released outside the fence goes back to the desktop` — le point de lâcher **est** dehors (`outside=yes`), la zone passe de 3 à 2 tuiles, et la tuile relâchée n'y est plus.
+3. `the released icon is drawn on the desktop again` — les icônes libres passent de **2 à 3 sur 5**, et la tuile est **dans** l'ensemble libre. C'est le cœur de F-011 : rien ne l'a restaurée, elle n'est simplement plus détenue.
+4. `the document no longer holds the released icon` — deux entrées `file`, et la tuile n'y est pas.
+5. `the fence was redrawn without the released tile` — la frame a changé.
+6. `a tile released inside the fence still reorders` — la frontière du geste.
+
+**Prémisse prouvée** : branche F-011 neutralisée (`if (false && …)`, rebuild, revert) → `rc=1`, **exactement 3 `FAIL`** (2, 3 et 4), les 15 autres verts — dont, et c'est le point, la vérification de frontière.
+
+`--portal-demo` : **30/30** / **32/32** `--host`, dont le refus d'une tuile de portail.
+
+### Une règle de méthode, apprise à cette occasion
+
+**Une vérification ne doit pas dépendre de la taille de l'écran du développeur.** Deux vérifications de la session 30 étaient rouges sur le bureau d'aujourd'hui (**1920×1080**, lu par Qt *et* par WinForms — pas un artefact de harnais), alors que le code n'avait pas bougé : l'une écrivait un rect en dur dont le bas (1140) ne tient pas dans 1080, l'autre comparait la frame peinte à `< 10 %` de l'**écran** — or 231 738 px font 6 % à 2560×1440 et 11 % à 1920×1080. **Le dénominateur avait changé, pas la frame.** Vérifié sur la révision non modifiée (`git stash` + rebuild) : **exactement les mêmes deux `FAIL`**, donc pas une régression. Corrigé par un rect **dérivé** de `desktopBounds()` et un seuil **dérivé** du budget de pixels des cellules (507 744) — deux mesures qui tiennent à n'importe quelle résolution, et que la taille de l'écran ne peut plus satisfaire à la place du code.
+
+### Reste humain
+
+L'essai au **vrai curseur** (avec *Hide desktop icons* actif, tirer une tuile hors d'une zone) : la sonde prouve le câblage et le modèle, pas le ressenti du geste — même famille que T-043/T-045, où c'est l'utilisateur qui avait trouvé les deux bugs.

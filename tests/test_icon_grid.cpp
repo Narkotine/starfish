@@ -42,6 +42,7 @@ private slots:
     void moveItemRejectsOutOfRange();
     void moveItemClampsShiftedTarget();
     void appendItemsAddsDedupesAndSorts();
+    void removeItemsByPathTakesTilesOut();
 };
 
 void TestIconGrid::columnsFitTheWidth()
@@ -278,6 +279,37 @@ void TestIconGrid::appendItemsAddsDedupesAndSorts()
 
     // A second identical drop adds nothing.
     QCOMPARE(grid.appendItems(QList<DesktopItem>{c}), 0);
+}
+
+void TestIconGrid::removeItemsByPathTakesTilesOut()
+{
+    // T-040 / F-011: taking a tile out of a fence is a removal from the model
+    // and nothing else -- no file is touched, nothing is hidden, and the icon
+    // reappears on the desktop because no fence holds it any more. Paths are
+    // compared case-insensitively (Windows paths are, and the released path can
+    // come back from the Shell with another capitalisation), an unknown path is
+    // ignored, and the selection *follows the tiles that stay*: releasing one
+    // icon is not the user selecting something else.
+    IconGrid grid;
+    grid.setItems(QList<DesktopItem>{makeItem(QStringLiteral("a.txt")),
+                                     makeItem(QStringLiteral("b.txt")),
+                                     makeItem(QStringLiteral("c.txt"))});
+    grid.selectOnly(0);
+    grid.toggle(1);
+    QCOMPARE(grid.selectedIndices(), QSet<int>({0, 1}));
+
+    QCOMPARE(grid.removeItemsByPath({QStringLiteral("c:/desktop/B.TXT")}), 1);
+
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({QStringLiteral("a.txt"), QStringLiteral("c.txt")}));
+    QCOMPARE(grid.selectedIndices(), QSet<int>({0}));
+
+    // Nothing matches: no change, and an empty list is not a failure.
+    QCOMPARE(grid.removeItemsByPath({QStringLiteral("C:/Desktop/zzz.txt")}), 0);
+    QCOMPARE(grid.removeItemsByPath({}), 0);
+    QCOMPARE(grid.items().size(), 2);
 }
 
 QTEST_MAIN(TestIconGrid)

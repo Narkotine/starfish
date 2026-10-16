@@ -260,6 +260,44 @@ void FenceContainer::setDesktopItems(QList<core::DesktopItem> items)
         m_backdrop->setDesktopItems(std::move(items));
 }
 
+int FenceContainer::releaseItems(const QString& fenceId, const QStringList& paths)
+{
+    FenceWindow* fence = find(fenceId);
+    if (!fence || !fence->view || paths.isEmpty())
+        return 0;
+
+    // A tile a portal contributes is the folder's, not the fence's: releasing it
+    // would take it off the desktop only until the next refresh put it straight
+    // back (T-011). Refuse it out loud rather than let the icon flicker.
+    const QSet<QString> provided = portalProvided(fence->portals);
+    QStringList releasable;
+    releasable.reserve(paths.size());
+    for (const QString& path : paths) {
+        if (path.isEmpty())
+            continue;
+        if (provided.contains(path.toLower())) {
+            qCInfo(lc).noquote()
+                << QStringLiteral("fence %1: %2 is a mirror of a folder, not the fence's")
+                       .arg(fenceId, path);
+            continue;
+        }
+        releasable.append(path);
+    }
+    if (releasable.isEmpty())
+        return 0;
+
+    // The view's contentChanged is what puts the rest in motion: the fence
+    // re-renders and the backdrop recomputes its free set. Nothing is written
+    // but the shorter item list, and no file is touched.
+    const int released = fence->view->removeItemsByPath(releasable);
+    if (released > 0) {
+        qCInfo(lc).noquote() << QStringLiteral("fence %1: %2 icon(s) back on the desktop")
+                                    .arg(fenceId)
+                                    .arg(released);
+    }
+    return released;
+}
+
 void FenceContainer::refreshBackdrop()
 {
     if (!m_backdrop)
@@ -374,7 +412,8 @@ void FenceContainer::setFenceStyle(const QString& id, const core::FenceStyle& st
         fence->view->setPanelColor(QColor(style.background));
         fence->view->setCornerRadius(style.radius);
     }
-    renderFence(id);
+    // The render is driven by the view's contentChanged (see addFence): the
+    // style reaches the desktop through exactly one path, like everything else.
     emit fenceContentChanged(id);
 }
 
@@ -384,7 +423,6 @@ void FenceContainer::setFenceSort(const QString& id, const QString& by, bool asc
     if (!fence || !fence->view)
         return;
     fence->view->setSort(by, ascending);
-    renderFence(id);
     emit fenceContentChanged(id);
 }
 
@@ -643,6 +681,13 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id] { endGeometryDrag(id); });
     connect(view, &FenceView::contentChanged, this,
             [this, id] { emit fenceContentChanged(id); });
+    // ... and the hosted surface shows an *image*, so a content change has to
+    // rebuild it: the widget's own paintEvent never reaches the desktop. Without
+    // this a drop, a portal refresh or a released icon would exist only in the
+    // model (T-040).
+    connect(view, &FenceView::contentChanged, this, [this, id] { renderFence(id); });
+    connect(view, &FenceView::itemReleaseRequested, this,
+            [this, id](const QStringList& paths) { releaseItems(id, paths); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
 

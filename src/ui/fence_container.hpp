@@ -284,6 +284,20 @@ public:
     // can force a pass after a desktop rescan.
     void refreshBackdrop();
 
+    // --- F-011 / T-040: giving an icon back to the desktop ------------------
+    //
+    // Taking a tile out of a fence is nothing but no longer holding it. The
+    // container drops it from the fence's items; the desktop backdrop (T-039)
+    // then draws it again because it has left the occupied set. There is no
+    // restore step, nothing is written to the document beyond the shorter item
+    // list, and the file itself is never touched (AGENTS.md golden rule) --
+    // F-007 (deleting a fence) is the same movement, whole-scale.
+    //
+    // A tile a *portal* contributes is refused: that icon is the folder's, not
+    // the fence's, and the next refresh would put it straight back (T-011).
+    // Returns how many tiles were actually released.
+    int releaseItems(const QString& fenceId, const QStringList& paths);
+
     // --- persistence (T-008) -------------------------------------------------
     // The live fences as a versioned document, ready for core::JsonStore. The
     // order of `fences` is the creation order.

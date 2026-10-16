@@ -1138,16 +1138,24 @@ int main(int argc, char* argv[])
         const QString idC =
             container->createFence(QStringLiteral("with tiles"), QRect(80, 600, 320, 240), tiles);
         const QImage frameBeforeMove = container->frame(idC);
-        const QRect movedC =
-            container->setFenceRect(idC, QRect(1200, 900, 320, 240), /*snap=*/false);
+        // The target is derived from the desktop rather than written down: the
+        // probe used to hard-code a rect that only fits a screen taller than
+        // 1140 px, so it went red on a 1920x1080 desktop for no reason at all
+        // (measured: same two failures on the unmodified revision). What the
+        // check is about is the *frame*, not the coordinates.
+        const QSize desktop = container->desktopBounds();
+        const QRect targetC(desktop.width() - 400, desktop.height() - 300, 320, 240);
+        const QRect movedC = container->setFenceRect(idC, targetC, /*snap=*/false);
         const QImage frameAfterMove = container->frame(idC);
         check(QStringLiteral("moving a fence carries its tiles"),
-              movedC == QRect(1200, 900, 320, 240) && !frameBeforeMove.isNull()
-                  && frameBeforeMove == frameAfterMove,
-              QStringLiteral("%1 tile(s), rect %2,%3, frame %4x%5 identical after the move: %6")
+              movedC == targetC && !frameBeforeMove.isNull() && frameBeforeMove == frameAfterMove,
+              QStringLiteral("%1 tile(s), rect %2,%3 (asked %4,%5), frame %6x%7 identical after "
+                             "the move: %8")
                   .arg(tiles.size())
                   .arg(movedC.x())
                   .arg(movedC.y())
+                  .arg(targetC.x())
+                  .arg(targetC.y())
                   .arg(frameAfterMove.width())
                   .arg(frameAfterMove.height())
                   .arg(frameAfterMove == frameBeforeMove ? QStringLiteral("yes") : QStringLiteral("no")));
@@ -1217,6 +1225,151 @@ int main(int argc, char* argv[])
                   .arg(offsetFromContent)
                   .arg(aboveContent));
         container->removeFence(idBare);
+
+        // -------------------------------------------------------------------
+        // T-040 / F-011 -- taking an icon *out* of a fence.
+        //
+        // There is no restore code to test: an icon is on the desktop exactly
+        // when no fence holds it, so the whole change is "the fence stops
+        // listing the tile" (T-039's model). What needs proving is the
+        // *gesture*: a tile drag released outside the fence hands the tile
+        // back, while the same drag released inside still reorders the grid.
+        // The release point is asserted to be outside, or the check would pass
+        // on a gesture that never left the fence.
+        // -------------------------------------------------------------------
+        const QList<starfish::core::DesktopItem> desktopWide{
+            tiles.at(0), tiles.at(1), tiles.at(2),
+            starfish::core::itemFromPathOnly(QStringLiteral("C:/desktop/loose-a.txt")),
+            starfish::core::itemFromPathOnly(QStringLiteral("C:/desktop/loose-b.txt")),
+        };
+        container->setDesktopItems(desktopWide);
+        const int freeBefore = container->backdrop() ? container->backdrop()->freeItems().size() : -1;
+        const QList<starfish::core::DesktopItem> beforeRelease = container->fenceItems(idC);
+
+        // The gesture as the desktop delivers it: a press on a cell, a move
+        // that crosses the drag threshold while still inside the fence, a move
+        // that leaves it, and the release out there.
+        auto dragTileTo = [](QWidget* widget, const QPoint& from, const QPoint& to) {
+            const auto send = [widget](QEvent::Type type, const QPoint& at, Qt::MouseButton button,
+                                       Qt::MouseButtons buttons) {
+                QMouseEvent event(type, QPointF(at), QPointF(widget->mapToGlobal(at)), button,
+                                  buttons, Qt::NoModifier);
+                QCoreApplication::sendEvent(widget, &event);
+            };
+            send(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+            send(QEvent::MouseMove, from + QPoint(20, 0), Qt::NoButton, Qt::LeftButton);
+            send(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+        };
+
+        // Cell centres of the default grid (icon 48, gap 8, padding 12): the
+        // hard-coded offsets are made self-verifying by hit-testing them, so a
+        // change of metrics fails the premise instead of silently testing
+        // nothing.
+        starfish::ui::FenceView* viewC = container->view(idC);
+        const QPoint firstCell =
+            viewC ? viewC->contentRect().topLeft() + QPoint(24, 24) : QPoint();
+        const QPoint secondCell = firstCell + QPoint(56, 0);
+        check(QStringLiteral("the drag starts on the first tile"),
+              viewC && viewC->itemAt(firstCell) == 0 && viewC->itemAt(secondCell) == 1,
+              QStringLiteral("cell centres %1,%2 -> index %3 ; %4,%5 -> index %6")
+                  .arg(firstCell.x())
+                  .arg(firstCell.y())
+                  .arg(viewC ? viewC->itemAt(firstCell) : -99)
+                  .arg(secondCell.x())
+                  .arg(secondCell.y())
+                  .arg(viewC ? viewC->itemAt(secondCell) : -99));
+
+        const QString releasedPath =
+            beforeRelease.isEmpty() ? QString() : beforeRelease.first().path;
+        const QImage frameBeforeRelease = container->frame(idC);
+        // Well below the fence: 80 px under its bottom edge, in the desktop.
+        const QPoint outside = QPoint(48, 240 + 80);
+        const bool releaseWasOutside = viewC && !viewC->rect().contains(outside);
+        if (viewC)
+            dragTileTo(viewC, firstCell, outside);
+        const QList<starfish::core::DesktopItem> afterRelease = container->fenceItems(idC);
+        QStringList afterPaths;
+        for (const starfish::core::DesktopItem& item : afterRelease)
+            afterPaths.append(item.path);
+        check(QStringLiteral("a tile released outside the fence goes back to the desktop"),
+              releaseWasOutside && !releasedPath.isEmpty() && afterRelease.size() == beforeRelease.size() - 1
+                  && !afterPaths.contains(releasedPath),
+              QStringLiteral("release %1,%2 outside=%3 ; fence %4 -> %5 tile(s), %6 gone")
+                  .arg(outside.x())
+                  .arg(outside.y())
+                  .arg(releaseWasOutside ? QStringLiteral("yes") : QStringLiteral("no"))
+                  .arg(beforeRelease.size())
+                  .arg(afterRelease.size())
+                  .arg(afterPaths.contains(releasedPath) ? QStringLiteral("still held") : releasedPath));
+
+        // The desktop layer is what makes F-011 free: the icon reappears there
+        // because it left the occupied set, not because anything restored it.
+        QStringList freePaths;
+        if (container->backdrop()) {
+            for (const starfish::core::DesktopItem& item : container->backdrop()->freeItems())
+                freePaths.append(item.path);
+        }
+        const int freeAfter = container->backdrop() ? container->backdrop()->freeItems().size() : -1;
+        check(QStringLiteral("the released icon is drawn on the desktop again"),
+              freeAfter == freeBefore + 1 && freePaths.contains(releasedPath),
+              QStringLiteral("free icons %1 -> %2 of %3 ; %4 %5")
+                  .arg(freeBefore)
+                  .arg(freeAfter)
+                  .arg(desktopWide.size())
+                  .arg(releasedPath)
+                  .arg(freePaths.contains(releasedPath) ? QStringLiteral("is free")
+                                                        : QStringLiteral("is NOT free")));
+
+        // ... and the document followed: the fence lists one file less, and it
+        // is that one. Nothing else about the fence moved.
+        const starfish::core::Layout afterDoc = container->toLayout();
+        QStringList docFiles;
+        bool docLostFence = true;
+        for (const starfish::core::Fence& fence : afterDoc.fences) {
+            if (fence.id != idC)
+                continue;
+            docLostFence = false;
+            for (const starfish::core::FenceItem& item : fence.items) {
+                if (item.kind == QStringLiteral("file"))
+                    docFiles.append(item.path);
+            }
+        }
+        check(QStringLiteral("the document no longer holds the released icon"),
+              !docLostFence && docFiles.size() == afterRelease.size()
+                  && !docFiles.contains(releasedPath),
+              QStringLiteral("%1 file entr(y|ies) in the document, released %2 present: %3")
+                  .arg(docFiles.size())
+                  .arg(releasedPath)
+                  .arg(docFiles.contains(releasedPath) ? QStringLiteral("yes") : QStringLiteral("no")));
+
+        // And the fence itself shows it. A hosted fence displays an *image*
+        // (DesktopSurface blits a QImage), so a content change has to rebuild
+        // that image -- the widget's own paintEvent never reaches the desktop.
+        // Colour-agnostic and no tile is named: the frame simply must not be
+        // the one from before the release.
+        const QImage frameAfterRelease = container->frame(idC);
+        check(QStringLiteral("the fence was redrawn without the released tile"),
+              !frameAfterRelease.isNull() && frameAfterRelease != frameBeforeRelease,
+              QStringLiteral("frame %1x%2, identical to the one before the release: %3")
+                  .arg(frameAfterRelease.width())
+                  .arg(frameAfterRelease.height())
+                  .arg(frameAfterRelease == frameBeforeRelease ? QStringLiteral("yes")
+                                                              : QStringLiteral("no")));
+
+        // The boundary of the gesture: released *inside*, the same drag must
+        // still reorder and must not lose a tile.
+        const QString reorderFirst = afterPaths.isEmpty() ? QString() : afterPaths.first();
+        if (viewC)
+            dragTileTo(viewC, firstCell, secondCell);
+        const QList<starfish::core::DesktopItem> afterReorder = container->fenceItems(idC);
+        check(QStringLiteral("a tile released inside the fence still reorders"),
+              afterReorder.size() == afterRelease.size() && !afterReorder.isEmpty()
+                  && afterReorder.first().path != reorderFirst,
+              QStringLiteral("%1 tile(s) kept, %2 -> %3")
+                  .arg(afterReorder.size())
+                  .arg(reorderFirst)
+                  .arg(afterReorder.isEmpty() ? QStringLiteral("(none)") : afterReorder.first().path));
 
         if (hosted) {
             QString scanError;
@@ -2605,6 +2758,24 @@ int main(int argc, char* argv[])
               !container->addPortal(QStringLiteral("fence-999"), folder),
               QStringLiteral("addPortal(fence-999) refused"));
 
+        // T-040: a portal's tiles are the *folder's* icons, not the fence's, so
+        // they are the one thing a fence must not give back -- releasing one
+        // would take it off the desktop only until the next refresh put it
+        // straight back. Refused, and the fence keeps it.
+        const int releasedMirror = container->releaseItems(idInbox, QStringList{betaPath});
+        bool mirrorStillShown = false;
+        for (const starfish::core::DesktopItem& item : container->fenceItems(idInbox)) {
+            if (item.path.compare(betaPath, Qt::CaseInsensitive) == 0)
+                mirrorStillShown = true;
+        }
+        check(QStringLiteral("a folder's own icon is not the fence's to give back"),
+              releasedMirror == 0 && mirrorStillShown
+                  && container->fenceItems(idInbox).size() == 4,
+              QStringLiteral("%1 released, still listed: %2, %3 tile(s)")
+                  .arg(releasedMirror)
+                  .arg(mirrorStillShown ? QStringLiteral("yes") : QStringLiteral("no"))
+                  .arg(container->fenceItems(idInbox).size()));
+
         check(QStringLiteral("the folders to watch are reported"),
               container->portalFolders() == QStringList{folder},
               QStringLiteral("%1").arg(container->portalFolders().join(QStringLiteral(" | "))));
@@ -3753,13 +3924,25 @@ int main(int argc, char* argv[])
               QStringLiteral("%1x%2").arg(full.width()).arg(full.height()));
         const qint64 paintedFull = opaquePixels(full);
         const qint64 totalPixels = qint64(full.width()) * full.height();
+        // The budget comes from the cells, not from a magic fraction: "mostly
+        // transparent" means the painted pixels are accounted for by the icons
+        // and by nothing else, and that has to hold on any screen size. The
+        // former `painted < 10 % of the screen` went red on a 1920x1080 desktop
+        // while the pixel count stayed identical (231738) -- the denominator had
+        // moved, not the frame. A budget also cannot be satisfied by a big
+        // screen, which the fraction could.
+        qint64 cellBudget = 0;
+        for (const starfish::ui::BackdropCell& cell : backdrop->cells()) {
+            const QRect box = cell.icon.united(cell.label);
+            cellBudget += qint64(box.width()) * box.height();
+        }
         check(QStringLiteral("the frame is mostly transparent (the wallpaper shows)"),
-              full.hasAlphaChannel() && paintedFull > 0
-                  && paintedFull * 100 / qMax<qint64>(1, totalPixels) < 10,
-              QStringLiteral("%1 of %2 pixels painted (%3 %)")
+              full.hasAlphaChannel() && paintedFull > 0 && paintedFull <= cellBudget,
+              QStringLiteral("%1 of %2 pixels painted, the %3 cells account for at most %4")
                   .arg(paintedFull)
                   .arg(totalPixels)
-                  .arg(totalPixels ? paintedFull * 100 / totalPixels : 0));
+                  .arg(backdrop->cells().size())
+                  .arg(cellBudget));
 
         // The one thing a frame can prove that a count cannot: the pixels really
         // go away when a fence claims an icon.

@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QPointF>
+#include <QStringList>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -80,10 +81,25 @@ public:
     // something. Returns the number of tiles added.
     int replaceItems(const QStringList& previousPaths, const QList<core::DesktopItem>& items);
 
+    // Takes tiles out of the grid by path (F-011 / T-040), compared
+    // case-insensitively like IconGrid::removeItemsByPath. Returns how many
+    // went, and emits contentChanged() when it did. The widget does not decide
+    // *whether* a tile may go -- that is FenceContainer's call (a tile a portal
+    // mirrors is the folder's, not the fence's).
+    int removeItemsByPath(const QStringList& paths);
+
 signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.
     void contentChanged();
+
+    // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
+    // outside it. Like every other gesture here the widget only reports the
+    // intent -- giving an icon back to the desktop is nothing but no longer
+    // holding it, so FenceContainer drops it from the fence's items and the
+    // desktop backdrop (T-039) draws it again. No restore code anywhere, and
+    // the file itself is never touched.
+    void itemReleaseRequested(const QStringList& paths);
 
     // A double-click on `index` asked to launch it.
     void itemActivated(int index);
@@ -126,6 +142,12 @@ private:
     // drag is in progress. No-op when index < 0.
     void paintDropIndicator(int index, QPainter& painter);
 
+    // Draws what letting go *now* would do (F-011): the cursor is outside the
+    // fence, so the release hands the tile back to the desktop instead of
+    // reordering the grid. Drawn inside the fence on purpose -- the cursor is
+    // outside it, and the fence is the only thing we own.
+    void paintReleaseHint(QPainter& painter);
+
     static constexpr int kTitleBarHeight = FenceGeometry::kTitleBarHeight;
     static constexpr int kCornerRadius = 10;
     static constexpr int kPadding = 12;
@@ -147,6 +169,11 @@ private:
     int m_dropTargetIndex = -1;
     QPoint m_dragStartPos;
     bool m_dragging = false;
+    // F-011: the pointer of an in-flight tile drag is outside the fence, so the
+    // release will hand the tile back to the desktop. Recomputed on every move
+    // (dragging back in disarms it again), which is why it is not a one-way
+    // flag set when the cursor leaves.
+    bool m_releaseArmed = false;
 
     // Fence geometry drag state (T-007), mutually exclusive with the icon drag
     // above: a press that lands on the title bar or a border grip never arms an
