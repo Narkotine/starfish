@@ -38,20 +38,22 @@ struct NativeDesktopIcon {
 // without warning: it is a valid answer, not a failure.
 QVector<NativeDesktopIcon> readNativeDesktopIcons();
 
-// Parks one native icon by moving it off screen: LVM_SETITEMPOSITION with
-// (-32000, -32000), outside every monitor, where the list view clips it away so
-// it stops being painted. `index` is the item's index as
-// readNativeDesktopIcons() reported it. The desktop must be laid out in
-// free-placement mode (auto-arrange off) for a parked item to stay parked.
-bool parkNativeDesktopIcon(int index);
-
-// Puts a parked icon back at `position`, a physical screen pixel value as
-// readNativeDesktopIcons() returned it.
+// True while the shell is actually *drawing* its icons (SysListView32 visible).
 //
-// Both calls report success only when the item's position, re-read after the
-// move, is the requested one: LVM_SETITEMPOSITION answers a BOOL, but the view
-// can still undo the move (auto-arrange, a layout pass the DefView runs on its
-// own repaint), and a move that did not stick must not be reported as one.
-bool restoreNativeDesktopIcon(int index, const QPoint& position);
+// This is the precondition of the read, and it had to be measured to be believed:
+// with the icon layer hidden -- which is what another instance of this very
+// application does when it takes the desktop -- the same list view still answers
+// `LVM_GETITEMCOUNT` = 88, but with **every name empty** and positions running
+// 1,1 / 1,2 / 1,3: a layout no desktop has. Nothing reads positions or names from
+// it while it is hidden, and the product's timer skips the read entirely.
+bool nativeDesktopIconsVisible();
+
+// There is deliberately **no** "park an icon" here. Moving a single icon out of
+// the way was written, measured and abandoned: `LVM_SETITEMPOSITION` with
+// (-32000, -32000) reads back as (8,2) on this desktop -- the item lands in the
+// top-left corner, which is worse than the duplicate it was meant to avoid, and
+// the position it left cannot be recovered once the record of it is gone. What a
+// caller wants instead is in the product: hide the *list* (never the DefView, so
+// the wallpaper survives) and draw its icons at the positions read above.
 
 } // namespace starfish::platform::win

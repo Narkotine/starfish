@@ -287,14 +287,10 @@ QVector<NativeDesktopIcon> readNativeDesktopIcons()
     return icons;
 }
 
-bool parkNativeDesktopIcon(int index)
+bool nativeDesktopIconsVisible()
 {
-    return placeItem(index, QPoint(kParkedOffset, kParkedOffset));
-}
-
-bool restoreNativeDesktopIcon(int index, const QPoint& position)
-{
-    return placeItem(index, position);
+    const HWND list = findDesktopListView();
+    return list && ::IsWindowVisible(list);
 }
 
 } // namespace starfish::platform::win

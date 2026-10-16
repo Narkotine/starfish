@@ -701,33 +701,11 @@ void ProductApp::syncNativeIcons()
     if (!backdrop)
         return;
 
-    const QVector<platform::win::NativeDesktopIcon> icons =
-        platform::win::readNativeDesktopIcons();
-
-    // Where the user's icons are, in screen pixels: the rectangles our surfaces
-    // step aside for, so every one of them keeps its own click, drag and menu.
-    // A parked icon is off screen, so its rectangle matches nothing -- which is
-    // right: the fence above it is what answers there.
-    //
-    // The same read, in the other shape, is what the layout draws into when the
-    // icons end up being ours (takeOverDesktopIcons): the boxes are keyed by the
-    // shell's own display name, which is how the scanner spells an item too.
-    QVector<QRect> rects;
-    QHash<QString, QRect> boxes;
-    rects.reserve(icons.size());
-    boxes.reserve(icons.size());
-    for (const platform::win::NativeDesktopIcon& icon : icons) {
-        const QRect box(icon.position, icon.slot);
-        rects.append(box);
-        boxes.insert(icon.name, box);
-    }
-    backdrop->setNativeIconBoxes(boxes);
-
-    // The names a fence holds, i.e. the icons StarFish has to move out of the
-    // way because it draws its own copy of them inside a fence. `name` is the
-    // shell's own display name on both sides (the scanner asks the shell too),
-    // and the on-disk name is kept as a fallback for the types the shell strips
-    // the extension from.
+    // The names a fence holds, i.e. the icons StarFish has to stop the desktop
+    // from drawing because it draws its own copy inside a fence. `name` is the
+    // shell's own display name on both sides (the scanner asks the shell too), and
+    // the on-disk name is kept as a fallback for the types the shell strips the
+    // extension from. Computed from the container, so it needs no desktop read.
     QSet<QString> held;
     for (const core::DesktopItem& item : backdrop->desktopItems()) {
         if (!backdrop->occupiedPaths().contains(ui::BackdropLayout::pathKey(item.path)))
@@ -736,45 +714,54 @@ void ProductApp::syncNativeIcons()
         held.insert(item.fileName);
     }
 
-    bool moveRefused = false;
-    if (!m_ownsIcons) {
+    // Nothing is read from a list view that is not being drawn -- and that is a
+    // measurement, not a precaution. With the icon layer hidden, the very same
+    // view answers `LVM_GETITEMCOUNT` = 88, **every name empty**, and positions
+    // running 1,1 / 1,2 / 1,3: a layout no desktop has. Two cases, and neither
+    // wants a read:
+    //   * the icons are ours (we hid the list), so the last good read is still the
+    //     right one and the click zones keep working;
+    //   * another instance is holding the desktop, and the honest thing is to
+    //     touch nothing at all.
+    const bool listDrawn = platform::win::nativeDesktopIconsVisible();
+    if (listDrawn) {
+        const QVector<platform::win::NativeDesktopIcon> icons =
+            platform::win::readNativeDesktopIcons();
+
+        // Where the user's icons are, in screen pixels: the rectangles our surfaces
+        // step aside for, so every one of them keeps its own click, drag and menu.
+        // The same read in the other shape is what the layout draws into when the
+        // icons end up being ours (takeOverDesktopIcons).
+        QVector<QRect> rects;
+        QHash<QString, QRect> boxes;
+        rects.reserve(icons.size());
+        boxes.reserve(icons.size());
         for (const platform::win::NativeDesktopIcon& icon : icons) {
-            const bool wanted = held.contains(icon.name);
-            const auto parked = m_parkedIcons.constFind(icon.index);
-            if (wanted && parked == m_parkedIcons.constEnd()) {
-                if (platform::win::parkNativeDesktopIcon(icon.index))
-                    m_parkedIcons.insert(icon.index, icon);
-                else
-                    moveRefused = true; // the shell put it straight back
-            } else if (!wanted && parked != m_parkedIcons.constEnd()) {
-                if (platform::win::restoreNativeDesktopIcon(icon.index, parked->position))
-                    m_parkedIcons.erase(m_parkedIcons.find(icon.index));
-                else
-                    qCWarning(lc).noquote()
-                        << QStringLiteral("could not put the desktop icon %1 back at %2,%3")
-                               .arg(icon.name)
-                               .arg(parked->position.x())
-                               .arg(parked->position.y());
-            }
+            const QRect box(icon.position, icon.slot);
+            rects.append(box);
+            boxes.insert(icon.name, box);
         }
+        backdrop->setNativeIconBoxes(boxes);
+
+        // Only while the user's icons are the ones on screen does the surface step
+        // aside over them. With the list hidden there is nothing behind this window,
+        // so a step-aside would hand the click to the wallpaper and turn a click on
+        // an icon into a click on the bare desktop.
+        backdrop->setNativeIconRects(m_ownsIcons ? QVector<QRect>() : rects);
     }
 
-    if (moveRefused && !m_ownsIcons) {
-        qCWarning(lc).noquote()
-            << QStringLiteral("the desktop will not let a single icon be moved (auto-arrange "
-                              "is on): drawing the desktop's icons here instead, at the "
-                              "positions read from the shell");
+    // A fence that holds an icon draws it, so the desktop's own copy has to stop
+    // being drawn. It is *not* moved out of the way: an icon is only ever moved by
+    // a position write, and a write was measured landing the item in the top-left
+    // corner of the desktop instead of the parked point (LVM_SETITEMPOSITION with
+    // (-32000,-32000) reading back as (8,2)) -- which is a worse outcome than the
+    // duplicate it was meant to avoid, and it cannot be undone once the record of
+    // where the icon was is gone. The list is taken over instead: hidden, drawn
+    // here at the positions just read, and given back untouched on the way out.
+    if (!held.isEmpty() && !m_ownsIcons)
         takeOverDesktopIcons();
-    } else if (m_ownsIcons && held.isEmpty()) {
-        // Nothing is held any more: the desktop's own icons can have the job back.
+    else if (held.isEmpty() && m_ownsIcons)
         giveBackDesktopIcons();
-    }
-
-    // Only while the user's icons are the ones on screen does the surface step
-    // aside over them. With the list hidden there is nothing behind this window,
-    // so a step-aside would hand the click to the wallpaper and turn a click on an
-    // icon into a click on the bare desktop.
-    backdrop->setNativeIconRects(m_ownsIcons ? QVector<QRect>() : rects);
 }
 
 void ProductApp::takeOverDesktopIcons()
@@ -817,20 +804,6 @@ void ProductApp::giveBackDesktopIcons()
     if (m_settings)
         m_settings->setDesktopIconsHidden(false);
     refreshStatus();
-}
-
-void ProductApp::restoreParkedIcons()
-{
-    for (auto it = m_parkedIcons.cbegin(); it != m_parkedIcons.cend(); ++it) {
-        if (!platform::win::restoreNativeDesktopIcon(it.key(), it.value().position)) {
-            qCWarning(lc).noquote()
-                << QStringLiteral("could not put the desktop icon %1 back at %2,%3")
-                       .arg(it.value().name)
-                       .arg(it.value().position.x())
-                       .arg(it.value().position.y());
-        }
-    }
-    m_parkedIcons.clear();
 }
 
 void ProductApp::refreshDesktopItems()
@@ -953,12 +926,10 @@ void ProductApp::shutdown()
     delete m_container;
     m_container = nullptr;
 
-    // ADR-13: the icons a fence made us move go back exactly where they were
-    // read, and then (dev path only) the layer we hid, if we hid one. Both come
-    // last, after the fences are gone, so the desktop is never left showing an
-    // icon twice or none at all.
+    // The layer we hid -- if we hid one -- comes back last, after the fences are
+    // gone, so the desktop is never left showing an icon twice or none at all. The
+    // icons themselves were never moved, so there is nothing else to put back.
     m_nativeSync.stop();
-    restoreParkedIcons();
 
     // Restore only what we hid ourselves (see setDesktopIconsHidden).
     if (m_iconsHidden) {

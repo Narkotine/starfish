@@ -162,15 +162,14 @@ private:
     void refreshDesktopItems();
 
     // ADR-13: reads the native desktop icon list -- positions, slots and names --
-    // and hands it to the backdrop, which is what lets our surfaces (a) step the
-    // mouse aside over the user's icons and (b) move an icon a fence holds out of
-    // the way and put it back exactly where it was (F-007/F-011). Nothing is
-    // hidden: a parked icon is a moved icon, and the only icons StarFish ever
-    // moves are the ones a fence actually holds.
+    // and hands it to the backdrop, which is what lets our surfaces step the mouse
+    // aside over the user's icons, and lets the layout draw a fence-less icon where
+    // the user put it when the icons end up being ours. **Nothing is moved.**
     //
     // Idempotent and cheap (a handful of SendMessage per icon), so it runs on a
-    // timer as well: the user may drag one of their icons, or turn auto-arrange
-    // on, and the click zones have to follow.
+    // timer as well: the user may drag one of their icons, and the click zones have
+    // to follow. It reads only while the shell is drawing its icons -- a hidden
+    // list view answers empty names and positions no desktop has (measured).
     void syncNativeIcons();
     // The fallback ADR-13 needs and does not want: an icon a fence holds has to
     // stop being drawn by the desktop, and moving it is how that is done. When the
@@ -180,9 +179,6 @@ private:
     // by syncNativeIcons; never a mode, only a consequence.
     void takeOverDesktopIcons();
     void giveBackDesktopIcons();
-    // Puts every parked icon back where it was read. Called from shutdown(), and
-    // it is the whole restore path -- the positions were kept, not computed.
-    void restoreParkedIcons();
 
     // T-039: turns the backdrop on, and reports whether it really took. Hiding
     // the native icon layer on the strength of a backdrop that could not be
@@ -196,9 +192,6 @@ private:
     // fences back instead of stranding them off-screen.
     void refreshScreens();
 
-    // The icons StarFish moved out of the way on behalf of a fence, as they were
-    // when it moved them. Keyed by the shell's own item index.
-    QHash<int, platform::win::NativeDesktopIcon> m_parkedIcons;
     // True while the icons are ours to draw (see takeOverDesktopIcons).
     bool m_ownsIcons = false;
     QTimer m_nativeSync;
