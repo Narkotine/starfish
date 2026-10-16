@@ -46,6 +46,19 @@ if(MSVC)
     target_link_options(starfish PRIVATE "/MANIFEST:NO")
 endif()
 
+# A resource is not a tracked build input. Ninja knows starfish.rc itself, and
+# nothing else: windres is not asked for a dependency file (see the RC rule in
+# build.ninja -- it declares `depfile`, but the command line carries no -MD), so
+# editing the manifest or the icon leaves the old .rc.obj in place and the
+# resource silently survives the rebuild. For the manifest that is the ADR-4
+# failure mode exactly -- zones that never appear, no message -- and for the icon
+# it is a user looking at the previous artwork after regenerating it.
+# OBJECT_DEPENDS is the generator-agnostic way to say it, and both toolchains
+# build with Ninja (locally and on CI).
+set_property(SOURCE starfish.rc APPEND PROPERTY OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/starfish.manifest"
+    "${CMAKE_CURRENT_SOURCE_DIR}/starfish.ico")
+
 # Deployment is load bearing too, for the same reason as the manifest: the MinGW
 # build links Qt dynamically, so `build\starfish.exe` refuses to start with
 # "Qt6Widgets.dll introuvable" unless Qt's bin directory happens to be on PATH.
