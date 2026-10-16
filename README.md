@@ -136,6 +136,14 @@ Les sondes écrivent leur rapport PASS/FAIL dans `build/` **relativement au rép
 python experiments/spike_workerw.py
 ```
 
+`experiments/spike_mouse_hook.cpp` (T-070) étudie le **hook souris bas niveau** (`WH_MOUSE_LL`) comme porteur de F-001 — créer une zone en traçant au bouton droit sur le bureau nu — **sans aucune fenêtre à nous sur le bureau**. Contexte : les deux défauts des sessions 37-38 venaient de la fenêtre de fond (elle prend la souris ; `HTTRANSPARENT` ne traverse pas les processus, d'où des trous d'alpha en rustine). Le spike s'installe **sans élévation** et écrit son rapport dans `build/spike_mouse_hook.txt`. ⚠️ **Le geste doit être fait à la main** : un hook bas niveau ne voit pas les événements que le processus installeur injecte lui-même (`SendInput` du même processus → 0 événement), et un processus tiers lancé depuis le terminal de l'agent ne voyait pas la fenêtre du spike. Il mesure la classification (bureau nu / icône / nos zones), le **coût du rappel en µs** (un hook lent rend la souris pâteuse pour toute la machine et Windows l'évince en silence) et l'éviction :
+
+```bash
+$QT/Tools/mingw1310_64/bin/g++ -std=c++17 -O1 experiments/spike_mouse_hook.cpp \
+    -o spike_mouse_hook.exe -luser32 -lgdi32
+./spike_mouse_hook.exe --seconds 30      # puis : un glisser au bouton droit, un clic droit
+```
+
 `experiments/spike_layer_alpha_shape.cpp` mesure **le test de toucher d'une fenêtre layered par pixel** (T-060 / ADR-11) : un cadre à alpha 0 laisse passer la souris, un cadre à alpha 1 non — mesuré sur une fenêtre topmost **et** sur un enfant layered, les deux sens à chaque fois. Hors Qt, compilable avec le MinGW portable :
 
 ```bash
