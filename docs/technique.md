@@ -1027,3 +1027,66 @@ Le **menu contextuel du bureau vide** est perdu pour la même raison que le dép
 
 Le geste au **vrai curseur** : dessiner une zone sur le bureau (avec *Hide desktop icons* actif) et double-cliquer pour masquer/afficher. La sonde prouve le câblage, le modèle et les refus ; elle ne juge pas si 6 px est le bon seuil au doigt.
 
+
+## 22. Le bureau par défaut, et les gestes qui y mènent (T-055 / T-056, session 33)
+
+La session 32 avait livré le geste de F-001 et l'avait mesuré. Le premier retour utilisateur a été : **« je n'arrive pas à créer une fence de la manière que tu décris »**. La session 33 a cherché pourquoi avant d'écrire quoi que ce soit — et la réponse n'était pas dans le geste.
+
+### ⚠️ La cause : le produit ne prenait jamais le bureau
+
+`setDesktopIconsHidden(true)` n'était appelé que par le **tray** et les sondes. Jamais au lancement. Conséquences en chaîne, toutes silencieuses :
+
+| | |
+|---|---|
+| le **fond** n'était jamais hébergé | donc `DesktopBackdrop` n'existait pas, donc **aucun geste du bureau vide** ne pouvait se produire : la sonde mesurait une machine à états que le produit n'activait jamais |
+| les zones restaient **sous** `SHELLDLL_DefView` | elles étaient **incliquables** — le mur du z-order de la session 25, que T-039 avait précisément pour but de lever |
+| les icônes natives restaient visibles | et la **fenêtre de réglages s'ouvrait au lancement**, listant les zones et leurs dimensions — ce que l'utilisateur a décrit comme « un menu séparé… ce n'est que pour la démo » |
+
+**ADR-3 dit depuis l'origine que StarFish dessine les icônes ; personne ne le branchait.** T-056 est ce branchement : `Options::claimDesktop` (défaut vrai), `setDesktopIconsHidden(true)` en fin de `start()` — donc après le câblage, et **par la séquence sûre qui existait déjà** (le fond est hébergé et son push per-pixel prouvé *avant* que la couche native ne soit retirée). `--no-claim-desktop` existe pour une démo qui ne doit pas toucher la couche.
+
+**Mesuré de bout en bout** (`--seconds 4`, pendant puis après) : `backdrop hosted at 0,0 1920x1080, 77 free icon(s)` → `marker written` → `native desktop icons hidden` → `4 fence(s) | desktop icons hidden | desktop backdrop: 77 icon(s) on the desktop, 9 held by fences` ; à la sortie **marqueur disparu, document non réécrit**.
+
+C'est la leçon de méthode de la session : **une fonctionnalité mesurée dans une sonde n'existe pas tant que le produit ne se met pas dans l'état où elle s'applique.** Les sondes savaient tout du geste et rien de ce qui le rendait possible.
+
+### Le geste se répartit sur les deux boutons, et c'est une décision
+
+| bouton | geste | pourquoi |
+|---|---|---|
+| **droit** | glisser → rectangle → **menu du bureau** (F-001) ; clic simple → le même menu (T-054) | c'est le geste de Fences, c'est ce que l'utilisateur a demandé, et il laisse le gauche libre |
+| **gauche** | double-clic → quick hide / show (F-022) ; le reste ne fait **rien** | la sélection des icônes du bureau est T-042, et un bouton gauche qui dessinerait laisserait une zone derrière chaque tentative de sélection |
+
+Le partage est **testé** (`theLeftButtonDrawsNothing`), pas seulement commenté — et `release(point, button)` ignore un relâchement du **mauvais** bouton, sans quoi un clic gauche au milieu d'un glisser droit ouvrirait le menu ou annulerait le tracé.
+
+### Le menu du bureau est le vrai menu du Shell
+
+Ce n'est pas une imitation : `SHGetDesktopFolder()` → `IShellFolder::CreateViewObject(IID_IContextMenu)` — c'est le menu **de fond**, il n'y a donc pas d'item et pas de `GetUIObjectOf`. `QueryContextMenu` reçoit une plage d'ids **volontairement étroite** (`0x100`–`0x6FFF`) pour laisser `0x7000` à notre entrée, insérée **en tête**, suivie d'un séparateur. `TrackPopupMenuEx` avec `TPM_RETURNCMD` rend l'id choisi : notre entrée crée la zone, n'importe quelle autre est **invoquée par nous** (`InvokeCommand`, index zéro-base), comme dans le menu d'item de T-006-1.
+
+Mesuré sur la machine : **6 verbes du Shell** (`git_gui`, `git_shell`, `Display`, `Personalize`, une extension `{7A1E471F…}`, `workbuddy-ai`) **plus** `"Create a fence here"`. T-054 tombe donc avec T-055 : le menu que T-039 avait pris au bureau est **rendu**, avec une entrée de plus.
+
+### ⚠️ Le bug qui plantait, et qui était là depuis T-006-1
+
+`GetMenuItemID()` renvoie **`(UINT)-1` pour un sous-menu** et **`0` pour un séparateur**. Le code ne testait que `-1`, donc l'id `0` d'un séparateur passait pour un verbe : `id - idCmdFirst` **débordait** en `4294967040` et le shell **plantait** dans `GetCommandString` — reproduit en `rc=139`, isolé au point près par instrumentation, puis corrigé.
+
+Les deux boucles testent maintenant `GetMenuState(...) & MF_SEPARATOR` **et** `id < idCmdFirst` (un id hors de la plage qu'on a donnée au shell ne peut pas être un verbe valide). **La version item portait le même défaut depuis la session 10** et n'avait jamais planté : le shell place ses propres séparateurs avec des ids qui se trouvaient être dans la plage. Un bug qui n'a pas encore eu lieu reste un bug.
+
+### Les matériaux de zone : ce qui est possible, et ce qui ne l'est pas
+
+Décision utilisateur : **la translucidité d'abord**.
+
+- **Faisable aujourd'hui** : l'alpha par pixel. `style.background` est déjà en `#AARRGGBB` et persisté, et le chemin per-pixel (`setPerPixelAlpha`, T-017) est **prouvé à l'exécution** depuis que le fond l'emploie sur une fenêtre plein écran (session 30). Il reste à l'activer **par zone** : aujourd'hui une zone prend `SetLayeredWindowAttributes`, dont le blit GDI **ignore l'alpha** — un panneau est donc opaque en pratique, et l'alpha persisté est inerte (T-051 le disait depuis la session 29 ; c'est maintenant spécifié).
+- **Pas faisable directement** : les matériaux DWM documentés (**Mica**, `DWMWA_SYSTEMBACKDROP_TYPE`) visent une **fenêtre de premier niveau avec un cadre DWM**. Une zone est une **enfant de `Progman`** : pas de flou système. Deux issues, aucune décidée — `SetWindowCompositionAttribute` (non documenté, donc **à mesurer**) ou un **flou calculé par nous** (le fond publie une image du papier peint que la zone réutilise comme panneau). **Un spike d'abord**, comme T-003 l'a été pour le placement : c'est la règle de la maison pour toute technique de composition non prouvée.
+
+Ce sera **ADR-10** quand ce sera tranché ; d'ici là c'est **T-057** (F-038), et le suivi du rapport d'origine est **T-051**.
+
+### Ce que la sonde mesure (`--backdrop-demo`)
+
+**34/34** headless (31 avant) / **43/43** `--host` (40 avant). Les vérifications neuves, dans l'ordre où elles se tiennent :
+
+1. `the rectangle offered is the one that was drawn` — le geste rend **le rectangle** et **le point** du relâchement, et le rectangle est celui qu'on a tracé (aucune conversion entre le geste et le rect stocké).
+2. `the offered fence is created where it was drawn` — et la zone existe **au pixel près** à cet endroit.
+3. `a plain right-click opens the menu with no rectangle` — le menu de T-054, celui que T-039 avait pris.
+4. `a wobble offers no rectangle either` et `a right-draw too small to be a fence offers no rectangle` — les deux refus, qui n'empêchent pas le menu de s'ouvrir.
+5. `the left button draws nothing` — la moitié gauche du partage.
+6. `our entry sits on top of the desktop's menu` et `the shell's own entries are still there` — le menu est **construit** (sans être affiché : un popup bloquerait sur un utilisateur absent), notre entrée est **relue dans le menu**, et les verbes du Shell sont listés.
+
+**Prémisses prouvées** (patch temporaire, revert) : règle du bouton droit neutralisée → `rc=1`, **2 `FAIL`** (dont une cascade) et **1 `FAIL`** unitaire sur 22 cas ; insertion de notre entrée neutralisée → `rc=1`, **exactement 1 `FAIL`** — et le détail mesuré est alors `""`, ce qui est la mesure qui parle.

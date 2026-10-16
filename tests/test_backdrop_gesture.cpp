@@ -11,6 +11,9 @@
 using namespace starfish::ui;
 using starfish::core::DesktopItem;
 
+using Button = BackdropGesture::Button;
+using Action = BackdropGesture::Action;
+
 namespace {
 
 DesktopItem item(const QString& name)
@@ -40,14 +43,15 @@ QVector<BackdropCell> cellsOf(int count, const QRect& area)
 
 } // namespace
 
-// T-041: the pure half of the empty desktop's gestures -- F-001 (drag on the
-// bare desktop draws a fence) and F-022 (double-click hides or shows them all).
+// T-041 / T-055: the pure half of the empty desktop's gestures -- F-001 (a
+// right-drag draws a fence, and the gesture ends on the desktop's own menu) and
+// F-022 (a left double-click hides or shows every fence).
 //
 // The rules worth testing are the ones that decide *whether* a gesture happened
 // at all: a click is not a draw, a wobble is not a draw, a press on one of the
-// icons is not ours, and a rectangle too small to be a fence is refused rather
-// than grown. Each of those is a way to create something the user did not ask
-// for, which on a desktop is the expensive kind of bug.
+// icons is not ours, the left button draws nothing, and a rectangle too small to
+// be a fence is never offered. Each of those is a way to create something the
+// user did not ask for, which on a desktop is the expensive kind of bug.
 class TestBackdropGesture : public QObject
 {
     Q_OBJECT
@@ -55,14 +59,15 @@ class TestBackdropGesture : public QObject
 private slots:
     // --- F-001: drawing a fence --------------------------------------------
 
-    void aDragOnBareDesktopDrawsThatRectangle()
+    void aRightDragDrawsThatRectangle()
     {
         BackdropGesture gesture;
-        QCOMPARE(gesture.press(QPoint(100, 100), false).action, BackdropGesture::Action::None);
-        QCOMPARE(gesture.move(QPoint(300, 260)).action, BackdropGesture::Action::Drawing);
-        const BackdropGesture::Result result = gesture.release(QPoint(300, 260));
-        QCOMPARE(result.action, BackdropGesture::Action::FenceDrawn);
+        QCOMPARE(gesture.press(QPoint(100, 100), Button::Right, false).action, Action::None);
+        QCOMPARE(gesture.move(QPoint(300, 260)).action, Action::Drawing);
+        const BackdropGesture::Result result = gesture.release(QPoint(300, 260), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
         QCOMPARE(result.rect, QRect(100, 100, 200, 160));
+        QCOMPARE(result.point, QPoint(300, 260));
         QVERIFY(!gesture.drawing());
     }
 
@@ -71,70 +76,81 @@ private slots:
         // Right-to-left and bottom-to-top are the same gesture: the rectangle is
         // normalised, and only the rectangle is handed on.
         BackdropGesture gesture;
-        gesture.press(QPoint(300, 260), false);
+        gesture.press(QPoint(300, 260), Button::Right, false);
         gesture.move(QPoint(100, 100));
-        const BackdropGesture::Result result = gesture.release(QPoint(100, 100));
-        QCOMPARE(result.action, BackdropGesture::Action::FenceDrawn);
+        const BackdropGesture::Result result = gesture.release(QPoint(100, 100), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
         QCOMPARE(result.rect, QRect(100, 100, 200, 160));
     }
 
-    void aDragThatIsExactlyTheMinimumIsAccepted()
+    void aDragThatIsExactlyTheMinimumIsOffered()
     {
         // The boundary is inclusive: the smallest fence the container keeps is
-        // the smallest draw that is accepted, not one pixel more.
+        // the smallest draw that is offered, not one pixel more.
         BackdropGesture gesture;
-        gesture.press(QPoint(40, 40), false);
+        gesture.press(QPoint(40, 40), Button::Right, false);
         gesture.move(QPoint(200, 160));
-        const BackdropGesture::Result result = gesture.release(QPoint(200, 160));
-        QCOMPARE(result.action, BackdropGesture::Action::FenceDrawn);
+        const BackdropGesture::Result result = gesture.release(QPoint(200, 160), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
         QCOMPARE(result.rect, QRect(40, 40, 160, 120));
     }
 
-    void aRectangleSmallerThanAFenceIsRefused()
+    void aRectangleSmallerThanAFenceIsNeverOffered()
     {
-        // A draw that small is a slip of the hand. Growing it to the minimum
-        // would put a fence somewhere the user never drew one.
+        // A draw that small is a slip of the hand, so no rectangle is proposed --
+        // the menu still opens, because the user did right-click the desktop, but
+        // it has no fence to offer. Growing it to the minimum would put a fence
+        // somewhere the user never drew one.
         BackdropGesture gesture;
-        gesture.press(QPoint(40, 40), false);
+        gesture.press(QPoint(40, 40), Button::Right, false);
         gesture.move(QPoint(120, 120));
-        const BackdropGesture::Result result = gesture.release(QPoint(120, 120));
-        QCOMPARE(result.action, BackdropGesture::Action::Cancelled);
-        QVERIFY(!gesture.drawing());
+        const BackdropGesture::Result result = gesture.release(QPoint(120, 120), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
+        QVERIFY(result.rect.isNull());
+        QCOMPARE(result.point, QPoint(120, 120));
     }
 
     void theMetricsDecideWhatAFenceIs()
     {
         // The premise of the check above: the refusal comes from the metric and
         // not from a size written into the machine. With a smaller minimum the
-        // same draw is accepted, so the caller's minimum really is the rule --
-        // and the container's minimum is what the product passes in.
+        // same draw is offered, so the caller's minimum really is the rule -- and
+        // the container's minimum is what the product passes in.
         BackdropGesture gesture;
         BackdropGesture::Metrics metrics;
         metrics.minimumFence = QSize(40, 40);
         gesture.setMetrics(metrics);
 
-        gesture.press(QPoint(40, 40), false);
+        gesture.press(QPoint(40, 40), Button::Right, false);
         gesture.move(QPoint(120, 120));
-        QCOMPARE(gesture.release(QPoint(120, 120)).action, BackdropGesture::Action::FenceDrawn);
+        const BackdropGesture::Result result = gesture.release(QPoint(120, 120), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
+        QCOMPARE(result.rect, QRect(40, 40, 80, 80));
     }
 
-    // --- what must NOT start a draw ----------------------------------------
+    // --- the desktop's own menu (T-054 / T-055) ----------------------------
 
-    void aClickIsNotAGesture()
+    void aPlainRightClickOpensTheMenuWithNoRectangle()
     {
+        // This is the desktop menu T-039 had taken away (T-054), restored by the
+        // same gesture that draws a fence: a right-click that draws nothing still
+        // has to reach it.
         BackdropGesture gesture;
-        gesture.press(QPoint(500, 500), false);
-        const BackdropGesture::Result result = gesture.release(QPoint(500, 500));
-        QCOMPARE(result.action, BackdropGesture::Action::None);
-        QVERIFY(!gesture.armed());
+        gesture.press(QPoint(500, 500), Button::Right, false);
+        const BackdropGesture::Result result = gesture.release(QPoint(500, 500), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
+        QVERIFY(result.rect.isNull());
+        QCOMPARE(result.point, QPoint(500, 500));
     }
 
-    void aWobbleIsStillAClick()
+    void aWobbleIsStillAPlainRightClick()
     {
         BackdropGesture gesture;
-        gesture.press(QPoint(500, 500), false);
-        QCOMPARE(gesture.move(QPoint(503, 502)).action, BackdropGesture::Action::None);
-        QCOMPARE(gesture.release(QPoint(503, 502)).action, BackdropGesture::Action::None);
+        gesture.press(QPoint(500, 500), Button::Right, false);
+        QCOMPARE(gesture.move(QPoint(503, 502)).action, Action::None);
+        const BackdropGesture::Result result = gesture.release(QPoint(503, 502), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
+        QVERIFY(result.rect.isNull());
     }
 
     void theThresholdIsWhatTurnsAPressIntoADraw()
@@ -142,31 +158,64 @@ private slots:
         // One pixel either side of the threshold, so the number is measured
         // rather than assumed. Below it nothing is drawn, at it the draw starts.
         BackdropGesture gesture;
-        gesture.press(QPoint(500, 500), false);
-        QCOMPARE(gesture.move(QPoint(505, 500)).action, BackdropGesture::Action::None);
+        gesture.press(QPoint(500, 500), Button::Right, false);
+        QCOMPARE(gesture.move(QPoint(505, 500)).action, Action::None);
         QVERIFY(!gesture.drawing());
-        QCOMPARE(gesture.move(QPoint(506, 500)).action, BackdropGesture::Action::Drawing);
+        QCOMPARE(gesture.move(QPoint(506, 500)).action, Action::Drawing);
         QVERIFY(gesture.drawing());
+    }
+
+    // --- what must NOT start a draw ----------------------------------------
+
+    void theLeftButtonDrawsNothing()
+    {
+        // F-001 is the right button, and the split is deliberate: the left one is
+        // the desktop icons' own gesture (marquee selection, T-042), and F-022's
+        // double-click arrives as a left press too. If the left button drew, every
+        // attempt to select an icon would leave a fence behind.
+        BackdropGesture gesture;
+        QCOMPARE(gesture.press(QPoint(500, 500), Button::Left, false).action, Action::None);
+        QVERIFY(!gesture.armed());
+        QCOMPARE(gesture.move(QPoint(900, 900)).action, Action::None);
+        QCOMPARE(gesture.release(QPoint(900, 900), Button::Left).action, Action::None);
+        QVERIFY(!gesture.drawing());
     }
 
     void aPressOnAnIconStartsNothing()
     {
         // The desktop's own icons belong to the desktop: their behaviour is
         // T-042's, and a fence drawn from on top of one is a fence the user did
-        // not ask for.
+        // not ask for. Their right-click menu is T-042's too, so no menu opens
+        // here either.
         BackdropGesture gesture;
-        QCOMPARE(gesture.press(QPoint(500, 500), true).action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.press(QPoint(500, 500), Button::Right, true).action, Action::None);
         QVERIFY(!gesture.armed());
-        QCOMPARE(gesture.move(QPoint(900, 900)).action, BackdropGesture::Action::None);
-        QCOMPARE(gesture.release(QPoint(900, 900)).action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.move(QPoint(900, 900)).action, Action::None);
+        QCOMPARE(gesture.release(QPoint(900, 900), Button::Right).action, Action::None);
         QVERIFY(!gesture.drawing());
     }
 
     void aMoveWithoutAPressDoesNothing()
     {
         BackdropGesture gesture;
-        QCOMPARE(gesture.move(QPoint(700, 700)).action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.move(QPoint(700, 700)).action, Action::None);
         QVERIFY(!gesture.drawing());
+    }
+
+    void aReleaseOfTheOtherButtonDoesNotEndTheGesture()
+    {
+        // A stray left click in the middle of a right-drag must neither open the
+        // menu nor cancel the draw: the gesture belongs to the button that
+        // started it.
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Right, false);
+        gesture.move(QPoint(400, 300));
+        QCOMPARE(gesture.release(QPoint(400, 300), Button::Left).action, Action::None);
+        QVERIFY(gesture.drawing());
+
+        const BackdropGesture::Result result = gesture.release(QPoint(400, 300), Button::Right);
+        QCOMPARE(result.action, Action::DesktopMenu);
+        QCOMPARE(result.rect, QRect(100, 100, 300, 200));
     }
 
     // --- F-022: quick hide --------------------------------------------------
@@ -174,15 +223,13 @@ private slots:
     void aDoubleClickOnBareDesktopAsksForQuickHide()
     {
         BackdropGesture gesture;
-        QCOMPARE(gesture.doubleClick(QPoint(600, 600), false).action,
-                 BackdropGesture::Action::ToggleVisibility);
+        QCOMPARE(gesture.doubleClick(QPoint(600, 600), false).action, Action::ToggleVisibility);
     }
 
     void aDoubleClickOnAnIconIsNotOurs()
     {
         BackdropGesture gesture;
-        QCOMPARE(gesture.doubleClick(QPoint(600, 600), true).action,
-                 BackdropGesture::Action::None);
+        QCOMPARE(gesture.doubleClick(QPoint(600, 600), true).action, Action::None);
     }
 
     void aDoubleClickEndsAnArmedDraw()
@@ -191,12 +238,11 @@ private slots:
         // the first press armed has to be gone by the time the trailing release
         // arrives, or the desktop would sprout a fence out of a double-click.
         BackdropGesture gesture;
-        gesture.press(QPoint(600, 600), false);
-        gesture.release(QPoint(600, 600));
-        QCOMPARE(gesture.doubleClick(QPoint(600, 600), false).action,
-                 BackdropGesture::Action::ToggleVisibility);
+        gesture.press(QPoint(600, 600), Button::Left, false);
+        gesture.release(QPoint(600, 600), Button::Left);
+        QCOMPARE(gesture.doubleClick(QPoint(600, 600), false).action, Action::ToggleVisibility);
         QVERIFY(!gesture.armed());
-        QCOMPARE(gesture.release(QPoint(600, 600)).action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.release(QPoint(600, 600), Button::Left).action, Action::None);
     }
 
     // --- the rubber band ----------------------------------------------------
@@ -205,33 +251,32 @@ private slots:
     {
         BackdropGesture gesture;
         QVERIFY(gesture.rubberBand().isNull());
-        gesture.press(QPoint(100, 100), false);
+        gesture.press(QPoint(100, 100), Button::Right, false);
         QVERIFY(gesture.rubberBand().isNull()); // armed, but nothing drawn yet
         gesture.move(QPoint(300, 260));
         QCOMPARE(gesture.rubberBand(), QRect(100, 100, 200, 160));
-        gesture.release(QPoint(300, 260));
+        gesture.release(QPoint(300, 260), Button::Right);
         QVERIFY(gesture.rubberBand().isNull());
     }
 
-    void cancelEndsADrawWithoutCreatingAnything()
+    void cancelEndsADrawWithoutOpeningAnything()
     {
         // The mouse capture was stolen, or the mode was turned off: the draw
-        // stops where it was, and the release that may still arrive creates
-        // nothing.
+        // stops where it was, and the release that may still arrive opens nothing.
         BackdropGesture gesture;
-        gesture.press(QPoint(100, 100), false);
+        gesture.press(QPoint(100, 100), Button::Right, false);
         gesture.move(QPoint(400, 400));
-        QCOMPARE(gesture.cancel().action, BackdropGesture::Action::Cancelled);
+        QCOMPARE(gesture.cancel().action, Action::Cancelled);
         QVERIFY(!gesture.drawing());
         QVERIFY(gesture.rubberBand().isNull());
-        QCOMPARE(gesture.release(QPoint(400, 400)).action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.release(QPoint(400, 400), Button::Right).action, Action::None);
     }
 
     void cancellingNothingIsNotWorthARepaint()
     {
         // The caller repaints on Cancelled, so an idle cancel has to be silent.
         BackdropGesture gesture;
-        QCOMPARE(gesture.cancel().action, BackdropGesture::Action::None);
+        QCOMPARE(gesture.cancel().action, Action::None);
     }
 
     // --- which icon is under the point --------------------------------------

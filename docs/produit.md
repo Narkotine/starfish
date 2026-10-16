@@ -36,12 +36,14 @@ Sources : pages officielles Stardock (produit + notes de version Fences 6, consu
 
 ## 5. Cas d'usage de référence
 
-1. L'utilisateur glisse une zone sur la droite du bureau, y dépose ses icônes de travail, les trie par nom.
-2. Nouveau fichier téléchargé sur le bureau → une règle le range automatiquement dans la zone « Downloads ».
-3. Zone « Jeux » enroulée (roll-up) : seule la barre de titre reste visible.
-4. Win+Espace (Peek) : toutes les zones passent au premier plan au-dessus des fenêtres.
-5. Un portail pointe vers `~/Documents/Factures` : son contenu s'affiche comme des icônes de bureau.
-6. Changement de résolution/moniteur → snapshot permet de restaurer la disposition.
+1. L'utilisateur **trace un rectangle au bouton droit** sur le bureau vide : le menu du bureau s'ouvre avec « Créer une zone ici (300 × 200) » en tête, il valide, et la zone existe exactement là où il l'a dessinée.
+2. L'utilisateur glisse une zone sur la droite du bureau, y dépose ses icônes de travail, les trie par nom.
+3. Nouveau fichier téléchargé sur le bureau → une règle le range automatiquement dans la zone « Downloads ».
+4. Zone « Jeux » enroulée (roll-up) : seule la barre de titre reste visible.
+5. Win+Espace (Peek) : toutes les zones passent au premier plan au-dessus des fenêtres.
+6. Un portail pointe vers `~/Documents/Factures` : son contenu s'affiche comme des icônes de bureau.
+7. Changement de résolution/moniteur → snapshot permet de restaurer la disposition.
+8. L'utilisateur choisit un **matériau translucide** pour ses zones : le papier peint les traverse, et le bureau reste lisible sous elles.
 
 ## 6. Inventaire fonctionnel
 
@@ -51,7 +53,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 
 | ID | Fonctionnalité | Prio |
 |---|---|---|
-| F-001 | Créer une zone : glisser sur le bureau vide, ou menu contextuel | P0 |
+| F-001 | Créer une zone : **glisser au bouton droit** sur le bureau vide (le geste ouvre le menu contextuel du bureau, avec une entrée StarFish en tête), ou clic droit simple sur le bureau vide | P0 |
 | F-002 | Renommer la zone (barre de titre) | P0 |
 | F-003 | Déplacer et redimensionner une zone (aimantation aux bords d'écran et aux autres zones) | P0 |
 | F-004 | Apparence : couleur de fond, opacité, coins arrondis, style de barre de titre | P0 |
@@ -60,6 +62,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 | F-007 | Supprimer une zone (les icônes reviennent sur le bureau, jamais supprimées du disque) | P0 |
 | F-008 | Onglets : regrouper plusieurs zones sous forme d'onglets (nouveauté Fences 6) | P1 |
 | F-009 | Couleur de zone auto-adaptée au fond d'écran (type Chameleon) | P2 |
+| F-038 | **Matériaux de zone** : choix parmi des presets (opaque / translucide / très translucide) — transparence partielle du panneau, le papier peint traverse la zone. **Décidé (session 33) : la translucidité d'abord** ; l'**acrylique** (flou du fond) est émulé, donc à cadrer par un spike avant de s'engager | P1 |
 
 ### B. Icônes
 
@@ -129,7 +132,7 @@ Spécifiquement **hors périmètre** : édition entreprise (déploiement par GPO
 ## 7. Périmètre par version
 
 - **v0.1 (MVP)** : noyau desktop (F-032, F-037) + zones basiques (F-001…F-004, F-007, F-013) + icônes drag & drop (F-010, F-011) + roll-up/Peek/quick hide (F-020…F-022) + snapshots (F-027) + tray/réglages minimaux (F-034).
-- **v0.2** : apparence fine (F-005, F-006), tri (F-012, F-014), règles (F-017…F-019), portails (F-024), raccourcis (F-033, F-035), i18n (F-036).
+- **v0.2** : apparence fine (F-005, F-006, **F-038**), tri (F-012, F-014), règles (F-017…F-019), portails (F-024), raccourcis (F-033, F-035), i18n (F-036).
 - **v1.0** : onglets (F-008), teinte/fondu (F-015, F-016), dispositions par moniteur (F-029), export/import (F-028), accessibilité clavier (F-023).
 - **Plus tard** : pages de bureau (F-030, F-031), Chameleon (F-009), navigation portails (F-025, F-026).
 

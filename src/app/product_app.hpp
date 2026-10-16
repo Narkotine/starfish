@@ -60,6 +60,12 @@ public:
         bool hotkeys = true;
         bool watchDesktop = true;  // F-018 on the real Desktop folder
         bool starterFence = true;  // materialise one fence on a first launch
+        // T-056: StarFish takes the desktop at launch -- it hides the native icon
+        // layer and draws the desktop itself, which is what makes a fence
+        // clickable and what brings the empty desktop's gestures into existence.
+        // On by default because ADR-3 has always said StarFish owns the icon
+        // layer; the tray can still hand it back.
+        bool claimDesktop = true;
     };
 
     explicit ProductApp(QObject* parent = nullptr);
@@ -162,11 +168,12 @@ private:
     void refreshScreens();
 
     void onNewFence();
-    // F-001: the user drew a rectangle on the bare desktop. The rect is already
-    // in the virtual-screen pixels a stored fence rect uses, so it is created
-    // as drawn -- the container clamps it onto a screen, as it does for every
-    // other rect.
-    void onFenceDrawn(const QRect& rect);
+    // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.
+    // `rect` is the fence the drag described, or a null rect for a plain
+    // right-click; `point` is where the button came up. Opens the desktop's own
+    // context menu with a StarFish entry on top, and creates the fence only if
+    // that entry was chosen.
+    void onDesktopMenu(const QRect& rect, const QPoint& point);
     void onRenameFence(const QString& id, const QString& title);
     void onRemoveFence(const QString& id);
     void onRollUpToggled(const QString& id, bool rolledUp);

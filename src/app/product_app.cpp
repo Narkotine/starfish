@@ -16,6 +16,7 @@
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
+#include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
@@ -181,6 +182,17 @@ bool ProductApp::start(const Options& options, QString* error)
     wireWatcher();
     wireHotkeys();
     wireBackdrop();
+
+    // The desktop is ours from the start (T-056). Until this existed, nothing
+    // ever called setDesktopIconsHidden(true) outside the tray, so a launch left
+    // the fences *under* the native icon layer -- unclickable -- and the backdrop
+    // (and therefore every gesture on the empty desktop) simply did not exist.
+    // ADR-3 has always said StarFish draws the icons; this is where it starts
+    // doing it. The order is the safe one, and it lives in setDesktopIconsHidden:
+    // the backdrop is hosted and proved *first*, and the native layer is only
+    // taken away once it can be stood in for.
+    if (m_options.claimDesktop)
+        setDesktopIconsHidden(true);
 
     // The screen arrangement changes while StarFish is running: a monitor is
     // unplugged, docked, re-arranged, or its scaling changes. Qt is the
@@ -503,24 +515,47 @@ void ProductApp::onNewFence()
         m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
 }
 
-void ProductApp::onFenceDrawn(const QRect& rect)
+void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
 {
     if (!m_container)
         return;
-    // F-001. The rect comes from the backdrop in virtual-screen pixels, which is
-    // the space a stored fence rect uses (T-014) -- so it is created where it was
-    // drawn, with no conversion in between to get wrong. The gesture has already
-    // refused a rectangle too small to be a fence, and the container clamps it
-    // onto a screen as it does for every other rect.
-    const QString id = m_container->createFence(nextFenceTitle(), rect);
+
+    // What the entry would do, said before anything happens: a drawn rectangle
+    // offers *that* rectangle, a plain right-click offers a default-size fence
+    // where the user aimed. The draw has already refused to offer a rectangle too
+    // small to be a fence, so the label can never promise a 40x40 fence.
+    const bool drawn = rect.isValid() && !rect.isEmpty();
+    const QRect target = drawn ? rect : QRect(point, QSize(kDefaultFenceWidth, kDefaultFenceHeight));
+    const QString label = drawn ? tr("Create a fence here (%1 x %2)")
+                                      .arg(target.width())
+                                      .arg(target.height())
+                                : tr("Create a fence here");
+
+    // The popup belongs to the hosted surface, so it behaves like a menu of the
+    // real on-screen window rather than of a hidden helper.
+    void* owner = nullptr;
+    if (ui::DesktopBackdrop* backdrop = m_container->backdrop()) {
+        if (platform::win::DesktopSurface* surface = backdrop->surface())
+            owner = reinterpret_cast<void*>(surface->hwnd());
+    }
+
+    const platform::win::ShellContextMenu::BackgroundChoice choice =
+        platform::win::ShellContextMenu::showForDesktopBackground(point, owner, label);
+
+    // Only our own entry creates anything. The shell's verbs have already run
+    // inside the menu call, and a dismissed menu creates nothing at all.
+    if (choice != platform::win::ShellContextMenu::BackgroundChoice::StarfishVerb)
+        return;
+
+    const QString id = m_container->createFence(nextFenceTitle(), target);
     if (id.isEmpty())
         return;
-    qCInfo(lc).noquote() << QStringLiteral("drew %1 at %2,%3 %4x%5")
+    qCInfo(lc).noquote() << QStringLiteral("created %1 at %2,%3 %4x%5 from the desktop menu")
                                 .arg(id)
-                                .arg(rect.x())
-                                .arg(rect.y())
-                                .arg(rect.width())
-                                .arg(rect.height());
+                                .arg(target.x())
+                                .arg(target.y())
+                                .arg(target.width())
+                                .arg(target.height());
     if (m_tray)
         m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
 }
@@ -531,15 +566,15 @@ void ProductApp::wireBackdrop()
     if (!backdrop)
         return;
 
-    // The smallest thing a draw may produce is the smallest fence the container
-    // will keep, taken from it rather than repeated here: the gesture and the
-    // container cannot then disagree about what a fence is.
+    // The smallest thing a draw may offer as a fence is the smallest fence the
+    // container will keep, taken from it rather than repeated here: the gesture
+    // and the container cannot then disagree about what a fence is.
     ui::BackdropGesture::Metrics metrics;
     metrics.minimumFence = m_container->minimumFenceSize();
     backdrop->setGestureMetrics(metrics);
 
-    connect(backdrop, &ui::DesktopBackdrop::fenceDrawRequested, this,
-            &ProductApp::onFenceDrawn);
+    connect(backdrop, &ui::DesktopBackdrop::desktopMenuRequested, this,
+            &ProductApp::onDesktopMenu);
     // F-022: the desktop's own double-click, the gesture the feature was always
     // specified with. It is the same toggle the tray and the hot key use.
     connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this,

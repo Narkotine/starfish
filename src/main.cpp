@@ -821,6 +821,11 @@ int main(int argc, char* argv[])
                       "window, first-launch fence, rename, roll-up, delete, auto-save) "
                       "against a throwaway document, without hosting, tray or hot keys, and "
                       "write a PASS/FAIL report to build/product_probe.txt."));
+    const QCommandLineOption noClaimDesktopOption(
+        QStringLiteral("no-claim-desktop"),
+        QStringLiteral("Do not take the desktop at launch (T-056): the native icons stay "
+                       "visible, so the fences are unclickable and the empty desktop's "
+                       "gestures do not exist. For a demo that must not touch the layer."));
     const QCommandLineOption noHostOption(
         QLatin1String("no-host"),
         QLatin1String("With the product: do not put the fences on the desktop."));
@@ -868,6 +873,7 @@ int main(int argc, char* argv[])
                       "point."));
     parser.addOption(crashDemoOption);
     parser.addOption(crashVictimOption);
+    parser.addOption(noClaimDesktopOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -3599,6 +3605,12 @@ int main(int argc, char* argv[])
                       product.container()->fenceCount() == 1,
                       QLatin1String("count=%1")
                           .arg(QString::number(product.container()->fenceCount())));
+                // T-056: the launch takes the desktop. Hosting is off here, so
+                // nothing real is touched (setDesktopIconsHidden only tracks the
+                // intent) -- which is exactly what lets this probe check the
+                // sequence without owning the developer's icons.
+                check(QLatin1String("the launch claims the desktop"),
+                      product.desktopIconsHidden(), product.statusText());
                 check(QLatin1String("the settings window exists"),
                       product.settingsDialog() != nullptr, {});
                 check(QLatin1String("no tray was created (none was asked for)"),
@@ -3958,17 +3970,18 @@ int main(int argc, char* argv[])
                   .arg(claimed.size()));
         container.removeFence(claimedId);
 
-        // --- the empty desktop's gestures (T-041) ----------------------------
+        // --- the empty desktop's gestures (T-041 / T-055) ---------------------
         //
-        // F-001 (drag on the bare desktop draws a fence) and F-022 (double-click
+        // F-001 (a right-drag on the bare desktop draws a fence, and the gesture
+        // ends on the desktop's own context menu) and F-022 (a left double-click
         // hides or shows them all). Both were always specified for the *empty*
         // desktop, which belongs to SysListView32 -- another process's window --
         // so they had always looked like they needed a global mouse hook (T-028).
         // They do not: the backdrop is a window of ours standing in for the
         // desktop, so the gesture starts inside it. What this section measures is
         // the half that matters, which is *whether* a gesture happened at all --
-        // a click, a wobble, a press on an icon and a draw too small to be a
-        // fence must all create nothing.
+        // a click, a wobble, a press on an icon, a left-drag and a draw too small
+        // to be a fence must all create nothing.
         //
         // The events are real QMouseEvents sent to the backdrop, the same events
         // DesktopSurface::forwardMouse posts from the hosted window's WndProc.
@@ -4001,17 +4014,20 @@ int main(int argc, char* argv[])
 
         if (hasBare) {
             // The product's wiring, reproduced: the backdrop says what happened,
-            // the product decides what to make of it (ProductApp::onFenceDrawn).
-            int drawRequests = 0;
+            // the product decides what to make of it (ProductApp::onDesktopMenu).
+            // The menu itself is deliberately *not* opened here -- it is a
+            // blocking popup and there is nobody to click it -- so the probe takes
+            // the two halves apart: the gesture asks for a menu with this
+            // rectangle, and the menu is really built with our entry (below).
+            int menuRequests = 0;
             int hideRequests = 0;
-            QRect drawnRect;
-            QString drawnId;
-            QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::fenceDrawRequested,
-                             &container,
-                             [&container, &drawRequests, &drawnRect, &drawnId](const QRect& rect) {
-                                 ++drawRequests;
-                                 drawnRect = rect;
-                                 drawnId = container.createFence(QStringLiteral("Drawn"), rect);
+            QRect offeredRect;
+            QPoint offeredPoint;
+            QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::desktopMenuRequested,
+                             &container, [&](const QRect& rect, const QPoint& point) {
+                                 ++menuRequests;
+                                 offeredRect = rect;
+                                 offeredPoint = point;
                              });
             QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::quickHideRequested,
                              &container, [&container, &hideRequests] {
@@ -4025,13 +4041,13 @@ int main(int argc, char* argv[])
                                   Qt::NoModifier);
                 QCoreApplication::sendEvent(backdrop, &event);
             };
-            const auto drag = [&](const QPoint& from, const QPoint& to) {
-                sendMouse(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
-                sendMouse(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
-                sendMouse(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+            const auto drag = [&](Qt::MouseButton button, const QPoint& from, const QPoint& to) {
+                sendMouse(QEvent::MouseButtonPress, from, button, button);
+                sendMouse(QEvent::MouseMove, to, Qt::NoButton, button);
+                sendMouse(QEvent::MouseButtonRelease, to, button, Qt::NoButton);
             };
 
-            // The rectangle a drag describes is the rectangle asked for, in
+            // The rectangle a drag describes is the rectangle offered, in
             // virtual-screen pixels -- the space a stored fence rect uses, so no
             // conversion sits between the gesture and the document (T-014).
             const QPoint farCorner(barePoint.x() - 300, barePoint.y() + 200);
@@ -4046,8 +4062,8 @@ int main(int argc, char* argv[])
             backdrop->renderNow();
             const qint64 paintedWithout = opaquePixels(backdrop->frame());
 
-            sendMouse(QEvent::MouseButtonPress, barePoint, Qt::LeftButton, Qt::LeftButton);
-            sendMouse(QEvent::MouseMove, farCorner, Qt::NoButton, Qt::LeftButton);
+            sendMouse(QEvent::MouseButtonPress, barePoint, Qt::RightButton, Qt::RightButton);
+            sendMouse(QEvent::MouseMove, farCorner, Qt::NoButton, Qt::RightButton);
             check(QStringLiteral("the rubber band follows the drag"),
                   backdrop->rubberBand() == expectedRect,
                   QStringLiteral("%1,%2 %3x%4")
@@ -4066,27 +4082,26 @@ int main(int argc, char* argv[])
                       .arg(paintedDuring)
                       .arg(paintedWithout));
 
-            sendMouse(QEvent::MouseButtonRelease, farCorner, Qt::LeftButton, Qt::NoButton);
-            check(QStringLiteral("a drag on the bare desktop asks for a fence"), drawRequests == 1,
-                  QStringLiteral("%1 request(s), rect %2,%3 %4x%5")
-                      .arg(drawRequests)
-                      .arg(drawnRect.x())
-                      .arg(drawnRect.y())
-                      .arg(drawnRect.width())
-                      .arg(drawnRect.height()));
-            check(QStringLiteral("the rectangle asked for is the one that was drawn"),
-                  drawnRect == expectedRect,
-                  QStringLiteral("expected %1,%2 %3x%4")
-                      .arg(expectedRect.x())
-                      .arg(expectedRect.y())
-                      .arg(expectedRect.width())
-                      .arg(expectedRect.height()));
+            sendMouse(QEvent::MouseButtonRelease, farCorner, Qt::RightButton, Qt::NoButton);
+            check(QStringLiteral("a right-drag on the bare desktop asks for the desktop menu"),
+                  menuRequests == 1,
+                  QStringLiteral("%1 request(s)") .arg(menuRequests));
+            check(QStringLiteral("the rectangle offered is the one that was drawn"),
+                  offeredRect == expectedRect && offeredPoint == farCorner,
+                  QStringLiteral("%1,%2 %3x%4 at %5,%6")
+                      .arg(offeredRect.x())
+                      .arg(offeredRect.y())
+                      .arg(offeredRect.width())
+                      .arg(offeredRect.height())
+                      .arg(offeredPoint.x())
+                      .arg(offeredPoint.y()));
             check(QStringLiteral("the rubber band is gone once the button is up"),
                   backdrop->rubberBand().isNull(), {});
 
-            // And it becomes a fence where it was drawn: no conversion, no
-            // default placement, no snap.
-            check(QStringLiteral("the drawn fence exists where it was drawn"),
+            // And choosing our entry creates the fence where it was drawn: no
+            // conversion, no default placement, no snap.
+            const QString drawnId = container.createFence(QStringLiteral("Drawn"), offeredRect);
+            check(QStringLiteral("the offered fence is created where it was drawn"),
                   container.fenceCount() == fencesBefore + 1 && !drawnId.isEmpty()
                       && container.fenceRect(drawnId) == expectedRect,
                   QStringLiteral("%1 -> %2,%3 %4x%5")
@@ -4107,36 +4122,44 @@ int main(int argc, char* argv[])
                 for (const starfish::core::Fence& fence : drawnDoc->fences)
                     drawnItems += fence.items.size();
             }
-            check(QStringLiteral("drawing a fence claims no file"), drawnDoc.has_value()
-                      && drawnItems == 0,
+            check(QStringLiteral("drawing a fence claims no file"),
+                  drawnDoc.has_value() && drawnItems == 0,
                   QStringLiteral("%1 path(s) in the document, %2 fence(s)")
                       .arg(drawnItems)
                       .arg(drawnDoc ? drawnDoc->fences.size() : -1));
             container.removeFence(drawnId);
 
-            // What must create nothing. Each of these is a way to make a fence
-            // the user did not ask for.
+            // What must create nothing, and what must still open the menu. Each of
+            // these is a way to make a fence the user did not ask for.
             const int quietBefore = container.fenceCount();
-            drag(barePoint, barePoint);
-            check(QStringLiteral("a click on the bare desktop is not a gesture"),
-                  drawRequests == 1 && container.fenceCount() == quietBefore,
-                  QStringLiteral("%1 request(s) in total").arg(drawRequests));
+            drag(Qt::RightButton, barePoint, barePoint);
+            check(QStringLiteral("a plain right-click opens the menu with no rectangle"),
+                  menuRequests == 2 && offeredRect.isNull() && offeredPoint == barePoint
+                      && container.fenceCount() == quietBefore,
+                  QStringLiteral("the menu T-039 had taken away (T-054)"));
 
-            drag(barePoint, QPoint(barePoint.x() + 3, barePoint.y() + 2));
-            check(QStringLiteral("a wobble is still a click"),
-                  drawRequests == 1 && container.fenceCount() == quietBefore,
-                  QStringLiteral("a 3x2 px drag created nothing"));
+            drag(Qt::RightButton, barePoint, QPoint(barePoint.x() + 3, barePoint.y() + 2));
+            check(QStringLiteral("a wobble offers no rectangle either"),
+                  menuRequests == 3 && offeredRect.isNull()
+                      && container.fenceCount() == quietBefore,
+                  QStringLiteral("a 3x2 px drag offered nothing"));
 
-            drag(barePoint, QPoint(barePoint.x() + 40, barePoint.y() + 40));
-            check(QStringLiteral("a draw too small to be a fence creates nothing"),
-                  drawRequests == 1 && container.fenceCount() == quietBefore,
+            drag(Qt::RightButton, barePoint, QPoint(barePoint.x() + 40, barePoint.y() + 40));
+            check(QStringLiteral("a right-draw too small to be a fence offers no rectangle"),
+                  menuRequests == 4 && offeredRect.isNull()
+                      && container.fenceCount() == quietBefore,
                   QStringLiteral("40x40 px, the minimum is %1x%2")
                       .arg(backdrop->gestureMetrics().minimumFence.width())
                       .arg(backdrop->gestureMetrics().minimumFence.height()));
 
-            drag(iconPoint, QPoint(iconPoint.x() + 300, iconPoint.y() + 200));
+            drag(Qt::LeftButton, barePoint, farCorner);
+            check(QStringLiteral("the left button draws nothing"),
+                  menuRequests == 4 && container.fenceCount() == quietBefore,
+                  QStringLiteral("F-001 is the right button; the left one is T-042's"));
+
+            drag(Qt::RightButton, iconPoint, QPoint(iconPoint.x() + 300, iconPoint.y() + 200));
             check(QStringLiteral("a press on one of the icons starts nothing"),
-                  drawRequests == 1 && container.fenceCount() == quietBefore,
+                  menuRequests == 4 && container.fenceCount() == quietBefore,
                   QStringLiteral("the icons the backdrop draws are not ours to drag yet"));
 
             // F-022, the gesture the feature was always specified with.
@@ -4158,6 +4181,26 @@ int main(int argc, char* argv[])
             check(QStringLiteral("a double-click on an icon is not ours"), hideRequests == 2,
                   QStringLiteral("%1 request(s) in total").arg(hideRequests));
         }
+
+        // --- the desktop's own menu (T-055, and T-054 with it) ---------------
+        //
+        // The gesture ends on the desktop's context menu, so the menu itself has
+        // to be real: the desktop namespace folder's view object, plus our entry
+        // on top of it. Built without ever showing it -- a popup would block on a
+        // user who is not there -- which is the same trick --context-menu-verbs
+        // uses for an item.
+        log << QStringLiteral("-- the desktop's own menu --");
+        QString starfishEntry;
+        const QStringList desktopVerbs =
+            starfish::platform::win::ShellContextMenu::desktopBackgroundVerbs(&starfishEntry);
+        check(QStringLiteral("our entry sits on top of the desktop's menu"),
+              starfishEntry.contains(QStringLiteral("Create a fence here")),
+              QStringLiteral("\"%1\"").arg(starfishEntry));
+        check(QStringLiteral("the shell's own entries are still there"),
+              desktopVerbs.size() >= 2,
+              QStringLiteral("%1 verb(s): %2")
+                  .arg(desktopVerbs.size())
+                  .arg(desktopVerbs.join(QStringLiteral(", "))));
 
         backdrop->setGestureEnabled(false);
         check(QStringLiteral("turning the gestures off leaves the backdrop inert"),
@@ -4579,6 +4622,9 @@ int main(int argc, char* argv[])
         options.hotkeys = false;
         options.watchDesktop = false;
         options.starterFence = false; // nothing appears on the user's desk
+        // The tray path is what this victim is here to exercise, so the launch must
+        // not have claimed the desktop already (T-056).
+        options.claimDesktop = false;
 
         starfish::app::ProductApp product;
         QString startError;
@@ -4892,7 +4938,14 @@ int main(int argc, char* argv[])
         options.hostOnDesktop = !parser.isSet(noHostOption);
         options.tray = !parser.isSet(noTrayOption);
         options.settingsWindow = !parser.isSet(noSettingsOption);
-        options.showSettingsOnStart = !parser.isSet(noSettingsOption);
+        // The settings window is scaffolding, not the product (T-059): it lists the
+        // fences and creates them, which is what the desktop's own gesture is for.
+        // It stays reachable from the tray; it does not open itself at launch.
+        options.showSettingsOnStart = false;
+        // T-056: the desktop is StarFish's from the start, which is what makes a
+        // fence clickable and what brings the empty desktop's gestures into
+        // existence. --no-claim-desktop runs a demo that must not touch the layer.
+        options.claimDesktop = !parser.isSet(noClaimDesktopOption);
         options.hotkeys = !parser.isSet(noHotkeysOption);
         options.watchDesktop = !parser.isSet(noWatchOption);
 

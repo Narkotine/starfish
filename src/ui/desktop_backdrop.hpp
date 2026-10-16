@@ -102,7 +102,6 @@ public:
     // together with setEnabled(true).
     void setGestureEnabled(bool enabled);
     bool gestureEnabled() const { return m_gestures; }
-
     // The drag threshold and the smallest fence a draw may produce. The caller
     // passes the container's own minimum so the gesture and the container cannot
     // disagree about what a fence is.
@@ -147,11 +146,14 @@ signals:
     // The hosted window went away (Explorer restarted). The owner re-attaches on
     // the next refresh.
     void desktopLost();
-    // F-001: the user drew a rectangle on the bare desktop. The rect is in
-    // virtual-screen pixels, ready to become a fence's stored rect -- the
-    // backdrop signals, it does not create anything (the container and the
-    // product own the lifecycle, as everywhere else).
-    void fenceDrawRequested(const QRect& rect);
+    // F-001 + T-055: the user right-clicked (or right-dragged) the bare desktop.
+    // `rect` is the fence the drag described, in virtual-screen pixels -- the
+    // space a stored fence rect uses -- or a null rect when the gesture was a
+    // plain right-click or a draw too small to be a fence. `point` is where the
+    // button came up, in the same space, so the caller can place something where
+    // the user aimed. The backdrop signals; it neither creates anything nor opens
+    // any menu (the product owns both, as everywhere else).
+    void desktopMenuRequested(const QRect& rect, const QPoint& point);
     // F-022: the user double-clicked the bare desktop.
     void quickHideRequested();
 

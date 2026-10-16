@@ -12,8 +12,16 @@ namespace starfish::ui {
 // The two gestures the empty desktop carries once StarFish owns the icon layer
 // (T-041, docs/produit.md):
 //
-//   * **drag on the bare desktop** -> draw a fence of that size (F-001),
-//   * **double-click on the bare desktop** -> quick hide / show (F-022).
+//   * **right-drag on the bare desktop** -> draw a fence there (F-001). The
+//     gesture ends on the desktop's *own* context menu -- the one SysListView32
+//     answered before ADR-9 hid it -- with a StarFish entry inserted at the top
+//     (T-055). A plain right-click opens the same menu with nothing drawn, which
+//     is exactly the desktop menu T-039 had taken away (T-054).
+//   * **left double-click on the bare desktop** -> quick hide / show (F-022).
+//
+// The right button is not a detail: it is what Fences does, it is what the user
+// asked for, and it leaves the left button free for the desktop icons' own
+// behaviour (marquee selection, T-042).
 //
 // Both had always looked like they needed a global mouse hook (T-028): the bare
 // desktop belongs to SysListView32, another process's window, so the press never
@@ -26,9 +34,10 @@ namespace starfish::ui {
 // Pure: no widget, no Win32, no event type. The caller turns its mouse events
 // into press/move/release/doubleClick with a point in **virtual-screen pixels**
 // -- the space the backdrop cells and the stored fence rects both use (T-014) --
-// says whether that point landed on one of the icons the backdrop draws, and
-// gets back what to do. That is what makes the rules testable without a desktop,
-// and what keeps the widget half (DesktopBackdrop) to plumbing.
+// says which button and whether that point landed on one of the icons the
+// backdrop draws, and gets back what to do. That is what makes the rules
+// testable without a desktop, and what keeps the widget half (DesktopBackdrop)
+// to plumbing.
 class BackdropGesture
 {
 public:
@@ -37,51 +46,66 @@ public:
         // Below it, press-and-release is a click and starts nothing: the desktop
         // must not sprout a fence because the user tapped it.
         int dragThreshold = 6;
-        // A drawn rectangle smaller than a fence may be is refused rather than
-        // grown to the minimum: a draw that small is a slip of the hand, not a
-        // request. The caller passes the container's own minimum, so the two
-        // cannot drift apart.
+        // A drawn rectangle smaller than a fence may be is *not offered* as a
+        // fence: a draw that small is a slip of the hand, not a request. The
+        // menu still opens (the user right-clicked the desktop), it simply has no
+        // rectangle to propose. The caller passes the container's own minimum, so
+        // the two cannot drift apart.
         QSize minimumFence{160, 120};
+    };
+
+    enum class Button {
+        Left,  // F-022's double-click, and later the desktop icons' own gestures
+        Right, // F-001: draw a fence, then the desktop's context menu
     };
 
     enum class Action {
         None,             // nothing to do
         Drawing,          // the rubber band moved: repaint
-        FenceDrawn,       // a fence to create; `rect` is in virtual-screen pixels
-        Cancelled,        // a draw that ended too small, or was taken away
+        DesktopMenu,      // show the desktop's menu; `rect` is the fence drawn, or null
+        Cancelled,        // a draw that was taken away
         ToggleVisibility, // F-022
     };
 
     struct Result {
         Action action = Action::None;
-        QRect rect; // FenceDrawn only
+        // DesktopMenu only: the rectangle the user drew, in virtual-screen
+        // pixels, when it is large enough to be a fence -- null when the gesture
+        // was a plain right-click, or a draw too small to be one. `point` is
+        // where the button came up, so a caller that has no rectangle can still
+        // place something where the user aimed.
+        QRect rect;
+        QPoint point;
     };
 
     void setMetrics(const Metrics& metrics) { m_metrics = metrics; }
     const Metrics& metrics() const { return m_metrics; }
 
-    // The left button went down at `point`, which is -- or is not -- on one of
-    // the icons the backdrop draws. A press on an icon starts nothing: those
-    // icons belong to the desktop and their behaviour is T-042's, and a fence
-    // drawn from on top of an icon is a fence the user did not ask for.
-    Result press(const QPoint& point, bool onIcon);
+    // A button went down at `point`, which is -- or is not -- on one of the icons
+    // the backdrop draws. Nothing starts on an icon: those icons belong to the
+    // desktop and their behaviour is T-042's, and a fence drawn from on top of an
+    // icon is a fence the user did not ask for.
+    Result press(const QPoint& point, Button button, bool onIcon);
 
     // The pointer moved. Reports only while a draw is in progress.
     Result move(const QPoint& point);
 
-    // The button came up: this is where a drawn fence is decided.
-    Result release(const QPoint& point);
+    // The button came up: this is where a right-drag becomes a menu. A release
+    // of the *other* button is ignored rather than treated as an ending -- a
+    // stray left click in the middle of a right-drag must not open the menu.
+    Result release(const QPoint& point, Button button);
 
-    // A double-click. On the bare desktop it toggles the fences' visibility
-    // (F-022); on an icon it is the desktop's business, not ours.
+    // A double-click. On the bare desktop the *left* one toggles the fences'
+    // visibility (F-022); on an icon it is the desktop's business, not ours.
     Result doubleClick(const QPoint& point, bool onIcon);
 
     // The gesture was taken away -- the mouse capture was stolen, the window
-    // went away, the mode was turned off. Nothing is created.
+    // went away, the mode was turned off. Nothing is created, no menu opens.
     Result cancel();
 
     bool armed() const { return m_armed; }
     bool drawing() const { return m_drawing; }
+    Button button() const { return m_button; }
     QPoint origin() const { return m_origin; }
     QPoint current() const { return m_current; }
 
@@ -105,6 +129,7 @@ private:
     Metrics m_metrics;
     bool m_armed = false;
     bool m_drawing = false;
+    Button m_button = Button::Left;
     QPoint m_origin;
     QPoint m_current;
 };
@@ -138,12 +163,17 @@ inline void BackdropGesture::reset()
     m_drawing = false;
 }
 
-inline BackdropGesture::Result BackdropGesture::press(const QPoint& point, bool onIcon)
+inline BackdropGesture::Result BackdropGesture::press(const QPoint& point, Button button,
+                                                      bool onIcon)
 {
     reset();
-    if (onIcon)
+    // Only the right button draws a fence (F-001): the left one is the desktop
+    // icons' own gesture, which is T-042, and F-022's double-click arrives as a
+    // press too. An icon is nobody's drag yet.
+    if (button != Button::Right || onIcon)
         return {};
     m_armed = true;
+    m_button = button;
     m_origin = point;
     m_current = point;
     return {};
@@ -162,37 +192,42 @@ inline BackdropGesture::Result BackdropGesture::move(const QPoint& point)
     }
 
     m_current = point;
-    return {Action::Drawing, {}};
+    return {Action::Drawing, {}, point};
 }
 
-inline BackdropGesture::Result BackdropGesture::release(const QPoint& point)
+inline BackdropGesture::Result BackdropGesture::release(const QPoint& point, Button button)
 {
-    if (!m_drawing) {
-        // A click, not a gesture. Nothing was drawn and nothing is created.
-        reset();
+    if (!m_armed || button != m_button)
         return {};
-    }
 
     m_current = point;
+    const bool wasDrawing = m_drawing;
     const QRect drawn = normalized(m_origin, m_current);
     reset();
 
-    if (drawn.width() < m_metrics.minimumFence.width()
-        || drawn.height() < m_metrics.minimumFence.height())
-        return {Action::Cancelled, drawn};
-
-    return {Action::FenceDrawn, drawn};
+    // A right-release always opens the desktop's menu -- that is what a
+    // right-click on the desktop does, and taking it away was T-039's most
+    // visible cost (T-054). What the draw adds is the rectangle the menu can
+    // offer; a draw too small to be a fence simply offers none, rather than
+    // being silently grown to the minimum.
+    Result result;
+    result.action = Action::DesktopMenu;
+    result.point = point;
+    if (wasDrawing && drawn.width() >= m_metrics.minimumFence.width()
+        && drawn.height() >= m_metrics.minimumFence.height())
+        result.rect = drawn;
+    return result;
 }
 
 inline BackdropGesture::Result BackdropGesture::doubleClick(const QPoint& point, bool onIcon)
 {
     Q_UNUSED(point);
-    // A double-click arrives as press, release, double-click, release: the two
-    // presses must not leave a draw armed behind them.
+    // A double-click arrives as press, release, double-click, release: whatever
+    // the presses armed has to be gone by the time the trailing release arrives.
     reset();
     if (onIcon)
         return {};
-    return {Action::ToggleVisibility, {}};
+    return {Action::ToggleVisibility, {}, {}};
 }
 
 inline BackdropGesture::Result BackdropGesture::cancel()
@@ -200,7 +235,7 @@ inline BackdropGesture::Result BackdropGesture::cancel()
     const bool wasDrawing = m_drawing;
     reset();
     // Only worth a repaint when a rubber band was actually on screen.
-    return wasDrawing ? Result{Action::Cancelled, {}} : Result{};
+    return wasDrawing ? Result{Action::Cancelled, {}, {}} : Result{};
 }
 
 } // namespace starfish::ui

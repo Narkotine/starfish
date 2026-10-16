@@ -253,12 +253,14 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     if (!m_gestures)
         return false;
 
-    // Left button only: the desktop's own right-click menu is not ours to
-    // replace, and answering a right-drag with a fence would be a surprise.
-    if (mouse->type() != QEvent::MouseMove && mouse->button() != Qt::LeftButton)
-        return false;
-    if (mouse->type() == QEvent::MouseMove && !(mouse->buttons() & Qt::LeftButton))
-        return false;
+    // Both buttons are forwarded: the right one draws a fence and then opens the
+    // desktop's menu (F-001), the left one carries F-022's double-click. The
+    // machine decides which of them means anything -- it is the piece that can be
+    // tested without a desktop, and duplicating the rule here is how the two
+    // halves would drift apart.
+    const BackdropGesture::Button button =
+        mouse->button() == Qt::RightButton ? BackdropGesture::Button::Right
+                                          : BackdropGesture::Button::Left;
 
     // Measured at the *screen* (T-043): the frame moves under the cursor while a
     // gesture runs, and the cells are in virtual-screen pixels anyway. The
@@ -271,13 +273,13 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     BackdropGesture::Result result;
     switch (mouse->type()) {
     case QEvent::MouseButtonPress:
-        result = m_gesture.press(screen, onIcon);
+        result = m_gesture.press(screen, button, onIcon);
         break;
     case QEvent::MouseMove:
         result = m_gesture.move(screen);
         break;
     case QEvent::MouseButtonRelease:
-        result = m_gesture.release(screen);
+        result = m_gesture.release(screen, button);
         break;
     case QEvent::MouseButtonDblClick:
         result = m_gesture.doubleClick(screen, onIcon);
@@ -303,12 +305,12 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
         refresh();
         return true;
 
-    case BackdropGesture::Action::FenceDrawn:
+    case BackdropGesture::Action::DesktopMenu:
         m_rubberBand = {};
         refresh();
-        // The backdrop says what happened; the container and the product decide
-        // what to make of it, exactly like every other gesture in this project.
-        emit fenceDrawRequested(result.rect);
+        // The backdrop says what happened; the product decides what to make of
+        // it, exactly like every other gesture in this project.
+        emit desktopMenuRequested(result.rect, result.point);
         return true;
 
     case BackdropGesture::Action::ToggleVisibility:
