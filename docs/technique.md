@@ -820,3 +820,76 @@ Messages de la sonde, pour mémoire : `--crash-victim` est aussi utilisable seul
 - **Un marqueur ne dit pas qui a masqué.** Si l'utilisateur avait masqué ses icônes lui-même **avant** que StarFish les masque, la réparation les rendra visibles : c'est la même imprécision assumée que la sortie propre depuis T-038 (« on ne restaure que ce qu'on a masqué » vaut pour *notre* action, pas pour l'état antérieur). Une note sur disque ne peut pas mieux savoir ; le contraire — rester sans icônes pour épargner une préférence — serait pire.
 - L'ordre **write-ahead** (marqueur avant masquage) est **par construction**, pas mesurable de l'extérieur à la résolution d'une horloge (la fenêtre fait quelques microsecondes) : la sonde mesure ses **conséquences** (marqueur présent + couche masquée après la mort), pas la séquence. La séquence est fixée par une seule fonction et lue dans le journal du victime.
 
+
+## 19. Le fond de bureau : StarFish dessine les icônes hors zone (T-039, session 30)
+
+Le mur décrit en §17 se franchit en deux temps, et le premier (T-046, §18) n'existait que pour rendre le second réparable : **la couche d'icônes natives est masquée** pendant que StarFish tourne, et **StarFish dessine alors les icônes lui-même**.
+
+### Ce que « hors zone » veut dire
+
+```
+   toutes les entrées du bureau
+ − les entrées qu'une zone détient
+ = ce que le fond dessine
+```
+
+Cet ensemble est **recalculé à chaque changement** (`BackdropLayout::freeItems`) et **stocké nulle part**. C'est la décision centrale, et elle porte trois conséquences qui n'ont pas eu à être écrites :
+
+- **ADR-7 reste intact.** Le document ne décrit que des zones ; le schéma ne bouge pas d'un octet, et la sonde le **mesure** (deux rendus complets, document identique octet pour octet ; 3 chemins écrits quand le bureau en a 86).
+- **F-007 et F-011 tombent tout seuls.** Sortir une icône d'une zone, ou supprimer la zone, c'est *ne plus la détenir* : elle réapparaît sur le fond. **Aucun code de restauration n'existe**, et il n'en faut pas (`--backdrop-demo` : 86 → 83 → 86).
+- **Le fond ne peut pas mentir sur ce qu'il ne sait pas.** Il n'a aucune autorité, donc aucun état à désynchroniser.
+
+### Où il se place, et pourquoi il n'a pas fallu remonter les zones
+
+`DesktopSurface::Layer` remplace le booléen « au-dessus des icônes » par trois **rôles**, honorés par `place()` **et** par la garde `WM_WINDOWPOSCHANGING` (invariant du watchdog 2 s) :
+
+| rôle | ancre | qui l'utilise |
+|---|---|---|
+| `BelowIconLayer` | juste sous `SHELLDLL_DefView` | les zones (ADR-4) |
+| `AboveIconLayer` | `HWND_TOP` | Peek (F-021) |
+| `Backdrop` | `HWND_BOTTOM` | le fond (T-039) |
+
+`setRaisedAboveIcons()` **délègue** au rôle, donc **aucun appelant existant ne change** — et le z-order mesuré par `--nav-demo` (`surface [1]` vs `DefView [0]`) est **inchangé**. C'est le point qu'on pouvait craindre de devoir payer : « les zones au-dessus des icônes » (session 28) n'exige **pas** de remonter les zones, parce que la couche native est **masquée** et que le fond se met **sous** elles. Les zones restent là où ADR-4 les a mises.
+
+### Le fond ne prend aucun geste
+
+`setClickThrough(true)` → `WM_NCHITTEST` répond `HTTRANSPARENT`, et la surface **n'enregistre aucun `IDropTarget`**. Le fond peint des icônes mais n'en possède encore aucun comportement (clic, sélection, lancement, menu contextuel, renommage, couper/coller = T-042) : **avaler un clic ou un drop qu'on ne peut pas honorer serait une régression silencieuse**, alors que laisser passer garde le bureau atteignable tel qu'il était. Deux prix sont assumés et tracés :
+
+- **T-052** — déposer un fichier sur le **bureau vide** ne fait plus rien : c'est `SHELLDLL_DefView`, désormais masquée, qui recevait le drop. Le corriger veut dire réimplémenter le dépôt — et « déposer sur le bureau » **déplace** le fichier, donc c'est la famille T-031/T-036 (mutation du disque, opt-in explicite).
+- **T-053** — le **Peek** (F-021) n'a plus d'effet visible : les zones sont déjà au-dessus de tout ce qui est dessiné sur le bureau. À retirer, ou à requalifier en « au-dessus des fenêtres d'application » (T-029).
+
+### La règle qui garde le bureau utilisable
+
+`DesktopBackdrop::attach()` suit la même discipline que le marqueur de T-046 — **si le geste sûr est impossible, on refuse le geste risqué** :
+
+1. il **rend la frame d'abord** (une fenêtre layered sans contenu poussé est invisible) ;
+2. il héberge sur le rôle `Backdrop`, en **per-pixel alpha** obligatoire — le fond couvre **tout l'écran virtuel**, et sans `UpdateLayeredWindow` il cacherait le papier peint ;
+3. il **relit `perPixelAlpha()`** : si le push a échoué, `DesktopSurface` est déjà retombé sur le chemin opaque → **le fond est refusé** ;
+4. `ProductApp` **ne masque alors pas** la couche native : le bureau garde ses vraies icônes.
+
+Au retour, l'ordre est **inverse** : la couche native revient **d'abord**, le fond part **ensuite** — jamais de bureau sans icônes, pas même une frame.
+
+### Le rythme
+
+Le rendu est **coalescé à 120 ms** (`kRenderCoalesceMs`) et `setOccupiedPaths()` **sort tôt** si l'ensemble n'a pas changé. Un drag de zone émet ~60 `fenceRectChanged` par seconde, et chaque rendu téléverse l'écran virtuel entier (14 Mo à 2560×1440) : sans l'un ou l'autre, déplacer une zone serait un test de bande passante. Le fond suit le dossier Bureau comme un portail suit son dossier — scan au démarrage, rescan sur `itemsAdded` **et** sur `folderChanged` (un fichier qui *part* doit partir du fond aussi, et `itemsAdded` ne le dira jamais).
+
+### La disposition est en colonnes, pas en lignes
+
+Le bureau Windows remplit une **colonne** de haut en bas, puis la suivante. `IconLayout` — la grille d'une **zone** — remplit des **lignes**. Ce sont deux règles différentes, donc deux implémentations (`BackdropLayout::compute`), et un test qui échoue si on revient à l'autre : `cellsFillColumnsNotRows`. **Prémisse prouvée** : disposition forcée en lignes (patch temporaire, revert) → `rc=2`, **exactement deux `FAIL`**, les 12 autres cas verts.
+
+La cellule du fond est aussi **plus large que l'icône** (72 px pour une icône de 48), ce qui est exactement le manque de la grille d'une zone (T-049 : `cellW = iconSize`, libellé élidé au milieu).
+
+### Ce que la sonde mesure (`--backdrop-demo`)
+
+Headless : 86 entrées / 86 visibles ; 86 libres sans zone, 83 avec une zone de 3 ; la comparaison **casse + séparateur** retire une icône de plus ; **deux rendus complets ne changent pas un octet du document** (65 octets identiques) ; le document porte 3 chemins quand le bureau en a 86 ; supprimer la zone rend les 86 ; 16 lignes puis colonne suivante à x=98 ; la frame 2560×1440 est peinte à **231 738 / 3 686 400 px (6 %)** et le compte **tombe** à 223 887 quand une zone réclame 3 icônes. En `--host` : `layered ex 0x80000`, **push per-pixel confirmé** (aucun repli opaque), couverture de l'écran virtuel, `HTTRANSPARENT`, **z-order `backdrop [1]` vs `DefView [0]`**, et « turning it off leaves no window behind ». **15/15** headless, **21/21** en `--host`. Elle **ne masque jamais** les icônes natives.
+
+### T-017 est levé au passage
+
+Le chemin per-pixel était « codé, jamais validé visuellement » depuis la session 9 (§8). Le fond l'exerce sur une fenêtre **plein écran** enfant de `Progman` — plus grand cas de figure que ce que la session 9 avait mesuré — et la sonde **mesure** que `UpdateLayeredWindow` a réussi. La conclusion de la session 9 est donc confirmée à l'exécution, et la validation à l'œil n'est plus qu'un confort.
+
+### Limites assumées
+
+- **Aucune interaction** sur les icônes du fond (T-042) : c'est le prix de l'ADR-3, et le click-through est ce qui l'annonce honnêtement.
+- **Les icônes libres sont ré-agencées en flux** : réclamer une icône décale les suivantes, au lieu de laisser un trou comme le fait le bureau Windows. Lire les vraies positions demanderait `LVM_GETITEMPOSITION` sur la liste native **avant** de la masquer, et ne couvrirait pas les fichiers ajoutés ensuite.
+- **Une seule échelle pour tout l'écran virtuel** (le `dpr` du moniteur primaire) : sur un poste à **DPI mixte**, les icônes du fond sont à la taille du primaire. Même famille que T-014a : validation humaine à deux écrans.
+- **La validation à l'œil reste humaine** : la sonde compte des pixels, elle ne juge pas une impression (position, lisibilité, scintillement).
