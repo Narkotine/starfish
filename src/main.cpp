@@ -3958,6 +3958,211 @@ int main(int argc, char* argv[])
                   .arg(claimed.size()));
         container.removeFence(claimedId);
 
+        // --- the empty desktop's gestures (T-041) ----------------------------
+        //
+        // F-001 (drag on the bare desktop draws a fence) and F-022 (double-click
+        // hides or shows them all). Both were always specified for the *empty*
+        // desktop, which belongs to SysListView32 -- another process's window --
+        // so they had always looked like they needed a global mouse hook (T-028).
+        // They do not: the backdrop is a window of ours standing in for the
+        // desktop, so the gesture starts inside it. What this section measures is
+        // the half that matters, which is *whether* a gesture happened at all --
+        // a click, a wobble, a press on an icon and a draw too small to be a
+        // fence must all create nothing.
+        //
+        // The events are real QMouseEvents sent to the backdrop, the same events
+        // DesktopSurface::forwardMouse posts from the hosted window's WndProc.
+        log << QStringLiteral("-- the empty desktop's gestures --");
+        backdrop->setGestureEnabled(true);
+        check(QStringLiteral("the backdrop takes the gestures when asked"),
+              backdrop->gestureEnabled(), backdrop->statusText());
+
+        const QVector<starfish::ui::BackdropCell> gestureCells = backdrop->cells();
+        // A point on the icons we draw, and a point on bare wallpaper. Both are
+        // premises: if the desktop is too small to have bare room beside the
+        // icons, say so instead of measuring nothing.
+        const QPoint iconPoint = gestureCells.isEmpty() ? QPoint()
+                                                        : gestureCells.at(0).icon.center();
+        int rightMost = 0;
+        for (const starfish::ui::BackdropCell& cell : gestureCells)
+            rightMost = qMax(rightMost, cell.label.right());
+        const QPoint barePoint(qMin(area.right() - 20, rightMost + 40), area.top() + 40);
+        const bool hasBare = !gestureCells.isEmpty()
+                             && starfish::ui::BackdropGesture::iconAt(gestureCells, barePoint) < 0
+                             && starfish::ui::BackdropGesture::iconAt(gestureCells, iconPoint) >= 0;
+        check(QStringLiteral("there is both bare desktop and an icon to aim at"), hasBare,
+              QStringLiteral("bare %1,%2 (icon %3), icon %4,%5 (icon %6)")
+                  .arg(barePoint.x())
+                  .arg(barePoint.y())
+                  .arg(starfish::ui::BackdropGesture::iconAt(gestureCells, barePoint))
+                  .arg(iconPoint.x())
+                  .arg(iconPoint.y())
+                  .arg(starfish::ui::BackdropGesture::iconAt(gestureCells, iconPoint)));
+
+        if (hasBare) {
+            // The product's wiring, reproduced: the backdrop says what happened,
+            // the product decides what to make of it (ProductApp::onFenceDrawn).
+            int drawRequests = 0;
+            int hideRequests = 0;
+            QRect drawnRect;
+            QString drawnId;
+            QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::fenceDrawRequested,
+                             &container,
+                             [&container, &drawRequests, &drawnRect, &drawnId](const QRect& rect) {
+                                 ++drawRequests;
+                                 drawnRect = rect;
+                                 drawnId = container.createFence(QStringLiteral("Drawn"), rect);
+                             });
+            QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::quickHideRequested,
+                             &container, [&container, &hideRequests] {
+                                 ++hideRequests;
+                                 container.toggleFencesVisible();
+                             });
+
+            const auto sendMouse = [&backdrop](QEvent::Type type, const QPoint& screen,
+                                               Qt::MouseButton button, Qt::MouseButtons buttons) {
+                QMouseEvent event(type, QPointF(0, 0), QPointF(screen), button, buttons,
+                                  Qt::NoModifier);
+                QCoreApplication::sendEvent(backdrop, &event);
+            };
+            const auto drag = [&](const QPoint& from, const QPoint& to) {
+                sendMouse(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+                sendMouse(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+                sendMouse(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+            };
+
+            // The rectangle a drag describes is the rectangle asked for, in
+            // virtual-screen pixels -- the space a stored fence rect uses, so no
+            // conversion sits between the gesture and the document (T-014).
+            const QPoint farCorner(barePoint.x() - 300, barePoint.y() + 200);
+            // Normalised: the drag runs left and down from the bare point, so the
+            // rectangle starts at the far corner.
+            const QRect expectedRect(farCorner.x(), barePoint.y(), 300, 200);
+            const int fencesBefore = container.fenceCount();
+
+            // The baseline is taken *before* the press: the rubber band is
+            // painted into the frame, so the frame with it has to be the frame
+            // without it plus something.
+            backdrop->renderNow();
+            const qint64 paintedWithout = opaquePixels(backdrop->frame());
+
+            sendMouse(QEvent::MouseButtonPress, barePoint, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(QEvent::MouseMove, farCorner, Qt::NoButton, Qt::LeftButton);
+            check(QStringLiteral("the rubber band follows the drag"),
+                  backdrop->rubberBand() == expectedRect,
+                  QStringLiteral("%1,%2 %3x%4")
+                      .arg(backdrop->rubberBand().x())
+                      .arg(backdrop->rubberBand().y())
+                      .arg(backdrop->rubberBand().width())
+                      .arg(backdrop->rubberBand().height()));
+
+            // ...and it is really on screen: the preview is painted, not merely
+            // remembered.
+            backdrop->renderNow();
+            const qint64 paintedDuring = opaquePixels(backdrop->frame());
+            check(QStringLiteral("the frame shows the fence being drawn"),
+                  paintedDuring > paintedWithout,
+                  QStringLiteral("%1 painted pixels while drawing, %2 before")
+                      .arg(paintedDuring)
+                      .arg(paintedWithout));
+
+            sendMouse(QEvent::MouseButtonRelease, farCorner, Qt::LeftButton, Qt::NoButton);
+            check(QStringLiteral("a drag on the bare desktop asks for a fence"), drawRequests == 1,
+                  QStringLiteral("%1 request(s), rect %2,%3 %4x%5")
+                      .arg(drawRequests)
+                      .arg(drawnRect.x())
+                      .arg(drawnRect.y())
+                      .arg(drawnRect.width())
+                      .arg(drawnRect.height()));
+            check(QStringLiteral("the rectangle asked for is the one that was drawn"),
+                  drawnRect == expectedRect,
+                  QStringLiteral("expected %1,%2 %3x%4")
+                      .arg(expectedRect.x())
+                      .arg(expectedRect.y())
+                      .arg(expectedRect.width())
+                      .arg(expectedRect.height()));
+            check(QStringLiteral("the rubber band is gone once the button is up"),
+                  backdrop->rubberBand().isNull(), {});
+
+            // And it becomes a fence where it was drawn: no conversion, no
+            // default placement, no snap.
+            check(QStringLiteral("the drawn fence exists where it was drawn"),
+                  container.fenceCount() == fencesBefore + 1 && !drawnId.isEmpty()
+                      && container.fenceRect(drawnId) == expectedRect,
+                  QStringLiteral("%1 -> %2,%3 %4x%5")
+                      .arg(drawnId)
+                      .arg(container.fenceRect(drawnId).x())
+                      .arg(container.fenceRect(drawnId).y())
+                      .arg(container.fenceRect(drawnId).width())
+                      .arg(container.fenceRect(drawnId).height()));
+
+            // The golden rule, from the gesture's side: drawing a fence claims no
+            // file. The document gains a fence and not one path.
+            const auto drawnDoc =
+                starfish::core::JsonStore::fromJson(starfish::core::JsonStore::toJson(
+                                                        container.toLayout()),
+                                                    nullptr);
+            int drawnItems = 0;
+            if (drawnDoc) {
+                for (const starfish::core::Fence& fence : drawnDoc->fences)
+                    drawnItems += fence.items.size();
+            }
+            check(QStringLiteral("drawing a fence claims no file"), drawnDoc.has_value()
+                      && drawnItems == 0,
+                  QStringLiteral("%1 path(s) in the document, %2 fence(s)")
+                      .arg(drawnItems)
+                      .arg(drawnDoc ? drawnDoc->fences.size() : -1));
+            container.removeFence(drawnId);
+
+            // What must create nothing. Each of these is a way to make a fence
+            // the user did not ask for.
+            const int quietBefore = container.fenceCount();
+            drag(barePoint, barePoint);
+            check(QStringLiteral("a click on the bare desktop is not a gesture"),
+                  drawRequests == 1 && container.fenceCount() == quietBefore,
+                  QStringLiteral("%1 request(s) in total").arg(drawRequests));
+
+            drag(barePoint, QPoint(barePoint.x() + 3, barePoint.y() + 2));
+            check(QStringLiteral("a wobble is still a click"),
+                  drawRequests == 1 && container.fenceCount() == quietBefore,
+                  QStringLiteral("a 3x2 px drag created nothing"));
+
+            drag(barePoint, QPoint(barePoint.x() + 40, barePoint.y() + 40));
+            check(QStringLiteral("a draw too small to be a fence creates nothing"),
+                  drawRequests == 1 && container.fenceCount() == quietBefore,
+                  QStringLiteral("40x40 px, the minimum is %1x%2")
+                      .arg(backdrop->gestureMetrics().minimumFence.width())
+                      .arg(backdrop->gestureMetrics().minimumFence.height()));
+
+            drag(iconPoint, QPoint(iconPoint.x() + 300, iconPoint.y() + 200));
+            check(QStringLiteral("a press on one of the icons starts nothing"),
+                  drawRequests == 1 && container.fenceCount() == quietBefore,
+                  QStringLiteral("the icons the backdrop draws are not ours to drag yet"));
+
+            // F-022, the gesture the feature was always specified with.
+            const bool visibleBefore = container.fencesVisible();
+            sendMouse(QEvent::MouseButtonDblClick, barePoint, Qt::LeftButton, Qt::LeftButton);
+            const bool hiddenAfter = container.fencesVisible();
+            sendMouse(QEvent::MouseButtonDblClick, barePoint, Qt::LeftButton, Qt::LeftButton);
+            check(QStringLiteral("a double-click on the bare desktop hides and shows the fences"),
+                  hideRequests == 2 && hiddenAfter != visibleBefore
+                      && container.fencesVisible() == visibleBefore,
+                  QStringLiteral("%1 request(s), visible %2 -> %3 -> %4")
+                      .arg(hideRequests)
+                      .arg(visibleBefore ? QStringLiteral("yes") : QStringLiteral("no"))
+                      .arg(hiddenAfter ? QStringLiteral("yes") : QStringLiteral("no"))
+                      .arg(container.fencesVisible() ? QStringLiteral("yes")
+                                                     : QStringLiteral("no")));
+
+            sendMouse(QEvent::MouseButtonDblClick, iconPoint, Qt::LeftButton, Qt::LeftButton);
+            check(QStringLiteral("a double-click on an icon is not ours"), hideRequests == 2,
+                  QStringLiteral("%1 request(s) in total").arg(hideRequests));
+        }
+
+        backdrop->setGestureEnabled(false);
+        check(QStringLiteral("turning the gestures off leaves the backdrop inert"),
+              !backdrop->gestureEnabled() && backdrop->rubberBand().isNull(), {});
+
         // --- the real window (--host) ---------------------------------------
         const bool hosted = parser.isSet(hostOption);
         if (hosted) {
@@ -3984,8 +4189,26 @@ int main(int argc, char* argv[])
                           .arg(surface->geometry().y())
                           .arg(surface->geometry().width())
                           .arg(surface->geometry().height()));
-                check(QStringLiteral("the backdrop does not eat the clicks"), surface->clickThrough(),
+                check(QStringLiteral("without the gestures the backdrop stays out of the way"),
+                      surface->clickThrough() && surface->inputTarget() == nullptr,
                       QStringLiteral("WM_NCHITTEST answers HTTRANSPARENT"));
+
+                // T-041: the empty desktop's gestures are what turn the backdrop
+                // from a decoration into the desktop's input surface. It takes
+                // the mouse only because it has something to answer with.
+                backdrop->setGestureEnabled(true);
+                check(QStringLiteral("the gestures take the mouse"),
+                      !surface->clickThrough() && surface->inputTarget() == backdrop,
+                      QStringLiteral("the hosted window routes its mouse to the backdrop"));
+
+                // T-052 is untouched by that: taking the mouse is not the same as
+                // swallowing a drop. Dropping onto the desktop *moves a file*, so
+                // the backdrop registers no OLE drop target -- it has no handler
+                // to honour one with, and a drag still reaches what is under it.
+                check(QStringLiteral("the backdrop still swallows no drop"),
+                      !surface->dropHandler(),
+                      QStringLiteral("no drop handler, so no drop target is registered"));
+                backdrop->setGestureEnabled(false);
 
                 const HWND progman = ::FindWindowW(L"Progman", nullptr);
                 const HWND defView =

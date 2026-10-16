@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QFont>
 #include <QFontMetrics>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QLoggingCategory>
@@ -23,6 +24,12 @@ constexpr int kRenderCoalesceMs = 120;
 const QColor kLabelText(0xF2, 0xF4, 0xF8);
 const QColor kLabelShadow(0x00, 0x00, 0x00, 0xB4);
 constexpr QRgb kIconPlaceholder = 0x37;
+
+// The rectangle being drawn (T-041). Deliberately not the panel colour: this is
+// a preview of a *gesture*, not a fence yet, and it has to read as one while it
+// is dragged over whatever wallpaper is behind it.
+const QColor kRubberBandPen(0x3B, 0x82, 0xF6);
+const QColor kRubberBandFill(0x3B, 0x82, 0xF6, 0x24);
 
 // Draws the cells into an image whose origin is `area.topLeft()`. The cells
 // carry virtual-screen coordinates (a monitor left of the primary one is
@@ -68,6 +75,17 @@ void paintCells(QPainter& painter, const QPoint& origin, const QVector<BackdropC
     }
 
     painter.restore();
+}
+
+// The two halves of the same decision (T-041): a surface that answers the empty
+// desktop's gestures has to receive the mouse to answer them, and one that
+// answers nothing stays out of the way. The drop target is deliberately not part
+// of it -- that one is registered from a drop handler, and the backdrop has none
+// (T-052: dropping onto the desktop moves a file, a different decision).
+void applyGestureMode(platform::win::DesktopSurface* surface, bool gestures, QObject* owner)
+{
+    surface->setClickThrough(!gestures);
+    surface->setInputTarget(gestures ? owner : nullptr);
 }
 
 } // namespace
@@ -135,6 +153,21 @@ QImage DesktopBackdrop::buildFrame() const
     QPainter painter(&frame);
     painter.setRenderHint(QPainter::Antialiasing, true);
     paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
+
+    // The fence being drawn (T-041). The rubber band carries virtual-screen
+    // pixels like the cells do, so the painter is translated once -- and only
+    // here, since paintCells() restored its own state.
+    if (!m_rubberBand.isEmpty()) {
+        painter.save();
+        painter.translate(-box.topLeft());
+        QPen pen(kRubberBandPen, qMax(1.0, scale()));
+        pen.setStyle(Qt::DashLine);
+        painter.setPen(pen);
+        painter.setBrush(kRubberBandFill);
+        painter.drawRect(m_rubberBand);
+        painter.restore();
+    }
+
     return frame;
 }
 
@@ -169,10 +202,121 @@ void DesktopBackdrop::setEnabled(bool enabled)
         if (attach())
             renderNow();
     } else {
+        // A draw in progress ends here: the window it was being drawn on is
+        // about to go away, and a rubber band left behind would be repainted by
+        // the next attach.
+        m_gesture.cancel();
+        m_rubberBand = {};
         detach();
         m_renderTimer.stop();
         m_frame = QImage();
     }
+}
+
+void DesktopBackdrop::setGestureEnabled(bool enabled)
+{
+    if (m_gestures == enabled)
+        return;
+    m_gestures = enabled;
+    if (!m_gestures) {
+        const BackdropGesture::Result result = m_gesture.cancel();
+        if (result.action == BackdropGesture::Action::Cancelled) {
+            m_rubberBand = {};
+            refresh();
+        }
+    }
+    applyGestureModeToSurface();
+}
+
+void DesktopBackdrop::applyGestureModeToSurface()
+{
+    if (!m_surface)
+        return;
+    applyGestureMode(m_surface, m_gestures, this);
+}
+
+bool DesktopBackdrop::event(QEvent* event)
+{
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::MouseMove:
+        return handleMouse(static_cast<QMouseEvent*>(event));
+    default:
+        return QObject::event(event);
+    }
+}
+
+bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
+{
+    if (!m_gestures)
+        return false;
+
+    // Left button only: the desktop's own right-click menu is not ours to
+    // replace, and answering a right-drag with a fence would be a surprise.
+    if (mouse->type() != QEvent::MouseMove && mouse->button() != Qt::LeftButton)
+        return false;
+    if (mouse->type() == QEvent::MouseMove && !(mouse->buttons() & Qt::LeftButton))
+        return false;
+
+    // Measured at the *screen* (T-043): the frame moves under the cursor while a
+    // gesture runs, and the cells are in virtual-screen pixels anyway. The
+    // surface posts physical screen coordinates here -- which is exactly the
+    // space a fence's stored rect uses (T-014), so the drawn rect needs no
+    // conversion at all.
+    const QPoint screen = mouse->globalPosition().toPoint();
+    const bool onIcon = BackdropGesture::iconAt(m_cells, screen) >= 0;
+
+    BackdropGesture::Result result;
+    switch (mouse->type()) {
+    case QEvent::MouseButtonPress:
+        result = m_gesture.press(screen, onIcon);
+        break;
+    case QEvent::MouseMove:
+        result = m_gesture.move(screen);
+        break;
+    case QEvent::MouseButtonRelease:
+        result = m_gesture.release(screen);
+        break;
+    case QEvent::MouseButtonDblClick:
+        result = m_gesture.doubleClick(screen, onIcon);
+        break;
+    default:
+        return false;
+    }
+    return applyGesture(result);
+}
+
+bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
+{
+    switch (result.action) {
+    case BackdropGesture::Action::None:
+        return true;
+
+    case BackdropGesture::Action::Drawing:
+    case BackdropGesture::Action::Cancelled:
+        // The rubber band moved, or went away: repaint. Coalesced like every
+        // other render -- a drag emits ~60 moves a second and each one uploads
+        // the whole virtual screen.
+        m_rubberBand = m_gesture.rubberBand();
+        refresh();
+        return true;
+
+    case BackdropGesture::Action::FenceDrawn:
+        m_rubberBand = {};
+        refresh();
+        // The backdrop says what happened; the container and the product decide
+        // what to make of it, exactly like every other gesture in this project.
+        emit fenceDrawRequested(result.rect);
+        return true;
+
+    case BackdropGesture::Action::ToggleVisibility:
+        m_rubberBand = {};
+        emit quickHideRequested();
+        return true;
+    }
+    return false;
 }
 
 QRect DesktopBackdrop::area() const
@@ -204,7 +348,7 @@ bool DesktopBackdrop::attach()
 
     auto* surface = new platform::win::DesktopSurface(this);
     surface->setLayer(platform::win::DesktopSurface::Layer::Backdrop);
-    surface->setClickThrough(true);
+    applyGestureMode(surface, m_gestures, this);
     surface->setDevicePixelRatio(1.0); // the frame is already in physical pixels
     surface->setFrame(m_frame);
     if (!surface->setPerPixelAlpha(true)) {
@@ -249,6 +393,11 @@ bool DesktopBackdrop::attach()
 void DesktopBackdrop::detach()
 {
     m_renderTimer.stop();
+    // The window a gesture was being drawn on is going away (monitor change,
+    // shutdown, the native layer coming back): nothing is created from a draw
+    // that never ended.
+    m_gesture.cancel();
+    m_rubberBand = {};
     if (!m_surface)
         return;
     m_surface->detach();

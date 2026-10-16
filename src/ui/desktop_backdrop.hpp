@@ -10,9 +10,12 @@
 #include <QVector>
 
 #include "core/desktop_item.hpp"
+#include "ui/backdrop_gesture.hpp"
 #include "ui/backdrop_layout.hpp"
 #include "ui/icon_grid.hpp"
 #include "ui/screen_layout.hpp"
+
+class QMouseEvent;
 
 namespace starfish::platform::win {
 class DesktopSurface;
@@ -41,10 +44,16 @@ namespace starfish::ui {
 // a fence puts the icon back on the desktop with no restore code at all
 // (F-007/F-011 -> T-040).
 //
-// It is deliberately **click-through** (DesktopSurface::setClickThrough): it
-// paints icons but owns none of their behaviour yet (renaming, cut/paste, drops
-// = T-042), and swallowing a click it cannot honour would be a silent
-// regression. Until then the mouse keeps reaching whatever is underneath.
+// It is **click-through** (DesktopSurface::setClickThrough) as long as it has
+// nothing to do with a click: it paints icons but owns none of their behaviour
+// yet (renaming, cut/paste, drops = T-042), and swallowing a click it cannot
+// honour would be a silent regression. The empty desktop's own gestures are the
+// exception, and they are what turns the click-through off (T-041): a drag on
+// bare desktop draws a fence (F-001) and a double-click hides or shows them all
+// (F-022). Both are honoured here, so the backdrop stops being a decoration and
+// becomes the desktop's input surface -- but only where it has an answer. It
+// still registers no drop target (T-052), because dropping onto the desktop
+// means *moving a file*, which is a different decision.
 class DesktopBackdrop : public QObject
 {
     Q_OBJECT
@@ -86,6 +95,24 @@ public:
     void setEnabled(bool enabled);
     bool enabled() const { return m_enabled; }
 
+    // The empty desktop's gestures (T-041 / F-001, F-022). Turning them on makes
+    // the surface stop being click-through and routes its mouse here; turning
+    // them off puts it back to decorative. They are only meaningful while the
+    // backdrop stands in for the desktop, which is why the product turns them on
+    // together with setEnabled(true).
+    void setGestureEnabled(bool enabled);
+    bool gestureEnabled() const { return m_gestures; }
+
+    // The drag threshold and the smallest fence a draw may produce. The caller
+    // passes the container's own minimum so the gesture and the container cannot
+    // disagree about what a fence is.
+    void setGestureMetrics(const BackdropGesture::Metrics& metrics) { m_gesture.setMetrics(metrics); }
+    const BackdropGesture::Metrics& gestureMetrics() const { return m_gesture.metrics(); }
+
+    // The rubber band currently being drawn, or a null rect. Exposed for the
+    // probes: what is on screen is otherwise only observable as pixels.
+    QRect rubberBand() const { return m_rubberBand; }
+
     // Creates the window and pushes the first frame. Returns false when there is
     // no desktop to host it on, or -- and this is the interesting case -- when
     // the per-pixel push did not take: an opaque full-screen window would hide
@@ -120,6 +147,19 @@ signals:
     // The hosted window went away (Explorer restarted). The owner re-attaches on
     // the next refresh.
     void desktopLost();
+    // F-001: the user drew a rectangle on the bare desktop. The rect is in
+    // virtual-screen pixels, ready to become a fence's stored rect -- the
+    // backdrop signals, it does not create anything (the container and the
+    // product own the lifecycle, as everywhere else).
+    void fenceDrawRequested(const QRect& rect);
+    // F-022: the user double-clicked the bare desktop.
+    void quickHideRequested();
+
+protected:
+    // The surface posts its mouse events here (DesktopSurface::setInputTarget),
+    // so this is where a gesture is read. A plain QObject has no mouse handling
+    // of its own -- these are exactly the events Qt would otherwise ignore.
+    bool event(QEvent* event) override;
 
 private:
     void recompute();
@@ -128,6 +168,12 @@ private:
     // the logical metrics and the caption font are scaled by this.
     qreal scale() const;
     QImage buildFrame() const;
+
+    bool handleMouse(QMouseEvent* mouse);
+    bool applyGesture(const BackdropGesture::Result& result);
+    // Points the hosted window at the gestures or back at nothing, depending on
+    // m_gestures. Called on attach and whenever the switch flips.
+    void applyGestureModeToSurface();
 
     ScreenLayout m_screens = ScreenLayout::single(QSize(1920, 1080));
     BackdropLayout::Metrics m_metrics;
@@ -142,6 +188,12 @@ private:
     platform::win::DesktopSurface* m_surface = nullptr;
     QTimer m_renderTimer;
     bool m_enabled = false;
+
+    // T-041. The gesture machine is pure (BackdropGesture); this class only feeds
+    // it the mouse and acts on what it answers.
+    BackdropGesture m_gesture;
+    QRect m_rubberBand;
+    bool m_gestures = false;
 };
 
 } // namespace starfish::ui

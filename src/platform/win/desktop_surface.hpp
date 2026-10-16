@@ -112,9 +112,11 @@ public:
 
     // A purely decorative surface must not eat the clicks meant for whatever is
     // under it. When set, WM_NCHITTEST answers HTTRANSPARENT, so Windows hands
-    // the mouse to the next window down the z-order, and the surface does not
-    // register an OLE drop target -- swallowing a drop it cannot honour would be
-    // worse than letting it through. Used by the backdrop (T-039).
+    // the mouse to the next window down the z-order. This is the backdrop's
+    // state until it is given the empty desktop's gestures (T-041), which are
+    // the only thing it can honour today. Independent of the drop target: that
+    // one follows setDropHandler (a surface with nothing to do with a drop must
+    // not swallow it -- T-052).
     void setClickThrough(bool clickThrough);
     bool clickThrough() const { return m_clickThrough; }
 

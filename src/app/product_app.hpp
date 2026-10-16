@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QRect>
 #include <QSize>
 #include <QString>
 #include <QStringList>
@@ -101,6 +102,11 @@ public:
     // its id.
     QString createFenceWithDefaultPlacement();
 
+    // The default title of the next fence ("Fence 3"), the single naming policy
+    // shared by the tray, the settings window and a fence drawn on the desktop
+    // (T-041).
+    QString nextFenceTitle() const;
+
     // The monitors, as the fence geometry needs them (T-014 / F-032): physical
     // rects in virtual-screen coordinates, each with its device pixel ratio.
     // Public because it is *the* definition of "where the screens are" for this
@@ -127,6 +133,10 @@ private:
     void wireSettings();
     void wireWatcher();
     void wireHotkeys();
+    // T-041: the empty desktop's own gestures, carried by the backdrop. Wired
+    // once at startup like the tray's, because they are the same kind of thing --
+    // a request from a surface, answered by the product.
+    void wireBackdrop();
 
     void syncWatchedFolders();
     void refreshStatus();
@@ -152,6 +162,11 @@ private:
     void refreshScreens();
 
     void onNewFence();
+    // F-001: the user drew a rectangle on the bare desktop. The rect is already
+    // in the virtual-screen pixels a stored fence rect uses, so it is created
+    // as drawn -- the container clamps it onto a screen, as it does for every
+    // other rect.
+    void onFenceDrawn(const QRect& rect);
     void onRenameFence(const QString& id, const QString& title);
     void onRemoveFence(const QString& id);
     void onRollUpToggled(const QString& id, bool rolledUp);

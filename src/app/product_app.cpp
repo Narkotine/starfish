@@ -180,6 +180,7 @@ bool ProductApp::start(const Options& options, QString* error)
     wireSettings();
     wireWatcher();
     wireHotkeys();
+    wireBackdrop();
 
     // The screen arrangement changes while StarFish is running: a monitor is
     // unplugged, docked, re-arranged, or its scaling changes. Qt is the
@@ -481,8 +482,16 @@ QString ProductApp::createFenceWithDefaultPlacement()
             y = qMax(y, m_container->fenceRect(id).bottom() + 24);
     }
 
-    return m_container->createFence(tr("Fence %1").arg(m_container->fenceCount() + 1),
+    return m_container->createFence(nextFenceTitle(),
                                     QRect(x, y, kDefaultFenceWidth, kDefaultFenceHeight));
+}
+
+QString ProductApp::nextFenceTitle() const
+{
+    // One naming policy, shared by the tray, the settings window and a fence
+    // drawn on the desktop: a fence created from anywhere is named the same way,
+    // and only this function decides it.
+    return tr("Fence %1").arg(m_container ? m_container->fenceCount() + 1 : 1);
 }
 
 void ProductApp::onNewFence()
@@ -492,6 +501,49 @@ void ProductApp::onNewFence()
         return;
     if (m_tray)
         m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
+}
+
+void ProductApp::onFenceDrawn(const QRect& rect)
+{
+    if (!m_container)
+        return;
+    // F-001. The rect comes from the backdrop in virtual-screen pixels, which is
+    // the space a stored fence rect uses (T-014) -- so it is created where it was
+    // drawn, with no conversion in between to get wrong. The gesture has already
+    // refused a rectangle too small to be a fence, and the container clamps it
+    // onto a screen as it does for every other rect.
+    const QString id = m_container->createFence(nextFenceTitle(), rect);
+    if (id.isEmpty())
+        return;
+    qCInfo(lc).noquote() << QStringLiteral("drew %1 at %2,%3 %4x%5")
+                                .arg(id)
+                                .arg(rect.x())
+                                .arg(rect.y())
+                                .arg(rect.width())
+                                .arg(rect.height());
+    if (m_tray)
+        m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
+}
+
+void ProductApp::wireBackdrop()
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop)
+        return;
+
+    // The smallest thing a draw may produce is the smallest fence the container
+    // will keep, taken from it rather than repeated here: the gesture and the
+    // container cannot then disagree about what a fence is.
+    ui::BackdropGesture::Metrics metrics;
+    metrics.minimumFence = m_container->minimumFenceSize();
+    backdrop->setGestureMetrics(metrics);
+
+    connect(backdrop, &ui::DesktopBackdrop::fenceDrawRequested, this,
+            &ProductApp::onFenceDrawn);
+    // F-022: the desktop's own double-click, the gesture the feature was always
+    // specified with. It is the same toggle the tray and the hot key use.
+    connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this,
+            [this] { m_container->toggleFencesVisible(); });
 }
 
 void ProductApp::onRenameFence(const QString& id, const QString& title)
@@ -563,8 +615,16 @@ bool ProductApp::enableBackdrop()
     // the backdrop the moment the native layer goes away, not after the next
     // watcher tick.
     refreshDesktopItems();
-    if (m_container->setBackdropEnabled(true))
+    if (m_container->setBackdropEnabled(true)) {
+        // T-041: the backdrop is also what carries the empty desktop's own
+        // gestures (F-001 draw a fence, F-022 quick hide). They go on with it,
+        // because they only make sense while StarFish is the one drawing the
+        // desktop -- and they are what turns the surface from a decoration into
+        // the desktop's input surface.
+        if (ui::DesktopBackdrop* backdrop = m_container->backdrop())
+            backdrop->setGestureEnabled(true);
         return true;
+    }
 
     qCWarning(lc) << "the backdrop could not be attached (no desktop, or the per-pixel "
                      "push was refused)";

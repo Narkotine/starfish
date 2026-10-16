@@ -851,7 +851,7 @@ Cet ensemble est **recalculé à chaque changement** (`BackdropLayout::freeItems
 
 `setRaisedAboveIcons()` **délègue** au rôle, donc **aucun appelant existant ne change** — et le z-order mesuré par `--nav-demo` (`surface [1]` vs `DefView [0]`) est **inchangé**. C'est le point qu'on pouvait craindre de devoir payer : « les zones au-dessus des icônes » (session 28) n'exige **pas** de remonter les zones, parce que la couche native est **masquée** et que le fond se met **sous** elles. Les zones restent là où ADR-4 les a mises.
 
-### Le fond ne prend aucun geste
+### Le fond ne prend aucun geste (T-039 — état d'origine, voir §21)
 
 `setClickThrough(true)` → `WM_NCHITTEST` répond `HTTRANSPARENT`, et la surface **n'enregistre aucun `IDropTarget`**. Le fond peint des icônes mais n'en possède encore aucun comportement (clic, sélection, lancement, menu contextuel, renommage, couper/coller = T-042) : **avaler un clic ou un drop qu'on ne peut pas honorer serait une régression silencieuse**, alors que laisser passer garde le bureau atteignable tel qu'il était. Deux prix sont assumés et tracés :
 
@@ -881,7 +881,7 @@ La cellule du fond est aussi **plus large que l'icône** (72 px pour une icône 
 
 ### Ce que la sonde mesure (`--backdrop-demo`)
 
-Headless : 86 entrées / 86 visibles ; 86 libres sans zone, 83 avec une zone de 3 ; la comparaison **casse + séparateur** retire une icône de plus ; **deux rendus complets ne changent pas un octet du document** (65 octets identiques) ; le document porte 3 chemins quand le bureau en a 86 ; supprimer la zone rend les 86 ; 16 lignes puis colonne suivante à x=98 ; la frame est peinte sur une petite fraction de l'écran (**231 738 px** — 6 % à 2560×1440, 11 % à 1920×1080) et le compte **tombe** à 223 887 quand une zone réclame 3 icônes. En `--host` : `layered ex 0x80000`, **push per-pixel confirmé** (aucun repli opaque), couverture de l'écran virtuel, `HTTRANSPARENT`, **z-order `backdrop [1]` vs `DefView [0]`**, et « turning it off leaves no window behind ». **15/15** headless, **22/22** en `--host`. Elle **ne masque jamais** les icônes natives.
+Headless : 86 entrées / 86 visibles ; 86 libres sans zone, 83 avec une zone de 3 ; la comparaison **casse + séparateur** retire une icône de plus ; **deux rendus complets ne changent pas un octet du document** (65 octets identiques) ; le document porte 3 chemins quand le bureau en a 86 ; supprimer la zone rend les 86 ; 16 lignes puis colonne suivante à x=98 ; la frame est peinte sur une petite fraction de l'écran (**231 738 px** — 6 % à 2560×1440, 11 % à 1920×1080) et le compte **tombe** à 223 887 quand une zone réclame 3 icônes. En `--host` : `layered ex 0x80000`, **push per-pixel confirmé** (aucun repli opaque), couverture de l'écran virtuel, `HTTRANSPARENT`, **z-order `backdrop [1]` vs `DefView [0]`**, et « turning it off leaves no window behind ». Elle **ne masque jamais** les icônes natives. Depuis T-041 elle porte en plus les **16 vérifications des gestes du bureau vide** (§21) : **31/31** headless, **40/40** en `--host`.
 
 > **La vérification de transparence ne dépend plus de la taille de l'écran** (session 31) : elle comparait à `< 10 %` de l'**écran**, ce qui la rendait rouge sur un bureau 1920×1080 alors que le nombre de pixels peints n'avait pas bougé d'un pixel (**le dénominateur avait changé, pas la frame**). Elle se mesure maintenant contre le **budget de pixels des cellules** (507 744 pour 86 cellules) : elle tient à n'importe quelle résolution, et elle ne peut plus être satisfaite par un grand écran. Même famille : `--fence-demo` dérive désormais son rect cible de `desktopBounds()` au lieu de l'écrire en dur.
 
@@ -891,7 +891,7 @@ Le chemin per-pixel était « codé, jamais validé visuellement » depuis la se
 
 ### Limites assumées
 
-- **Aucune interaction** sur les icônes du fond (T-042) : c'est le prix de l'ADR-3, et le click-through est ce qui l'annonce honnêtement.
+- **Aucune interaction** sur les icônes du fond (T-042) : c'est le prix de l'ADR-3. Le **click-through** est ce qui l'annonçait honnêtement ; depuis T-041 le fond **prend** la souris, mais uniquement pour les gestes du **bureau vide** qu'il sait honorer (drag = créer une zone, double-clic = quick hide, §21) — un clic sur une de ses icônes ne fait toujours rien, et c'est T-042.
 - **Les icônes libres sont ré-agencées en flux** : réclamer une icône décale les suivantes, au lieu de laisser un trou comme le fait le bureau Windows. Lire les vraies positions demanderait `LVM_GETITEMPOSITION` sur la liste native **avant** de la masquer, et ne couvrirait pas les fichiers ajoutés ensuite.
 - **Une seule échelle pour tout l'écran virtuel** (le `dpr` du moniteur primaire) : sur un poste à **DPI mixte**, les icônes du fond sont à la taille du primaire. Même famille que T-014a : validation humaine à deux écrans.
 - **La validation à l'œil reste humaine** : la sonde compte des pixels, elle ne juge pas une impression (position, lisibilité, scintillement).
@@ -951,3 +951,79 @@ La vérification `the fence was redrawn without the released tile` compare la fr
 ### Reste humain
 
 L'essai au **vrai curseur** (avec *Hide desktop icons* actif, tirer une tuile hors d'une zone) : la sonde prouve le câblage et le modèle, pas le ressenti du geste — même famille que T-043/T-045, où c'est l'utilisateur qui avait trouvé les deux bugs.
+
+## 21. Les gestes du bureau vide : créer une zone, quick hide (F-001 / F-022, T-041, session 32)
+
+`docs/produit.md` était explicite depuis le début, et ces deux lignes avaient l'air inatteignables :
+
+| | |
+|---|---|
+| **F-001** | Créer une zone : **glisser sur le bureau vide**, ou menu contextuel |
+| **F-022** | Quick hide : **double-clic sur le bureau vide** pour masquer/afficher |
+
+Le bureau vide appartient à `SysListView32`, une fenêtre d'**un autre processus**. C'est ce qui avait fait naître **T-028** (« il faut un hook souris global `WH_MOUSE_LL` ») — et un hook global mal validé affecte tout le poste, ce que l'agent ne peut pas tester.
+
+**T-039 a supprimé le problème au lieu de le résoudre.** Depuis que StarFish possède la couche d'icônes, le fond **est** le bureau : une fenêtre plein écran de nous, sous les zones. Le geste démarre donc **dans une de nos fenêtres**, il n'y a plus rien à intercepter au niveau du système, et **T-028 ne se justifie plus que pour un geste parti hors de nos fenêtres**.
+
+### La machine à états est pure
+
+`src/ui/backdrop_gesture.hpp` (header-only, aucun Win32, aucun widget, aucun type d'événement) : l'appelant traduit ses événements souris en `press` / `move` / `release` / `doubleClick` avec un point en **pixels d'écran virtuel** — l'espace des cellules du fond *et* des rects stockés (T-014) — dit si ce point est **sur une des icônes que le fond dessine**, et reçoit une action : `None`, `Drawing`, `FenceDrawn(rect)`, `Cancelled`, `ToggleVisibility`. Les règles se testent donc sans bureau, et `DesktopBackdrop` ne fait plus que de la plomberie.
+
+### Ce qui ne doit RIEN créer
+
+C'est là que se joue la fonctionnalité. Sur un bureau, une création non demandée est le bug coûteux, donc les refus sont la moitié du travail — et chacun est vérifié :
+
+| situation | pourquoi elle ne crée rien |
+|---|---|
+| **clic** (press + release sans mouvement) | l'utilisateur a tapé le bureau, pas dessiné |
+| **mouvement sous le seuil** (6 px) | un clic un peu tremblant n'est pas un geste |
+| **press sur une de nos icônes** | ces icônes appartiennent au bureau ; leur comportement est **T-042**, et une zone dessinée *par-dessus* une icône serait une zone non demandée |
+| **rectangle < la taille minimale** (160×120) | un geste aussi court est une main qui glisse ; le **grossir** au minimum poserait une zone là où l'utilisateur n'en a pas dessiné |
+| **double-clic sur une icône** | ce n'est pas notre geste (F-022 dit « bureau **vide** ») |
+
+Le minimum n'est pas recopié : `ProductApp::wireBackdrop()` lit `container->minimumFenceSize()` et le passe au geste, donc **le geste et le conteneur ne peuvent pas diverger** sur ce qu'est une zone.
+
+### Le clic-through devient une conséquence, pas un état
+
+Le fond était click-through parce qu'il n'avait rien à répondre. Dès qu'il a deux gestes à honorer, la bonne formulation n'est plus « décoratif donc transparent » mais **« il prend la souris là où il a une réponse »** : `setGestureEnabled(true)` bascule `setClickThrough(false)` **et** `setInputTarget(this)`, `setGestureEnabled(false)` remet les deux. Les deux vont ensemble parce que ce sont les deux moitiés de la même décision.
+
+### Le drop target se découple du click-through
+
+⚠️ **C'est la correction la moins visible de la session, et elle protège T-052.** Jusqu'ici `attach()` enregistrait le `IDropTarget` OLE **si la surface n'était pas click-through** — vrai tant que les seules surfaces non-click-through étaient des zones, et que toute zone a un handler de drop. Le fond casse cette équivalence : il **prend** la souris et n'a **aucun** comportement de dépôt. En gardant l'ancienne condition, il se serait enregistré comme cible de drop et aurait **avalé un dépôt qu'il ne peut pas honorer** — exactement la régression silencieuse que T-052 documente.
+
+La condition devient donc **« un handler de drop existe »**, ce qui est la vraie raison d'enregistrer une cible de drop : une surface qui n'a rien pour répondre à un dépôt n'enregistre rien, et le drag atteint ce qui est dessous. Vérifié en `--host` (`the backdrop still swallows no drop`).
+
+### L'aperçu et le rythme
+
+Le rectangle en cours de tracé est peint **dans la frame** (bordure pointillée + remplissage translucide, délibérément pas la couleur d'un panneau : c'est un aperçu de **geste**, pas encore une zone), dans les coordonnées d'écran virtuel comme les cellules. Le rendu reste **coalescé à 120 ms** : un drag émet ~60 mouvements par seconde et chaque rendu téléverse l'écran virtuel entier. Une frame de plus pendant un tracé est donc visible à ~8 Hz, ce qui suffit pour un aperçu.
+
+### Le rectangle va du geste au document sans conversion
+
+Le geste est mesuré **à l'écran** (`event->globalPosition()`, règle de T-043 — le fond ne bouge pas, mais la règle vaut pour tout geste) et le fond poste des positions écran **physiques** : exactement l'espace d'un rect stocké (T-014). `ProductApp::onFenceDrawn(rect)` crée donc la zone **là où elle a été dessinée** — aucun placement par défaut, aucune aimantation, aucune conversion à se tromper. Le conteneur borne ensuite comme pour tout autre rect (`restoreRect` + clamp dans l'écran du centre).
+
+### Ce que la sonde mesure (`--backdrop-demo`, section « the empty desktop's gestures »)
+
+**16 vérifications**, headless, avec de **vrais `QMouseEvent`** envoyés au fond — les mêmes événements que `DesktopSurface::forwardMouse` poste depuis le WndProc de la fenêtre hébergée. Mesuré : le fond prend les gestes quand on le lui demande ; le point « vide » et le point « sur une icône » sont **des prémisses** (si le bureau est trop étroit pour avoir du vide à côté des icônes, la sonde **s'arrête en le disant** au lieu de mesurer le vide) ; la bande élastique suit le drag (`365,40 300x200`) et **est peinte** (231 738 → **273 665** pixels opaques, +41 927) ; le rect demandé est **exactement** celui qui a été dessiné ; la zone existe **au pixel près** là où elle a été dessinée ; **dessiner une zone ne réclame aucun fichier** (0 chemin dans le document, 1 zone) ; puis les quatre refus, et les deux double-clics (le vrai bascule `fencesVisible`, celui sur une icône ne fait rien).
+
+En `--host`, trois vérifications de plus : **sans les gestes le fond reste hors du chemin** (`HTTRANSPARENT`, aucune cible d'entrée), **les gestes prennent la souris** (le WndProc route vers le fond), et **il n'avale toujours aucun dépôt** (aucun handler, donc aucune cible OLE enregistrée).
+
+**Prémisses prouvées** (patch temporaire, rebuild, revert) :
+
+| neutralisation | résultat |
+|---|---|
+| `iconAt()` → `-1` (le test de collision des icônes) | `rc=1`, **1 `FAIL`** — la **prémisse** elle-même : la sonde refuse de mesurer au lieu de passer à vide. Unitaire : **2 `FAIL`** sur 20 cas. |
+| le refus de taille neutralisé | `rc=1`, **2 `FAIL`** (le refus, puis une cascade). Unitaire : **1 `FAIL`**. |
+| l'émission de `fenceDrawRequested` neutralisée | `rc=1`, **7 `FAIL`** — toute la chaîne F-001, plus trois cascades. |
+
+### Unité
+
+`tests/test_backdrop_gesture.cpp` — **20 cas**, 14ᵉ exécutable `ctest` (`ui_backdrop_gesture`). Les règles testées sont celles qui décident *si* un geste a eu lieu (seuil **mesuré à un pixel près** : 5 px ne dessine pas, 6 px dessine ; bornes de taille **inclusives** ; normalisation des quatre directions), le fait qu'un mouvement **sans** press ne fait rien, que le double-clic **désarme** un tracé en cours (la vraie séquence est press → release → double-clic → release), et que les cellules portent bien des coordonnées d'écran virtuel — y compris **négatives** (moniteur à gauche du primaire).
+
+### Prix assumé, nouveau et tracé
+
+Le **menu contextuel du bureau vide** est perdu pour la même raison que le dépôt (T-052) : « Nouveau > Document texte », « Actualiser », « Paramètres d'affichage » venaient de `SysListView32`/`DefView`, désormais masquée, et le fond ne les remplace pas → **T-054**. C'est aussi la moitié « ou menu contextuel » de F-001.
+
+### Reste humain
+
+Le geste au **vrai curseur** : dessiner une zone sur le bureau (avec *Hide desktop icons* actif) et double-cliquer pour masquer/afficher. La sonde prouve le câblage, le modèle et les refus ; elle ne juge pas si 6 px est le bon seuil au doigt.
+

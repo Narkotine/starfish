@@ -282,10 +282,16 @@ bool DesktopSurface::attach(const QRect& rect)
     //    OLE was already initialised by somebody else) so exactly one init is
     //    balanced by one uninit.
     //
-    //    A click-through surface registers nothing (T-039): it is decorative,
-    //    and swallowing a drop it cannot honour would be worse than letting the
-    //    drag reach whatever is underneath.
-    if (!m_clickThrough && !m_oleInit) {
+    //    Registered from a drop *handler*, not from the click-through switch
+    //    (T-041). The two used to be the same thing, because the only
+    //    non-click-through surfaces were fences and every fence has a handler.
+    //    The backdrop broke that: it takes the mouse to answer the empty
+    //    desktop's own gestures (F-001/F-022) while owning no drop behaviour at
+    //    all, and registering a target with nothing behind it would swallow a
+    //    drop it cannot honour -- the silent regression T-052 is about. A
+    //    surface with no handler registers nothing, and the drag reaches
+    //    whatever is underneath.
+    if (!m_oleInit && m_dropHandler) {
         const HRESULT hr = ::OleInitialize(nullptr);
         if (SUCCEEDED(hr)) {
             m_oleInit = true;

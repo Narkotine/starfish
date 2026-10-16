@@ -181,3 +181,20 @@ target_include_directories(test_starfish_backdrop_layout PRIVATE
 target_link_libraries(test_starfish_backdrop_layout PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME ui_backdrop_layout COMMAND test_starfish_backdrop_layout)
+
+# The empty desktop's gestures (T-041 / F-001, F-022): a drag on the bare desktop
+# draws a fence, a double-click hides or shows them all -- and, above all, what
+# must NOT create one (a click, a wobble, a press on an icon, a draw too small to
+# be a fence). Pure -- no Win32, no window, no mouse.
+add_executable(test_starfish_backdrop_gesture
+    test_backdrop_gesture.cpp
+    ../src/core/desktop_item.cpp
+)
+
+target_include_directories(test_starfish_backdrop_gesture PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_backdrop_gesture PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME ui_backdrop_gesture COMMAND test_starfish_backdrop_gesture)
