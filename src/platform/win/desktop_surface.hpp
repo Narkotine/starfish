@@ -84,19 +84,22 @@ public:
     void setVisible(bool visible);
     bool isVisible() const { return m_visible; }
 
-    // Where the surface sits among Progman's children (T-039). The three roles
-    // are all the window model of ADR-4 can express:
+    // Where the surface sits among Progman's children (T-039), re-anchored by
+    // ADR-12: the desktop's wallpaper belongs to SHELLDLL_DefView, which StarFish
+    // no longer hides (it hides the list view inside it), so *every* surface of
+    // ours has to sit above the DefView.
     //
-    //   BelowIconLayer  the normal fence position: inserted just under
-    //                   SHELLDLL_DefView.
-    //   AboveIconLayer  Peek (F-021). HWND_TOP is the frontmost position a child
-    //                   of Progman can reach. Floating above *application*
-    //                   windows would need a top-level window, a different
-    //                   ownership model that is not part of v1.
+    //   BelowIconLayer  the normal fence position: the top of Progman's child
+    //                   order, above the backdrop and above the wallpaper.
+    //   AboveIconLayer  Peek (F-021). It is the same position since ADR-12 --
+    //                   a fence is already above everything the desktop paints,
+    //                   which is why Peek has no visible effect left (T-053).
+    //                   Floating above *application* windows would need a
+    //                   top-level window, a different ownership model out of v1.
     //   Backdrop        the layer StarFish draws the desktop's own icons on
-    //                   (ADR-9 option A). It belongs under everything else, and
-    //                   since the native icon layer is hidden while StarFish
-    //                   runs, "under the fences" is all it has to be.
+    //                   (ADR-9 option A). It takes the slot just above the
+    //                   DefView -- under the fences, above the wallpaper, whose
+    //                   pixels keep showing through it.
     enum class Layer {
         BelowIconLayer,
         AboveIconLayer,

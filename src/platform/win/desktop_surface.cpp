@@ -43,18 +43,50 @@ inline quintptr fromHwnd(HWND hwnd)
 // Progman -> SHELLDLL_DefView on recent Windows 11; on Windows 10 the DefView
 // can live inside a top-level WorkerW instead. Both shapes were measured by the
 // T-003 spike (ADR-4).
+//
+// The *list view* inside it is what matters since ADR-12, and the two windows do
+// not hold the same thing: the wallpaper belongs to SHELLDLL_DefView (hiding it
+// leaves Progman's flat background -- the "grey desktop" a user reported),
+// while the icons belong to its child SysListView32. Hiding the child removes
+// the icons and keeps the wallpaper, which is exactly what Windows' own "Show
+// desktop icons" toggle does. Measured 2026-10-16: hiding the DefView changed
+// 87 % of the desktop's pixels to a flat (20,20,20); hiding the list view changed
+// 6 % (the icons) and left every wallpaper pixel alone.
 struct DesktopHandles {
     HWND iconHost = nullptr;
     HWND defView = nullptr;
+    HWND listView = nullptr; // SysListView32 under the DefView, when there is one
 };
+
+// Where a surface of ours belongs when it has to sit *directly above the
+// wallpaper layer* (ADR-12). Note the Win32 convention: SetWindowPos'
+// hwndInsertAfter puts the window *below* the handle it is given, so "above the
+// DefView" is expressed as "below whatever already sits directly above it" --
+// the lowest fence when there is one, and the top of the list otherwise.
+//
+// The self-hop is what makes it idempotent: when the window directly above the
+// wallpaper is already this very surface, the slot is right, and the anchor
+// becomes the window above *it* (again the lowest fence) rather than HWND_TOP,
+// which would push the backdrop above the fences it has to stay under.
+HWND anchorAboveWallpaper(HWND defView, HWND self)
+{
+    HWND anchor = defView ? ::GetWindow(defView, GW_HWNDPREV) : nullptr;
+    if (anchor == self)
+        anchor = self ? ::GetWindow(self, GW_HWNDPREV) : nullptr;
+    return anchor ? anchor : HWND_TOP;
+}
 
 DesktopHandles discoverDesktop()
 {
     DesktopHandles handles;
+    const auto listViewOf = [](HWND defView) {
+        return ::FindWindowExW(defView, nullptr, L"SysListView32", nullptr);
+    };
     if (HWND progman = ::FindWindowW(L"Progman", nullptr)) {
         if (HWND defView = ::FindWindowExW(progman, nullptr, L"SHELLDLL_DefView", nullptr)) {
             handles.iconHost = progman;
             handles.defView = defView;
+            handles.listView = listViewOf(defView);
             return handles;
         }
     }
@@ -64,6 +96,7 @@ DesktopHandles discoverDesktop()
         if (HWND defView = ::FindWindowExW(worker, nullptr, L"SHELLDLL_DefView", nullptr)) {
             handles.iconHost = worker;
             handles.defView = defView;
+            handles.listView = listViewOf(defView);
             break;
         }
     }
@@ -694,8 +727,13 @@ void DesktopSurface::releaseStuckGesture()
 bool DesktopSurface::setDesktopIconsHidden(bool hidden)
 {
     const DesktopHandles handles = discoverDesktop();
-    if (!handles.defView) {
-        qCWarning(lc) << "setDesktopIconsHidden: SHELLDLL_DefView not found";
+    // ADR-12: the icons live in the list view, the wallpaper in the DefView. We
+    // hide the *icons* -- so the list view is the window to toggle, and the user
+    // keeps their wallpaper. The DefView is the fallback for a shell that has no
+    // list view (and is then the only thing there is to hide).
+    const HWND iconWindow = handles.listView ? handles.listView : handles.defView;
+    if (!iconWindow) {
+        qCWarning(lc) << "setDesktopIconsHidden: neither SysListView32 nor SHELLDLL_DefView found";
         return false;
     }
 
@@ -711,7 +749,7 @@ bool DesktopSurface::setDesktopIconsHidden(bool hidden)
         return false;
     }
 
-    ::ShowWindow(handles.defView, hidden ? SW_HIDE : SW_SHOW);
+    ::ShowWindow(iconWindow, hidden ? SW_HIDE : SW_SHOW);
 
     // On the way out the order is the mirror image: the record must outlive the
     // state it describes, so it is removed only once the layer is really back. A
@@ -719,16 +757,19 @@ bool DesktopSurface::setDesktopIconsHidden(bool hidden)
     if (!hidden && !marker.remove())
         qCWarning(lc) << "the desktop icons are back, but the marker could not be removed";
 
-    qCInfo(lc).noquote() << QStringLiteral("native desktop icons %1")
+    qCInfo(lc).noquote() << QStringLiteral("native desktop icons %1 (%2)")
                                 .arg(hidden ? QStringLiteral("hidden")
-                                            : QStringLiteral("restored"));
+                                            : QStringLiteral("restored"))
+                                .arg(handles.listView ? QStringLiteral("SysListView32")
+                                                      : QStringLiteral("SHELLDLL_DefView"));
     return true;
 }
 
 bool DesktopSurface::desktopIconsHidden()
 {
     const DesktopHandles handles = discoverDesktop();
-    return handles.defView && !::IsWindowVisible(handles.defView);
+    const HWND iconWindow = handles.listView ? handles.listView : handles.defView;
+    return iconWindow && !::IsWindowVisible(iconWindow);
 }
 
 bool DesktopSurface::refreshDesktopHandles()
@@ -752,20 +793,20 @@ bool DesktopSurface::place()
     if (!m_iconHost || !isAttached())
         return false;
 
-    // The three roles of T-039. Peek (F-021) puts the surface at the top of
-    // Progman's child z-order, i.e. above the icon layer; the normal position is
-    // just below SHELLDLL_DefView; the backdrop (ADR-9 option A) belongs at the
-    // very bottom, under the fences it decorates the desktop behind.
-    HWND anchor = HWND_BOTTOM;
+    // The three roles of T-039, re-anchored by ADR-12. The DefView stays visible
+    // now (it is the wallpaper), so every surface of ours has to live *above* it:
+    // a fence goes to the top of Progman's child order, and the backdrop takes the
+    // slot directly above the DefView -- under the fences, above the wallpaper,
+    // which is what lets the wallpaper show through its transparent pixels and
+    // still lets the empty desktop's gestures reach it (T-041/T-055).
+    HWND anchor = HWND_TOP;
     switch (m_layer) {
     case Layer::AboveIconLayer:
+    case Layer::BelowIconLayer:
         anchor = HWND_TOP;
         break;
-    case Layer::BelowIconLayer:
-        anchor = m_defView ? toHwnd(m_defView) : HWND_BOTTOM;
-        break;
     case Layer::Backdrop:
-        anchor = HWND_BOTTOM;
+        anchor = anchorAboveWallpaper(m_defView ? toHwnd(m_defView) : nullptr, toHwnd(m_hwnd));
         break;
     }
     // A hidden surface (quick hide, F-022) is positioned but never shown: the
@@ -877,14 +918,12 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         if (pos && !(pos->flags & SWP_NOZORDER)) {
             switch (m_layer) {
             case Layer::AboveIconLayer:
+            case Layer::BelowIconLayer:
                 pos->hwndInsertAfter = HWND_TOP;
                 break;
-            case Layer::BelowIconLayer:
-                if (m_defView)
-                    pos->hwndInsertAfter = toHwnd(m_defView);
-                break;
             case Layer::Backdrop:
-                pos->hwndInsertAfter = HWND_BOTTOM;
+                // Above the wallpaper (ADR-12), below the fences.
+                pos->hwndInsertAfter = anchorAboveWallpaper(m_defView ? toHwnd(m_defView) : nullptr, toHwnd(m_hwnd));
                 break;
             }
         }

@@ -1637,12 +1637,14 @@ int main(int argc, char* argv[])
                 for (const QString& stackLine : stack)
                     log << stackLine;
 
-                // What that stack means: our surface sits below BOTH a layered
-                // DefView and a plain, full-screen SysListView32, so at that
-                // point the desktop list view -- not the fence -- would take the
-                // click. Hiding the native icon layer is therefore not cosmetic
-                // (ADR-3): it is what makes a fence reachable at all. Measure it,
-                // then put the user's icons back straight away.
+                // What that stack means since ADR-12: our surface sits above BOTH
+                // a layered DefView (the wallpaper) and a plain, full-screen
+                // SysListView32 (the icons), so at that point the *fence* takes
+                // the click -- with the icons shown or hidden. Hiding the native
+                // icons is no longer what makes a fence reachable (it is what
+                // keeps an icon from being drawn twice: native and tile); the
+                // DefView stays, which is what keeps the user's wallpaper.
+                // Measure both states, then put the icons back straight away.
                 const bool wasHidden = starfish::platform::win::DesktopSurface::desktopIconsHidden();
                 starfish::platform::win::DesktopSurface::setDesktopIconsHidden(true);
                 const QStringList hiddenStack =
@@ -1652,9 +1654,10 @@ int main(int argc, char* argv[])
                 log << QLatin1String("with the native icon layer hidden:");
                 for (const QString& stackLine : hiddenStack)
                     log << stackLine;
-                check(QStringLiteral("the fence is reachable only once the native icons are hidden"),
+                check(QStringLiteral("the fence sits above the desktop's own layers, icons "
+                                     "shown or not"),
                       !stack.isEmpty()
-                          && !stack.first().contains(QStringLiteral("StarFishDesktopSurface"))
+                          && stack.first().contains(QStringLiteral("StarFishDesktopSurface"))
                           && !hiddenStack.isEmpty()
                           && hiddenStack.first().contains(
                                  QStringLiteral("StarFishDesktopSurface")),
@@ -2319,14 +2322,18 @@ int main(int argc, char* argv[])
                     return starfish::core::evaluatePlacement(progmanChildIndex(surfaceHwnd),
                                                              progmanChildIndex(defView));
                 };
-                check(QStringLiteral("hosted: normally the surface sits under the icon layer"),
-                      verdict() == starfish::core::PlacementVerdict::BelowIconLayer,
+                check(QStringLiteral("hosted: the surface sits above the desktop's own layers"),
+                      verdict() == starfish::core::PlacementVerdict::AboveIconLayer,
                       QStringLiteral("z-order: surface [%1] vs DefView [%2]")
                           .arg(progmanChildIndex(surfaceHwnd))
                           .arg(progmanChildIndex(defView)));
 
                 container->setPeekActive(true);
-                check(QStringLiteral("hosted: Peek really raises the window above the icons"),
+                // T-053: a fence is already above everything the desktop paints,
+                // so Peek has nothing left to change. The check now asserts that
+                // (rather than a raise that no longer exists), and the flag is
+                // still honoured by place() for the probes that set it.
+                check(QStringLiteral("hosted: Peek no longer changes anything (T-053)"),
                       surface->raisedAboveIcons()
                           && verdict() == starfish::core::PlacementVerdict::AboveIconLayer,
                       QStringLiteral("raisedAboveIcons=%1, z-order: surface [%2] vs DefView [%3]")
@@ -2334,9 +2341,9 @@ int main(int argc, char* argv[])
                           .arg(progmanChildIndex(surfaceHwnd))
                           .arg(progmanChildIndex(defView)));
                 container->setPeekActive(false);
-                check(QStringLiteral("hosted: leaving Peek restores the z-order"),
+                check(QStringLiteral("hosted: leaving Peek keeps it above the layers too"),
                       !surface->raisedAboveIcons()
-                          && verdict() == starfish::core::PlacementVerdict::BelowIconLayer,
+                          && verdict() == starfish::core::PlacementVerdict::AboveIconLayer,
                       QStringLiteral("raisedAboveIcons=%1, z-order: surface [%2] vs DefView [%3]")
                           .arg(surface->raisedAboveIcons() ? 1 : 0)
                           .arg(progmanChildIndex(surfaceHwnd))
@@ -4517,16 +4524,10 @@ int main(int argc, char* argv[])
                 // point that may be the one under a window -- and so a human who
                 // clears the desktop sees the backdrop named below.
                 //
-                // ⚠️ The scan raises the backdrop above the icon layer first, and
-                // that is a probe artefact with a reason: this probe leaves the
-                // native icons *visible* (it never claims the desktop), so with the
-                // product's own stacking the answer at a bare point is always the
-                // desktop's icon list, which is above the backdrop. Raised, the
-                // answer at a bare point is the backdrop itself -- until T-060 it
-                // was skipped in favour of what was under it, which is exactly what
-                // the two checks above measure on a pairing of our own windows.
+                // Since ADR-12 no artefact is needed: the backdrop already sits
+                // above the wallpaper layer, so at a bare point the cursor finds
+                // *it* even while this probe leaves the native icons visible.
                 const QVector<starfish::ui::BackdropCell>& bareCells = backdrop->cells();
-                surface->setRaisedAboveIcons(true);
                 int samples = 0;
                 int answeredByTheBackdrop = 0;
                 QString firstHit;
@@ -4550,7 +4551,6 @@ int main(int argc, char* argv[])
                         }
                     }
                 }
-                surface->setRaisedAboveIcons(false);
                 log << QStringLiteral("-- who the cursor finds on the bare desktop --");
                 log << QStringLiteral("  the backdrop answers %1 of %2 bare point(s)%3")
                            .arg(answeredByTheBackdrop)
@@ -4568,6 +4568,65 @@ int main(int argc, char* argv[])
                                           "covers the desktop is a reading of this session and not "
                                           "of the code")
                                .arg(firstMiss);
+                // T-061, and the reason ADR-12 exists: hiding the icons must not
+                // touch the wallpaper. Measured, not argued -- the desktop is
+                // captured twice, with the native icons shown and with them hidden,
+                // and the pixels our own layout does not claim are compared.
+                //
+                // Hiding SHELLDLL_DefView (what StarFish did until ADR-12) replaces
+                // the entire background with Progman's flat colour: measured on this
+                // machine, 87 % of the screen changed to a uniform (20,20,20) -- the
+                // "grey desktop" the user reported. Hiding the list view inside it
+                // changes only the icons (6 %). Only a fraction of the sampled
+                // points can be compared, because the native icons that go away sit
+                // on points our layout may leave bare; the threshold is generous on
+                // purpose, and the two behaviours are nowhere near it.
+                const QImage beforeHiding = grabPrimaryScreen();
+                const bool hiddenNow = starfish::platform::win::DesktopSurface::setDesktopIconsHidden(true);
+                ::Sleep(500);
+                const QImage afterHiding = grabPrimaryScreen();
+                if (hiddenNow)
+                    starfish::platform::win::DesktopSurface::setDesktopIconsHidden(false);
+
+                qint64 compared = 0;
+                qint64 unchanged = 0;
+                if (hiddenNow && !beforeHiding.isNull() && beforeHiding.size() == afterHiding.size()) {
+                    QVector<QRect> ours = backdrop->cells().isEmpty() ? QVector<QRect>() : [&backdrop] {
+                        QVector<QRect> boxes;
+                        for (const starfish::ui::BackdropCell& cell : backdrop->cells())
+                            boxes.append(cell.icon.united(cell.label));
+                        return boxes;
+                    }();
+                    for (const QString& id : container.fenceIds())
+                        ours.append(container.fenceRect(id));
+                    const auto claimed = [&ours](const QPoint& p) {
+                        for (const QRect& box : ours)
+                            if (box.contains(p))
+                                return true;
+                        return false;
+                    };
+                    for (int y = 8; y < beforeHiding.height() - 8; y += 24) {
+                        for (int x = 8; x < beforeHiding.width() - 8; x += 24) {
+                            const QPoint p(x, y);
+                            if (claimed(p))
+                                continue;
+                            ++compared;
+                            const QColor before = beforeHiding.pixelColor(p);
+                            const QColor after = afterHiding.pixelColor(p);
+                            if (qAbs(before.red() - after.red()) <= 12
+                                && qAbs(before.green() - after.green()) <= 12
+                                && qAbs(before.blue() - after.blue()) <= 12)
+                                ++unchanged;
+                        }
+                    }
+                }
+                check(QStringLiteral("hiding the icons leaves the wallpaper alone"),
+                      hiddenNow && compared > 0 && unchanged * 100 >= compared * 80,
+                      QStringLiteral("%1 of %2 sampled pixel(s) outside our own layout are "
+                                     "unchanged (a flat background would change them all)")
+                          .arg(unchanged)
+                          .arg(compared));
+
                 // T-052 is untouched by that: taking the mouse is not the same as
                 // swallowing a drop. Dropping onto the desktop *moves a file*, so
                 // the backdrop registers no OLE drop target -- it has no handler
@@ -4583,8 +4642,11 @@ int main(int argc, char* argv[])
                             : nullptr;
                 const int backdropIndex = progmanChildIndex(hwnd);
                 const int defViewIndex = progmanChildIndex(defView);
-                check(QStringLiteral("the backdrop sits under the fences and the icon layer"),
-                      backdropIndex >= 0 && defViewIndex >= 0 && backdropIndex > defViewIndex,
+                // ADR-12: above the wallpaper (the DefView), below the fences --
+                // that is what lets the wallpaper show through the backdrop's
+                // transparent pixels while the empty desktop still reaches it.
+                check(QStringLiteral("the backdrop sits above the wallpaper and under the fences"),
+                      backdropIndex >= 0 && defViewIndex >= 0 && backdropIndex < defViewIndex,
                       QStringLiteral("z-order: backdrop [%1] vs DefView [%2] (0 is topmost)")
                           .arg(backdropIndex)
                           .arg(defViewIndex));
@@ -4602,7 +4664,7 @@ int main(int argc, char* argv[])
         // depends on.
         check(QStringLiteral("the probe left the native icons alone"),
               !starfish::platform::win::DesktopSurface::desktopIconsHidden(),
-              QStringLiteral("SHELLDLL_DefView is %1")
+              QStringLiteral("the desktop's icon layer is %1")
                   .arg(starfish::platform::win::DesktopSurface::desktopIconsHidden()
                            ? QStringLiteral("hidden")
                            : QStringLiteral("visible")));
@@ -5127,7 +5189,7 @@ int main(int argc, char* argv[])
         check(QLatin1String("the victim recorded the hiding (marker on disk)"), markerSeen,
               marker.description());
         check(QLatin1String("the hiding is real (read from outside the victim)"), hiddenSeen,
-              QLatin1String("shell reports SHELLDLL_DefView hidden"));
+              QLatin1String("the shell reports its icon list hidden"));
         if (!markerSeen || !hiddenSeen) {
             finish(1);
             return app.exec();

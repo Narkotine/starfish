@@ -1,5 +1,7 @@
-# Build dirs
+# Build dirs -- a second one is how the work continues while the user's own
+# instance is holding build/starfish.exe open (T-044: a live instance locks it).
 /build/
+/build2/
 /out/
 CMakeUserPresets.json
 

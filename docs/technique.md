@@ -198,6 +198,26 @@ Le reste d'ADR-9 (icônes hors zone **calculées**, jamais stockées ; F-007/F-0
 
 **Corollaire pour toute fenêtre future** : une surface layered par pixel (zone translucide de T-057, par exemple) qui laisserait des pixels à alpha **exactement** 0 perdrait la souris sur ces pixels. Le plancher est la réponse, et la sonde le mesure (`the frame has nowhere the cursor falls through`, et la règle elle-même en `--host`).
 
+### ADR-12 — Le papier peint appartient à `SHELLDLL_DefView`, les icônes à son enfant (T-061, session 34)
+
+Retour utilisateur : « ça marche uniquement quand on est dans ce **fond d'écran gris très bizarre** que je n'ai jamais envie d'utiliser… le mode normal, c'est d'avoir **le fond d'écran affiché** ». Mesuré le 2026-10-16, en comparant le bureau à lui-même dans trois états :
+
+| état | pixels du bureau changés | ce qu'on voit |
+|---|---|---|
+| `SysListView32` masqué | **6 %** (les icônes) | le papier peint **intact** — c'est ce que fait « Afficher les icônes du bureau » de Windows |
+| `SHELLDLL_DefView` masqué | **87 %** | un fond **gris uni `(20,20,20)`** : le papier peint a disparu, c'est le fond de Progman |
+| StarFish (avant ce changement) | 87 % | donc le gris — StarFish masquait le DefView |
+
+**Les deux fenêtres ne portent pas la même chose** : le **papier peint** est la surface de `SHELLDLL_DefView`, les **icônes** sont son enfant `SysListView32`. StarFish masquait le premier ; c'est de là que venait le gris. Décision :
+
+1. **On masque la liste des icônes, pas le DefView** (`SysListView32`, avec repli sur le DefView quand il n'y en a pas — même mécanisme qu'avant, marqueur T-046 compris, autre fenêtre).
+2. **Toutes nos surfaces vivent au-dessus du DefView** : le fond prend la place **juste au-dessus du papier peint** (sous les zones), les zones vont en haut de l'ordre des enfants de `Progman`. Le papier peint transparaît par les pixels transparents du fond, et le clic sur le bureau vide continue d'arriver **à nous** — **mesuré : 1 398 des 1 523 points du bureau vide répondent avec le fond**, icônes natives encore visibles, sans aucun artefact de sonde.
+   ⚠️ Piège Win32 : `SetWindowPos(hwnd, X, …)` place la fenêtre **sous** X. « Au-dessus du papier peint » s'exprime donc comme « **sous la fenêtre qui est déjà directement au-dessus du papier peint** » (la zone la plus basse, ou le haut de la pile), avec un **saut sur soi-même** pour que l'opération reste idempotente — sinon le watchdog pousserait le fond au-dessus des zones qu'il doit laisser devant.
+3. **Ce que masquer les icônes est devenu** : ce n'est plus la condition pour qu'une zone soit cliquable (elle l'est désormais **toujours**, icônes natives visibles ou non), c'est la condition pour qu'une icône **ne soit pas dessinée deux fois** (native + tuile). C'est la raison de l'option A qui subsiste, et elle est plus facile à expliquer que la précédente.
+4. **Vérification permanente** (`--backdrop-demo --host`) : `hiding the icons leaves the wallpaper alone` — le bureau est capturé **avant et après** le masquage, et les pixels que notre propre disposition ne réclame pas doivent être **inchangés**. Mesuré : **5 081 des 5 409**. Masquer le DefView rend ce test **rouge** (tout le fond change) : c'est le retour utilisateur transformé en filet.
+
+**Coût accepté, et il reste** : les icônes que nous dessinons sont **disposées par nous** (flux en colonnes depuis le haut-gauche), pas aux positions où l'utilisateur les avait. Les lire demanderait `LVM_GETITEMPOSITION` sur la liste native **avant** de la masquer (tâche ouverte).
+
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
 | Besoin | API / technique |
@@ -1136,3 +1156,35 @@ Le cadre est rempli à **`DesktopBackdrop::kInputAlphaFloor = 1`** : un niveau s
 
 **Prémisse prouvée** (patch temporaire `kInputAlphaFloor = 0`, revert + rebuild) : headless → `rc=1`, **1 `FAIL`** (`3454662 of 3686400 pixels at alpha 0`) ; `--host` → **2 `FAIL`**, et le second dit exactement le bug : `at 500,500 the cursor finds 0x… StarFishHitProbeParent with the frame at alpha 0`. La sonde **reproduit donc le symptôme de l'utilisateur** quand on retire le correctif.
 
+## 24. Le bureau gris, et la fenêtre qui portait le papier peint (T-061, session 34)
+
+Le second retour de la session 34 : *« ça marche uniquement quand on est dans ce fond d'écran gris très bizarre… j'aimerais pouvoir créer les fences directement avec le bureau normal d'affiché »*. Le geste, lui, fonctionnait (mesuré au vrai curseur, `SendInput`) — mais **seulement dans l'état que StarFish impose au bureau**, celui où il masque les icônes natives.
+
+### La mesure, et pourquoi elle a demandé un détour
+
+Le chemin direct (regarder l'écran) ne suffisait pas : trois captures successives ont été nécessaires, parce que **comparer deux états sans contrôler ce qui est au premier plan ne mesure rien** (une première comparaison avait « vu » un gris qui était en fait la fenêtre d'une application). La mesure retenue prend les quatre états **dans un seul processus**, capture à chaque fois, et compare les couleurs par plages :
+
+| état | `SysListView32` | plage « papier peint » (milieu) | verdict |
+|---|---|---|---|
+| normal | visible | `(83,118,6)` — vert du papier peint | référence |
+| liste masquée | **masquée** | `(85,120,2)` | papier peint **intact** |
+| DefView masqué | masquée | `(20,20,20)` | **gris uni** |
+| StarFish (ancien code) | masquée | `(20,20,20)` | **gris uni** |
+
+Autrement dit : le papier peint **est** la surface du `SHELLDLL_DefView`, et StarFish masquait précisément celui-là. Windows masque la **liste** (son enfant) pour « Afficher les icônes du bureau » — et garde le papier peint.
+
+### Le changement
+
+Voir **ADR-12** : masquer la liste, et poser toutes nos surfaces **au-dessus du DefView** (le fond juste au-dessus du papier peint, les zones au-dessus du fond). Conséquence agréable : le clic sur le bureau vide nous arrive **sans que les icônes natives soient masquées** (1 398 / 1 523 points du bureau vide répondent avec le fond), donc masquer les icônes n'est plus ce qui rend une zone cliquable — c'est ce qui évite qu'une icône soit dessinée deux fois.
+
+### Les vérifications qui ont bougé
+
+Trois vérifications encodaient l'ancien ordre et ont été **requalifiées**, pas supprimées :
+- `--fence-demo --host` : « la zone n'est atteignable qu'une fois les icônes masquées » → « la zone est **au-dessus** des couches du bureau, icônes visibles ou non » (les deux états sont mesurés, et le détail affiche la pile).
+- `--nav-demo --host` : « normalement la surface est sous la couche d'icônes » → « **au-dessus** des couches du bureau » ; et Peek, qui ne change plus rien, est désormais **asserté comme tel** (`Peek no longer changes anything (T-053)`).
+- `--backdrop-demo --host` : l'ancien « le fond est sous les zones **et** sous la couche d'icônes » → « le fond est **au-dessus du papier peint et sous les zones** » (`backdrop [3] vs DefView [4]`), et l'artefact de sonde qui remontait le fond pour interroger le curseur a **disparu** — il n'est plus nécessaire.
+
+### Ce qui reste ouvert
+
+- **Les positions des icônes** : nous les disposons en colonnes depuis le haut-gauche, pas là où l'utilisateur les avait (`LVM_GETITEMPOSITION` avant masquage = tâche ouverte).
+- **Le geste sur un bureau *complètement* intact** (icônes natives en place, clic droit qui crée une zone sans rien changer à l'écran) demanderait d'intercepter un clic destiné à la fenêtre d'un **autre processus** : c'est le hook souris global de **T-028**, que Fences 6 installe, et la décision revient à l'utilisateur.
