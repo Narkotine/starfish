@@ -157,6 +157,26 @@ QImage DesktopBackdrop::buildFrame() const
     // level is what makes the frame a rectangle the cursor can find, and without
     // it the empty desktop's gestures are unreachable through any mouse (T-060).
     frame.fill(QColor(0, 0, 0, kInputAlphaFloor));
+    // ⚠️ T-069 -- and the icons' own rectangles are cut *out* of our layer here.
+    // A per-pixel layered window is not a window for the mouse where its pixels
+    // are at alpha 0 (T-060, measured in both directions on this very class), and
+    // that is the *only* step-aside that reaches another process: answering
+    // HTTRANSPARENT to WM_NCHITTEST stops inside our own thread, so the shell's
+    // list view never heard about the click. Measured with the backdrop hosted:
+    // **0 of 4** points on real icons delivered, against **1 of 4** without
+    // StarFish -- the desktop's icons were visible and untouchable, which is
+    // exactly what the user reported ("pendant que starfish est lancé, le bureau
+    // n'est plus atteignable"). The WndProc keeps its answer -- it costs nothing
+    // and it is the right answer -- but the holes are what deliver the click.
+    // Cut before anything is painted, so the rubber band still draws over them.
+    if (!m_nativeRects.isEmpty()) {
+        QPainter cutter(&frame);
+        cutter.setCompositionMode(QPainter::CompositionMode_Source);
+        cutter.setPen(Qt::NoPen);
+        cutter.setBrush(Qt::transparent);
+        for (const QRect& rect : m_nativeRects)
+            cutter.drawRect(rect.translated(-box.topLeft()));
+    }
     QPainter painter(&frame);
     painter.setRenderHint(QPainter::Antialiasing, true);
     // ADR-13: nothing is painted on the fence-less desktop by default -- the
@@ -191,6 +211,11 @@ void DesktopBackdrop::setNativeIconRects(const QVector<QRect>& rects)
     m_nativeRects = rects;
     if (m_surface)
         m_surface->setNativeIconRects(rects);
+    // The rects are no longer only an answer to WM_NCHITTEST: they are cut out of
+    // the frame (see buildFrame), so a change has to reach the screen -- otherwise
+    // an icon the user just dropped on the desktop would stay untouchable until
+    // the next render happened to come along.
+    refresh();
 }
 
 void DesktopBackdrop::setNativeIconBoxes(const QHash<QString, QRect>& boxes)

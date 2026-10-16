@@ -1382,6 +1382,58 @@ build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_geometry` portée à **
 - **Les trois zones empilées du document de l'utilisateur** : elles sont **toujours** au même rect (T-067 ne touche pas aux zones existantes). À proposer à l'utilisateur : un décalage en cascade le rangerait, mais c'est **son** bureau.
 - **L'acrylique** et **T-064** (matériau au clic droit) restent ouverts (§26).
 
+## 29. Un trou d'alpha, pas une réponse : le bureau redevient atteignable (T-069, session 38)
+
+Suite directe de T-068, et c'est **la mesure qui a séparé les deux problèmes** :
+
+> le problème du bureau et des icônes du bureau non clickable n'est pas résolu
+> je veux dire pendant que starfish est lancé, le bureau n'est plus atteignable
+
+T-068 avait réparé les **zones** (elles répondaient `HTTRANSPARENT` au moment de la pression). Restait le **bureau** : nos surfaces le prenaient en entier.
+
+### Mesure de *livraison*, pas de réponse
+
+La question « le clic arrive-t-il à l'icône ? » ne se pose pas à notre fenêtre, mais à **la coquille**. Instrument : `Ctrl+clic` sur une icône **bascule** sa sélection, donc *deux* `Ctrl+clic` rendent la sélection à son état de départ tout en prouvant que les deux clics sont arrivés ; on lit le compte d'items sélectionnés de `SysListView32` (`LVM_GETSELECTEDCOUNT`) avant, entre et après.
+
+| | points d'icônes où la coquille a **reçu** le clic |
+|---|---|
+| sans StarFish (contrôle) | **1 / 4** (un point tombe vraiment sur une icône) |
+| **avec StarFish, binaire de T-068** | **0 / 4** |
+| **avec StarFish, binaire de T-069** | **1 / 4** — le même point que le contrôle |
+
+Corroboré par ce que le système répond du point : `WindowFromPoint` sur ce point d'icône rendait **notre fond** avant le correctif, et rend **`SysListView32`** après.
+
+### La cause : `HTTRANSPARENT` ne traverse pas les processus
+
+`DesktopBackdrop` est une fenêtre plein écran, enfant de `Progman`, posée au-dessus du `DefView`. Son `WM_NCHITTEST` répond `HTTRANSPARENT` sur les rectangles d'icônes — la bonne réponse. Mais la documentation de `WM_NCHITTEST` est explicite : `HTTRANSPARENT` fait continuer la recherche **dans le même thread**. Or `SysListView32` appartient à `explorer.exe` : **un autre thread, un autre processus**. La recherche s'arrête donc chez nous, et le clic n'arrive jamais.
+
+⚠️ C'est la **troisième fois** que la même leçon revient (T-060 : un geste ne se mesure pas en *postant* l'événement ; T-068 : une question posée *au repos* mesure le mauvais instant) — et ici elle est encore plus simple : **une réponse n'est pas une livraison**. ADR-13 disait « nos surfaces répondent `HTTRANSPARENT`, donc le clic reste à l'utilisateur » : c'était une **déduction tirée d'un `SendMessageW` sur notre propre fenêtre**, jamais une mesure. La mesure la contredit.
+
+### Le correctif : découper les icônes dans notre propre couche
+
+Une fenêtre layered **par pixel** n'existe pas pour la souris là où ses pixels sont à **alpha 0** — propriété mesurée **dans les deux sens sur cette classe de fenêtre** par T-060, et contrairement à `HTTRANSPARENT`, elle traverse les processus. Les rectangles d'icônes sont donc **découpés** dans la frame (`CompositionMode_Source` + brosse transparente, donc des pixels prémultipliés `(0,0,0,0)`), **avant** toute peinture pour que la bande élastique du geste puisse se dessiner par-dessus.
+
+- `DesktopBackdrop::buildFrame()` : le remplissage au plancher d'alpha est suivi du découpage.
+- `DesktopBackdrop::setNativeIconRects()` demande désormais un **rendu** (`refresh()`) : sans cela, un icône ajoutée sur le bureau resterait intouchable jusqu'au prochain rendu venu d'ailleurs.
+- La réponse `HTTRANSPARENT` du `WndProc` est **conservée** : elle ne coûte rien et c'est la bonne réponse — mais ce n'est pas elle qui livre le clic, et le commentaire le dit.
+
+### Vérifications
+
+- `--backdrop-demo` : **36/36 → 37/37**, avec une vérification neuve — *« an icon's rectangle is cut out of the layer, so the shell gets its click »* : **818 006** pixels à alpha 0 **sur les 88 rectangles d'icônes**, et **0 ailleurs**. La seconde moitié est l'invariant de T-060 (`the frame has nowhere the cursor falls through`), qui reste vrai **partout où le bureau n'a pas d'icône** : les trous sont exactement ce qu'ils doivent être, et rien de plus.
+- **Prémisse prouvée** : trous retirés (patch temporaire, revert) → `rc=1`, la vérification tombe à `0 alpha-0 pixel(s) over 88 icon rect(s)`.
+- **Livraison** : voir le tableau ci-dessus (0/4 → 1/4, plus `WindowFromPoint` qui change de réponse).
+- `ctest` **14/14** ; toutes les autres sondes à leurs compteurs (`--fence-demo` 25/25 / 31/31 `--host`, `--product-probe` 24/24, `--icons-demo` 10/10, `--persist-demo` 26/26, `--nav-demo` 22/22 / 29/29, `--rules-demo` 28/28, `--portal-demo` 30/30 / 32/32, `--snapshot-demo` 11/11, `--screen-demo` 19/19).
+
+### Ce qui reste, et qui est nommé
+
+- **Le bouton gauche sur le bureau *nu* n'est toujours pas à l'utilisateur** : il est à notre fond (c'est ce qui fait exister le geste du bouton droit, F-001 — le fond *est* le point nu, et c'est ce qui a supprimé le besoin d'un hook global). Conséquence : pas de rectangle de sélection au glisser gauche, et **pas de désélection en cliquant sur le vide**. La clause `HTTRANSPARENT` du bouton gauche ne peut pas le rendre non plus, pour exactement la même raison (même thread). Trois issues, à trancher : garder tel quel (le prix de F-001), **rejouer** le clic vers la coquille (famille refusée par T-042 : un clic rejoué est un autre clic), ou déplacer le geste vers un **hook souris** (T-028 ; c'est ce que fait Fences 6, et c'est une décision utilisateur).
+- **Les icônes sous une zone** : la zone prend le clic (T-068) et l'icône affichée dessous est le doublon de T-042 — elle reste intouchable tant que le doublon existe. C'est le prix déjà écrit de T-066.
+
+### Leçon
+
+**Une réponse n'est pas une livraison.** Avant de conclure « le clic reste à l'utilisateur », il faut le mesurer **là où il atterrit** (la liste du shell, un compteur de sélection), pas là où on le pose (notre fenêtre). Trois sessions, trois formes de la même erreur : *poster* un événement (T-060), *demander au repos* (T-068), *demander à soi-même* (T-069).
+
+
 ## 28. Une règle écrite pour le fond s'appliquait aussi aux zones (T-068, session 37)
 
 Question de l'utilisateur, verbatim — et c'est la deuxième fois que « ça ne marche plus » vient d'une règle ajoutée pour *un autre* client :

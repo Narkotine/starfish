@@ -4870,8 +4870,56 @@ int main(int argc, char* argv[])
         backdrop->setDrawFreeIcons(true);
         backdrop->renderNow();
 
-        // The one thing a frame can prove that a count cannot: the pixels really
-        // go away when a fence claims an icon.
+        // ⚠️ T-069 -- and the holes. With the drawing off -- the product's state --
+        // the frame must carry one alpha-0 hole per icon of the desktop, and none
+        // anywhere else. The answer to WM_NCHITTEST does not cross into another
+        // process: measured with the backdrop hosted, the shell's own list view
+        // received **0 of 4** clicks aimed at real icons (against 1 of 4 without
+        // StarFish), so the desktop's icons were visible and untouchable. The alpha
+        // is the step-aside Windows honours, and this is the check that keeps it.
+        // The premise is measured too: a desktop whose icons are hidden would
+        // otherwise prove nothing and pass.
+        QVector<QRect> iconRects;
+        for (const starfish::platform::win::NativeDesktopIcon& icon :
+             starfish::platform::win::readNativeDesktopIcons())
+            iconRects.append(QRect(icon.position, icon.slot));
+        backdrop->setDrawFreeIcons(false);
+        backdrop->setNativeIconRects(iconRects);
+        backdrop->renderNow();
+        const QImage holed = backdrop->frame();
+        const QPoint frameOrigin = area.topLeft();
+        qint64 holesInIcons = 0;
+        qint64 holesElsewhere = 0;
+        for (int y = 0; y < holed.height(); ++y) {
+            const QRgb* line = reinterpret_cast<const QRgb*>(holed.constScanLine(y));
+            for (int x = 0; x < holed.width(); ++x) {
+                if (qAlpha(line[x]) != 0)
+                    continue;
+                const QPoint inFrame(x, y);
+                bool onAnIcon = false;
+                for (const QRect& rect : iconRects) {
+                    if (rect.translated(-frameOrigin).contains(inFrame)) {
+                        onAnIcon = true;
+                        break;
+                    }
+                }
+                if (onAnIcon)
+                    ++holesInIcons;
+                else
+                    ++holesElsewhere;
+            }
+        }
+        check(QStringLiteral("an icon's rectangle is cut out of the layer, so the shell gets "
+                             "its click"),
+              iconRects.size() > 0 && holesInIcons > 0 && holesElsewhere == 0,
+              QStringLiteral("%1 alpha-0 pixel(s) over %2 icon rect(s), %3 elsewhere -- the icons "
+                             "have to be visible for this to measure anything")
+                  .arg(holesInIcons)
+                  .arg(iconRects.size())
+                  .arg(holesElsewhere));
+        backdrop->setNativeIconRects({});
+        backdrop->setDrawFreeIcons(true);
+        backdrop->renderNow();
         const QString claimedId = container.createFence(
             QStringLiteral("Backdrop probe 3"), QRect(200, 200, 320, 240), claimed);
         backdrop->renderNow();
