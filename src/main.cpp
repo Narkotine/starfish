@@ -1824,6 +1824,93 @@ int main(int argc, char* argv[])
                            .arg(starfish::platform::win::DesktopSurface::desktopIconsHidden()
                                     ? QStringLiteral("NO -- still hidden")
                                     : QStringLiteral("yes"));
+
+                // ⚠️ T-068 -- WindowFromPoint above is asked *at rest*. A click, a
+                // drag and an OLE drop are not: Windows asks WM_NCHITTEST **when
+                // the left button goes down**, and a fence used to answer
+                // HTTRANSPARENT at that very moment. The "the left button belongs
+                // to the desktop" clause was written for the backdrop but sits in
+                // the WndProc every layer shares, so the fence could not be
+                // grabbed, resized, clicked or dropped onto -- measured on the
+                // user's desktop: HTCLIENT at rest, HTTRANSPARENT as soon as it
+                // was pressed. Both halves are asked here.
+                const auto fenceHitTest = [surface](const QPoint& point) {
+                    return ::SendMessageW(reinterpret_cast<HWND>(surface->hwnd()), WM_NCHITTEST, 0,
+                                          MAKELPARAM(point.x(), point.y()));
+                };
+
+                // Half one: the backdrop's own icon list is not a fence's
+                // business. Planted deliberately -- the leak is what is being
+                // guarded against, and a fence overlapping one of the user's icons
+                // has to keep taking its own click (what the user sees there is
+                // the fence, not the icon drawn twice underneath it, T-042).
+                QVector<QRect> plantedRects;
+                for (const starfish::platform::win::NativeDesktopIcon& icon :
+                     starfish::platform::win::readNativeDesktopIcons())
+                    plantedRects.append(QRect(icon.position, icon.slot));
+                surface->setNativeIconRects(plantedRects);
+                // Asked *on* the icon, with the fence actually lying over it: a
+                // check at the fence's centre would miss the clause entirely (the
+                // centre is rarely inside an icon's rectangle), and a check that
+                // cannot fail measures nothing.
+                const QRect onTheIcon = plantedRects.isEmpty()
+                    ? visual
+                    : QRect(plantedRects.first().center() - QPoint(visual.width() / 2,
+                                                                   visual.height() / 2),
+                            visual.size());
+                container->setFenceRect(idDemo, onTheIcon, false);
+                const auto overIcon = fenceHitTest(plantedRects.isEmpty() ? visual.center()
+                                                                         : plantedRects.first().center());
+                container->setFenceRect(idDemo, visual, false);
+                surface->setNativeIconRects({});
+                check(QStringLiteral("a fence steps aside for nothing -- not even the backdrop's "
+                                     "icon list"),
+                      overIcon == HTCLIENT,
+                      QStringLiteral("fence moved onto the user's icon at %1,%2, %3 icon rect(s) "
+                                     "planted on it -> %4")
+                          .arg(onTheIcon.center().x())
+                          .arg(onTheIcon.center().y())
+                          .arg(plantedRects.size())
+                          .arg(overIcon));
+
+                // Half two, and the one the user feels: the same question with the
+                // button really down. Only asked when the window under the point is
+                // *this* fence -- with the user's windows in front, the press must
+                // not be delivered to somebody else's window, so the clause is
+                // logged as not asked rather than failed (the desktop has to be
+                // visible to measure it; decision 13).
+                const QPoint titlePoint(visual.x() + visual.width() / 2,
+                                        visual.y() + starfish::ui::FenceGeometry::kTitleBarHeight / 2);
+                const HWND underPoint =
+                    ::WindowFromPoint(POINT{titlePoint.x(), titlePoint.y()});
+                if (underPoint && reinterpret_cast<quintptr>(underPoint) == surface->hwnd()) {
+                    POINT savedCursor{};
+                    ::GetCursorPos(&savedCursor);
+                    ::SetCursorPos(titlePoint.x(), titlePoint.y());
+                    INPUT press[1] = {};
+                    press[0].type = INPUT_MOUSE;
+                    press[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+                    ::SendInput(1, press, sizeof(INPUT));
+                    const auto answerWithButton = fenceHitTest(titlePoint);
+                    INPUT release[1] = {};
+                    release[0].type = INPUT_MOUSE;
+                    release[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+                    ::SendInput(1, release, sizeof(INPUT));
+                    ::SetCursorPos(savedCursor.x, savedCursor.y);
+                    check(QStringLiteral("a fence answers the mouse with the left button down (the "
+                                         "click, the drag and the drop all ask it then)"),
+                          answerWithButton == HTCLIENT,
+                          QStringLiteral("WM_NCHITTEST at the fence's title bar, button held -> %1")
+                              .arg(answerWithButton));
+                } else {
+                    wchar_t covering[128] = {0};
+                    if (underPoint)
+                        ::GetClassNameW(underPoint, covering, 128);
+                    log << QStringLiteral("the button-down clause was NOT asked: \"%1\" covers the "
+                                          "fence's title bar -- bring the desktop to the front and "
+                                          "re-run to measure it")
+                               .arg(QString::fromWCharArray(covering));
+                }
             }
 #endif
 

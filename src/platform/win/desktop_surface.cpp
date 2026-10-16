@@ -939,6 +939,25 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
             *result = HTTRANSPARENT;
             return true;
         }
+        // ⚠️ T-068 -- and only the *backdrop* ever steps aside. The two clauses
+        // below were written for it, but they live in the WndProc every layer
+        // shares, so they silently applied to the fences as well: with the left
+        // button down a fence answered HTTRANSPARENT too. Windows asks this
+        // question **when the button goes down**, which is exactly when a click, a
+        // drag and an OLE drop happen -- so the fence could not be grabbed,
+        // resized, clicked or dropped onto. Measured on the user's desktop: the
+        // fence answered HTCLIENT at rest and HTTRANSPARENT the moment it was
+        // pressed, and the question "why can I no longer move a fence or touch a
+        // desktop icon when StarFish is running?" had this single answer.
+        // A fence stands **over** the desktop's content and draws its own: what
+        // the user sees there is ours, so the click there is ours too.
+        if (m_layer != Layer::Backdrop) {
+            *result = HTCLIENT;
+            return true;
+        }
+        // From here on, the backdrop only: the surface that stands over the
+        // desktop's own layers with nothing of its own to draw.
+        //
         // ADR-13, and the reason the native icons can stay: an icon's own
         // rectangle is not ours. Its click, its drag, its menu and its tooltip
         // are the shell's, and they only stay the shell's because the mouse is

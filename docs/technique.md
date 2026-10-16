@@ -1381,3 +1381,74 @@ build MinGW **0 warning** ; `ctest` **14/14** (`ui_fence_geometry` portée à **
 - **Le rachat redevient un choix** : `--claim-desktop` est aujourd'hui le chemin de développement. Si un jour la couche reprise est utilisable, l'option pourra redevenir une case à cocher — mais jamais un effet de bord du rangement.
 - **Les trois zones empilées du document de l'utilisateur** : elles sont **toujours** au même rect (T-067 ne touche pas aux zones existantes). À proposer à l'utilisateur : un décalage en cascade le rangerait, mais c'est **son** bureau.
 - **L'acrylique** et **T-064** (matériau au clic droit) restent ouverts (§26).
+
+## 28. Une règle écrite pour le fond s'appliquait aussi aux zones (T-068, session 37)
+
+Question de l'utilisateur, verbatim — et c'est la deuxième fois que « ça ne marche plus » vient d'une règle ajoutée pour *un autre* client :
+
+> pourquoi j'arrive plus à bouger les fences ou à toucher une icône du bureau quand starfish est lancé ?
+
+### Le fait, mesuré avant toute théorie
+
+Les fenêtres étaient toutes en place et le bureau normal. Mesure faite **sur les fenêtres du produit en fonctionnement**, en leur posant la question que Windows leur pose (`WM_NCHITTEST`) :
+
+| point | au repos | **bouton gauche enfoncé** |
+|---|---|---|
+| barre de titre d'une zone | `HTCLIENT` (1) | **`HTTRANSPARENT` (-1)** |
+| corps d'une zone | `HTCLIENT` (1) | **`HTTRANSPARENT` (-1)** |
+| fond, bureau nu | `HTCLIENT` (1) | **`HTTRANSPARENT` (-1)** |
+
+Un clic, un glisser et un dépôt (OLE) sont des événements **bouton gauche enfoncé** — et Windows demande `WM_NCHITTEST` **au moment où le bouton s'enfonce**. Donc, à l'instant précis qui compte, une zone répondait « je ne suis pas là » : elle ne pouvait être **ni attrapée, ni déplacée, ni redimensionnée, ni cliquée, ni recevoir un dépôt d'icône**.
+
+### La cause : une clause écrite pour le fond, dans un WndProc partagé
+
+`DesktopSurface::WM_NCHITTEST` portait deux clauses destinées au **fond de bureau** (ADR-13) :
+
+```cpp
+if (m_clickThrough) { *result = HTTRANSPARENT; return true; }        // fond : click-through
+for (icone : m_nativeIconRects) if (...) { HTTRANSPARENT; return; }  // fond : une icône n'est pas à nous
+if (::GetAsyncKeyState(VK_LBUTTON) < 0) { HTTRANSPARENT; return; }   // fond : le bouton gauche est au bureau
+*result = HTCLIENT;
+```
+
+Les trois sont justes **pour le fond** — c'est la surface qui se tient au-dessus des couches du bureau sans rien y dessiner. Mais `DesktopSurface` est **la** classe des zones **et** du fond : les clauses s'appliquaient donc **aussi aux zones**, silencieusement. Une zone répondait `HTTRANSPARENT` dès qu'on la pressait ; un fond répond `HTCLIENT` dès qu'on le presse, ce qui masquait le problème (le fond, lui, *doit* prendre le bouton droit).
+
+### Le correctif
+
+La règle est **gardée par la couche**, pas par la classe :
+
+```cpp
+if (m_layer != Layer::Backdrop) { *result = HTCLIENT; return true; }  // une zone ne s'efface devant rien
+```
+
+`Layer` existe depuis T-039 (`BelowIconLayer` / `AboveIconLayer` / `Backdrop`) : c'était déjà *la* façon de dire « fond » dans ce fichier, et c'est désormais aussi la façon de dire « et seulement le fond s'efface ». Une zone se tient **au-dessus** du contenu du bureau et **dessine le sien** : ce que l'utilisateur voit là est à nous, donc le clic y est à nous. Le fond, lui, garde ses trois clauses (mesuré : `--backdrop-demo` **36/36** / **50/50**, inchangés).
+
+### Les deux vérifications ajoutées (et un aveu)
+
+Dans `--fence-demo --host` (**29/29** → **31/31**) :
+
+1. **« a fence steps aside for nothing -- not even the backdrop's icon list »** — la liste d'icônes du fond est **plantée** sur la surface de la zone (c'est la fuite qu'on garde), la zone est **déplacée sur une des icônes de l'utilisateur**, et on demande le point de cette icône : `HTCLIENT` attendu.
+   ⚠️ **Ma première version de cette vérification passait avec le bug en place** : je l'interrogeais au **centre de la zone**, or le centre tombe rarement dans un rectangle d'icône, donc la clause ne se déclenchait jamais. C'est le même piège que la vérification bornée par le clip de T-045 : **une vérification qui ne peut pas échouer ne mesure rien**. Corrigé en la posant **sur** l'icône.
+2. **« a fence answers the mouse with the left button down »** — la vraie moitié, celle que l'utilisateur sent : une **vraie** pression du bouton gauche (`SendInput`), puis la question. C'est la seule façon de mesurer que `GetAsyncKeyState` est bien lu à l'instant du clic. Elle n'est posée **que si la fenêtre sous le curseur est bien cette zone** (sinon la pression irait à la fenêtre de quelqu'un d'autre) : quand c'est impossible, la sonde écrit `NOT asked` avec la classe qui couvre le point, plutôt que d'échouer pour une raison étrangère au code (décision 13).
+
+**Prémisse prouvée** : clauses dégardées (patch temporaire, revert) → `rc=1` et **exactement 2 `FAIL`**, les deux nouvelles, chacune à `-1` (`HTTRANSPARENT`).
+
+### Mesure de bout en bout, au vrai curseur
+
+Sur une **copie** du document de l'utilisateur, produit hébergé, souris déplacée par `SendInput` (position du curseur sauvegardée puis rendue) :
+
+- `WM_NCHITTEST` au repos → `HTCLIENT` ; **bouton gauche enfoncé → `HTCLIENT`** (avant : `-1`) ;
+- glisser de (+60, +40) en dix pas → la zone **suit au pixel près** (deux décrochages d'aimantation de 3 px en cours de route), position finale **exacte**, et le document **enregistre** le nouveau rect.
+
+Les icônes du bureau, elles, n'ont jamais cessé d'être celles de la coquille : le fond continue de s'effacer sur leurs rectangles (`HTTRANSPARENT`), c'est ce que `--backdrop-demo --host` mesure. Ce qui était mort, c'est **tout ce qu'on touche sur nos surfaces** — et une icône affichée **dans** une zone répondait à la place de l'icône du bureau située dessous.
+
+### Leçons
+
+- **Une règle ajoutée pour un client doit être gardée par ce client** dès l'instant où le code est partagé. `DesktopSurface` est la classe de **deux** rôles : toute clause qu'on y écrit doit dire *pour qui* elle est vraie (`m_layer`). La même famille que T-060 (le plancher d'alpha, valable pour le fond, appliqué aux coins d'une zone) : **le fond et les zones partagent leurs surfaces, pas leurs besoins**.
+- **Une sonde qui interroge *au repos* mesure le mauvais instant.** `WindowFromPoint` et `WM_NCHITTEST` sans bouton prouvent le **z-order**, pas l'utilisabilité : la souris pose ses questions **au moment de la pression**. Un geste, un clic et un dépôt se mesurent donc **avec le bouton enfoncé** — d'où `SendInput`, et d'où le fait que ce bug ait vécu une session entière sans être vu (six sondes mesuraient des fenêtres au repos).
+- **Une vérification doit planter la condition qu'elle garde** : sans les rectangles d'icônes plantés, la première vérification ci-dessus passait avec le bug. Même piège que le préfixe de 4096 octets (décision 21) et le clip de T-045.
+
+### Comptes (session 37)
+
+build MinGW **0 warning** ; `ctest` **14/14** ; `--fence-demo` **25/25** headless / **31/31** `--host` (29 avant) ; **tous les autres compteurs inchangés** (`--backdrop-demo` 36/36 / 50/50, `--product-probe` 24/24, `--icons-demo` 10/10, `--persist-demo` 26/26, `--nav-demo` 22/22 / 29/29, `--rules-demo` 28/28, `--portal-demo` 30/30 / 32/32, `--snapshot-demo` 11/11, `--screen-demo` 19/19).
+
