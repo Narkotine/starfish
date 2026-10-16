@@ -29,6 +29,9 @@ experiments/out/
 # Compiled Windows resources from the spikes
 *.res.o
 
+# Spike binaries: the README tells you to build them at the repo root
+/*.exe
+
 # Harness-specific tooling (never referenced by project docs)
 .workbuddy-ai/
 .cursor/
