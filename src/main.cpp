@@ -621,6 +621,204 @@ QStringList zProbeAt(HWND progman, const QPoint& pt)
     g_zProbeLines = nullptr;
     return lines;
 }
+
+// "0x1234 Chrome_WidgetWin_1 2560x1440" -- how every report in this project
+// spells a window.
+QString describeWindow(HWND window)
+{
+    if (!window)
+        return QStringLiteral("none");
+    wchar_t cls[128] = {0};
+    ::GetClassNameW(window, cls, 127);
+    RECT r{};
+    ::GetWindowRect(window, &r);
+    return QStringLiteral("0x%1 %2 %3x%4")
+        .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(window)), 0, 16)
+        .arg(QString::fromWCharArray(cls))
+        .arg(r.right - r.left)
+        .arg(r.bottom - r.top);
+}
+
+// Pushes a frame of one premultiplied colour into a per-pixel layered window --
+// the same call DesktopSurface makes in that mode. Black at `alpha` in
+// premultiplied ARGB is (0, 0, 0, alpha), so the window's *shape* is exactly the
+// question being asked.
+//
+// pptDst is NULL, and that is not laziness: UpdateLayeredWindow *moves* the
+// window to pptDst, so passing (0, 0) parks it in the corner of its parent and
+// every sample afterwards measures empty desktop. Measured the hard way in
+// experiments/spike_layer_alpha_shape.cpp, where two runs agreed on a wrong
+// answer because of it.
+bool pushLayerFrame(HWND window, int size, int alpha)
+{
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = size;
+    info.bmiHeader.biHeight = -size; // negative: top-down rows
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    const HDC screenDc = ::GetDC(nullptr);
+    const HDC memDc = ::CreateCompatibleDC(screenDc);
+    const HBITMAP dib = ::CreateDIBSection(screenDc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bits || !dib || !memDc) {
+        if (dib)
+            ::DeleteObject(dib);
+        if (memDc)
+            ::DeleteDC(memDc);
+        ::ReleaseDC(nullptr, screenDc);
+        return false;
+    }
+    const DWORD pixel = (DWORD(alpha) << 24); // premultiplied black
+    for (long i = 0; i < long(size) * long(size); ++i)
+        static_cast<DWORD*>(bits)[i] = pixel;
+    const HGDIOBJ old = ::SelectObject(memDc, dib);
+
+    SIZE layerSize{size, size};
+    POINT src{0, 0};
+    BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    ::SetLastError(0);
+    const BOOL ok = ::UpdateLayeredWindow(window, screenDc, nullptr, &layerSize, memDc, &src, 0,
+                                          &blend, ULW_ALPHA);
+    const DWORD error = ::GetLastError();
+    ::SelectObject(memDc, old);
+    ::DeleteObject(dib);
+    ::DeleteDC(memDc);
+    ::ReleaseDC(nullptr, screenDc);
+    if (!ok) {
+        qCWarning(lc) << "pushLayerFrame: UpdateLayeredWindow failed, error" << error;
+        return false;
+    }
+    return true;
+}
+
+// T-060: what a per-pixel layered window does to the mouse, measured.
+//
+// WHY NOT ON THE BACKDROP ITSELF. Every child of Progman sits below *every*
+// top-level window, so while any application covers the sample point the system
+// answers with that application: the 2026-10-16 --backdrop-demo run reported the
+// user's browser even with the backdrop's frame at alpha 1. That is a reading of
+// the session, not of the code, and no machine-independent check can be built on
+// it.
+//
+// So the same pairing is built out of two windows of ours, above everything: a
+// plain parent (Progman is not layered either) with a per-pixel layered child
+// inside it, which is exactly the relationship the backdrop has with the
+// desktop. WindowFromPoint -- the system's own hit test -- is then asked which
+// of the two it would give a click to, once with an alpha-0 frame in the child
+// and once with the frame floor.
+//
+// The measured answer, and the whole point of T-060: at alpha 0 the child is
+// **skipped** and its parent answers (so a fully transparent backdrop could
+// never receive the empty desktop's gestures), and at the floor the cursor finds
+// the child itself.
+struct LayerAlphaHit
+{
+    bool created = false;
+    QString error;
+    QPoint at;               // where the sample was taken
+    QString transparentHit;  // who answers against an alpha-0 frame
+    QString flooredHit;      // ...and against the floor
+    bool transparentSkipped = false; // the child was not found at alpha 0
+    bool flooredFound = false;       // the child was found at the floor
+};
+
+LayerAlphaHit measureLayerAlphaHit(const QRect& screen)
+{
+    LayerAlphaHit hit;
+
+    constexpr int kParentSize = 200;
+    constexpr int kChildSize = 100;
+    const QPoint at = screen.topLeft() + QPoint(400, 400);
+    if (at.x() + kParentSize > screen.right() || at.y() + kParentSize > screen.bottom()) {
+        hit.error = QStringLiteral("no room on a %1x%2 screen for a %3 px probe window")
+                        .arg(screen.width())
+                        .arg(screen.height())
+                        .arg(kParentSize);
+        return hit;
+    }
+
+    static const wchar_t* kParentClass = L"StarFishHitProbeParent";
+    static const wchar_t* kChildClass = L"StarFishHitProbeChild";
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = ::DefWindowProcW;
+        wc.hInstance = ::GetModuleHandleW(nullptr);
+        wc.lpszClassName = kParentClass;
+        const bool parentClass = ::RegisterClassExW(&wc) != 0;
+        wc.lpszClassName = kChildClass;
+        const bool childClass = ::RegisterClassExW(&wc) != 0;
+        registered = parentClass && childClass;
+        if (!registered) {
+            hit.error = QStringLiteral("RegisterClassExW failed, error %1").arg(::GetLastError());
+            return hit;
+        }
+    }
+
+    // TOPMOST and never activated: it has to be above every application for the
+    // answer to be about this window and nothing else, and it must not steal the
+    // user's focus for the few hundred milliseconds it exists.
+    const HWND parent = ::CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                                          kParentClass, L"", WS_POPUP, at.x(), at.y(),
+                                          kParentSize, kParentSize, nullptr, nullptr,
+                                          ::GetModuleHandleW(nullptr), nullptr);
+    if (!parent) {
+        hit.error = QStringLiteral("parent window: CreateWindowExW, error %1").arg(::GetLastError());
+        return hit;
+    }
+    ::ShowWindow(parent, SW_SHOWNOACTIVATE);
+    ::SetWindowPos(parent, HWND_TOPMOST, at.x(), at.y(), kParentSize, kParentSize,
+                   SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    ::UpdateWindow(parent);
+
+    // Created as a popup with the layered flag already on -- the sequence
+    // DesktopSurface uses, and the only one a binary without a manifest gets
+    // (ADR-4 finding 4) -- then reparented into the probe parent.
+    const HWND child = ::CreateWindowExW(WS_EX_LAYERED, kChildClass, L"", WS_POPUP,
+                                         at.x() + 50, at.y() + 50, kChildSize, kChildSize, nullptr,
+                                         nullptr, ::GetModuleHandleW(nullptr), nullptr);
+    if (!child || !::SetParent(child, parent)) {
+        hit.error = QStringLiteral("child window: error %1").arg(::GetLastError());
+        if (child)
+            ::DestroyWindow(child);
+        ::DestroyWindow(parent);
+        return hit;
+    }
+    const LONG style = static_cast<LONG>(::GetWindowLongW(child, GWL_STYLE));
+    ::SetWindowLongW(child, GWL_STYLE, (style | WS_CHILD) & ~WS_POPUP);
+    ::SetWindowPos(child, nullptr, 50, 50, kChildSize, kChildSize, SWP_NOACTIVATE | SWP_NOZORDER);
+    ::ShowWindow(child, SW_SHOW);
+    ::UpdateWindow(child);
+    hit.created = true;
+
+    const auto sample = [child, &hit](int alpha) {
+        if (!pushLayerFrame(child, kChildSize, alpha))
+            return QString();
+        // The sample point is read *after* the push: UpdateLayeredWindow can move
+        // the window (see pushLayerFrame), and a point fixed beforehand may be
+        // looking next to it.
+        RECT rect{};
+        ::GetWindowRect(child, &rect);
+        hit.at = QPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+        ::Sleep(100);
+        const HWND under = ::WindowFromPoint(POINT{hit.at.x(), hit.at.y()});
+        if (alpha == 0)
+            hit.transparentSkipped = under != child;
+        else
+            hit.flooredFound = under == child;
+        return describeWindow(under);
+    };
+    hit.transparentHit = sample(0);
+    hit.flooredHit = sample(starfish::ui::DesktopBackdrop::kInputAlphaFloor);
+
+    ::DestroyWindow(child);
+    ::DestroyWindow(parent);
+    return hit;
+}
 #endif
 
 } // namespace
@@ -3917,12 +4115,17 @@ int main(int argc, char* argv[])
 
         // --- the frame ------------------------------------------------------
         log << QStringLiteral("-- the frame --");
-        const auto opaquePixels = [](const QImage& image) {
+        // "Painted" now means *above the input floor*. Since T-060 every frame
+        // carries one alpha level across the whole screen
+        // (DesktopBackdrop::kInputAlphaFloor), so counting every pixel whose alpha
+        // is not zero would call the whole screen painted. These counts are about
+        // the icons -- what the floor is invisible for.
+        const auto paintedPixels = [](const QImage& image) {
             qint64 count = 0;
             for (int y = 0; y < image.height(); ++y) {
                 const QRgb* line = reinterpret_cast<const QRgb*>(image.constScanLine(y));
                 for (int x = 0; x < image.width(); ++x) {
-                    if (qAlpha(line[x]) != 0)
+                    if (qAlpha(line[x]) > starfish::ui::DesktopBackdrop::kInputAlphaFloor)
                         ++count;
                 }
             }
@@ -3934,7 +4137,7 @@ int main(int argc, char* argv[])
         check(QStringLiteral("the frame is the size of the virtual screen"),
               full.size() == area.size(),
               QStringLiteral("%1x%2").arg(full.width()).arg(full.height()));
-        const qint64 paintedFull = opaquePixels(full);
+        const qint64 paintedFull = paintedPixels(full);
         const qint64 totalPixels = qint64(full.width()) * full.height();
         // The budget comes from the cells, not from a magic fraction: "mostly
         // transparent" means the painted pixels are accounted for by the icons
@@ -3956,12 +4159,35 @@ int main(int argc, char* argv[])
                   .arg(backdrop->cells().size())
                   .arg(cellBudget));
 
+        // T-060, and the invariant that makes the gestures reachable at all: no
+        // pixel of the frame is a hole the cursor falls through. A per-pixel
+        // layered window is hit-tested against its own alpha, so a zero-alpha
+        // pixel is a pixel Windows answers with whatever is *behind* the
+        // backdrop -- which is how a fully transparent frame made the empty
+        // desktop's own gestures unreachable (the fix is the floor; this is what
+        // would catch it if the floor were ever dropped again). The floor itself
+        // is invisible: the check above counts only what is *above* it.
+        qint64 transparentPixels = 0;
+        for (int y = 0; y < full.height(); ++y) {
+            const QRgb* line = reinterpret_cast<const QRgb*>(full.constScanLine(y));
+            for (int x = 0; x < full.width(); ++x) {
+                if (qAlpha(line[x]) == 0)
+                    ++transparentPixels;
+            }
+        }
+        check(QStringLiteral("the frame has nowhere the cursor falls through"),
+              full.hasAlphaChannel() && transparentPixels == 0,
+              QStringLiteral("%1 of %2 pixels at alpha 0, the floor is %3")
+                  .arg(transparentPixels)
+                  .arg(totalPixels)
+                  .arg(starfish::ui::DesktopBackdrop::kInputAlphaFloor));
+
         // The one thing a frame can prove that a count cannot: the pixels really
         // go away when a fence claims an icon.
         const QString claimedId = container.createFence(
             QStringLiteral("Backdrop probe 3"), QRect(200, 200, 320, 240), claimed);
         backdrop->renderNow();
-        const qint64 paintedClaimed = opaquePixels(backdrop->frame());
+        const qint64 paintedClaimed = paintedPixels(backdrop->frame());
         check(QStringLiteral("the frame loses an icon when a fence claims it"),
               paintedClaimed < paintedFull,
               QStringLiteral("%1 painted pixels, %2 after claiming %3 icon(s)")
@@ -4060,7 +4286,7 @@ int main(int argc, char* argv[])
             // painted into the frame, so the frame with it has to be the frame
             // without it plus something.
             backdrop->renderNow();
-            const qint64 paintedWithout = opaquePixels(backdrop->frame());
+            const qint64 paintedWithout = paintedPixels(backdrop->frame());
 
             sendMouse(QEvent::MouseButtonPress, barePoint, Qt::RightButton, Qt::RightButton);
             sendMouse(QEvent::MouseMove, farCorner, Qt::NoButton, Qt::RightButton);
@@ -4075,7 +4301,7 @@ int main(int argc, char* argv[])
             // ...and it is really on screen: the preview is painted, not merely
             // remembered.
             backdrop->renderNow();
-            const qint64 paintedDuring = opaquePixels(backdrop->frame());
+            const qint64 paintedDuring = paintedPixels(backdrop->frame());
             check(QStringLiteral("the frame shows the fence being drawn"),
                   paintedDuring > paintedWithout,
                   QStringLiteral("%1 painted pixels while drawing, %2 before")
@@ -4244,6 +4470,104 @@ int main(int argc, char* argv[])
                       !surface->clickThrough() && surface->inputTarget() == backdrop,
                       QStringLiteral("the hosted window routes its mouse to the backdrop"));
 
+                // Taking the mouse has two halves and only the second one is ours.
+                // Posting a QMouseEvent straight at the backdrop -- all of the
+                // section above does -- proves the *machine*; it says nothing about
+                // whether Windows ever delivers a real click. That delivery is what
+                // T-060 was about: a per-pixel layered window is hit-tested against
+                // its own alpha (MSDN, "Layered Windows": the areas whose alpha
+                // value is zero let the mouse messages through), and a backdrop
+                // whose frame was transparent nearly everywhere was a window the
+                // cursor could never find. The gestures existed in the probes, which
+                // post their events at this object, and nowhere a mouse could reach.
+                //
+                // It is measured on a pairing of our own windows rather than on the
+                // backdrop itself, for a reason the first attempt produced: every
+                // child of Progman sits below *every* top-level window, so while an
+                // application covers the sample point the system answers with the
+                // application -- that run reported the user's browser even with the
+                // frame at alpha 1, which is a reading of the session and not of the
+                // code. measureLayerAlphaHit() builds the same parent/child
+                // relationship above everything instead, and asks the system's own
+                // hit test who would get the click.
+                const LayerAlphaHit layerHit = measureLayerAlphaHit(area);
+                check(QStringLiteral("a transparent layered child lets the mouse through"),
+                      layerHit.created && layerHit.transparentSkipped,
+                      layerHit.created
+                          ? QStringLiteral("at %1,%2 an alpha-0 frame is skipped: the cursor "
+                                           "finds %3")
+                                .arg(layerHit.at.x())
+                                .arg(layerHit.at.y())
+                                .arg(layerHit.transparentHit)
+                          : layerHit.error);
+                check(QStringLiteral("one alpha level is enough for the cursor to find it"),
+                      layerHit.created && layerHit.flooredFound,
+                      layerHit.created
+                          ? QStringLiteral("at %1,%2 the cursor finds %3 with the frame at "
+                                           "alpha %4")
+                                .arg(layerHit.at.x())
+                                .arg(layerHit.at.y())
+                                .arg(layerHit.flooredHit)
+                                .arg(starfish::ui::DesktopBackdrop::kInputAlphaFloor)
+                          : layerHit.error);
+
+                // Context, deliberately not a check: the cursor's path to the
+                // backdrop is asked here, on a grid of bare-desktop points, so the
+                // reading is "the backdrop answers N of M" rather than a single
+                // point that may be the one under a window -- and so a human who
+                // clears the desktop sees the backdrop named below.
+                //
+                // ⚠️ The scan raises the backdrop above the icon layer first, and
+                // that is a probe artefact with a reason: this probe leaves the
+                // native icons *visible* (it never claims the desktop), so with the
+                // product's own stacking the answer at a bare point is always the
+                // desktop's icon list, which is above the backdrop. Raised, the
+                // answer at a bare point is the backdrop itself -- until T-060 it
+                // was skipped in favour of what was under it, which is exactly what
+                // the two checks above measure on a pairing of our own windows.
+                const QVector<starfish::ui::BackdropCell>& bareCells = backdrop->cells();
+                surface->setRaisedAboveIcons(true);
+                int samples = 0;
+                int answeredByTheBackdrop = 0;
+                QString firstHit;
+                QString firstMiss;
+                for (int y = area.top() + 30; y < area.bottom() - 30; y += 45) {
+                    for (int x = area.left() + 30; x < area.right() - 30; x += 45) {
+                        const QPoint at(x, y);
+                        if (starfish::ui::BackdropGesture::iconAt(bareCells, at) >= 0)
+                            continue; // an icon is not bare desktop: its behaviour is T-042
+                        ++samples;
+                        const HWND under = ::WindowFromPoint(POINT{at.x(), at.y()});
+                        if (under == hwnd) {
+                            ++answeredByTheBackdrop;
+                            if (firstHit.isEmpty())
+                                firstHit = QStringLiteral("%1,%2").arg(at.x()).arg(at.y());
+                        } else if (firstMiss.isEmpty()) {
+                            firstMiss = QStringLiteral("%1,%2 -> %3")
+                                            .arg(at.x())
+                                            .arg(at.y())
+                                            .arg(describeWindow(under));
+                        }
+                    }
+                }
+                surface->setRaisedAboveIcons(false);
+                log << QStringLiteral("-- who the cursor finds on the bare desktop --");
+                log << QStringLiteral("  the backdrop answers %1 of %2 bare point(s)%3")
+                           .arg(answeredByTheBackdrop)
+                           .arg(samples)
+                           .arg(answeredByTheBackdrop > 0
+                                    ? QStringLiteral("  (first at %1 -- the desktop the user "
+                                                     "right-drags on is ours)")
+                                          .arg(firstHit)
+                                    : QStringLiteral("  -- none answered, so either an "
+                                                     "application covers every sampled point "
+                                                     "(the reading below) or the frame is a shape "
+                                                     "again instead of a rectangle"));
+                if (!firstMiss.isEmpty())
+                    log << QStringLiteral("  the first point that answers otherwise: %1 -- what "
+                                          "covers the desktop is a reading of this session and not "
+                                          "of the code")
+                               .arg(firstMiss);
                 // T-052 is untouched by that: taking the mouse is not the same as
                 // swallowing a drop. Dropping onto the desktop *moves a file*, so
                 // the backdrop registers no OLE drop target -- it has no handler

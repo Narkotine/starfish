@@ -188,6 +188,16 @@ Corollaire assumé : Peek surélève la zone **dans le bureau** (au-dessus de la
 
 Le reste d'ADR-9 (icônes hors zone **calculées**, jamais stockées ; F-007/F-011 qui en découlent ; T-028 économisé) est **inchangé** et confirmé.
 
+### ADR-11 — Une fenêtre layered par pixel n'existe pour la souris que là où son alpha n'est pas nul (T-060, session 34)
+
+**Fait (MSDN, « Layered Windows »)** : « Hit testing of a layered window is based on the shape and transparency of the window. This means that the areas of the window that are color-keyed or whose alpha value is zero will let the mouse messages through. » **Mesuré** sur la machine de dev (`experiments/spike_layer_alpha_shape.cpp`) : une fenêtre layered par pixel dont le cadre est à alpha 0 est **sautée** par le test de toucher — le curseur trouve la fenêtre **parente** — et à alpha 1 il trouve la fenêtre elle-même.
+
+**Conséquence, et c'est la décision.** Le fond de bureau (T-039) est un window **plein écran dont l'intérêt est d'être transparent** : il laissait donc passer la souris **partout**, et les gestes du bureau vide (F-001/T-055, F-022) n'existaient que dans les sondes, qui postent leurs événements **directement à l'objet** au lieu de laisser Windows les livrer. Le cadre est donc rempli à **`kInputAlphaFloor = 1`** (`DesktopBackdrop`), et ce niveau est **une contrainte, pas un choix esthétique** : un alpha sur 255 est invisible sur n'importe quel papier peint, et il transforme le cadre d'une **forme** (les seules icônes) en **rectangle**.
+
+**Ce qui ne change pas** : *répondre* à un clic reste une décision séparée et distincte (`setClickThrough` → `HTTRANSPARENT` dans `WM_NCHITTEST`). Une fenêtre que le curseur **peut** trouver et qui choisit de s'écarter n'est pas la même chose qu'une fenêtre qu'il ne peut pas trouver du tout — et c'est cette distinction qui garde le fond inerte quand les gestes sont éteints.
+
+**Corollaire pour toute fenêtre future** : une surface layered par pixel (zone translucide de T-057, par exemple) qui laisserait des pixels à alpha **exactement** 0 perdrait la souris sur ces pixels. Le plancher est la réponse, et la sonde le mesure (`the frame has nowhere the cursor falls through`, et la règle elle-même en `--host`).
+
 ## 4. Points d'intégration Windows (à valider en Phase 1)
 
 | Besoin | API / technique |
@@ -1090,3 +1100,39 @@ Ce sera **ADR-10** quand ce sera tranché ; d'ici là c'est **T-057** (F-038), e
 6. `our entry sits on top of the desktop's menu` et `the shell's own entries are still there` — le menu est **construit** (sans être affiché : un popup bloquerait sur un utilisateur absent), notre entrée est **relue dans le menu**, et les verbes du Shell sont listés.
 
 **Prémisses prouvées** (patch temporaire, revert) : règle du bouton droit neutralisée → `rc=1`, **2 `FAIL`** (dont une cascade) et **1 `FAIL`** unitaire sur 22 cas ; insertion de notre entrée neutralisée → `rc=1`, **exactement 1 `FAIL`** — et le détail mesuré est alors `""`, ce qui est la mesure qui parle.
+
+## 23. Le geste ne pouvait pas arriver : une fenêtre par pixel où l'alpha est nul n'est pas cliquable (T-060, session 34)
+
+Second retour utilisateur, après T-055/T-056 : **« tracer un rectangle au bouton droit ne fonctionne pas »**. Cette fois la cause était bien dans le code, et elle était invisible pour toutes les sondes.
+
+### ⚠️ La cause
+
+`buildFrame()` commençait par `frame.fill(Qt::transparent)`. Or **une fenêtre layered par pixel est testée au toucher contre son propre alpha** : Windows laisse passer la souris **là où l'alpha est nul** (MSDN, « Layered Windows »). Le fond est un window **plein écran qui doit être transparent presque partout** — c'est son intérêt — donc il laissait passer **tous** les clics du bureau vide : le geste ne pouvait pas commencer, et les vérifications de T-041/T-055 passaient quand même parce qu'elles **postent leurs `QMouseEvent` directement à l'objet** au lieu de laisser Windows les livrer.
+
+C'est la même famille que la leçon de T-056 : la sonde mesurait la **machine à états**, pas le **chemin réel**. La nuance ici est qu'aucune sonde ne pouvait le voir **telle qu'elle était écrite** — il fallait mesurer la **livraison** du clic.
+
+### Le correctif, et ce qui le rend mesurable
+
+Le cadre est rempli à **`DesktopBackdrop::kInputAlphaFloor = 1`** : un niveau sur 255, invisible sur n'importe quel papier peint, qui transforme le cadre d'une **forme** (les seules icônes) en **rectangle** — ce que le test de toucher exige. C'est **ADR-11**.
+
+**Mesurer** a demandé un détour, et le détour est la partie instructive :
+
+1. **On ne peut pas interroger le fond lui-même.** `WindowFromPoint` sur un point du bureau vide rend **l'application qui recouvre le point** : *tout* enfant de `Progman` est sous *toute* fenêtre de premier niveau. La première tentative de sonde l'a mesuré — le curseur trouvait le navigateur de l'utilisateur **même avec le cadre à alpha 1**. C'est un relevé de la **session**, pas du **code** : aucune vérification qui dépendrait de ce que l'utilisateur a d'ouvert ne peut être écrite là-dessus.
+2. **Le spike construit donc la même relation avec nos fenêtres** (`experiments/spike_layer_alpha_shape.cpp`, hors Qt) : un parent **en haut de tout** (non layered, comme `Progman`) et un enfant **layered par pixel** dedans. Mesuré : **alpha 0 → le curseur trouve le parent** (l'enfant est sauté), **alpha 1 → il trouve l'enfant**. La règle est mesurée **dans les deux sens**, et le premier sens est le bug de l'utilisateur reproduit.
+3. **Trois autres pistes ont été écartées par la mesure** : `GetWindowRgn` **ne rend aucune région** sur une fenêtre layered (donc pas de forme dérivée de l'alpha à inspecter) ; `ChildWindowFromPointEx` est un test **de rectangle**, aveugle à l'alpha ; et un enfant de `Progman` n'est pas mesurable du tout quand une application couvre le point.
+
+### ⚠️ Le piège qui a menti deux fois
+
+`UpdateLayeredWindow` **déplace** la fenêtre à `pptDst`. La première version du spike passait `(0, 0)` en se disant « pour un enfant, la position est ignorée » : la fenêtre topmost a sauté dans le coin, et **deux exécutions ont conclu que « alpha 1 ne suffit pas »** — une réponse fausse produite par la sonde, pas par Windows. Corrigé en passant la position réelle (ou `NULL` pour ne pas bouger), et en **relisant le rect après le push** pour échantillonner le centre courant.
+
+### Ce que la sonde mesure maintenant
+
+- **headless (toujours)** : `the frame has nowhere the cursor falls through` — **0 pixel à alpha 0** sur 3 686 400. C'est l'invariant : il tomberait au rouge si le plancher disparaissait.
+- **`--host` (toujours)** : `a transparent layered child lets the mouse through` et `one alpha level is enough for the cursor to find it` — la règle, mesurée par `WindowFromPoint` sur la paire de fenêtres du harnais.
+- **la lecture directe, sur le vrai bureau de l'utilisateur** (ligne d'information, pas une vérification) : le fond est monté au-dessus de la couche d'icônes — artefact de sonde assumé, puisque cette sonde laisse les icônes **visibles** — et le curseur est interrogé sur une **grille de 1 523 points du bureau vide**. **Avec le correctif : 48 points répondent avec le fond lui-même** (premier à `165,30`). **Sans lui (plancher forcé à 0, trois exécutions) : 0 point, systématiquement** — c'est le bug de l'utilisateur, reproduit sur son bureau. Les 1 475 autres points sont recouverts par une application (le détail nomme le premier : `TrayNotifyWnd 398x1440`), ce qui est un relevé de la **session** ; la ligne le dit au lieu de se taire.
+- `paintedPixels` compte désormais **au-dessus** du plancher : les compteurs d'icônes restent identiques (**231 738** peints, **223 887** après qu'une zone réclame 3 icônes), et l'ancien comptage `alpha != 0` aurait dit que l'écran entier est peint.
+
+**Mesuré** : `--backdrop-demo` **35/35** headless / **46/46** `--host`, `rc=0` ; `ctest` **13/13** ; tous les autres compteurs **identiques** (`--product-probe` 17/17, `--fence-demo` 17/17 / 18/18, `--persist-demo` 26/26, `--nav-demo` 22/22 / 29/29, `--rules-demo` 28/28, `--portal-demo` 30/30 / 32/32, `--snapshot-demo` 11/11, `--screen-demo` 19/19).
+
+**Prémisse prouvée** (patch temporaire `kInputAlphaFloor = 0`, revert + rebuild) : headless → `rc=1`, **1 `FAIL`** (`3454662 of 3686400 pixels at alpha 0`) ; `--host` → **2 `FAIL`**, et le second dit exactement le bug : `at 500,500 the cursor finds 0x… StarFishHitProbeParent with the frame at alpha 0`. La sonde **reproduit donc le symptôme de l'utilisateur** quand on retire le correctif.
+

@@ -21,6 +21,10 @@ namespace {
 // render uploads the whole virtual screen through UpdateLayeredWindow.
 constexpr int kRenderCoalesceMs = 120;
 
+// The lowest alpha any pixel of the backdrop's frame may carry lives in the
+// header (DesktopBackdrop::kInputAlphaFloor) -- it is one half of a measurement
+// the probe repeats, not a rendering detail. See buildFrame().
+
 const QColor kLabelText(0xF2, 0xF4, 0xF8);
 const QColor kLabelShadow(0x00, 0x00, 0x00, 0xB4);
 constexpr QRgb kIconPlaceholder = 0x37;
@@ -149,7 +153,10 @@ QImage DesktopBackdrop::buildFrame() const
     if (box.isEmpty())
         return {};
     QImage frame(box.size(), QImage::Format_ARGB32_Premultiplied);
-    frame.fill(Qt::transparent);
+    // NOT fully transparent: see DesktopBackdrop::kInputAlphaFloor. The one alpha
+    // level is what makes the frame a rectangle the cursor can find, and without
+    // it the empty desktop's gestures are unreachable through any mouse (T-060).
+    frame.fill(QColor(0, 0, 0, kInputAlphaFloor));
     QPainter painter(&frame);
     painter.setRenderHint(QPainter::Antialiasing, true);
     paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
