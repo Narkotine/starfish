@@ -1365,6 +1365,13 @@ int main(int argc, char* argv[])
         // "moving a fence carries its icons" means. The rect is asserted to
         // have changed too, or the check would pass on a fence that never
         // moved.
+        //
+        // Since T-077 a move does not re-render at all (the frame is the fence's
+        // own rect, so nothing about it could change), which makes the equality
+        // here hold by construction -- it stays as the definition of what the
+        // tiles travelling with the fence means. The sharper claim, "one push and
+        // the same buffer, not a rebuild per mouse move", is measured on the
+        // hosted path at the end of this probe.
         const QList<starfish::core::DesktopItem> tiles{
             starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/one.txt")),
             starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/two.txt")),
@@ -2234,6 +2241,218 @@ int main(int argc, char* argv[])
                       .arg(bornOpaqueSurface ? 1 : 0)
                       .arg(bornOpaqueSurface && bornOpaqueSurface->perPixelAlpha() ? 1 : 0));
             delete bornHost;
+
+            // ---------------------------------------------------------------
+            // T-050 / T-077 -- the surface's work when nothing changed.
+            //
+            // Two user reports from the same session, and they are the same
+            // question asked from two sides: "there are still flickerings, maybe
+            // at regular intervals, of all the fences" -- the 2 s watchdog was
+            // re-placing and re-pushing every fence whether anything had changed or
+            // not, and a regular interval is a cadence, not a hiccup -- and "while
+            // the cursor drags, the fence itself looks unstable, although the final
+            // result is right", which is a resize pushing the *previous* frame at
+            // the new rect: the push sets the window's extent, so the fence went to
+            // the new position with its old size, once per mouse move, and the
+            // fresh frame put it right again in the same message.
+            //
+            // Both only exist on the hosted path (no surface, no watchdog and no
+            // layered push in headless mode), and both are *cadences*, so the
+            // measurement has to let the event loop run -- nested ones, the same
+            // instrument --persist-demo waits with.
+            auto waitMs = [](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+            };
+            if (starfish::platform::win::DesktopSurface* watchful = container->surface(idM)) {
+                // 1. At rest. Three watchdog periods, and both halves of the answer
+                //    are required: nothing was pushed, *and* the watchdog really did
+                //    ask. Without the second half this check would pass just as well
+                //    on a watchdog that had stopped -- the shape of mistake this
+                //    project keeps making.
+                const int pushesBefore = watchful->layeredPushes();
+                const int askedBefore = watchful->currentPlacements();
+                waitMs(3 * 2000 + 500);
+                const int pushesAtRest = watchful->layeredPushes() - pushesBefore;
+                const int askedAtRest = watchful->currentPlacements() - askedBefore;
+                check(QStringLiteral("a fence at rest is asked about and not pushed again (T-050)"),
+                      pushesAtRest == 0 && askedAtRest >= 3 && watchful->mismatchedFramePushes() == 0,
+                      QStringLiteral("%1 layered push(es) in 6.5 s at rest, %2 placement(s) found already "
+                                     "current, %3 size-mismatched push(es) ever")
+                          .arg(pushesAtRest)
+                          .arg(askedAtRest)
+                          .arg(watchful->mismatchedFramePushes()));
+
+                // 2. ...and the watchdog is still a watchdog. The premise of the
+                //    fix: what it is *for* is repairing a placement somebody else
+                //    disturbed, and a check that only watched it do nothing would be
+                //    green for a broken repair too. The disturbance is applied from
+                //    the outside (SetWindowPos on the hosted window from this
+                //    process, which is what another program moving it would be).
+                const QRect wanted = container->fenceRect(idM);
+                const HWND ourWindow = reinterpret_cast<HWND>(watchful->hwnd());
+                ::SetWindowPos(ourWindow, nullptr, wanted.x() + 40, wanted.y() + 40,
+                               wanted.width(), wanted.height(), SWP_NOZORDER | SWP_NOACTIVATE);
+                waitMs(2000 + 600);
+                POINT hostOrigin{0, 0};
+                const HWND host = ::FindWindowW(L"Progman", nullptr);
+                if (host)
+                    ::ClientToScreen(host, &hostOrigin);
+                RECT repaired{};
+                ::GetWindowRect(ourWindow, &repaired);
+                const QRect back(repaired.left - hostOrigin.x, repaired.top - hostOrigin.y,
+                                 repaired.right - repaired.left, repaired.bottom - repaired.top);
+                check(QStringLiteral("the watchdog still repairs a fence moved behind its back"),
+                      back == wanted,
+                      QStringLiteral("moved +40,+40 from outside, one watchdog period later: %1,%2 %3x%4 "
+                                     "(wanted %5,%6 %7x%8)")
+                          .arg(back.x()).arg(back.y()).arg(back.width()).arg(back.height())
+                          .arg(wanted.x()).arg(wanted.y()).arg(wanted.width()).arg(wanted.height()));
+
+                // The other clause of the guard is the z-order one: "the wallpaper
+                // is below me". ⚠️ It cannot be disturbed through the fence --
+                // measurement, not reasoning: SetWindowPos(fence, HWND_BOTTOM) is
+                // rewritten to HWND_TOP by the fence's *own* WM_WINDOWPOSCHANGING
+                // guard (ADR-4, the same guard that stops anything stacking a
+                // surface above the icon layer), so the fence never leaves the top.
+                // The only way in is the wallpaper's own window, which is what a
+                // second desktop tool would move. The relation walked here is the
+                // one place() uses: walking down from our window has to reach the
+                // DefView.
+                const auto aboveTheWallpaper = [](HWND window, HWND defView) {
+                    if (!window || !defView)
+                        return false;
+                    for (HWND w = ::GetWindow(window, GW_HWNDNEXT); w; w = ::GetWindow(w, GW_HWNDNEXT)) {
+                        if (w == defView)
+                            return true;
+                    }
+                    return false;
+                };
+                const HWND defView = host ? ::FindWindowExW(host, nullptr, L"SHELLDLL_DefView", nullptr)
+                                          : nullptr;
+                if (defView) {
+                    ::SetWindowPos(defView, HWND_TOP, 0, 0, 0, 0,
+                                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    const bool buriedOutside = !aboveTheWallpaper(ourWindow, defView);
+                    waitMs(2000 + 600);
+                    const bool buriedAfter = !aboveTheWallpaper(ourWindow, defView);
+                    if (buriedOutside) {
+                        check(QStringLiteral("the watchdog still lifts a fence the wallpaper was "
+                                             "stacked over"),
+                              !buriedAfter,
+                              QStringLiteral("the DefView put above the fence from outside; one "
+                                             "watchdog period later the wallpaper is still above it: "
+                                             "%1")
+                                  .arg(buriedAfter ? QStringLiteral("yes") : QStringLiteral("no")));
+                    } else {
+                        log << QStringLiteral("the z-order clause was NOT asked: the shell put the "
+                                              "DefView back above the fence on its own, so the "
+                                              "disturbed state does not last long enough to measure");
+                    }
+                } else {
+                    log << QStringLiteral("the z-order clause was NOT asked: no SHELLDLL_DefView "
+                                          "found under Progman");
+                }
+            }
+
+            if (starfish::platform::win::DesktopSurface* resizing = container->surface(idM)) {
+                // 3. A resize gesture, step by step, driven through the *widget*:
+                //    a press on the bottom-right grip and a move per step, each
+                //    reporting the cursor relative to where the fence is right now
+                //    (what Windows reports under capture, and the shape of gesture
+                //    that caught T-043). FenceView turns it into
+                //    geometryDragDelta, and the container applies it -- the same
+                //    path the mouse takes, rather than a call to the container.
+                //
+                //    Each step used to push twice -- the previous frame at the new
+                //    rect (a frame of the wrong size, which is also what resized the
+                //    window back) and then the right one. The claim now is one push
+                //    per step whose rect changed, no mismatched push at all, and the
+                //    stale frame left to the render that fits -- the skip is counted
+                //    because "did not need to" and "forgot to" look identical from
+                //    outside.
+                const int pushesBefore = resizing->layeredPushes();
+                const int staleBefore = resizing->staleFrameSkips();
+                const int mismatchedBefore = resizing->mismatchedFramePushes();
+                auto resizeInSteps = [&container](const QString& id, const QPoint& step, int count) {
+                    auto* view = container->view(id);
+                    if (!view)
+                        return 0;
+                    // Three pixels inside the corner: within the 6 px grip band, and
+                    // on the corner, which wins over the edges in hitTest.
+                    const QPoint grab = container->fenceRect(id).bottomRight() - QPoint(2, 2);
+                    const auto local = [&container, &id](const QPoint& screen) {
+                        return QPointF(screen - container->fenceRect(id).topLeft());
+                    };
+                    QMouseEvent press(QEvent::MouseButtonPress, local(grab), QPointF(grab),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QCoreApplication::sendEvent(view, &press);
+                    int changed = 0;
+                    QPoint cursor = grab;
+                    QRect previous = container->fenceRect(id);
+                    for (int i = 0; i < count; ++i) {
+                        cursor += step;
+                        QMouseEvent move(QEvent::MouseMove, local(cursor), QPointF(cursor),
+                                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                        QCoreApplication::sendEvent(view, &move);
+                        const QRect now = container->fenceRect(id);
+                        if (now != previous)
+                            ++changed;
+                        previous = now;
+                    }
+                    QMouseEvent release(QEvent::MouseButtonRelease, local(cursor), QPointF(cursor),
+                                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QCoreApplication::sendEvent(view, &release);
+                    return changed;
+                };
+                // The steps grow the fence towards the bottom right, so the grip
+                // stays inside the desktop: each move is 6 px further than the last.
+                const QSize desktopSize = container->desktopBounds();
+                const QRect beforeGesture = container->fenceRect(idM);
+                const int room = qMin(desktopSize.width() - beforeGesture.right(),
+                                      desktopSize.height() - beforeGesture.bottom());
+                const int steps = resizeInSteps(idM, QPoint(6, 6), qMax(1, qMin(12, room / 6 - 1)));
+                const int pushes = resizing->layeredPushes() - pushesBefore;
+                const int staleSkips = resizing->staleFrameSkips() - staleBefore;
+                const int mismatched = resizing->mismatchedFramePushes() - mismatchedBefore;
+                check(QStringLiteral("a resize pushes once per changed size, never a frame of the "
+                                     "wrong size (T-077)"),
+                      steps > 0 && pushes == steps && mismatched == 0 && staleSkips == steps,
+                      QStringLiteral("%1 step(s) with a changed rect -> %2 push(es), %3 size-mismatched, "
+                                     "%4 stale frame(s) left to the render that fits")
+                          .arg(steps)
+                          .arg(pushes)
+                          .arg(mismatched)
+                          .arg(staleSkips));
+
+                // 4. And what a *move* should do: re-push the image it already has,
+                //    not rebuild it. The frame is the fence's own rectangle, so a
+                //    move cannot change a single byte of it -- and rebuilding it
+                //    re-laid out the icon grid and repainted every tile ~60 times a
+                //    second under the cursor. "Not rebuilt" is measured as the same
+                //    buffer, not as equal bytes: an identical redraw would be equal
+                //    too, and that is exactly the work being removed.
+                const QImage beforeMove = container->frame(idM);
+                const int pushesBeforeMove = resizing->layeredPushes();
+                const QRect from = container->fenceRect(idM);
+                const QRect movedTo =
+                    container->setFenceRect(idM, from.translated(-24, -18), /*snap=*/false);
+                const QImage afterMove = container->frame(idM);
+                const int pushesForTheMove = resizing->layeredPushes() - pushesBeforeMove;
+                check(QStringLiteral("moving a fence re-pushes its image instead of redrawing it"),
+                      movedTo != from && !beforeMove.isNull() && beforeMove == afterMove
+                          && beforeMove.constBits() == afterMove.constBits()
+                          && pushesForTheMove == 1,
+                      QStringLiteral("moved %1,%2 -> %3,%4: %5 push(es), frame %6x%7 %8")
+                          .arg(from.x()).arg(from.y()).arg(movedTo.x()).arg(movedTo.y())
+                          .arg(pushesForTheMove)
+                          .arg(afterMove.width())
+                          .arg(afterMove.height())
+                          .arg(beforeMove.constBits() == afterMove.constBits()
+                                   ? QStringLiteral("reused (not redrawn)")
+                                   : QStringLiteral("rebuilt")));
+            }
         }
 
         const QString reportPath = QStringLiteral("build/fence_demo.txt");

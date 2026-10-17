@@ -1659,4 +1659,63 @@ Le **même nombre** apparaît des deux côtés et il est une **coïncidence util
 - **T-058** (« coins : rayon, liseré, ombre ») reste une revue **esthétique**, donc à l'œil — mais son sujet « coins » n'est plus partagé avec T-075, qui est mesuré.
 - **Reste humain** : *regarder* le résultat. La sonde mesure que rien n'est peint hors de la forme et que le panneau est opaque là où il doit l'être ; elle ne dit pas si le coin **plaît**.
 
+## 33. Une cadence n'est pas une raison : le watchdog qui répare au lieu de refaire (T-050 / T-077, session 44)
+
+Les deux retours restants de la session 42 sont la **même question posée des deux côtés** : « il y a toujours des clignotements, peut-être à **intervalles réguliers**, de **toutes** les fences » (T-050) et « instabilité dimensionnelle lors des redimensionnements… pendant le glissement du curseur, la fence elle-même paraît instable, bien qu'au final tout aille bien » (T-077). Dans les deux cas la **surface fait un travail visible pour un changement qui n'a pas eu lieu** : elle replace et repousse une zone identique toutes les 2 s, et elle pousse, à chaque pas d'un redimensionnement, une frame qui n'est **pas** à la taille demandée.
+
+Ce qu'il a fallu ajouter d'abord, c'est de quoi **compter** : `paintReport()` ne disait que le chemin GDI (`WM_PAINT`, `WM_ERASEBKGND`), et depuis T-075 il n'y a **plus qu'un** chemin, le push par pixel. La classe expose donc désormais quatre nombres, et deux d'entre eux comptent le travail **évité** — sans quoi « n'avait rien à faire » et « n'a rien fait » sont indiscernables de l'extérieur :
+
+| compteur | ce qu'il compte |
+|---|---|
+| `layeredPushes()` | les `UpdateLayeredWindow` réussis |
+| `mismatchedFramePushes()` | ceux dont la frame **n'avait pas la taille de la fenêtre** — un push fixe aussi l'**étendue** de la fenêtre, donc c'est le défaut lui-même. Doit rester **0** |
+| `staleFrameSkips()` | les push **non faits** parce que la frame allait être remplacée à la bonne taille juste après |
+| `currentPlacements()` | les `place()` qui ont trouvé la fenêtre **déjà** où elle devait être |
+
+### T-050 — le watchdog demande d'abord, répare ensuite
+
+`watchdogTick()` appelle `place()` **toutes les 2 s** pour **chaque** zone, et `place()` faisait jusqu'ici tout le travail **sans condition** : un `SetWindowPos` et un push complet d'une frame inchangée, pour une fenêtre qui n'avait pas bougé. Mesuré (sonde, 6,5 s au repos, une seule zone, **avant** correctif) : **3 à 4 push par période de 2 s, 0 placement trouvé courant**.
+
+Le correctif tient dans une question : **« est-ce que quelque chose a été dérangé ? »** au lieu de **« est-ce l'heure ? »**. `place()` lit `GetWindowRect`, relit la visibilité, et vérifie l'invariant de placement ; si les trois concordent, il **retourne sans rien faire** (compteur `currentPlacements`).
+
+⚠️ **Deux pièges de mesure dans cette seule vérification, et les deux se sont vus.**
+
+1. **`GetWindowRect` répond en pixels *écran*, `m_rect` est en pixels *client* du Progman** (T-014). Sur un moniteur à gauche du primaire, les origines diffèrent : une comparaison qui suppose `(0,0)` ne matcherait **jamais** — le watchdog garderait son ancien comportement **en silence**, ce qui est exactement le genre de no-op que ce projet passe son temps à mesurer. L'origine cliente est donc **soustraite** (`ClientToScreen`), pas supposée.
+2. **Le premier invariant écrit était faux, et la sonde l'a dit tout de suite.** J'avais formulé le placement d'une zone comme « rien au-dessus de moi » (le sens de `HWND_TOP`). Mesure : **3 push en 6,5 s et 0 placement courant** — parce que, dans une sonde qui héberge **plusieurs** zones, seule la dernière créée est au sommet de l'ordre des enfants : toutes les autres ont légitimement un frère au-dessus d'elles. L'invariant du projet n'est pas `HWND_TOP` (c'est **comment** une zone y arrive), c'est **« le papier peint est en dessous »** : en descendant la chaîne `GW_HWNDNEXT` depuis notre fenêtre, on doit **atteindre le `SHELLDLL_DefView`**. Un invariant uniforme pour toutes les couches, celui qu'ADR-12 énonce vraiment.
+
+**Ce que le watchdog ne fait pas moins bien** : la clause de z-order est **exercée**. Le mur, d'abord, mesuré : on **ne peut pas** déranger le z-order d'une zone depuis l'extérieur — `SetWindowPos(fence, HWND_BOTTOM)` est réécrit en `HWND_TOP` par la garde `WM_WINDOWPOSCHANGING` de la surface elle-même (ADR-4, la même garde qui empêche de poser quoi que ce soit au-dessus de la couche d'icônes). La **seule** porte est le papier peint : la sonde met le `DefView` au-dessus de la zone (`SetWindowPos(defView, HWND_TOP)`), vérifie que la zone est bien **sous** lui, et attend une période — la zone est **rendue** (au-dessus du papier peint). La clause de rectangle est exercée de même, par un déplacement depuis l'extérieur (`+40,+40`) : le watchdog la ramène.
+
+### T-077 — la frame périmée, et le rendu qui ne servait à rien
+
+⚠️ **La cause n'était pas dans le widget, elle était dans l'ordre des appels.** `applyVisibleGeometry` faisait : redimensionner le widget → `surface->setGeometry(visible)` → `renderFence()`. Or `setGeometry` → `place()`, et `place()` **poussait la frame courante** — celle de la **taille précédente** — avec `dst = m_rect` (**la nouvelle position**). Et comme `UpdateLayeredWindow` fixe **aussi l'étendue** de la fenêtre d'après la frame, chaque pas d'un redimensionnement faisait : `SetWindowPos` (nouvelle taille) → push (nouvelle position, **ancienne taille**) → `renderFence` → push (la bonne). **Deux push par pas, dont un faux**, dans le même message.
+
+Mesuré (12 pas, geste piloté **par le widget**, `--host`) : `24 push, 12 size-mismatched` avec l'ancien code ; `12 push, 0 size-mismatched, 12 stale skips` avec le correctif. C'est-à-dire : la fenêtre **alternait** entre la nouvelle et l'ancienne taille à chaque mouvement de souris, et rien d'autre ne le disait.
+
+Le correctif est **une condition** : `place()` ne pousse que la frame **à la taille du rect** qu'il vient de demander. Celle qui convient est le travail de l'appelant, qui rend **immédiatement après** — et le refus est **compté**, jamais silencieux.
+
+Deuxième moitié, du même raisonnement : `applyVisibleGeometry()` **re-rendait** la zone à chaque changement de géométrie, y compris un **déplacement** — où la taille ne change pas, donc où l'image ne peut pas changer d'un octet (une frame est le rectangle **de la zone**, T-039). Un drag de barre de titre relançait donc la disposition de la grille et la peinture de toutes les tuiles ~60 fois par seconde sous le curseur, pour rien. Le rendu n'a lieu que si la **taille peinte** (ou le `devicePixelRatio`) a changé — et l'image **est** le souvenir de ce pour quoi elle a été rendue (sa taille, son ratio), il n'y a donc pas de seconde source de vérité à tenir. Le contenu, lui, n'a jamais été l'affaire de cette fonction : il arrive par `contentChanged` (T-040).
+
+⚠️ **Corollaire de méthode** : la vérification de la session 25 (« *moving a fence carries its tiles* », images **identiques octet pour octet** avant/après déplacement) devient **vraie par construction** — un déplacement ne re-rend plus du tout. Elle reste, c'est la définition de ce que « les tuiles voyagent avec la zone » veut dire, mais elle ne peut plus échouer pour la raison qui l'avait fait écrire ; la revendication plus fine (« **un** push, et **le même tampon**, pas une reconstruction ») est mesurée séparément, sur le chemin hébergé, et c'est elle qui tombe au rouge si le rendu revient.
+
+### Prémisses prouvées (patch temporaire, revert + rebuild, `--fence-demo --host`)
+
+| ce qui est neutralisé | résultat | ce que ça prouve |
+|---|---|---|
+| le court-circuit « déjà en place » (`if (false && …)`) | `rc=1`, **exactement 1 `FAIL`** — `4 layered push(es) in 6.5 s at rest, 0 placement(s) found already current` | la cadence du watchdog est bien ce qui repoussait les zones au repos |
+| le push inconditionnel dans `place()` (le comportement d'avant) | `rc=1`, **exactement 1 `FAIL`** — `12 step(s) → 24 push(es), 12 size-mismatched, 0 stale frame(s)`, dont le compteur d'invariant | la frame périmée **est** le défaut d'un redimensionnement, et elle est comptée |
+| le rendu inconditionnel dans `applyVisibleGeometry` | `rc=1`, **exactement 1 `FAIL`** — `moving a fence… : 2 push(es), frame rebuilt` | « ne pas redessiner un déplacement » est mesuré (tampon et push), pas supposé |
+
+### Vérifications (session 44)
+
+- `ctest` **14/14** ; build MinGW **0 warning** (reconstruction complète).
+- `--fence-demo` **30/30** headless (inchangé) / **42/42** `--host` (**38** avant : +4). Les neuves : `a fence at rest is asked about and not pushed again (T-050)` (**0** push en 6,5 s, **3** placements courants), `the watchdog still repairs a fence moved behind its back`, `the watchdog still lifts a fence the wallpaper was stacked over`, `a resize pushes once per changed size, never a frame of the wrong size (T-077)` (**12 pas → 12 push, 0 mismatched, 12 stale**), `moving a fence re-pushes its image instead of redrawing it` (**1** push, tampon **réutilisé**).
+  - ⚠️ La vérification « au repos » exige **les deux moitiés** dans son assertion : zéro push **et** `currentPlacements ≥ 3`. Sans la seconde, elle serait verte sur un watchdog **arrêté** — le piège que ce projet a déjà payé trois fois (T-060, T-068, T-069).
+- Compteurs **inchangés** partout ailleurs : `--persist-demo` 26, `--nav-demo` **22/22** headless / **29/29** `--host` (les hotkeys s'enregistrent : **aucune instance de l'utilisateur ne tournait**, `build/` n'était pas verrouillé — contrairement à la session 43), `--rules-demo` 28, `--portal-demo` 30 / **32** `--host`, `--snapshot-demo` 11, `--screen-demo` 19, `--product-probe` 24, `--backdrop-demo` **37** / **51** `--host`, `--icons-demo` 10 (+1 *NOT asked*, décision 13) ; `--crash-demo` **20/20** — le filet de T-046 rejoué sur la nouvelle garde de placement (il masque les vraies icônes, **tue** le processus, et rend le bureau au lancement suivant).
+- `%APPDATA%/StarFish/` : **aucun marqueur**, `layout.json` **non réécrit** (mtime d'avant la session).
+
+### Reste humain, et ce qui n'est pas affirmé
+
+- La sonde mesure **une cadence supprimée** et **deux push par pas rendus à un**. Elle ne dit **pas** que le clignotement a disparu : c'est un ressenti, il se juge au vrai curseur, et le watchdog 2 s était le **seul** rythme régulier du code — s'il subsiste un clignotement régulier après ce correctif, le suspect suivant est la composition DWM d'un enfant layered de `Progman`, et il faudra le mesurer autrement.
+- Le gain du déplacement (ne plus redessiner) est mesuré **sur le tampon et sur les push**, pas à l'œil : c'est la même famille que T-043, où c'est le vrai curseur qui avait trouvé le bug.
+
 

@@ -515,6 +515,14 @@ bool DesktopSurface::pushLayeredFrame()
         ::InvalidateRect(toHwnd(m_hwnd), nullptr, FALSE);
         return false;
     }
+    ++m_pushCount;
+    // The push sets the window's extent from the frame (T-077), so a frame that is
+    // not the size of the rect the window was placed at is a defect, not a detail:
+    // it would put the fence at the right position with the wrong size. Counted
+    // here rather than guarded, so that any path that does it is *visible* -- the
+    // one path that used to (place(), during a resize) now skips it instead.
+    if (m_frame.size() != m_rect.size())
+        ++m_mismatchedPushCount;
     m_lastBlitLines = m_frame.height(); // pushed in full, not painted
     return true;
 }
@@ -793,6 +801,8 @@ bool DesktopSurface::place()
     if (!m_iconHost || !isAttached())
         return false;
 
+    const HWND self = toHwnd(m_hwnd);
+
     // The three roles of T-039, re-anchored by ADR-12. The DefView stays visible
     // now (it is the wallpaper), so every surface of ours has to live *above* it:
     // a fence goes to the top of Progman's child order, and the backdrop takes the
@@ -806,25 +816,90 @@ bool DesktopSurface::place()
         anchor = HWND_TOP;
         break;
     case Layer::Backdrop:
-        anchor = anchorAboveWallpaper(m_defView ? toHwnd(m_defView) : nullptr, toHwnd(m_hwnd));
+        anchor = anchorAboveWallpaper(m_defView ? toHwnd(m_defView) : nullptr, self);
         break;
     }
+
+    // The invariant every layer shares since ADR-12, and the one that says whether
+    // there is anything to repair: the wallpaper's own window (the DefView) is
+    // *below* us. HWND_TOP is how a fence achieves that, not what it means -- two
+    // fences are both above the wallpaper and one of them is above the other, so
+    // "nothing above me" would be false for every fence but the newest one. (It
+    // was the first version of this check, and measured on the hosted path: every
+    // fence but the last kept re-placing itself every 2 s. A check that is wrong
+    // is worse than no check, and it took the counters to see it.)
+    //
+    // A surface that cannot state the invariant -- no DefView found on this
+    // desktop -- places unconditionally rather than guessing.
+    const auto wallpaperIsBelow = [self, defView = toHwnd(m_defView)] {
+        if (!defView)
+            return false;
+        for (HWND window = ::GetWindow(self, GW_HWNDNEXT); window;
+             window = ::GetWindow(window, GW_HWNDNEXT)) {
+            if (window == defView)
+                return true;
+        }
+        return false;
+    };
+
+    // ⚠️ T-050 -- ask before repairing. This is called by the 2 s watchdog for
+    // every fence, and until now it did the whole job every single time: a
+    // SetWindowPos and a full UpdateLayeredWindow push of an unchanged frame, for
+    // a window that had not moved. The user's report ("they flicker, maybe at
+    // regular intervals, all of them") names that cadence, and the counters were
+    // the only thing missing to see it. What the watchdog is *for* is repairing a
+    // placement something else disturbed, so the question to ask is "is anything
+    // disturbed?", not "is it time?".
+    //
+    // GetWindowRect answers in *screen* pixels while m_rect is in the icon host's
+    // client pixels (T-014), so the host's client origin is subtracted rather than
+    // assumed to be the screen origin: on a monitor left of the primary one those
+    // differ, and a comparison that assumed (0,0) would simply never match -- the
+    // watchdog would keep its old behaviour in silence, which is exactly the kind
+    // of no-op this project keeps having to measure.
+    POINT hostOrigin{0, 0};
+    ::ClientToScreen(toHwnd(m_iconHost), &hostOrigin);
+    RECT current{};
+    const bool haveRect = ::GetWindowRect(self, &current) != FALSE;
+    const QRect actual(current.left - hostOrigin.x, current.top - hostOrigin.y,
+                       current.right - current.left, current.bottom - current.top);
+    if (haveRect && actual == m_rect && ::IsWindowVisible(self) == (m_visible ? TRUE : FALSE)
+        && wallpaperIsBelow()) {
+        ++m_currentPlaceCount;
+        return true; // already where it belongs: nothing to repair
+    }
+
     // A hidden surface (quick hide, F-022) is positioned but never shown: the
     // watchdog re-places every 2 s and must not resurrect it.
     UINT flags = SWP_NOACTIVATE;
     if (m_visible)
         flags |= SWP_SHOWWINDOW;
-    const BOOL ok = ::SetWindowPos(toHwnd(m_hwnd), anchor, m_rect.x(), m_rect.y(),
+    const BOOL ok = ::SetWindowPos(self, anchor, m_rect.x(), m_rect.y(),
                                    m_rect.width(), m_rect.height(), flags);
     if (!ok)
         qCWarning(lc) << "SetWindowPos failed, error" << ::GetLastError();
     if (m_perPixelAlpha) {
-        // UpdateLayeredWindow carries the position: after a move/resize the
-        // frame has to be pushed again, no WM_PAINT will refresh it.
-        if (ok && !m_frame.isNull())
-            pushLayeredFrame();
+        // UpdateLayeredWindow carries the position *and the size*: the frame it is
+        // handed becomes the window's extent.
+        //
+        // ⚠️ T-077 -- which is why a frame of the wrong size must never be pushed
+        // here. A resize used to push the previous frame at the new rect (this
+        // line), putting the fence at its new position with its old size, and then
+        // the fresh frame put it right again in the same message. Measured: every
+        // step of a resize gesture did exactly that twice, once wrongly, and the
+        // user's report is "while the cursor drags, the fence itself looks
+        // unstable, although the final result is right". The frame that fits the
+        // rect we just asked for is the caller's (applyVisibleGeometry renders it
+        // immediately after), so a stale one is left alone -- and counted, because
+        // "nothing to do" and "forgot to do it" look identical from the outside.
+        if (ok && !m_frame.isNull()) {
+            if (m_frame.size() == m_rect.size())
+                pushLayeredFrame();
+            else
+                ++m_stalePushSkips;
+        }
     } else if (m_visible) {
-        ::UpdateWindow(toHwnd(m_hwnd));
+        ::UpdateWindow(self);
     }
     return ok != FALSE;
 }
@@ -842,6 +917,9 @@ void DesktopSurface::watchdogTick()
         qCWarning(lc) << "desktop host lost (Explorer restarting?)";
         return;
     }
+    // place() is a no-op when the surface is already where it belongs (T-050);
+    // the tick is what notices that the desktop itself is gone or that a handle
+    // moved, and neither of those is skipped.
     m_placed = place();
 }
 
@@ -863,8 +941,8 @@ void DesktopSurface::paintInto(quintptr dc)
 
 QString DesktopSurface::paintReport() const
 {
-    return QStringLiteral("%1 WM_PAINT, %2 WM_ERASEBKGND, last region %3,%4 %5x%6, clipBox %7, "
-                          "%8 scan lines")
+    QString report = QStringLiteral("%1 WM_PAINT, %2 WM_ERASEBKGND, last region %3,%4 %5x%6, "
+                                    "clipBox %7, %8 scan lines")
         .arg(m_paintCount)
         .arg(m_eraseCount)
         .arg(m_lastUpdateRegion.x())
@@ -873,6 +951,16 @@ QString DesktopSurface::paintReport() const
         .arg(m_lastUpdateRegion.height())
         .arg(m_lastClipBox)
         .arg(m_lastBlitLines);
+    // T-050 / T-077: the layered path's work, and the work it did not do. Both
+    // halves are reported on purpose -- a surface that pushes nothing is only
+    // good news if it also says it was asked (currentPlacements).
+    report += QStringLiteral(", %1 layered push(es) (%2 size-mismatched, %3 stale skipped), "
+                             "%4 placement(s) already current")
+                  .arg(m_pushCount)
+                  .arg(m_mismatchedPushCount)
+                  .arg(m_stalePushSkips)
+                  .arg(m_currentPlaceCount);
+    return report;
 }
 
 bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wParam,

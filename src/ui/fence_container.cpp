@@ -956,7 +956,23 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
         fence.surface->setDevicePixelRatio(dpr);
         fence.surface->setGeometry(visible);
     }
-    renderFence(fence.id);
+
+    // ⚠️ T-077 -- a geometry change only needs a *redraw* when it changed the size
+    // the fence is painted at, and that is not the same question as "did the
+    // geometry change". Moving a fence (the title-bar drag) resizes nothing: the
+    // frames are rendered at the fence's own rect, so the image is already the
+    // right one, and the surface carries the new position in the same push (its
+    // place() is what UpdateLayeredWindow is given the destination by). Repeating
+    // the render there re-laid out the icon grid, and repainted every tile, ~60
+    // times a second under the cursor, for an image whose bytes could not change.
+    // What a fence's *contents* are is not this function's business anyway: a
+    // content change reaches the desktop through the view's contentChanged (T-040).
+    // The image itself is the record of what it was rendered for -- its size and
+    // its device pixel ratio -- so the comparison needs no second source of truth.
+    const bool needsRender = fence.frame.isNull() || fence.frame.size() != visible.size()
+        || !qFuzzyCompare(fence.frame.devicePixelRatio(), dpr);
+    if (needsRender)
+        renderFence(fence.id);
 }
 
 QRect FenceContainer::fenceVisibleRect(const QString& id) const

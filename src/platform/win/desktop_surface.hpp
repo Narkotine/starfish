@@ -203,6 +203,27 @@ public:
     // signature this project keeps running into, so it has to be observable.
     QString paintReport() const;
 
+    // The same counters, as numbers, for the probes (T-050 / T-077). A surface
+    // that is seen to do nothing must be distinguishable from one that is merely
+    // quiet, so the *work avoided* is counted as explicitly as the work done.
+    //
+    //   layeredPushes()          successful UpdateLayeredWindow pushes.
+    //   mismatchedFramePushes()  pushes whose frame was not the size of the
+    //                            window it went to. Must stay 0: such a push
+    //                            resizes the window to the frame, so it puts the
+    //                            fence at its new position with its previous
+    //                            size -- the "the fence itself looks unstable
+    //                            while the cursor drags" report (T-077).
+    //   staleFrameSkips()        pushes *not* made because the frame was about to
+    //                            be replaced at the new size by the caller.
+    //   currentPlacements()      place() calls that found the window already
+    //                            where it belongs -- no SetWindowPos, no push.
+    //                            The 2 s watchdog lands here when at rest (T-050).
+    int layeredPushes() const { return m_pushCount; }
+    int mismatchedFramePushes() const { return m_mismatchedPushCount; }
+    int staleFrameSkips() const { return m_stalePushSkips; }
+    int currentPlacements() const { return m_currentPlaceCount; }
+
 signals:
     // The desktop window was destroyed (Explorer restart) and the surface is
     // gone: the owner has to attach() again.
@@ -277,6 +298,13 @@ private:
     int m_lastClipBox = -1;
     int m_lastBlitLines = -1;
     QRect m_lastUpdateRegion;
+
+    // Layered-push / placement counters, for paintReport() and the probes
+    // (T-050, T-077). See the public accessors for what each one means.
+    int m_pushCount = 0;
+    int m_mismatchedPushCount = 0;
+    int m_stalePushSkips = 0;
+    int m_currentPlaceCount = 0;
 };
 
 } // namespace starfish::platform::win
