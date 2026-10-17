@@ -22,6 +22,17 @@
 - `desktop_surface.cpp` / `.hpp` : `DesktopSurface::screenSample()` — **l'alpha de l'écran au pixel du centre de la zone** (`::GetDC` / `::GetPixel`), et un `TMP tick screen` dans le watchdog.
 - `desktop_host.cpp` (`dumpDesktopHierarchy()`) : **les hôtes** — `Progman`, boucle `WorkerW`, `SHELLDLL_DefView`, `SysListView32`, nombre d'items.
 
+## Résultats obtenus alors (extraits de la transcription, session 44)
+
+- **La frame est parfaite en mémoire** : centre alpha **255**, panneau `#ff1f2937`, `pushed-to-window 1`, mode per-pixel, fenêtre visible ; `corner alpha 1` = le **coin arrondi** (radius 10).
+- **Les fenêtres vivent et sont bien ordonnées** : 5 `StarFishDesktopSurface` enfants de `Progman`, à leurs rects exacts, au-dessus du `DefView`, stables sur 4-5 relevés en 20 s.
+- **Rien à l'écran** dans le contexte mesuré : **0/25** points du panneau par rect, les centres portant le **papier peint** (`#2a6511`, `#7cb801`, `#499003`, `#010300`, `#1c4700`), vu aussi bien de l'extérieur que du produit.
+- **Mais** en lançant « comme l'utilisateur » (par le shell), l'échantillon renvoie `#0c0c0c` puis `#191919` = **les pixels de StarFish** ⇒ le contexte de lancement change le résultat.
+- **Deux racines de bureau coexistaient** : `Progman 0x101bc` + `DefView 0x2016e` (celui que le produit choisit) et `Progman 0x65980` + `DefView 0x131438` (88 icônes) — mesuré, non expliqué.
+- **Explorer recréé à 21:05:43**, ~14 min **après** le rapport ⇒ ne peut pas expliquer cette occurrence.
+
+**Hypothèses restantes** : « premier push perdu » (le watchdog de 2 s le masquait avant T-050) et « bureau recréé sans réattachement ». Le test qui les départage : relancer, puis **déplacer/redimensionner** une zone — si elle réapparaît, c'est le premier push perdu.
+
 ## Comment s'en servir
 
 ```bash
