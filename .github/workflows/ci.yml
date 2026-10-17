@@ -44,3 +44,9 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      # STATE.md and TODO.md are read at the start of every session: a doc that
+      # grows without a cap stops being read at all, and the session grep the
+      # first 200 lines instead. The caps are checked, not trusted.
+      - name: Check the docs stay short
+        run: python tools/docs_size.py
