@@ -4,9 +4,9 @@
 
 ## Protocole d'entrée (obligatoire, dans cet ordre)
 
-1. **`STATE.md`** — où on en est, décisions actées, 3 prochaines actions.
+1. **`STATE.md`** — où on en est. **Court par construction (cap 6 Ko)** : il ne raconte pas les sessions (c'est le rôle du devlog) et son détail vit dans `docs/state/` (décisions et garde-fous par domaine, inventaire, écarts, scripts d'essai), lu **à la demande**. `tools/docs_size.py` (en CI) tient le cap.
 2. `README.md` — carte des documents.
-3. La phase courante dans `docs/plan.md`, puis `TODO.md` pour les tâches.
+3. La phase courante dans `docs/plan.md`, puis `TODO.md` pour les tâches ouvertes (les tâches ✅ sont dans `docs/todo-archive.md`).
 
 ## Protocole de sortie (obligatoire avant de terminer une session)
 
