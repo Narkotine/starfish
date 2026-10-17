@@ -1,7 +1,7 @@
 # TODO — archive des tâches terminées
 
 > Extrait de `TODO.md` : table des tâches ✅ et **détail verbatim** de chacune (plus les récits de session clos).
-> Index vivant des tâches ouvertes : [`TODO.md`](TODO.md). Récits détaillés par session : `devlog/`.
+> Index vivant des tâches ouvertes : [`TODO.md`](../TODO.md). Récits détaillés par session : `devlog/`.
 
 > **Doublons d'origine conservés** (une même tâche consignée deux fois au fil des sessions) : `T-040`, `T-041`, `T-057`, `T-062`.
 
