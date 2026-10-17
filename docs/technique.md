@@ -1718,4 +1718,53 @@ Deuxième moitié, du même raisonnement : `applyVisibleGeometry()` **re-rendait
 - La sonde mesure **une cadence supprimée** et **deux push par pas rendus à un**. Elle ne dit **pas** que le clignotement a disparu : c'est un ressenti, il se juge au vrai curseur, et le watchdog 2 s était le **seul** rythme régulier du code — s'il subsiste un clignotement régulier après ce correctif, le suspect suivant est la composition DWM d'un enfant layered de `Progman`, et il faudra le mesurer autrement.
 - Le gain du déplacement (ne plus redessiner) est mesuré **sur le tampon et sur les push**, pas à l'œil : c'est la même famille que T-043, où c'est le vrai curseur qui avait trouvé le bug.
 
+## 34. Le push par pixel ne compose pas sur un enfant de `Progman` : les zones repassent au blit, la forme devient une région (T-079, session 46)
+
+**ADR-15.** Le rapport « *je ne vois plus les fences créées, ou nouvellement créée, **même en matériel opaque*** » a une cause unique — et le « **même en opaque** » était l'indice : **depuis T-075, toute zone passe par `UpdateLayeredWindow`**, sur un **enfant de `Progman`**, et **ce push n'atteint pas l'écran**.
+
+### La mesure qui tranche (six fenêtres de test, sur le bureau de l'utilisateur)
+
+Instrument **hors produit** (`t079spike2.cpp`, compilé **avec le manifeste du projet** lié par `windres` — sans lui, un enfant layered retombe sur le comportement pré-Windows-8 et le test ne prouve rien, ADR-4), six fenêtres `320x160` **côte à côte**, même rect, même processus, toutes enfants de `Progman` :
+
+| variante | chemin | vue à l'œil |
+|---|---|---|
+| rouge | `WS_EX_LAYERED` + `LWA_ALPHA, 255` + blit GDI | **oui** |
+| vert | idem + `SetWindowRgn` arrondie | **oui**, coins ronds |
+| bleu | `LWA_ALPHA, 170` | **oui**, translucide |
+| jaune | `LWA_ALPHA, 170` + région | **oui** |
+| magenta | `UpdateLayeredWindow` (per-pixel) | **non** |
+| cyan | enfant **nu** (sans `WS_EX_LAYERED`) | **non** |
+
+Trois instruments concordent : l'œil de l'utilisateur, **sa capture d'écran**, et un échantillonnage `CopyFromScreen`/`GetPixel` toutes les 1,5 s (le magenta et le cyan n'apparaissent à **aucun** instant en 2 min 30).
+
+### Pourquoi c'était silencieux
+
+Le projet n'avait **jamais** mesuré qu'un push `UpdateLayeredWindow` **apparaisse** — seulement qu'il **réussisse**. La sonde de la session 9 dit « *the same push succeeds — even on a cross-process child of Progman* » : c'était une **réponse**, pas une **livraison** (même famille que T-060, T-068, T-069). Aggravant : le mode per-pixel **désactive le blit dans `WM_PAINT`**, donc une zone dont le push ne compose pas n'a **aucun autre chemin** — elle n'est pas dégradée, elle est **muette**. Et T-075, en envoyant *toutes* les zones sur ce chemin (l'opaque comprise, pour ses coins ronds), a rendu **toutes** les zones invisibles.
+
+### La décision (ADR-15)
+
+- Le **matériau est l'alpha uniforme de la fenêtre** (`SetLayeredWindowAttributes(hwnd, 0, a, LWA_ALPHA)`) : c'est tout ce qu'un panneau d'une seule couleur peut dire.
+- Le **panneau arrondi est une *région*** (`SetWindowRgn` + `CreateRoundRectRgn`) : c'est **elle** qui retire les pixels hors du panneau.
+- La **frame est opaque** et **blittée** par `WM_PAINT` ; elle ne porte plus la forme.
+- Le per-pixel reste, **marqué chemin de développement**, pour le seul fond de bureau plein écran — que le produit **n'héberge plus** (T-071). Rien de ce que l'utilisateur voit n'en dépend.
+
+`place()` régénère la région quand la **taille** change (une région est en coordonnées **fenêtre**) et **l'inclut dans sa garde « déjà en place »** (T-050) : sans cette clause, la garde était satisfaite par une fenêtre au bon rect et la région n'était **jamais** construite — mesuré (`region type ERROR` sur une zone bien placée), et c'est la **sonde** qui l'a dit, pas une relecture.
+
+### Les prix, écrits plutôt que découverts plus tard
+
+1. **Une région est 1 bit** : le bord du coin n'est **pas anticrénelé**. La revue esthétique est **T-058**.
+2. **Les pixels du coin ne sont plus ceux de la fenêtre** : un clic pile sur un coin arrondi tombe au bureau. **ADR-11** (le plancher d'alpha du coin) visait exactement ce cas et **devient sans objet** — il n'existait que parce que le chemin per-pixel arrondissait les coins.
+3. **La translucidité est uniforme par fenêtre** et non par pixel : pour un panneau d'une seule couleur, c'est la même chose — et c'est ce que le matériau voulait dire depuis le début.
+
+Gain collatéral : **plus aucune fenêtre n'est recréée** quand le matériau change (T-057 recréait la surface pour changer de mode) — c'est un appel.
+
+### Vérification
+
+- `ctest` **14/14** ; build MinGW **0 warning**.
+- `--fence-demo` **28/28** headless / **41/41** `--host`, toutes vertes.
+- ⚠️ **Les vérifications qui encodaient T-075 ont été *remplacées*, pas ajustées** : elles exigeaient `per-pixel = 1`, un `corner alpha == plancher` et « 0 pixel peint hors du panneau ». La forme est désormais vérifiée **sur la région que Windows détient** (`GetWindowRgn` + `PtInRegion` au coin et au centre), et la frame doit être **opaque** au coin — l'alpha est passé du côté de la fenêtre.
+- **Hors produit, à l'écran** : les pixels au centre des zones passent du **papier peint** (`#010300`, `#182b0f`, `#499003`) au **panneau** (`#1f2937`). L'instrument qui avait servi à décrire le défaut sert à constater le correctif.
+- ⚠️ **Le compteur de placements a d'abord dit 143 au lieu de 3** : l'utilisateur bougeait sa souris **sur les zones** pendant la sonde. Rejoué sans lui : **3**. Une mesure de repos se prend quand rien ne touche le sujet — même famille que « ne pas juger sur une capture sans vérifier que le bureau est visible ».
+
+
 

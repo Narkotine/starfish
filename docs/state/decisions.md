@@ -52,3 +52,4 @@
 | 44 | **Session 41 — T-049 : une cellule plus large que son icône, et une légende qui se replie** (détail : **§31**… | [Rendu](./decisions/03-rendu.md) |
 | 45 | **Session 43 — T-074 / T-075 : l'opaque par défaut, et les coins ronds qui allaient avec** (détail : **§32**… | [Rendu](./decisions/03-rendu.md) |
 | 46 | **Session 44 — T-050 / T-077 : une cadence n'est pas une raison, et une frame périmée n'est pas une frame**… | [Rendu](./decisions/03-rendu.md) |
+| 47 | **Session 46 — T-079 / ADR-15 : le push par pixel ne compose pas sur un enfant de `Progman` ; les zones repassent au blit, la forme devient une région** (détail : **§34** de `docs/technique.md`). Annule la règle de T-075 (« toute zone est poussée par pixel ») | [Rendu](./decisions/03-rendu.md) |

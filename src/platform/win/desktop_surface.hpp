@@ -157,13 +157,44 @@ public:
     void setFrame(const QImage& frame);
     QImage frame() const;
 
-    // Per-pixel transparency mode (T-017). When enabled, frames are pushed
-    // with UpdateLayeredWindow (premultiplied alpha honoured, the wallpaper
-    // shows through translucent pixels) instead of being blitted from
-    // WM_PAINT with StretchDIBits (which ignores alpha). Measured in session 7
-    // to fail with ERROR_INVALID_PARAMETER on a child window *created by Qt*;
-    // this class owns its window, so the call has a chance. Returns false if
-    // the first push failed.
+    // ⚠️ ADR-15 -- the uniform alpha, which is the path every fence takes.
+    //
+    // The per-pixel push at the bottom of this block does NOT compose on a child
+    // of Progman: the call returns TRUE and the pixels stay the wallpaper.
+    // Measured 2026-10-18 with six test windows side by side on the user's own
+    // desktop -- the UpdateLayeredWindow one invisible, the
+    // SetLayeredWindowAttributes one beside it visible, same rect, same process,
+    // both layered, both children of Progman. Every fence has gone down that path
+    // since T-075, so **every fence was invisible**, which is the user's report
+    // verbatim ("je ne vois plus les fences ... même en matériel opaque").
+    //
+    // A fence therefore shows itself the way Windows has always shown a shaped
+    // window: one uniform alpha for the whole window (which is exactly what a
+    // material *is* -- a single-colour panel has no per-pixel alpha to express),
+    // a rounded window *region* (that is what removes the pixels outside the
+    // panel, so the corners are truly transparent), and the frame blitted from
+    // WM_PAINT -- which ignores alpha, and no longer matters because the region
+    // has already taken the corners away.
+    //
+    // The cost, stated rather than hidden: a region is 1-bit, so the corner edge
+    // is not antialiased, and the corner pixels are no longer the window's -- a
+    // click exactly on a rounded corner falls through to the desktop, where
+    // ADR-11's alpha floor used to keep it. That floor existed only because the
+    // per-pixel path was the one doing the rounding; it has no object left.
+    bool setUniformAlpha(int alpha);
+    int uniformAlpha() const { return m_uniformAlpha; }
+
+    // The rounded panel of the window, as a region: 0 = no region (square).
+    // A region lives in window coordinates, so place() re-applies it whenever the
+    // window's size changes.
+    void setCornerRadius(int radiusPx);
+    int cornerRadius() const { return m_cornerRadius; }
+
+    // Per-pixel transparency mode (T-017). DEV PATH ONLY, and known not to reach
+    // the screen on a child of Progman (ADR-15). It is kept for the one surface
+    // that has nothing else -- the full-screen backdrop drawn by --claim-desktop
+    // and the probes -- which the product no longer hosts at all (T-071). Nothing
+    // the user sees rests on it.
     bool setPerPixelAlpha(bool enabled);
     bool perPixelAlpha() const;
 
@@ -207,18 +238,23 @@ public:
     // that is seen to do nothing must be distinguishable from one that is merely
     // quiet, so the *work avoided* is counted as explicitly as the work done.
     //
-    //   layeredPushes()          successful UpdateLayeredWindow pushes.
+    //   paintCount()             WM_PAINTs handled. On the blit path (ADR-15)
+    //                            this is what "the window was asked to show
+    //                            itself" means, so it is the number a rest or a
+    //                            move has to leave alone.
+    //   layeredPushes()          successful UpdateLayeredWindow pushes. Fences no
+    //                            longer push anything (ADR-15); the backdrop
+    //                            still does, and it is the only surface for which
+    //                            this number is not zero.
     //   mismatchedFramePushes()  pushes whose frame was not the size of the
     //                            window it went to. Must stay 0: such a push
-    //                            resizes the window to the frame, so it puts the
-    //                            fence at its new position with its previous
-    //                            size -- the "the fence itself looks unstable
-    //                            while the cursor drags" report (T-077).
+    //                            resizes the window to the frame (T-077).
     //   staleFrameSkips()        pushes *not* made because the frame was about to
     //                            be replaced at the new size by the caller.
     //   currentPlacements()      place() calls that found the window already
-    //                            where it belongs -- no SetWindowPos, no push.
+    //                            where it belongs -- no SetWindowPos, no repaint.
     //                            The 2 s watchdog lands here when at rest (T-050).
+    int paintCount() const { return m_paintCount; }
     int layeredPushes() const { return m_pushCount; }
     int mismatchedFramePushes() const { return m_mismatchedPushCount; }
     int staleFrameSkips() const { return m_stalePushSkips; }
@@ -237,6 +273,8 @@ private:
     bool place();
     bool refreshDesktopHandles();
     void watchdogTick();
+    // Applies m_cornerRadius as the window's region (ADR-15).
+    void applyShape();
 
     // Returns true when the message was fully handled.
     bool handleMessage(quintptr hwnd, unsigned message, quintptr wParam, quintptr lParam,
@@ -257,6 +295,12 @@ private:
     qreal m_dpr = 1.0;
     bool m_placed = false;
     bool m_perPixelAlpha = false;
+    // ADR-15: the material (a uniform alpha for the whole window) and the
+    // rounded panel (a region). Both are properties of the window, not of the
+    // frame -- the frame is blitted with alpha ignored.
+    int m_uniformAlpha = 255;
+    int m_cornerRadius = 0;
+    QSize m_shapedSize; // the size the region was built for
     // Navigation state (T-009), both honoured by place() so the watchdog cannot
     // undo them.
     bool m_visible = true;

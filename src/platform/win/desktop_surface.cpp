@@ -284,8 +284,15 @@ bool DesktopSurface::attach(const QRect& rect)
     BOOL attributesOk = TRUE;
     DWORD attributesError = 0;
     if (!m_perPixelAlpha) {
+        // ADR-15: this call IS the fence's transparency -- the material is a
+        // uniform alpha for the window, and it is the only layered mode that
+        // reaches the screen on a child of Progman (measured, see the header).
+        // It is not a one-way door for the *blit* path as it was for the
+        // per-pixel one: setUniformAlpha() can change it live, so switching a
+        // material no longer means recreating the window (T-057 used to).
         ::SetLastError(0);
-        attributesOk = ::SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        attributesOk = ::SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(m_uniformAlpha),
+                                                    LWA_ALPHA);
         attributesError = ::GetLastError();
     }
 
@@ -580,6 +587,62 @@ void DesktopSurface::setClickThrough(bool clickThrough)
     // WM_NCHITTEST, which is a property of this WndProc and needs no repaint.
 }
 
+bool DesktopSurface::setUniformAlpha(int alpha)
+{
+    m_uniformAlpha = alpha < 0 ? 0 : (alpha > 255 ? 255 : alpha);
+    if (!isAttached() || m_perPixelAlpha)
+        return true; // remembered for attach(); the per-pixel path has no uniform alpha
+    if (!::SetLayeredWindowAttributes(toHwnd(m_hwnd), 0, static_cast<BYTE>(m_uniformAlpha),
+                                      LWA_ALPHA)) {
+        qCWarning(lc) << "setUniformAlpha:" << m_uniformAlpha << "refused, error"
+                      << ::GetLastError();
+        return false;
+    }
+    return true;
+}
+
+void DesktopSurface::setCornerRadius(int radiusPx)
+{
+    const int clamped = radiusPx < 0 ? 0 : radiusPx;
+    if (m_cornerRadius == clamped)
+        return;
+    m_cornerRadius = clamped;
+    applyShape();
+}
+
+void DesktopSurface::applyShape()
+{
+    if (!isAttached())
+        return;
+
+    const HWND self = toHwnd(m_hwnd);
+    RECT client{};
+    ::GetClientRect(self, &client);
+    const int w = client.right - client.left;
+    const int h = client.bottom - client.top;
+
+    if (m_cornerRadius <= 0 || w <= 0 || h <= 0) {
+        ::SetWindowRgn(self, nullptr, TRUE);
+        m_shapedSize = QSize();
+        return;
+    }
+
+    // CreateRoundRectRgn takes the full width and height of the corner ellipse,
+    // so a radius of r reads 2r here; the rect is inclusive of its last pixel,
+    // which is why the window is w+1 x h+1.
+    HRGN region = ::CreateRoundRectRgn(0, 0, w + 1, h + 1, m_cornerRadius * 2, m_cornerRadius * 2);
+    if (!region) {
+        qCWarning(lc) << "CreateRoundRectRgn failed, error" << ::GetLastError();
+        return;
+    }
+    if (!::SetWindowRgn(self, region, TRUE)) {
+        qCWarning(lc) << "SetWindowRgn failed, error" << ::GetLastError();
+        ::DeleteObject(region); // on success the system owns the region
+        return;
+    }
+    m_shapedSize = QSize(w, h);
+}
+
 void DesktopSurface::syncZOrder()
 {
     if (!isAttached())
@@ -863,8 +926,15 @@ bool DesktopSurface::place()
     const bool haveRect = ::GetWindowRect(self, &current) != FALSE;
     const QRect actual(current.left - hostOrigin.x, current.top - hostOrigin.y,
                        current.right - current.left, current.bottom - current.top);
+    // ⚠️ ADR-15: the rounded panel is part of "where it belongs". Without this
+    // clause the guard below is satisfied by a window that is at the right rect,
+    // visible and above the wallpaper -- and its region is never built, so the
+    // corners stay square and the fence is a rectangle. Measured: the region check
+    // in --fence-demo --host caught exactly that (region type ERROR on a fence
+    // whose rect was right).
+    const bool shapeIsCurrent = m_cornerRadius <= 0 || m_shapedSize == m_rect.size();
     if (haveRect && actual == m_rect && ::IsWindowVisible(self) == (m_visible ? TRUE : FALSE)
-        && wallpaperIsBelow()) {
+        && shapeIsCurrent && wallpaperIsBelow()) {
         ++m_currentPlaceCount;
         return true; // already where it belongs: nothing to repair
     }
@@ -878,6 +948,11 @@ bool DesktopSurface::place()
                                    m_rect.width(), m_rect.height(), flags);
     if (!ok)
         qCWarning(lc) << "SetWindowPos failed, error" << ::GetLastError();
+    // ADR-15: a window region is expressed in window coordinates, so it is the
+    // *size* that decides whether it has to be rebuilt -- a move changes nothing
+    // about it. A rolled-up fence changes height, and a resize changes both.
+    if (m_cornerRadius > 0 && m_shapedSize != m_rect.size())
+        applyShape();
     if (m_perPixelAlpha) {
         // UpdateLayeredWindow carries the position *and the size*: the frame it is
         // handed becomes the window's extent.

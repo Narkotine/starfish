@@ -458,26 +458,34 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
 {
     if (!fence.surface || !fence.view)
         return true; // headless: nothing to switch, the mode is the surface's
-    // T-075: this used to be `isTranslucent(panel alpha)` -- and that is what the
-    // user saw as "the corners are round but a right angle spills out of them".
-    // A fence is a *rounded panel*: the pixels outside that shape are the frame's
-    // under-layer (renderFence), and only an alpha channel can make them
-    // transparent. The opaque GDI blit has no alpha to spend, so an opaque fence
-    // came out as a full rectangle behind its own rounded border. Every material
-    // takes the per-pixel push now; the material decides how opaque the *panel*
-    // is, never whether the window has an alpha channel.
-    if (fence.surface->perPixelAlpha())
-        return true;
-    if (!fence.surface->setPerPixelAlpha(true)) {
+    // ⚠️ T-079 / ADR-15. This function used to choose the *window's mode* from the
+    // material, and since T-075 every fence took the per-pixel push -- which is
+    // exactly the path that does not compose on a child of Progman (measured on
+    // the user's own desktop: the UpdateLayeredWindow window invisible, the
+    // SetLayeredWindowAttributes one beside it visible, same rect, same process).
+    // So every fence was invisible, whatever its material: that is the report
+    // "je ne vois plus les fences ... même en matériel opaque", and "même en
+    // opaque" was the clue -- the opaque material used to select the blit path,
+    // and after T-075 it no longer selected anything.
+    //
+    // The material is now the window's **uniform alpha** (all a single-colour
+    // panel can mean) and the rounded panel is the window's **region**, which is
+    // what removes the pixels outside the panel -- so the blit path, the one that
+    // has always reached the screen, serves every material. The gain beside the
+    // fix: a material change is two calls instead of a window recreation.
+    const int alpha = fence.view->panelColor().alpha();
+    if (!fence.surface->setUniformAlpha(alpha)) {
         qCWarning(lc).noquote()
-            << QStringLiteral("fence %1: could not switch the surface to the per-pixel path -- "
-                              "the panel stays opaque and its corners square")
-                   .arg(fence.id);
+            << QStringLiteral("fence %1: the window refused the material's alpha (%2)")
+                   .arg(fence.id)
+                   .arg(alpha);
         return false;
     }
-    qCInfo(lc).noquote() << QStringLiteral("fence %1: per-pixel path (panel alpha %2)")
+    fence.surface->setCornerRadius(fence.view->cornerRadius());
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: window alpha %2, rounded panel %3 px")
                                 .arg(fence.id)
-                                .arg(fence.view->panelColor().alpha());
+                                .arg(alpha)
+                                .arg(fence.view->cornerRadius());
     return true;
 }
 
@@ -777,12 +785,12 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                 target->view->addDroppedItems(dropped);
         });
 #endif
-        // T-057 / T-075: the window's layered mode is fixed at *creation* --
-        // attach() skips the one-way SetLayeredWindowAttributes call in per-pixel
-        // mode, and switching a live surface means recreating it. Every fence is
-        // born per-pixel: a rounded panel is a shape, and only an alpha channel
-        // can make the pixels outside it transparent (T-075).
-        surface->setPerPixelAlpha(true);
+        // ⚠️ T-079 / ADR-15: the window is born with the material as its uniform
+        // alpha and the rounded panel as its region, *before* attach() so the
+        // window is created right. It used to be born per-pixel (T-057/T-075) --
+        // the path that does not reach the screen on a child of Progman.
+        surface->setUniformAlpha(QColor(style.background).alpha());
+        surface->setCornerRadius(style.radius);
         if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
             qCWarning(lc).noquote()
                 << QStringLiteral("fence %1: could not host the surface (no desktop?)").arg(id);
@@ -1063,46 +1071,33 @@ void FenceContainer::renderFence(const QString& id)
     QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
     frame.setDevicePixelRatio(dpr);
 
-    // F-038 / T-057 / T-075: the frame's alpha channel *is* the fence's shape,
-    // and the layer under the panel is what makes it work.
+    // ⚠️ T-079 / ADR-15: the frame is **opaque**, and the shape is no longer its
+    // business.
     //
-    //  * A fence is a rounded panel. The pixels outside that shape are the
-    //    under-layer: they have to be (almost) transparent, or the wallpaper
-    //    cannot show through the corner and the fence reads as a rectangle with
-    //    a rounded border drawn inside it -- "the corners are round but a right
-    //    angle spills out of them" (T-075). Only an alpha channel can do that,
-    //    which is why every fence takes the per-pixel push (see
-    //    applyMaterialToSurface).
-    //  * The fill is at the **input alpha floor** and not at zero: a per-pixel
-    //    layered window is hit-tested against its own alpha (ADR-11, T-060), so
-    //    a fence whose corners were alpha 0 would lose the mouse on the corners
-    //    alone. One level out of 255 is invisible on any wallpaper, and it keeps
-    //    the whole rectangle reachable.
-    //  * The only case that still needs an opaque fill is the *fallback*: when
-    //    the per-pixel push was refused, the surface blits with GDI, which
-    //    ignores alpha -- a transparent pixel would come out black. The frame
-    //    then follows the window it is going to, not the material.
+    // T-075's reasoning was that the frame's alpha channel *is* the fence's shape,
+    // so it filled the under-layer at the input alpha floor and pushed the whole
+    // thing per-pixel. The first half was right and the second was fatal: the
+    // per-pixel push does not compose on a child of Progman (measured), so the
+    // fences this filled were never on screen. What draws the shape now is the
+    // window's **region** (DesktopSurface::setCornerRadius): the pixels outside
+    // the rounded panel are not the window's pixels at all, so the blit path --
+    // which ignores alpha -- can be handed a plain rectangle and still show a
+    // rounded panel.
     //
-    // The fill goes through a QPainter rather than QImage::fill: QPainter's output
-    // on a premultiplied image is premultiplied by construction, and a "premultiplied"
-    // frame whose RGB is larger than its alpha is exactly the kind of value that
-    // renders as a bright artefact instead of an almost invisible one.
+    // The fill is the panel's RGB at full alpha, through a QPainter rather than
+    // QImage::fill: QPainter's output on a premultiplied image is premultiplied
+    // by construction, and a "premultiplied" frame whose RGB exceeds its alpha
+    // composites as a bright artefact instead of as an invisible pixel.
     const QColor panel = fence->view->panelColor();
-    const bool carriesAlpha = !fence->surface || fence->surface->perPixelAlpha();
     {
         QPainter painter(&frame);
-        painter.setCompositionMode(QPainter::CompositionMode_Source);
         // The rect is the frame's *logical* extent -- the same conversion the
         // widget is sized with -- because the image carries the device pixel ratio.
         painter.fillRect(QRect(QPoint(0, 0), logicalSize(visible.size(), dpr)),
-                         carriesAlpha ? QColor(panel.red(), panel.green(), panel.blue(),
-                                               starfish::platform::win::DesktopSurface::
-                                                   kInputAlphaFloor)
-                                      : QColor(panel.red(), panel.green(), panel.blue()));
-        // Back to the default mode: the widget itself paints *over* that layer.
-        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+                         QColor(panel.red(), panel.green(), panel.blue()));
         fence->view->render(&painter);
     }
+    ++m_frameRenders;
     fence->frame = frame;
     if (fence->surface)
         fence->surface->setFrame(frame);

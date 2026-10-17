@@ -5,18 +5,18 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 44 (2026-10-17) — **T-050 ✅ + T-077 ✅** : la surface ne travaille plus quand rien n'a changé (le watchdog demande avant de réparer ; plus de frame périmée poussée à la nouvelle position). `ctest` 14/14 ; `--fence-demo` 30/30 headless, 42/42 `--host`.
-- **Dernière session :** 45 (2026-10-17) — **session de documentation** : ce fichier passe de 230 Ko à 4 Ko, le détail part dans `docs/state/`, les tâches terminées dans `docs/todo-archive.md`, et `tools/docs_size.py` (en CI) tient les caps. **Les 3 prochaines actions n'ont pas bougé.**
-- **Dernière mise à jour :** 2026-10-17 (session 45)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **CI verte**.
+- **Dernière session de code livrée :** 46 (2026-10-18) — **T-079 ✅ (P0) / ADR-15** : les zones sont **visibles** — le push par pixel ne compose pas sur un enfant de `Progman` ; le matériau est l'alpha uniforme de la fenêtre, le panneau arrondi une **région**, la frame opaque et blittée. `ctest` 14/14 ; `--fence-demo` 28/28 headless, 41/41 `--host` ; à l'écran les centres de zones sont passés du **papier peint** au **panneau**.
+- **Dernière session :** 46 (2026-10-18) — session de **code**. Consigne utilisateur du soir : **écrire bref** (faits consignés, non déroulés), il est en vibe coding.
+- **Dernière mise à jour :** 2026-10-18 (session 46)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **non poussé** (le push déclenche la CI et exige l'accord de l'utilisateur).
 
 ## 3 prochaines actions
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **`T-079` (P0) — une zone neuve n'apparaît pas.** Retour utilisateur de la session 44 resté **non consigné** alors, **toujours présent** : « je ne vois plus les fences créées, ou nouvellement créée, même en matériel opaque ». Son diagnostic est **reconstitué et prêt à réappliquer** : `docs/state/diagnostics/t079/` (lire son `README.md` d'abord).
-2. **Essai à la main (utilisateur)** — six vérifications en attente : **`T-079`** (une zone neuve doit apparaître), `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable), `T-071` (le bureau est redevenu le bureau), `T-069` (le bureau est atteignable), `ADR-13` (rien n'est plus pris au bureau), `T-057` (matériaux : papier peint à travers, souris partout).
-3. **Les retours de la session 42, puis `T-042` → `T-064` → `T-059`** — `T-076` (un menu à nous au clic droit sur une zone), `T-078` (les noms les plus longs, suite de `T-049`), `T-073` (l'entrée F-001 dans le menu principal de Windows 11) ; ensuite les interactions des icônes hors zone (le prix de l'ADR-3), puis le matériau par clic droit **avant** de nettoyer la fenêtre de réglages.
+1. **Essai à la main (utilisateur)** — les zones sont **revenues** ; à confirmer à l'œil : les **coins** (découpés par une région **1 bit**, donc non anticrénelés — **T-058**), le **matériau** translucide (papier peint à travers), et le **ressenti** de `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable). Un clic **pile sur un coin** tombe désormais au bureau : c'est écrit (ADR-11 sans objet), dites si c'est gênant.
+2. **Les retours de la session 42, puis `T-042` → `T-064` → `T-059`** — `T-076` (un menu à nous au clic droit sur une zone), `T-078` (les noms les plus longs, suite de `T-049`), `T-073` (l'entrée F-001 dans le menu principal de Windows 11) ; ensuite les interactions des icônes hors zone (le prix de l'ADR-3), puis le matériau par clic droit **avant** de nettoyer la fenêtre de réglages.
+3. **`T-070` (le hook souris) et le reste du fond plein écran** — il ne sert plus qu'au chemin de développement (le produit n'héberge plus rien, T-071) et il est le **dernier** porteur du chemin per-pixel, qui ne compose pas. Si le spike est concluant, la fenêtre et son code partent ensemble.
 
 **Sans blocage**, à prendre ensuite : `T-047`, `T-013`, `T-014b`, `T-015` (packaging v0.1) — voir `TODO.md`.
 
@@ -40,4 +40,4 @@
 - Ne pas déplacer un fichier sur le disque : StarFish gère l'**affichage**, pas l'emplacement (`moveFiles` reste sans effet, T-031).
 - Ne pas juger un placement par le z-order seul, ni par une capture sans vérifier que le bureau est visible : validation **au vrai curseur**.
 - Ne pas confondre « le produit va bien » et « la sonde est verte » : une sonde mesure ce qu'elle a été écrite pour mesurer (le reste est dans `docs/state/guardrails/08-outils-verification.md`).
-- **Écrire court** : une session = une entrée `devlog/` + ses lignes ici + un commit. Rien de plus.
+- **Écrire court** : une session = une entrée `devlog/` + ses lignes ici + un commit. Rien de plus. Et **détail technique non déroulé** (consigne utilisateur du 2026-10-17 — vibe coding) : on consigne les faits (mesures, fichiers, pièges), **une ligne par fait**, sans justifications pas à pas ; la conclusion d'abord.

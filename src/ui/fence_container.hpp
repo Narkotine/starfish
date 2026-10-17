@@ -272,6 +272,14 @@ public:
     starfish::platform::win::DesktopSurface* surface(const QString& id) const;
     QImage frame(const QString& id) const;
 
+    // How many times a fence's frame has been *rendered* (the work a resize, a
+    // content change or a size change implies). It exists because T-077's claim
+    // -- "one image per changed size, and none at all for a move" -- used to be
+    // measured on the layered push count, and fences no longer push anything
+    // (ADR-15: they blit). The claim is about the render, so it is the render
+    // that is counted; a probe that counted pushes would now pass by accident.
+    int frameRenderCount() const { return m_frameRenders; }
+
     // Renders the fence's widget offscreen and pushes it to its surface.
     void renderFence(const QString& id);
 
@@ -388,10 +396,12 @@ private:
     void applyGeometryDrag(const QString& id, FenceHandle handle, const QPoint& delta);
     void endGeometryDrag(const QString& id);
 
-    // Puts a fence's surface in the mode its panel needs (T-057): the per-pixel
-    // push while the material is translucent, the opaque path while it is not.
-    // Returns false only when the surface could not be switched -- the caller
-    // keeps going either way, because a fence that is opaque is a fence, while a
+    // Puts a fence's surface in the shape and the transparency its panel needs
+    // (T-057, and since T-079/ADR-15 the only mode that reaches the screen): the
+    // material is the window's **uniform alpha** and the rounded panel is the
+    // window's **region**. No window is recreated, so a material change is one
+    // call. Returns false only when the window refused -- the caller keeps going
+    // either way, because a fence whose alpha is wrong is still a fence, while a
     // fence whose window failed to come back is not.
     bool applyMaterialToSurface(FenceWindow& fence);
 
@@ -416,6 +426,10 @@ private:
     // afterwards, so a fence made while hidden or peeking behaves like the rest.
     bool m_fencesVisible = true;
     bool m_peekActive = false;
+    // T-077 / ADR-15: how many frames have been rendered. Counted because the
+    // claim being measured ("one image per changed size, none for a move") is
+    // about the render, and the surface no longer pushes anything to count.
+    int m_frameRenders = 0;
 };
 
 } // namespace starfish::ui
