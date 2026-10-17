@@ -56,7 +56,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 | F-001 | Créer une zone : **entrée « StarFish: create a fence » dans le menu clic droit *de Windows*** sur le bureau (**T-071** — le geste du bouton droit a été **abandonné** : il exigeait une fenêtre à nous sur tout le bureau, qui coûtait les clics et les glissers des icônes ainsi que les deux boutons du bureau nu). La zone se pose à la **première place libre**. Reste aussi la zone de notification | P0 |
 | F-002 | Renommer la zone (barre de titre) | P0 |
 | F-003 | Déplacer et redimensionner une zone (aimantation aux bords d'écran et aux autres zones) | P0 |
-| F-004 | Apparence : couleur de fond, opacité, coins arrondis, style de barre de titre | P0 |
+| F-004 | Apparence : **couleur de fond**, opacité, **coins arrondis**, **style de barre de titre** — détail des gestes : **T-080** (le **par zone**) et **T-081** (le **défaut général** + « appliquer à toutes »), demandés en session 46 | P0 |
 | F-005 | Réglages fins : padding interne, espacement entre icônes, marges | P1 |
 | F-006 | Verrouiller position et taille d'une zone | P1 |
 | F-007 | Supprimer une zone (les icônes reviennent sur le bureau, jamais supprimées du disque) | P0 |

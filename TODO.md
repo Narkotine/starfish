@@ -1,7 +1,7 @@
 # TODO — Suivi des tâches
 
 > Légende statut : ⬜ à faire · 🔄 en cours · ✅ fait · ⛔ bloquée. IDs liés aux phases de `docs/plan.md`. Toute tâche terminée doit être consignée dans `devlog/`.
-> **Ce fichier ne liste que ce qui reste** : **16 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
+> **Ce fichier ne liste que ce qui reste** : **18 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
 > Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap **50 Ko**, vérifié par `python tools/docs_size.py` (étape CI).
 
 ## Tâches ouvertes
@@ -26,6 +26,8 @@
 | T-042 | Icônes hors zone : renommer (F2) / couper-coller — la restitution de `DefView` après plantage passe à **T-046** | 5 | P1 | ⬜ |
 | T-015 | Packaging portable + installeur, CI complète, docs utilisateur, release v0.1 | 6 | P1 | ⬜ |
 | T-079 | ⚠️ **Une zone neuve n'apparaît pas** — retour utilisateur (2026-10-17, 20:51) : « je ne vois plus les fences créées, ou nouvellement créée, même en matériel opaque ». ✅ **Traité en session 46 (ADR-15)** : le push par pixel ne compose pas sur un enfant de `Progman`. Détail à l'archive | 5 | **P0** | ✅ |
+| T-080 | **L'apparence par zone** (F-004) — demande utilisateur session 46 : « customisation des **couleurs des fences et barre des titres**, ainsi que la **quantité d'arrondi** ». Le panneau et le rayon sont **déjà** persistés **par zone** (`style.background`, `style.radius`) et appliqués ; ce qui manque est **l'interface** par zone (et la couleur de la barre de titre, **absente du schéma**). Le lieu : le menu d'une zone (**T-076**) — à trancher avec l'utilisateur | 5 (v0.2) | P1 | ⬜ |
+| T-081 | **Un défaut général pour les zones neuves** (F-004) — suite de la question utilisateur (session 46) : « est-ce possible d'avoir un **menu général** mais une **custo par fence** aussi ? » **Réponse : oui**, et c'est la forme qu'ont déjà les matériaux (zone de notification = toutes les zones, réglages = une zone). Ce qui manque : un **défaut** qui ne soit pas un littéral compilé (`FenceStyle::background`/`radius`) — réglage d'application ou bloc `defaults` du document — plus une action « **appliquer à toutes les zones** ». À trancher : où vit le défaut, et s'il s'applique aux zones **déjà** créées (réponse par défaut : **non**, cf. T-074) | 5 (v0.2) | P1 | ⬜ |
 
 ## Tâches ouvertes — détail
 
@@ -78,6 +80,17 @@
   - **Si le spike est concluant** : le **fond plein écran perd sa raison d'être** (il ne peint plus rien depuis ADR-13, et le hook reprend ses gestes) ⇒ il peut **disparaître**, et avec lui les trous d'alpha de T-069 dont il a fallu l'équiper. C'est la simplification la plus profonde que le projet puisse s'offrir sur ce sujet.
 
 
+
+- **T-080** (Phase 5 → v0.2, P1) — **L'apparence par zone** (F-004). Demande utilisateur (session 46) : « customisation des **couleurs** des fences et **barre des titres**, ainsi que la **quantité d'arrondi** ».
+  - **Ce qui existe déjà** : `core::FenceStyle` porte `background` (`#AARRGGBB`, donc l'**opacité** avec), `radius`, `padding`, `iconSize`, `gap`, `titleBar` — **persistés par zone** et **appliqués** (depuis ADR-15, `applyMaterialToSurface` pose l'alpha de la fenêtre et la **région** arrondie : le rayon est donc déjà *effectif*, seul son **choix** manque).
+  - **Ce qui manque** : (1) une **couleur de barre de titre** — elle n'existe **pas** dans le schéma, elle vient du style du widget ; (2) l'**interface** par zone — le seul chemin aujourd'hui est le combo « Material: » des réglages, qui n'offre que **trois presets** ; (3) rien à changer côté transparence : elle est **uniforme par fenêtre** (ADR-15), et deux couleurs (panneau + barre) sont simplement **peintes**.
+  - **Où** : le menu d'une zone (**T-076**, qui existe exactement pour ça) — **à trancher avec l'utilisateur** ; **T-064** (le matériau au clic droit) en est le premier morceau.
+  - ⚠️ Un rayon choisi doit rester **borné** (au-delà de la moitié de la zone, la région ne dessine plus rien) et être **recalculé à chaque changement de taille** — `place()` le fait déjà (ADR-15 : la garde « déjà en place » inclut la région).
+
+- **T-081** (Phase 5 → v0.2, P1) — **Un défaut général, et « appliquer à toutes »** (F-004). Question utilisateur (session 46) : « est-ce possible d'avoir un **menu général** mais une **custo par fence** aussi ? »
+  - **Réponse : oui**, et c'est **déjà la forme** des matériaux — zone de notification = **toutes** les zones, réglages = **une**. Il ne manque que le **défaut**.
+  - **Ce qui n'existe pas** : un défaut autre que le **littéral compilé** (`FenceStyle::background`, `radius`). Deux candidats : un **réglage d'application**, ou un bloc **`defaults`** dans le document — le document est l'autorité (ADR-7) et c'est ce qui survit à un redémarrage **et** voyage avec une disposition exportée.
+  - **À trancher** : où vit le défaut, et s'il touche les zones **déjà** créées — réponse par défaut **non** (même règle qu'en T-074 : changer un défaut change les zones **neuves** ; « appliquer à toutes » est une action **explicite**, jamais un effet de bord).
 
 ## Tâches découvertes en cours de route
 
