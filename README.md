@@ -46,8 +46,10 @@ Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : **1
 | Fichier | Rôle |
 |---|---|
 | [`AGENTS.md`](AGENTS.md) / [`AGENT.md`](AGENT.md) | **Point d'entrée pour tout agent IA** (conventions harness-agnostiques). Lire AVANT `STATE.md`. |
-| [`STATE.md`](STATE.md) | État courant, prochaines actions, protocole de reprise (résilient aux resets de contexte). |
-| [`TODO.md`](TODO.md) | Suivi des tâches : à faire / en cours / fait. |
+| [`STATE.md`](STATE.md) | **État courant, court par construction (cap 6 Ko)** : phase, 3 prochaines actions, garde-fous transverses, index du détail. Le récit d'une session ne vit pas ici mais dans `devlog/`. |
+| [`TODO.md`](TODO.md) | **Ce qui reste** : tâches ouvertes (une ligne de tableau + son détail). |
+| [`docs/state/`](docs/state/) | **Le détail de l'état, lu à la demande** : décisions actées **par domaine** (`decisions.md` + `decisions/*.md`), garde-fous par domaine (`guardrails.md` + `guardrails/*.md`), inventaire de ce qui existe (`inventory.md`), écarts assumés (`gaps.md`), ordre et scripts d'essai des prochaines actions (`next-actions-detail.md`), récits de session archivés (`recaps.md`). |
+| [`docs/todo-archive.md`](docs/todo-archive.md) | Tâches terminées : table + détail verbatim (ce que `TODO.md` portait avant de grossir). |
 | [`devlog/`](devlog/) | Journal de développement, une entrée datée par session de travail. |
 | [`docs/produit.md`](docs/produit.md) | Documentation produit : vision, personas, cas d'usage, inventaire fonctionnel complet (référence Fences 6), périmètre par version, non-objectifs. |
 | [`docs/plan.md`](docs/plan.md) | Plan de mise en œuvre par phases avec critères de sortie. |
@@ -55,11 +57,12 @@ Build et tests **verts en local** (Qt 6.8.3 + MinGW 13.1.0, voir plus bas) : **1
 
 ## Reprendre le travail (agent ou humain)
 
-1. Lire `STATE.md` (où on en est, quoi faire ensuite).
+1. Lire `STATE.md` (court : où on en est, quoi faire ensuite).
 2. Lire la phase courante dans `docs/plan.md`.
-3. Cocher les tâches faites dans `TODO.md`.
-4. Travailler.
-5. **Avant de terminer :** mettre à jour `TODO.md`, ajouter une entrée dans `devlog/AAAA-MM-JJ.md`, mettre à jour `STATE.md`.
+3. Ouvrir **à la demande** ce qui sert au travail choisi : `docs/state/decisions/<domaine>.md` **et** `docs/state/guardrails/<domaine>.md` (mêmes domaines), `docs/state/inventory.md` pour « est-ce que X existe déjà ? », `docs/state/next-actions-detail.md` pour l'ordre et les scripts d'essai. Rien de tout cela n'est à lire en entier.
+4. Cocher les tâches faites dans `TODO.md`.
+5. Travailler.
+6. **Avant de terminer :** mettre à jour `TODO.md` (une tâche ✅ ne garde qu'une ligne ; son paragraphe part dans `docs/todo-archive.md`), ajouter une entrée dans `devlog/AAAA-MM-JJ.md`, mettre à jour `STATE.md` — **sans y recopier le récit de la session**. `python tools/docs_size.py` refuse un `STATE.md` > 6 Ko.
 
 Conventions de nommage : `F-xxx` = fonctionnalité, `T-xxx` = tâche, `ADR-x` = décision technique. Docs et devlog en français ; code, commentaires et commits en anglais.
 

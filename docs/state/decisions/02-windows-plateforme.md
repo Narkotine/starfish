@@ -1,0 +1,24 @@
+# Décisions — Plateforme Windows : reparentage, layered, Shell
+
+> Extrait **verbatim** de l'ancienne section « Décisions actées » de `STATE.md`, découpé par domaine.
+> L'index est dans [`../decisions.md`](../decisions.md) ; le récit et les mesures dans `docs/technique.md`.
+
+3. Masquage des icônes natives et rendu maison (ADR-3) ; sur Win11, masquage réversible via `ShowWindow(SW_HIDE)` sur `SHELLDLL_DefView`.
+
+4. **ADR-4** : fenêtres enfants de `Progman`, insérées sous `SHELLDLL_DefView`, **obligatoirement `WS_EX_LAYERED`** (`SetLayeredWindowAttributes` alpha=255) — sinon non composées par DWM (échec silencieux). Pas de WorkerW, pas de Tk pour le produit.
+
+7. **Portage Qt (T-016)** : garde `WM_WINDOWPOSCHANGING` (aucun restack au-dessus des icônes) + watchdog 2 s au lieu des broadcasts `WM_SETTINGCHANGE`/`WM_DISPLAYCHANGE` (non reçus par une fenêtre enfant).
+
+8. **Session 7** : le flag layered doit être voulu par Qt (`setWindowOpacity(0.99)`), jamais ajouté après le reparentage (refus silencieux de Windows) ; `attach()` **vérifie** au lieu de poser.
+
+9. **T-004** : le Shell est l'autorité pour les chemins (`SHGetKnownFolderPath`) et les noms affichés (`SHGFI_DISPLAYNAME`) ; les icônes passent par la liste d'images système, pas `SHGFI_ICON` (32 px trop petit).
+
+11. **Session 8 — manifeste applicatif obligatoire** : `starfish.exe` doit embarquer `src/starfish.manifest` (via `src/starfish.rc`). Sans lui, `WS_EX_LAYERED` est refusé sur les fenêtres enfants et **rien ne s'affiche**, sans le moindre message. Corollaire : le flag est **aussi** posé dès `CreateWindowExW`, pour survivre à un binaire sans manifeste.
+
+43. **Session 40 — T-071 / ADR-14 : le bureau reste au bureau, et F-001 passe par le menu de Windows** (détail : `devlog/2026-10-16.md`, **§30** de `docs/technique.md`). Trois reproches utilisateur (« on ne peut plus bouger les icônes du bureau », « le menu clic droit n'est plus celui de Windows », « le clic glissé ne dessine pas le rectangle habituel »), **une seule cause** : le fond plein écran que le produit hébergeait sur le bureau.
+    - **La mesure qui manquait** : un **glisser d'icône se termine par un dépôt**, et Windows cherche une **cible de dépôt** sous le curseur — il trouve **notre** fenêtre, qui n'en enregistre **aucune** (exprès : ne pas avaler un dépôt qu'on ne sait pas honorer, T-052). L'icône s'attrapait donc et ne se reposait **jamais**. C'est la famille de T-069 (*une réponse n'est pas une livraison*) poussée d'un cran : **une absence de cible est un refus**. Et le fond tenait les **deux** boutons du bureau nu : le gauche (rectangle de sélection, désélection au clic dans le vide) et le droit (menu **reconstruit par nous**, T-055, au lieu de celui de Windows).
+    - **Décision utilisateur** : *« si le fait de pouvoir faire une fence avec un glissé cliqué sur clic droit entraîne trop de contrainte, alors on annule la feature ; on se contentera de faire une fence avec une entrée dans le menu clic droit sur le bureau de Windows normal. »*
+    - **Livré** : le produit **ne pose plus aucune fenêtre sur le bureau** (le fond ne survit que pour `--claim-desktop` et les sondes). **F-001 = entrée statique du menu du bureau** (`HKCU\Software\Classes\DesktopBackground\Shell\StarFish`, par utilisateur, **aucune élévation**) → `starfish.exe --new-fence`, zone posée à la **première place libre**. `--new-fence` **demande** la zone à l'instance qui tourne par **événement nommé** (un second processus serait refusé, T-044) ou **démarre** le produit avec la demande. `--install-desktop-menu` / `--uninstall-desktop-menu`.
+    - **Vérifié** : `--icons-demo` **12/12** — `the product puts no window of ours on the desktop` (`our surface(s) under Progman=1 for 1 fence(s), full-screen=0`) et `a click on one of the desktop's icons still reaches the shell` (sélection `0 -> 1 -> 0`, 0 `SendInput` refusé) ; entrée **relue** par `reg query` ; `--new-fence` sans instance → **3 → 4** zones, avec instance → **4 → 5** zones hébergées ; `--backdrop-demo` **36/36** / **50/50** intact.
+    - ⚠️ **Coûts, nommés** : **T-072** — le double-clic sur le bureau vide (F-022) était porté par le fond ; restent le raccourci `Win+Shift+H` et la notification. **T-070 annulé** — plus rien à intercepter.
+    - ⚠️ **Deux pièges mesurés** : (1) **un événement nommé ne porte pas une demande vers un processus qui n'existe pas encore** — il meurt avec le handle du CLI avant que le produit ne l'ouvre (premier essai : rien créé) ; quand rien ne tourne, la demande passe par l'**option**. (2) **`LVM_HITTEST` attend un pointeur** vers `LVHITTESTINFO`, pas des coordonnées : mes coordonnées dans `lParam` ont donné à explorer un pointeur bidon, il a **planté et redémarré** (bureau revenu intact). **Ne jamais envoyer à la liste du bureau un message dont l'argument est un pointeur qu'on n'a pas alloué dans *son* processus.**
