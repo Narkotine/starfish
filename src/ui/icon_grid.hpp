@@ -47,6 +47,10 @@ public:
     void setLabelHeight(int px) { m_labelHeight = qMax(0, px); }
 
     int iconSize() const { return m_iconSize; }
+    // The width of one grid cell: wider than the icon, so a caption has room to
+    // wrap instead of being cut to the width of the icon square (T-049). Derived
+    // from the icon size rather than stored, so the two cannot drift apart.
+    int cellWidth() const { return IconLayout::cellWidthFor(m_iconSize); }
     int gap() const { return m_gap; }
     int padding() const { return m_padding; }
     int labelHeight() const { return m_labelHeight; }

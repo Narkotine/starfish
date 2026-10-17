@@ -32,7 +32,12 @@ class TestIconGrid : public QObject
 private slots:
     void columnsFitTheWidth();
     void computePositionsFirstTwoCells();
+    void aCellIsWiderThanItsIcon();
     void hitTestFindsCellAndGap();
+    void aLongCaptionWrapsInsteadOfBeingCut();
+    void aCaptionTooLongForBothLinesIsElidedOnTheRight();
+    void aShortCaptionStaysOnOneLine();
+    void aSingleWordWiderThanTheLineIsCutNotSplit();
     void selectionSelectOnlyToggleRange();
     void launchPathResolvesShortcut();
     void sortReordersItems();
@@ -47,44 +52,141 @@ private slots:
 
 void TestIconGrid::columnsFitTheWidth()
 {
-    // viewport 480, padding 12 each side -> usable 456; (456+8)/(48+8) = 8.28 -> 8.
-    QCOMPARE(IconLayout::columnsForWidth(480, 48, 8, 12), 8);
+    // viewport 480, padding 12 each side -> usable 456; (456+8)/(72+8) = 5.8 -> 5.
+    // The column is the *cell* width (72 for a 48 px icon, T-049), not the icon.
+    QCOMPARE(IconLayout::columnsForWidth(480, IconLayout::cellWidthFor(48), 8, 12), 5);
     // Narrow fence -> at least one column.
-    QCOMPARE(IconLayout::columnsForWidth(40, 48, 8, 12), 1);
+    QCOMPARE(IconLayout::columnsForWidth(40, IconLayout::cellWidthFor(48), 8, 12), 1);
     // Degenerate inputs never divide by zero.
-    QCOMPARE(IconLayout::columnsForWidth(0, 48, 8, 12), 1);
+    QCOMPARE(IconLayout::columnsForWidth(0, IconLayout::cellWidthFor(48), 8, 12), 1);
 }
 
 void TestIconGrid::computePositionsFirstTwoCells()
 {
+    const int cellW = IconLayout::cellWidthFor(48); // 72
     const QVector<IconCell> cells =
-        IconLayout::compute(QSize(480, 320), 48, 34, 8, 12, 10);
+        IconLayout::compute(QSize(480, 320), 48, cellW, 34, 8, 12, 10);
     QCOMPARE(cells.size(), 10);
 
-    // First cell: icon centred in a 48-wide cell with no offset, label below.
-    QCOMPARE(cells.at(0).icon, QRect(12, 12, 48, 48));
-    QCOMPARE(cells.at(0).label, QRect(12, 60, 48, 34));
+    // First cell: the icon is centred in a 72-wide cell, the caption below it.
+    QCOMPARE(cells.at(0).icon, QRect(12 + (72 - 48) / 2, 12, 48, 48));
+    QCOMPARE(cells.at(0).label, QRect(12, 60, 72, 34));
 
-    // Second cell: one column-step to the right (48 + 8 gap).
-    QCOMPARE(cells.at(1).icon.x(), 12 + 48 + 8);
+    // Second cell: one column-step to the right (72 + 8 gap).
+    QCOMPARE(cells.at(1).icon.x(), 12 + 72 + 8 + (72 - 48) / 2);
     QCOMPARE(cells.at(1).icon.y(), 12);
+
+    // ... and the fifth item of a 5-column grid starts the next row.
+    QCOMPARE(cells.at(4).icon.y(), 12);
+    QCOMPARE(cells.at(5).icon.y(), 12 + 48 + 34 + 8);
+}
+
+void TestIconGrid::aCellIsWiderThanItsIcon()
+{
+    // T-049: the caption band is the *cell*, not the icon square -- that is the
+    // room the names were missing. The icon stays centred, so the cell is not
+    // simply the icon shifted.
+    const QVector<IconCell> cells = IconLayout::compute(QSize(480, 320), 48,
+                                                        IconLayout::cellWidthFor(48), 34, 8, 12, 1);
+    QCOMPARE(cells.size(), 1);
+    QVERIFY(cells.at(0).label.width() > cells.at(0).icon.width());
+    QCOMPARE(cells.at(0).label.width(), IconLayout::cellWidthFor(48));
+    QCOMPARE(cells.at(0).label.center().x(), cells.at(0).icon.center().x());
+    // A cellWidth narrower than the icon cannot happen (the icon would be cut):
+    // the cell is clamped to the icon.
+    const QVector<IconCell> narrow = IconLayout::compute(QSize(480, 320), 48, 16, 34, 8, 12, 1);
+    QCOMPARE(narrow.at(0).icon.width(), 48);
+    QCOMPARE(narrow.at(0).label.width(), 48);
 }
 
 void TestIconGrid::hitTestFindsCellAndGap()
 {
     const QVector<IconCell> cells =
-        IconLayout::compute(QSize(480, 320), 48, 34, 8, 12, 10);
+        IconLayout::compute(QSize(480, 320), 48, IconLayout::cellWidthFor(48), 34, 8, 12, 10);
 
     // Inside the first icon -> index 0.
     QCOMPARE(IconLayout::hitTest(cells, QPoint(30, 30)), 0);
-    // Inside the first label -> index 0.
+    // Inside the first caption band, to the right of the icon -> still index 0:
+    // the band belongs to the cell (T-049).
     QCOMPARE(IconLayout::hitTest(cells, QPoint(30, 70)), 0);
+    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 72 - 2, 70)), 0);
     // Inside the second icon -> index 1.
-    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 48 + 8 + 10, 30)), 1);
-    // In the gap between two columns -> nothing.
-    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 48 + 2, 30)), -1);
+    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 72 + 8 + 12 + 10, 30)), 1);
+    // In the gap between two cells -> nothing, in the icon rows as well as in the
+    // caption rows.
+    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 72 + 2, 30)), -1);
+    QCOMPARE(IconLayout::hitTest(cells, QPoint(12 + 72 + 2, 70)), -1);
     // Far outside -> nothing.
     QCOMPARE(IconLayout::hitTest(cells, QPoint(9999, 9999)), -1);
+}
+
+void TestIconGrid::aLongCaptionWrapsInsteadOfBeingCut()
+{
+    // T-049, the user's own example: "Epic Games Launcher" used to come out as
+    // "Epi...her" -- elided in the middle of a 48 px band. The stub metric is 7 px
+    // per character, so the arithmetic is exact and no font is involved: 72 px is
+    // ten characters.
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int cellW = IconLayout::cellWidthFor(48);
+
+    const QStringList lines =
+        IconLayout::wrapToLines(QStringLiteral("Epic Games Launcher"), 2, cellW, widthOf);
+    QCOMPARE(lines.size(), 2);
+    QCOMPARE(lines.at(0), QStringLiteral("Epic Games"));
+    QCOMPARE(lines.at(1), QStringLiteral("Launcher"));
+    // Nothing is lost when it fits on the two lines, and it is *not* cut in the
+    // middle: the name is readable from one end to the other.
+    QVERIFY(!lines.join(QLatin1Char(' ')).contains(QChar(0x2026)));
+}
+
+void TestIconGrid::aCaptionTooLongForBothLinesIsElidedOnTheRight()
+{
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int cellW = IconLayout::cellWidthFor(48);
+
+    const QStringList lines = IconLayout::wrapToLines(
+        QStringLiteral("Epic Games Launcher Deluxe Extra"), 2, cellW, widthOf);
+    QCOMPARE(lines.size(), 2);
+    QCOMPARE(lines.at(0), QStringLiteral("Epic Games"));
+    // The *last* line carries the ellipsis, and it is a right-hand one: the text
+    // that survives starts at the beginning, it is the tail that goes.
+    QVERIFY(lines.at(1).endsWith(QChar(0x2026)));
+    QVERIFY(lines.at(1).startsWith(QStringLiteral("Launcher")));
+    // And the elided line really fits.
+    QVERIFY(widthOf(lines.at(1)) <= cellW);
+}
+
+void TestIconGrid::aShortCaptionStaysOnOneLine()
+{
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int cellW = IconLayout::cellWidthFor(48);
+
+    const QStringList lines =
+        IconLayout::wrapToLines(QStringLiteral("notes.txt"), 2, cellW, widthOf);
+    QCOMPARE(lines.size(), 1);
+    QCOMPARE(lines.at(0), QStringLiteral("notes.txt"));
+
+    // Degenerate input never produces a line (the painter then draws nothing).
+    QVERIFY(IconLayout::wrapToLines(QStringLiteral("   "), 2, cellW, widthOf).isEmpty());
+    QVERIFY(IconLayout::wrapToLines(QString(), 2, cellW, widthOf).isEmpty());
+
+    // A width of zero (a fence squeezed to nothing) does not loop or crash.
+    const QStringList squeezed = IconLayout::wrapToLines(QStringLiteral("abc"), 2, 0, widthOf);
+    QCOMPARE(squeezed.size(), 1);
+}
+
+void TestIconGrid::aSingleWordWiderThanTheLineIsCutNotSplit()
+{
+    // A single long word has no break inside it: it takes the line and is elided,
+    // rather than being split in half across the two lines.
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int cellW = IconLayout::cellWidthFor(48);
+
+    const QStringList lines = IconLayout::wrapToLines(
+        QStringLiteral("Supercalifragilisticexpialidocious"), 2, cellW, widthOf);
+    QCOMPARE(lines.size(), 1);
+    QVERIFY(lines.at(0).endsWith(QChar(0x2026)));
+    QVERIFY(widthOf(lines.at(0)) <= cellW);
 }
 
 void TestIconGrid::selectionSelectOnlyToggleRange()

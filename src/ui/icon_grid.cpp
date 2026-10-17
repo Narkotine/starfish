@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QRect>
+#include <QStringList>
 
 #include "core/desktop_item.hpp"
 
@@ -12,6 +13,9 @@ namespace starfish::ui {
 
 namespace {
 constexpr QRgb kIconPlaceholder = 0x37; // dim gray square when no icon resolves
+// Captions get two lines (T-049); a third line would not fit the label band and
+// would overlap the next row's icon.
+constexpr int kCaptionLines = 2;
 const QColor kLabelText(0xE5, 0xE7, 0xEB);
 const QColor kLabelTextSelected(0xFF, 0xFF, 0xFF);
 const QColor kSelection(0x3B, 0x82, 0xF6, 0x66); // accent, semi-transparent
@@ -43,8 +47,8 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
         return;
 
     const QVector<IconCell> cells =
-        IconLayout::compute(contentRect.size(), m_iconSize, m_labelHeight, m_gap, m_padding,
-                            m_items.size());
+        IconLayout::compute(contentRect.size(), m_iconSize, cellWidth(), m_labelHeight, m_gap,
+                            m_padding, m_items.size());
 
     painter.save();
     // The cells are in *content-local* coordinates -- the same space hitTest()
@@ -92,10 +96,22 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
                 cell.icon.y() + (cell.icon.height() - scaled.height()) / 2, scaled);
         }
 
-        // Label: single line, elided to the cell width.
+        // Caption: at most two lines, elided on the *right* when it still does
+        // not fit (T-049). Windows labels a desktop icon the same way; eliding
+        // in the middle turned "Epic Games Launcher" into "Epi...her", which is
+        // what the user reported. The lines are wrapped here rather than by
+        // drawText so that the limit is two and the elision is on the right.
         painter.setPen(selected ? kLabelTextSelected : kLabelText);
-        painter.drawText(cell.label, Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine,
-                         metrics.elidedText(item.name, Qt::ElideMiddle, cell.label.width()));
+        const QStringList captionLines = IconLayout::wrapToLines(
+            item.name, kCaptionLines, cell.label.width(),
+            [&metrics](const QString& candidate) { return metrics.horizontalAdvance(candidate); });
+        int lineTop = cell.label.top();
+        for (const QString& captionLine : captionLines) {
+            painter.drawText(QRect(cell.label.x(), lineTop, cell.label.width(),
+                                   metrics.lineSpacing()),
+                             Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine, captionLine);
+            lineTop += metrics.lineSpacing();
+        }
     }
 
     painter.restore();
@@ -105,7 +121,7 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
 int IconGrid::hitTest(const QPoint& contentLocalPoint, const QSize& contentSize) const
 {
     const QVector<IconCell> cells =
-        IconLayout::compute(contentSize, m_iconSize, m_labelHeight, m_gap, m_padding,
+        IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
                             m_items.size());
     return IconLayout::hitTest(cells, contentLocalPoint);
 }

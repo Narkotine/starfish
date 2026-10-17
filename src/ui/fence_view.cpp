@@ -519,7 +519,7 @@ void FenceView::paintDropIndicator(int index, QPainter& painter)
     // Recompute the layout in content-local coordinates (matches paint()).
     const QRect content = contentRect();
     const QVector<ui::IconCell> cells = ui::IconLayout::compute(
-        content.size(), m_grid.iconSize(), m_grid.labelHeight(), m_grid.gap(),
+        content.size(), m_grid.iconSize(), m_grid.cellWidth(), m_grid.labelHeight(), m_grid.gap(),
         m_grid.padding(), m_grid.items().size());
     if (index >= cells.size())
         return;

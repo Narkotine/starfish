@@ -1462,6 +1462,140 @@ int main(int argc, char* argv[])
         container->removeFence(idBare);
 
         // -------------------------------------------------------------------
+        // T-049 -- a caption is no longer cut to the width of its icon.
+        //
+        // Reported with a screenshot: the label band was exactly as wide as the
+        // icon square, and the text was elided in the *middle* -- "Epic Games
+        // Launcher" was drawn as "Epi...her". The geometry of the fix is unit
+        // tested (tests/test_icon_grid.cpp: the cell is wider than the icon, a
+        // long name wraps onto two lines, a too-long one is elided on the right);
+        // what is measured *here* is that the pixels follow, because the frame is
+        // what the desktop actually shows.
+        //
+        // The tiles are the probe's own, so nothing depends on the names that
+        // happen to be on the user's desktop. The glyphs are read against the
+        // *panel colour sampled from the frame itself* -- not a colour written
+        // down here, and not a second render: an empty fence draws its own "no
+        // icons yet" hint in the content area, and a difference against one would
+        // have measured that hint instead of the caption. It did, on the first
+        // try (124 stray pixels), which is why the reference is the panel.
+        // -------------------------------------------------------------------
+        {
+            const QRect captionRect = container->fenceRect(idC);
+            const QString idLongCaption = container->createFence(
+                QStringLiteral("long caption"), captionRect,
+                {starfish::core::itemFromPathOnly(
+                    QStringLiteral("C:/tiles/Epic Games Launcher Deluxe Extra"))});
+            const QString idShortCaption = container->createFence(
+                QStringLiteral("short caption"), captionRect,
+                {starfish::core::itemFromPathOnly(QStringLiteral("C:/tiles/note.txt"))});
+            const QImage longFrame = container->frame(idLongCaption);
+            const QImage shortFrame = container->frame(idShortCaption);
+            const starfish::ui::FenceView* captionView = container->view(idLongCaption);
+            const QRect captionContent = captionView ? captionView->contentRect() : QRect();
+
+            // Content-local geometry of the single cell: padding 12, icon 48, and
+            // the cell width taken from the layout itself rather than copied.
+            const int captionIconSize = 48;
+            const int captionCellW = starfish::ui::IconLayout::cellWidthFor(captionIconSize);
+            const int captionIconLeft = 12 + (captionCellW - captionIconSize) / 2;
+            const QRect captionBand(12, 12 + captionIconSize, captionCellW, 34);
+
+            // The frame is the fence's own rect at the screen's ratio.
+            const double frameScale = captionRect.width() > 0 && !longFrame.isNull()
+                                          ? double(longFrame.width()) / captionRect.width()
+                                          : 1.0;
+            const auto framePoint = [frameScale, &captionContent](const QPoint& local) {
+                return QPoint(int((captionContent.left() + local.x()) * frameScale),
+                              int((captionContent.top() + local.y()) * frameScale));
+            };
+            // The panel, read where no cell can be: the bottom-right corner of the
+            // content area, on a fence that holds exactly one tile.
+            const QPoint panelAt =
+                framePoint(QPoint(captionContent.width() - 4, captionContent.height() - 4));
+            const bool measurable = !longFrame.isNull() && !shortFrame.isNull()
+                                    && !captionContent.isEmpty()
+                                    && longFrame.size() == shortFrame.size()
+                                    && panelAt.x() >= 0 && panelAt.y() >= 0
+                                    && panelAt.x() < longFrame.width()
+                                    && panelAt.y() < longFrame.height();
+            const QRgb panel = measurable ? longFrame.pixel(panelAt) : 0;
+
+            struct BandInk {
+                bool measured = false;
+                int firstRow = -1; // first row of the band that holds painted pixels
+                int lastRow = -1;  // ...and the last one
+                int beyondIcon = 0; // pixels right of the icon square
+                int beyondCell = 0; // pixels right of the whole cell
+            };
+            const auto bandInk = [&](const QImage& frame) {
+                BandInk ink;
+                if (!measurable)
+                    return ink;
+                ink.measured = true;
+                for (int ly = captionBand.top(); ly < captionBand.bottom(); ++ly) {
+                    for (int lx = 0; lx < captionContent.width(); ++lx) {
+                        const QPoint at = framePoint(QPoint(lx, ly));
+                        if (at.x() >= frame.width() || at.y() >= frame.height())
+                            continue;
+                        // A glyph is anything clearly off the panel. The caption is
+                        // light grey on a dark panel, so even an anti-aliased edge
+                        // is nowhere near it, and the threshold only has to clear
+                        // the panel's own noise (there is none: it is one fill).
+                        const QRgb here = frame.pixel(at);
+                        const int distance = qAbs(qRed(here) - qRed(panel))
+                                             + qAbs(qGreen(here) - qGreen(panel))
+                                             + qAbs(qBlue(here) - qBlue(panel));
+                        if (distance < 24)
+                            continue;
+                        if (ink.firstRow < 0)
+                            ink.firstRow = ly - captionBand.top();
+                        ink.lastRow = ly - captionBand.top();
+                        if (lx >= captionIconLeft + captionIconSize)
+                            ++ink.beyondIcon;
+                        if (lx >= 12 + captionCellW)
+                            ++ink.beyondCell;
+                    }
+                }
+                return ink;
+            };
+
+            const BandInk longInk = bandInk(longFrame);
+            const BandInk shortInk = bandInk(shortFrame);
+
+            check(QStringLiteral("a caption is drawn wider than its icon"),
+                  longInk.measured && longInk.beyondIcon > 0,
+                  QStringLiteral("%1 glyph pixel(s) right of the icon (cell %2, icon %3 -- the "
+                                 "old cell was the icon, so this was impossible)")
+                      .arg(longInk.beyondIcon)
+                      .arg(captionCellW)
+                      .arg(captionIconSize));
+            check(QStringLiteral("a caption stays inside its own cell"),
+                  longInk.measured && longInk.beyondIcon > 0 && longInk.beyondCell == 0,
+                  QStringLiteral("%1 pixel(s) past the icon, %2 past the cell (x >= %3)")
+                      .arg(longInk.beyondIcon)
+                      .arg(longInk.beyondCell)
+                      .arg(12 + captionCellW));
+            // A long caption is two lines of text, so its ink reaches deeper into
+            // the band than a caption that fits on one -- measured against the
+            // short one rather than against a threshold in pixels, which keeps the
+            // check honest whatever the font is.
+            check(QStringLiteral("a long caption takes a second line"),
+                  longInk.firstRow >= 0 && shortInk.firstRow >= 0
+                      && longInk.lastRow > shortInk.lastRow + 4,
+                  QStringLiteral("long caption: rows %1..%2 of %3 ; short caption: rows %4..%5 "
+                                 "(the second line must reach deeper)")
+                      .arg(longInk.firstRow)
+                      .arg(longInk.lastRow)
+                      .arg(captionBand.height())
+                      .arg(shortInk.firstRow)
+                      .arg(shortInk.lastRow));
+
+            container->removeFence(idLongCaption);
+            container->removeFence(idShortCaption);
+        }
+
+        // -------------------------------------------------------------------
         // T-040 / F-011 -- taking an icon *out* of a fence.
         //
         // There is no restore code to test: an icon is on the desktop exactly
@@ -1497,14 +1631,14 @@ int main(int argc, char* argv[])
             send(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
         };
 
-        // Cell centres of the default grid (icon 48, gap 8, padding 12): the
-        // hard-coded offsets are made self-verifying by hit-testing them, so a
-        // change of metrics fails the premise instead of silently testing
+        // Cell centres of the default grid (icon 48, cell 72, gap 8, padding 12):
+        // the hard-coded offsets are made self-verifying by hit-testing them, so
+        // a change of metrics fails the premise instead of silently testing
         // nothing.
         starfish::ui::FenceView* viewC = container->view(idC);
         const QPoint firstCell =
             viewC ? viewC->contentRect().topLeft() + QPoint(24, 24) : QPoint();
-        const QPoint secondCell = firstCell + QPoint(56, 0);
+        const QPoint secondCell = firstCell + QPoint(72 + 8, 0); // cell + gap (T-049)
         check(QStringLiteral("the drag starts on the first tile"),
               viewC && viewC->itemAt(firstCell) == 0 && viewC->itemAt(secondCell) == 1,
               QStringLiteral("cell centres %1,%2 -> index %3 ; %4,%5 -> index %6")

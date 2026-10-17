@@ -1554,3 +1554,54 @@ Les icônes du bureau, elles, n'ont jamais cessé d'être celles de la coquille 
 
 build MinGW **0 warning** ; `ctest` **14/14** ; `--fence-demo` **25/25** headless / **31/31** `--host` (29 avant) ; **tous les autres compteurs inchangés** (`--backdrop-demo` 36/36 / 50/50, `--product-probe` 24/24, `--icons-demo` 10/10, `--persist-demo` 26/26, `--nav-demo` 22/22 / 29/29, `--rules-demo` 28/28, `--portal-demo` 30/30 / 32/32, `--snapshot-demo` 11/11, `--screen-demo` 19/19).
 
+
+## 31. La cellule d'une zone est plus large que son icône, et la légende se replie (T-049, session 41)
+
+Reproche utilisateur, capture à l'appui (session 29) :
+
+> pas assez d'espace pour les icônes : les noms ne s'affichent pas entièrement
+
+**Mesuré dans le code, et c'était exactement ça** : `IconLayout::compute` faisait `cellW = iconSize` — la bande de légende était donc **la largeur de l'icône** — et `IconGrid::paint` dessinait **une seule ligne, élidée au milieu** (`Qt::ElideMiddle`). « Epic Games Launcher » sortait en « Epi...her ». L'élision au milieu est le pire des deux mondes : elle coupe **le début et la fin**, donc elle rend un nom méconnaissable tout en gardant ses deux extrémités.
+
+### Deux moitiés, deux mesures
+
+1. **La cellule se découple de l'icône.** `IconLayout::cellWidthFor(iconSize)` rend **1,5×** la taille d'icône (72 px pour 48), soit l'ordre du bureau Windows (~75 px pour 48 px) — et c'est déjà ce que fait le fond de bureau depuis T-039 (sa `Metrics::cellWidth` vaut 72 pour la même icône). `compute` et `columnsForWidth` prennent désormais une **largeur de cellule** ; `IconGrid::cellWidth()` la **dérive** de `m_iconSize`, donc la cellule et l'icône ne peuvent pas diverger (l'icône est **centrée** dans la cellule, elle n'est pas décalée). Une largeur de cellule plus petite que l'icône est **clampée** : l'icône ne peut pas être rognée par un réglage incohérent.
+2. **La légende se replie, et s'élide à droite.** `wrapToLines(text, maxLines, width, widthOf)` remplit chaque ligne **mot entier par mot entier**, ouvre une **deuxième ligne** si nécessaire, et élide la **dernière** ligne **à droite** (`elidedRight`) quand le texte ne tient toujours pas. Un mot plus large que la ligne est coupé **avec la même ellipse** — il n'existe pas de meilleure coupure *à l'intérieur* d'un mot, et le découper en deux serait pire. **Deux lignes au plus** : une troisième ne tiendrait pas dans la bande (`labelHeight` = 34) et passerait sous l'icône de la ligne suivante.
+
+La fonction est **pure** et prend la mesure du texte **en paramètre** (`widthOf`) : `QFontMetrics::horizontalAdvance` à la peinture, une métrique de test (`7 px par caractère`, arithmétique exacte) dans les cas unitaires. Le header **reste sans QtGui**, et le repli se prouve **sans écran** — c'est la même discipline que `IconLayout::hitTest` (T-005) et `FenceGeometry` (T-007).
+
+`hitTest` et le repère d'insertion (`FenceView::paintDropIndicator`) consomment **la même géométrie** : la zone sensible est la cellule entière (icône **et** bande de légende), pas la colonne de l'icône. La leçon de T-045 est tenue — deux consommateurs du même calcul ne peuvent pas diverger.
+
+### Le prix, nommé
+
+À largeur de zone égale, **il y a moins de colonnes** : une zone de 320 px passe de **5** à **3** colonnes. C'est de la place prise ailleurs, et c'est le sens de la demande (la place manquait **pour les noms**). Une zone plus large reprend des colonnes.
+
+### ⚠️ Le piège de sonde : une zone vide ne rend pas la même chose qu'une zone pleine
+
+La première version de la vérification mesurait la légende **par différence avec la même zone rendue sans sa tuile** — la technique exacte de T-045, qui teste « les tuiles sont peintes depuis l'origine du contenu ». Elle a rendu **2 `FAIL`**, dont un « 124 pixels au-delà de la cellule » difficile à croire.
+
+**Cause** : une zone **vide** dessine dans sa zone de contenu son propre message — « *empty fence — no icons yet* » — et c'est **ce message** que la différence mesurait (il s'étale bien au-delà d'une cellule, et sur presque toute la hauteur de la bande). Autrement dit : **la référence n'était pas neutre.** La bonne référence est **la couleur du panneau, lue dans la frame elle-même** (un point du contenu qu'aucune cellule ne peut couvrir, sur une zone qui ne détient qu'une tuile) : un glyphe est alors « tout pixel nettement hors du panneau ». Aucune couleur n'est écrite dans la sonde, aucune seconde zone n'est rendue, et il n'y a plus de contenu tiers à confondre avec la légende. Le seuil (24 en distance RGB) n'a qu'à dépasser le bruit du panneau, qui est **nul** (un seul remplissage).
+
+### Prémisses prouvées (patch temporaire, revert + rebuild)
+
+Les deux moitiés sont prouvées **séparément**, parce qu'elles ne disent pas la même chose :
+
+| patch | résultat | ce que ça prouve |
+|---|---|---|
+| `cellWidthFor` → `iconSize` | `rc=1`, **2 `FAIL`** (`a caption is drawn wider than its icon` : `0 glyph pixel(s)` ; `a caption stays inside its own cell`) | la vérification mesure bien **la cellule élargie** — elle ne peut pas passer sur l'ancienne géométrie |
+| peinture d'une **seule ligne élidée au milieu**, cellule large conservée | `rc=1`, **1 `FAIL`** (`a long caption takes a second line` : lignes `4..13` contre `4..11`) | elle mesure bien **le repli sur deux lignes**, et pas seulement la largeur de la bande |
+
+La vérification « seconde ligne » compare **deux légendes rendues de la même façon** (une longue, une courte) au lieu d'un seuil en pixels : le seuil serait faux pour une autre police, la **différence** ne l'est pas.
+
+### Vérifications
+
+- `ctest` **14/14**, `ui_icon_grid` **20 cas** (15 avant, **+5**) ; build MinGW **0 warning**.
+- `--fence-demo` **28/28** headless (25 avant) / **33/33** `--host` (30 avant). Les trois neuves : `a caption is drawn wider than its icon` (**50** pixels de glyphe au-delà de l'icône), `a caption stays inside its own cell` (**0** au-delà de la cellule : la légende ne déborde pas chez sa voisine), `a long caption takes a second line` (lignes **4..26** contre **4..11**).
+- **Toutes les autres sondes rejouées** : compteurs **inchangés** (`--backdrop-demo` 37/37 / 51/51, `--persist-demo` 26, `--nav-demo` 22, `--rules-demo` 28, `--portal-demo` 30, `--snapshot-demo` 11, `--screen-demo` 19, `--product-probe` 24). Les compteurs annoncés par la documentation pour `--fence-demo --host` (31) et `--backdrop-demo --host` (50) sont **antérieurs** à cette session : mesurés sur la révision d'origine, ils valent **30** et **51**.
+- Aucune écriture dans `%APPDATA%/StarFish/` ; le document de l'utilisateur n'a pas été touché.
+
+### Reste humain
+
+**Regarder** une zone qui contient une icône au nom long. La sonde mesure le repli, la largeur de la bande et l'absence de débordement ; elle ne dit pas si **deux lignes** suffisent pour les noms de l'utilisateur, ni si la coupure d'un mot très long est lisible à l'œil.
+
+
