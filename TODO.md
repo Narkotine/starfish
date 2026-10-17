@@ -1,8 +1,8 @@
 # TODO — Suivi des tâches
 
 > Légende statut : ⬜ à faire · 🔄 en cours · ✅ fait · ⛔ bloquée. IDs liés aux phases de `docs/plan.md`. Toute tâche terminée doit être consignée dans `devlog/`.
-> **Ce fichier ne liste que ce qui reste.** Les 52 tâches terminées (détail et récits) sont dans [`docs/todo-archive.md`](docs/todo-archive.md).
-> Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap : 45 Ko (`tools/docs-size.sh`).
+> **Ce fichier ne liste que ce qui reste** : **17 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
+> Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap **50 Ko**, vérifié par `python tools/docs_size.py` (étape CI).
 
 ## Tâches ouvertes
 
