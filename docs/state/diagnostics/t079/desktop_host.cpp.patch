@@ -1,0 +1,51 @@
+--- a/src/platform/win/desktop_host.cpp
++++ b/src/platform/win/desktop_host.cpp
+@@ -14,6 +14,7 @@
+ #define NOMINMAX
+ #endif
+ #include <windows.h>
++#include <commctrl.h>
+ 
+ namespace starfish::platform::win {
+ 
+@@ -344,6 +345,40 @@
+ 
+ void DesktopHost::dumpDesktopHierarchy()
+ {
++    // TEMPORARY diagnostic (removed before the commit): every candidate host --
++    // Progman and each WorkerW -- with the DefView and the icon list it holds.
++    qCInfo(lc).noquote() << QStringLiteral("TMP hosts: Progman=0x%1")
++                                .arg(hex(fromHwnd(::FindWindowW(L"Progman", nullptr))));
++    HWND worker = nullptr;
++    while ((worker = ::FindWindowExW(nullptr, worker, L"WorkerW", nullptr)) != nullptr) {
++        const HWND defView = ::FindWindowExW(worker, nullptr, L"SHELLDLL_DefView", nullptr);
++        const HWND list =
++            defView ? ::FindWindowExW(defView, nullptr, L"SysListView32", nullptr) : nullptr;
++        wchar_t klass[64] = {0};
++        ::GetClassNameW(worker, klass, 64);
++        qCInfo(lc).noquote()
++            << QStringLiteral("TMP   %1 0x%2  visible=%3  DefView=%4  list=%5  items=%6")
++                   .arg(QString::fromWCharArray(klass))
++                   .arg(hex(fromHwnd(worker)))
++                   .arg(::IsWindowVisible(worker) ? 1 : 0)
++                   .arg(hex(fromHwnd(defView)))
++                   .arg(hex(fromHwnd(list)))
++                   .arg(list ? int(::SendMessageW(list, LVM_GETITEMCOUNT, 0, 0)) : -1);
++    }
++    const HWND tmpProgman = ::FindWindowW(L"Progman", nullptr);
++    if (tmpProgman) {
++        const HWND defView = ::FindWindowExW(tmpProgman, nullptr, L"SHELLDLL_DefView", nullptr);
++        const HWND list =
++            defView ? ::FindWindowExW(defView, nullptr, L"SysListView32", nullptr) : nullptr;
++        qCInfo(lc).noquote()
++            << QStringLiteral("TMP   Progman 0x%1  visible=%2  DefView=%3  list=%4  items=%5")
++                   .arg(hex(fromHwnd(tmpProgman)))
++                   .arg(::IsWindowVisible(tmpProgman) ? 1 : 0)
++                   .arg(hex(fromHwnd(defView)))
++                   .arg(hex(fromHwnd(list)))
++                   .arg(list ? int(::SendMessageW(list, LVM_GETITEMCOUNT, 0, 0)) : -1);
++    }
++
+     const DesktopHandles handles = discoverDesktop();
+     const HWND progman = ::FindWindowW(L"Progman", nullptr);
+ 

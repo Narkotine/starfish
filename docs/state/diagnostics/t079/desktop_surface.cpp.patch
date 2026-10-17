@@ -1,0 +1,69 @@
+--- a/src/platform/win/desktop_surface.cpp
++++ b/src/platform/win/desktop_surface.cpp
+@@ -783,6 +783,31 @@
+ bool DesktopSurface::refreshDesktopHandles()
+ {
+     const DesktopHandles handles = discoverDesktop();
++#if defined(_WIN32)
++    // TEMPORARY diagnostic (removed before the commit): which host, and does this
++    // process see the DefView under Progman at all?
++    {
++        wchar_t klass[64] = {0};
++        if (handles.iconHost)
++            ::GetClassNameW(handles.iconHost, klass, 64);
++        const HWND tmpProgman = ::FindWindowW(L"Progman", nullptr);
++        const HWND tmpDefView =
++            tmpProgman ? ::FindWindowExW(tmpProgman, nullptr, L"SHELLDLL_DefView", nullptr)
++                       : nullptr;
++        wchar_t hostKlass[64] = {0};
++        if (handles.defView)
++            ::GetClassNameW(handles.defView, hostKlass, 64);
++        qCInfo(lc).noquote()
++            << QStringLiteral("TMP host pick: host 0x%1 class %2, Progman 0x%3 (DefView under it "
++                              "0x%4), DefView 0x%5 class %6")
++                   .arg(QString::number(fromHwnd(handles.iconHost), 16))
++                   .arg(QString::fromWCharArray(klass))
++                   .arg(QString::number(fromHwnd(tmpProgman), 16))
++                   .arg(QString::number(fromHwnd(tmpDefView), 16))
++                   .arg(QString::number(fromHwnd(handles.defView), 16))
++                   .arg(QString::fromWCharArray(hostKlass));
++    }
++#endif
+     const quintptr iconHost = fromHwnd(handles.iconHost);
+     const quintptr defView = fromHwnd(handles.defView);
+     const bool changed = (iconHost != m_iconHost) || (defView != m_defView);
+@@ -906,6 +931,13 @@
+ 
+ void DesktopSurface::watchdogTick()
+ {
++    // TEMPORARY diagnostic (removed before the commit): a settled screen sample,
++    // every tick, taken while the product is idle.
++    if (isAttached() && m_visible)
++        qCInfo(lc).noquote() << QStringLiteral("TMP tick screen at %1,%2: %3")
++                                    .arg(m_rect.center().x())
++                                    .arg(m_rect.center().y())
++                                    .arg(screenSample());
+     if (!isAttached()) {
+         m_watchdog.stop();
+         m_hwnd = 0;
+@@ -937,6 +969,20 @@
+         return;
+     }
+     m_lastBlitLines = blitFrame(reinterpret_cast<HDC>(dc), m_frame);
++}
++
++QString DesktopSurface::screenSample() const
++{
++    // TEMPORARY diagnostic (removed before the commit).
++    const HDC dc = ::GetDC(nullptr);
++    const COLORREF colour = ::GetPixel(dc, m_rect.center().x(), m_rect.center().y());
++    ::ReleaseDC(nullptr, dc);
++    if (colour == CLR_INVALID)
++        return QStringLiteral("(unreadable)");
++    return QStringLiteral("#%1%2%3")
++        .arg(GetRValue(colour), 2, 16, QLatin1Char('0'))
++        .arg(GetGValue(colour), 2, 16, QLatin1Char('0'))
++        .arg(GetBValue(colour), 2, 16, QLatin1Char('0'));
+ }
+ 
+ QString DesktopSurface::paintReport() const

@@ -14,9 +14,9 @@
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **Essai à la main (utilisateur)** — cinq vérifications en attente : `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable), `T-071` (le bureau est redevenu le bureau), `T-069` (le bureau est atteignable), `ADR-13` (rien n'est plus pris au bureau), `T-057` (matériaux : papier peint à travers, souris partout).
-2. **Les retours de la session 42 qui restent** — `T-076` (un menu à nous au clic droit sur une zone), `T-078` (les noms les plus longs, suite de `T-049`), `T-073` (l'entrée F-001 dans le menu principal de Windows 11).
-3. **`T-042` puis `T-064` → `T-059`** — les interactions des icônes hors zone (le prix de l'ADR-3), puis le matériau par clic droit **avant** de nettoyer la fenêtre de réglages.
+1. **`T-079` (P0) — une zone neuve n'apparaît pas.** Retour utilisateur de la session 44 resté **non consigné** alors, **toujours présent** : « je ne vois plus les fences créées, ou nouvellement créée, même en matériel opaque ». Son diagnostic est **reconstitué et prêt à réappliquer** : `docs/state/diagnostics/t079/` (lire son `README.md` d'abord).
+2. **Essai à la main (utilisateur)** — six vérifications en attente : **`T-079`** (une zone neuve doit apparaître), `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable), `T-071` (le bureau est redevenu le bureau), `T-069` (le bureau est atteignable), `ADR-13` (rien n'est plus pris au bureau), `T-057` (matériaux : papier peint à travers, souris partout).
+3. **Les retours de la session 42, puis `T-042` → `T-064` → `T-059`** — `T-076` (un menu à nous au clic droit sur une zone), `T-078` (les noms les plus longs, suite de `T-049`), `T-073` (l'entrée F-001 dans le menu principal de Windows 11) ; ensuite les interactions des icônes hors zone (le prix de l'ADR-3), puis le matériau par clic droit **avant** de nettoyer la fenêtre de réglages.
 
 **Sans blocage**, à prendre ensuite : `T-047`, `T-013`, `T-014b`, `T-015` (packaging v0.1) — voir `TODO.md`.
 

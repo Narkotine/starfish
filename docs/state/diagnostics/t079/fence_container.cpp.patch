@@ -1,0 +1,32 @@
+--- a/src/ui/fence_container.cpp
++++ b/src/ui/fence_container.cpp
+@@ -1104,8 +1104,28 @@
+         fence->view->render(&painter);
+     }
+     fence->frame = frame;
+-    if (fence->surface)
++    // TEMPORARY T-050/T-077 diagnostic -- removed before the commit.
++    qCInfo(lc).noquote()
++        << QStringLiteral("TMP frame fence %1: %2x%3 dpr %4, centre alpha %5, corner alpha %6, "
++                          "pushed-to-window %7, per-pixel %8, visible %9, panel %10")
++               .arg(id)
++               .arg(frame.width())
++               .arg(frame.height())
++               .arg(frame.devicePixelRatio())
++               .arg(qAlpha(frame.pixel(frame.width() / 2, frame.height() / 2)))
++               .arg(qAlpha(frame.pixel(0, 0)))
++               .arg(fence->surface ? 1 : 0)
++               .arg(fence->surface && fence->surface->perPixelAlpha() ? 1 : 0)
++               .arg(fence->surface && fence->surface->isVisible() ? 1 : 0)
++               .arg(fence->view ? fence->view->panelColor().name(QColor::HexArgb)
++                                : QStringLiteral("(no view)"));
++    if (fence->surface) {
+         fence->surface->setFrame(frame);
++        qCInfo(lc).noquote() << QStringLiteral("TMP after push: %1")
++                                    .arg(fence->surface->paintReport());
++        qCInfo(lc).noquote() << QStringLiteral("TMP screen at the fence centre: %1")
++                                    .arg(fence->surface->screenSample());
++    }
+ }
+ 
+ void FenceContainer::beginGeometryDrag(const QString& id)

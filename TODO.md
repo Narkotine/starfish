@@ -25,6 +25,7 @@
 | T-063 | **Le menu du bureau nu, sans hook** — mesuré : le glisser-droit réel ouvre le menu de la coquille avec **« Create a fence here »** en tête (`#32768`, 257×209), sans hook souris global. Reste hors périmètre : notre entrée dans le menu d'une **icône** native, et un rectangle qui **commence sur une icône** — les deux seuls cas qui demanderaient encore **T-028** | 2 | P2 | ⬜ |
 | T-042 | Icônes hors zone : renommer (F2) / couper-coller — la restitution de `DefView` après plantage passe à **T-046** | 5 | P1 | ⬜ |
 | T-015 | Packaging portable + installeur, CI complète, docs utilisateur, release v0.1 | 6 | P1 | ⬜ |
+| T-079 | ⚠️ **Une zone neuve n'apparaît pas** — retour utilisateur (2026-10-17, 20:51) : « je ne vois plus les fences créées, ou nouvellement créée, même en matériel opaque ». Non consigné par la session 44 ; **toujours présent** | 5 | **P0** | ⬜ |
 
 ## Tâches ouvertes — détail
 
@@ -75,6 +76,14 @@
     - ⚠️ **Deux limites du harnais, payées pour la prochaine fois** : (1) un hook bas niveau **n'est pas appelé** pour les événements que le processus installeur injecte lui-même (`SendInput` du même processus → **0 événement vu**), donc `--drag-test` ne prouve que la plomberie ; (2) un second processus lancé depuis le terminal de l'agent **ne voyait pas la fenêtre du spike** (et un lancement en arrière-plan ne survivait pas), donc l'injecteur inter-processus n'a jamais tourné. **Le geste doit être fait à la main.**
     - **Ce qui reste à mesurer, et c'est là qu'est le risque** : la **classification** (un glisser partant du **bureau nu** vs d'une **icône** vs d'une de **nos zones** — le produit a déjà les rectangles d'icônes lus de la coquille, donc la distinction est faisable) ; le **coût du rappel** en microsecondes (un hook lent rend la souris **pâteuse pour toute la machine**, et Windows **l'évince en silence** au-delà de son délai : c'est *la* question de faisabilité) ; l'**éviction** en pratique ; et le fait que **swallow** (`return 1`) empêche bien le menu du bureau de s'ouvrir.
   - **Si le spike est concluant** : le **fond plein écran perd sa raison d'être** (il ne peint plus rien depuis ADR-13, et le hook reprend ses gestes) ⇒ il peut **disparaître**, et avec lui les trous d'alpha de T-069 dont il a fallu l'équiper. C'est la simplification la plus profonde que le projet puisse s'offrir sur ce sujet.
+
+- **T-079** (Phase 5, **P0**) — ⚠️ **Une zone neuve n'apparaît pas à l'écran.** Rapport utilisateur **verbatim** (2026-10-17, **20:51:50**) : « je ne vois plus les fences créées, ou nouvellement créée, même en matériel opaque ». **Toujours présent** — confirmé par l'utilisateur le même soir.
+  - **Pourquoi cette ligne existe** : la session 44 a instruit ce retour **neuf minutes** (diagnostics temporaires ajoutés de **21:00:02** à **21:08:46**, retirés à **21:09:26** par `git checkout --`) **sans consigner ni mesure, ni conclusion, ni tâche** — ni devlog, ni `TODO.md`, ni `STATE.md`. Sans cette ligne, le symptôme restait invisible à toute session suivante.
+  - **Acquis sans rien remesurer** : le défaut du schéma venait de passer à **opaque** (T-074, `#FF1F2937`) et **toutes** ses zones étaient **déjà** en `#FF1F2937` ⇒ l'hypothèse « le matériau ne s'applique pas » est écartée par son **document**, pas par une sonde.
+  - **Le diagnostic, reconstitué et prêt à réappliquer** : `docs/state/diagnostics/t079/` (4 patchs, contenu **verbatim**, `git apply --check` vérifié, comptes 35/46/5/21+1 identiques). Il mesure l'alpha de la **frame** (centre, coin, poussé-à-la-fenêtre, per-pixel, matériau) **et** l'alpha réellement présent **à l'écran** au centre de la zone (`GetPixel`), plus les **hôtes** (Progman/WorkerW, DefView, `SysListView32`, items).
+  - **Par où reprendre** : réappliquer le diagnostic et lire **les deux moitiés**. Cela départage (a) zone **jamais créée** / posée hors écran (`freeSpot`, T-067), (b) peinte mais **invisible à l'œil** (alpha, taille nulle, frame périmée — famille T-050/T-077), (c) **sous** autre chose (z-order, papier peint — famille T-061/ADR-13), (d) vivante à l'écran mais **absente du document** (persistance, T-008).
+  - ⚠️ **Ne pas se fier aux sondes seules** : au moment du retrait des diagnostics, `--fence-demo` passait **42/42** et `ctest` **14/14** alors que le symptôme courait encore ⇒ **produit et sonde divergent** ; mesurer **au vrai curseur**, comme T-071/T-069. Et vérifier le **chemin de création** (glisser au bouton droit, F-001/T-055), pas seulement le rendu d'une zone déjà présente.
+
 
 ## Tâches découvertes en cours de route
 

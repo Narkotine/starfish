@@ -1,0 +1,14 @@
+--- a/src/platform/win/desktop_surface.hpp
++++ b/src/platform/win/desktop_surface.hpp
+@@ -203,6 +203,11 @@
+     // signature this project keeps running into, so it has to be observable.
+     QString paintReport() const;
+ 
++    // TEMPORARY diagnostic (removed before the commit): the colour the screen
++    // actually shows at this window's centre, read from inside the process that
++    // owns it.
++    QString screenSample() const;
++
+     // The same counters, as numbers, for the probes (T-050 / T-077). A surface
+     // that is seen to do nothing must be distinguishable from one that is merely
+     // quiet, so the *work avoided* is counted as explicitly as the work done.
