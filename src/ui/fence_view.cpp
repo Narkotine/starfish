@@ -106,10 +106,10 @@ void FenceView::setPanelColor(const QColor& color)
     // surface's mode, not the widget's business, and while the alpha was thrown
     // away here the persisted one could never reach a single pixel. The widget
     // paints what the surface will push; a fence whose material is translucent
-    // gets the per-pixel path (DesktopSurface::setPerPixelAlpha) and its panel
-    // really does let the wallpaper through. The layer below the panel is filled
-    // by FenceContainer::renderFence, which is what keeps the corners of an
-    // *opaque* fence opaque (GDI would render a transparent pixel black).
+    // lets the wallpaper read through its panel. The layer below the panel is
+    // filled by FenceContainer::renderFence at the input alpha floor, which is
+    // what makes the corners *outside* the rounded panel transparent (T-075) --
+    // and what keeps them reachable by the mouse (ADR-11).
     m_panelColor = QColor(color.red(), color.green(), color.blue(), color.alpha());
     update();
     emit contentChanged();

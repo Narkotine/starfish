@@ -1239,12 +1239,12 @@ Décision utilisateur de la session 33 : **la translucidité d'abord**. Elle est
 
 ### Un matériau n'est pas un second style, c'est l'alpha qui dormait
 
-`FenceStyle::background` est écrit en **`#AARRGGBB`** depuis T-008, et son canal alpha était **persisté, relu, défauté** — et **inerte** : `FenceView::setPanelColor()` le *jetait* (`QColor(color.red(), green, blue)`), et même conservé il n'aurait pas atteint l'écran, puisque le chemin opaque blitte en GDI, qui **ignore l'alpha**. Conséquence : un document écrit avant T-057 (`"#CC1F2937"`, le défaut du schéma) est **déjà** le preset « translucide ». Les presets vivent donc dans un header **pur** (`src/ui/fence_material.hpp`) qui ne connaît que des noms et de l'arithmétique sur la chaîne :
+`FenceStyle::background` est écrit en **`#AARRGGBB`** depuis T-008, et son canal alpha était **persisté, relu, défauté** — et **inerte** : `FenceView::setPanelColor()` le *jetait* (`QColor(color.red(), green, blue)`), et même conservé il n'aurait pas atteint l'écran, puisque le chemin opaque blitte en GDI, qui **ignore l'alpha**. Conséquence : un document écrit avant T-057 (`"#CC1F2937"`, le défaut du schéma **de ce temps-là** — T-074 l'a depuis déplacé vers l'opaque, §32) est **déjà** le preset « translucide ». Les presets vivent donc dans un header **pur** (`src/ui/fence_material.hpp`) qui ne connaît que des noms et de l'arithmétique sur la chaîne :
 
 | preset | alpha | `#AARRGGBB` du fond par défaut |
 |---|---|---|
-| `opaque` | 255 | `#FF1F2937` |
-| `translucent` (**défaut du schéma**) | 204 | `#CC1F2937` |
+| `opaque` (**défaut du schéma** depuis T-074, §32) | 255 | `#FF1F2937` |
+| `translucent` (le défaut **jusqu'à T-074**) | 204 | `#CC1F2937` |
 | `very-translucent` | 128 | `#801F2937` |
 
 `withAlpha()` **réécrit les deux chiffres d'alpha et recopie les six chiffres RGB verbatim** (casse comprise) : la chaîne que l'utilisateur ou un document ancien a écrite survit, et l'aller-retour octet pour octet du document n'est pas cassé. Une couleur illisible (un nom, un `#abc`) est **laissée telle quelle** et compte comme opaque — pas de matériau appliqué à l'aveugle, pas de réécriture. **16 cas** dans `tests/test_fence_material.cpp` (14ᵉ exécutable `ctest`), dont un qui vérifie que notre parseur **est d'accord avec `QColor`** : c'est le kit qui définit la forme du schéma, pas notre croyance.
@@ -1603,5 +1603,60 @@ La vérification « seconde ligne » compare **deux légendes rendues de la mêm
 ### Reste humain
 
 **Regarder** une zone qui contient une icône au nom long. La sonde mesure le repli, la largeur de la bande et l'absence de débordement ; elle ne dit pas si **deux lignes** suffisent pour les noms de l'utilisateur, ni si la coupure d'un mot très long est lisible à l'œil.
+
+## 32. Le panneau opaque a des coins ronds, et le défaut du schéma devient l'opaque (T-074 / T-075, session 43)
+
+Les deux retours de la session 42 traitaient en fait **d'une seule chose** : « fences **opaques par défaut**, pas transparentes, pour l'instant » (T-074) et « nettoyer les coins : les coins sont ronds mais on voit un **débordement type angle droit** » (T-075). Rendre l'opaque par défaut **sans** corriger les coins aurait livré un rectangle. Les deux sont faits ensemble.
+
+### T-074 — un littéral, et rien qui migre
+
+`FenceStyle::background` valait `#CC1F2937` (alpha **204**) depuis T-008 ; il vaut `#FF1F2937` (255). Un matériau *est* cet alpha et la trame du document n'a **aucun** champ `material` (T-057) : une **zone neuve** est donc opaque, et **ce qui est déjà écrit garde son alpha**. Aucune migration, aucun changement de schéma, un seul littéral déplacé.
+
+Ce que ça donne sur les sondes, sans qu'aucune ne l'ait demandé : le document d'une zone neuve porte `#FF1F2937` (`--persist-demo`), le **premier lancement** du produit annonce `material: Opaque` (`--product-probe`), et `--fence-demo` vérifie que le défaut **est** le preset opaque en le **lisant dans `core::FenceStyle`** — jamais en recopiant la chaîne dans la sonde, sinon le test suivant ne suivrait pas.
+
+⚠️ **Ce qui n'est pas touché, et qu'il faut dire** : son document à lui contenait déjà **quatre** zones en `#FF1F2937` (il les avait passées en opaque par le tray/réglages) — la question « faut-il convertir les zones existantes ? » de la ligne de tâche **ne se pose donc pas** : ses zones étaient le cas que T-075 décrit.
+
+### T-075 — ce n'était pas les coins, c'était le chemin GDI
+
+La cause tenait à **une seule expression**, dans `FenceContainer::applyMaterialToSurface` : le mode de la fenêtre était décidé par le matériau (`setPerPixelAlpha(isTranslucent(alpha))`). Un panneau **opaque** partait donc sur le chemin **opaque**, qui blitte en GDI — et GDI **n'a aucun alpha à dépenser** sur les pixels *hors* du panneau arrondi. La frame était remplie en opaque sous le panneau (le commentaire de T-057 le disait : « sinon les coins sortiraient noirs »), et ce remplissage **carré** se voyait derrière une bordure, elle, **arrondie**. Exactement le symptôme rapporté.
+
+Le correctif est un **déplacement de la règle** : ce n'est plus le matériau qui décide du chemin, c'est la **forme** de la fence. Toute fence est un panneau arrondi, donc **toute fence est poussée par pixel** (`addFence` la fait naître ainsi, `applyMaterialToSurface` ne fait plus que le vérifier), et le matériau ne dit plus que **l'opacité du panneau**. `FenceMaterial::isTranslucent()` reste — c'est une classification, les sondes s'en servent — mais elle ne commande plus rien.
+
+Corollaire : le **remplissage** sous le panneau suit **la fenêtre à laquelle la frame est destinée**, jamais le matériau —
+
+| la fenêtre | le remplissage | pourquoi |
+|---|---|---|
+| per-pixel (le cas normal) | plancher d'alpha **1** | les pixels hors du panneau *sont* la forme : il faut qu'ils laissent passer le papier peint, et le plancher les garde joignables à la souris (ADR-11) |
+| repli GDI (le push per-pixel a été refusé) | opaque | GDI ignore l'alpha : un pixel transparent sortirait **noir** |
+
+### La mesure — et une première version qui mesurait sa propre erreur
+
+La mesure que la ligne de tâche demandait (« compter les pixels opaques **hors de la forme arrondie**, dans la frame puis dans la fenêtre hébergée ») est écrite dans `--fence-demo` : sur la frame, **et** sur le bitmap que la fenêtre hébergée a réellement reçu (`DesktopSurface::frame()` — un `PrintWindow` d'une fenêtre layered ne rend pas l'alpha, c'est donc la lecture honnête côté fenêtre).
+
+⚠️ **La première instrumentation était fausse, et de peu.** Elle reconstruisait la forme à la main — un disque de rayon `r` centré sur `(r + 0.5, r + 0.5)`, tolérance 1,5 px pour la bordure antialiasée. Un demi-pixel d'écart sur le centre a suffi : elle annonçait **216 pixels de débordement** sur une frame dont les coins sont propres (mesuré : la carte d'alpha du coin montre bien le remplissage au plancher dès le premier pixel hors de l'arc). Le bon instrument est le **masque que Qt dessine lui-même** : le même `drawRoundedRect`, même rect, même rayon, dans une image vide ; on ne compte que les pixels que le masque **ne couvre pas du tout** (l'arc antialiasé n'est donc jamais compté, il est légitimement en train de se fondre dans le papier peint) et qui sont pourtant peints. Même leçon que le parseur confronté à `QColor` (§26) : **la référence d'une forme appartient à l'outil qui la dessine**, pas à notre reconstruction.
+
+### Prémisses prouvées (patch temporaire, revert + rebuild)
+
+| ce qui est neutralisé | résultat | ce que ça prouve |
+|---|---|---|
+| le remplissage repassé en opaque partout | `rc=1`, **4 `FAIL`** — `76 pixel(s) painted outside the rounded shape of a 200x160 frame`, `corner alpha 255`, et le coin du matériau très translucide | la mesure attrape bien **le débordement**, et pas autre chose |
+| le mode de la fenêtre redécidé par le matériau (l'ancienne règle) | `--host` `rc=1`, **4 `FAIL`** — dont `a fence restored from an opaque document is born per-pixel too : per-pixel=0` | le **chemin de la fenêtre** est porteur, pas seulement le remplissage |
+
+Le **même nombre** apparaît des deux côtés et il est une **coïncidence utile** : **76** pixels, c'est aussi le chiffre qu'ADR-11 avait mesuré en session 35 pour les quatre coins à alpha 0 (`76 of 32000`). Deux instruments indépendants, même région, même cardinal.
+
+### Vérifications
+
+- `ctest` **14/14** ; `ui_fence_material` gagne la lecture du **défaut du schéma** et perd le nom qui mentait (`translucencyIsWhatNeedsThePerPixelPath` → `translucencyOnlyClassifiesTheMaterial`) ; `core_layout_store` vérifie `FenceStyle().background == "#FF1F2937"`.
+- `--fence-demo` **30/30** headless (28 avant) / **38/38** `--host` (33 avant). Les neuves : `nothing is painted outside the rounded panel of an opaque fence` (**0** pixel), `an opaque fence's corners are round, not square` (coin **1**, plancher), `an opaque fence keeps the per-pixel push (its corners are round)` (`per-pixel=1`), `the bitmap the hosted window shows has nothing outside its rounded panel either` (**0**), `a fence restored from an opaque document is born per-pixel too`.
+- La vérification « *an opaque fence has no transparency at all* » de T-057 est **remplacée** : elle exigeait `corner alpha 255`, c'est-à-dire qu'elle **encodait** le coin carré que l'utilisateur voyait.
+- **Toutes les autres sondes rejouées**, compteurs **inchangés** : `--persist-demo` 26, `--rules-demo` 28, `--portal-demo` 30, `--snapshot-demo` 11, `--screen-demo` 19, `--product-probe` 24, `--backdrop-demo` 37. ⚠️ `--nav-demo` **21/22 + 1 `FAIL`** — et ce n'est **pas** une régression : l'instance StarFish de l'utilisateur tournait pendant la session et **tient `Win+Shift+H`**, donc `the quick-hide hotkey registers` échoue côté système (`error 1409`), ce que T-044 a précisément prévu (`a second manager cannot steal the same hotkey` **passe**).
+- ⚠️ `build/starfish.exe` est **verrouillé** par l'instance de l'utilisateur : toute la session a été construite et mesurée dans **`build2/`** (le `.gitignore` prévoit le second dossier depuis T-044).
+- Build MinGW **0 warning** ; `%APPDATA%/StarFish/layout.json` **non touché** (4 zones, en `#FF1F2937`, inchangées).
+
+### Reste ouvert, et ce que cette session déplace
+
+- **T-050 (les clignotements) change de terrain** : l'opaque passe désormais **aussi** par le chemin per-pixel, donc le watchdog 2 s qui repousse `SetWindowPos` + `pushLayeredFrame()` s'applique à **toutes** les zones, alors qu'il ne touchait que les translucides. La note de `TODO.md` qui annonçait « T-074 les déplacerait sur le chemin GDI » est **fausse depuis cette session** et a été corrigée : c'est un chemin, une seule cadence, et c'est celle-là qu'il faut mesurer.
+- **T-058** (« coins : rayon, liseré, ombre ») reste une revue **esthétique**, donc à l'œil — mais son sujet « coins » n'est plus partagé avec T-075, qui est mesuré.
+- **Reste humain** : *regarder* le résultat. La sonde mesure que rien n'est peint hors de la forme et que le panneau est opaque là où il doit l'être ; elle ne dit pas si le coin **plaît**.
 
 

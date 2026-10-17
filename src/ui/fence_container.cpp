@@ -458,21 +458,25 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
 {
     if (!fence.surface || !fence.view)
         return true; // headless: nothing to switch, the mode is the surface's
-    const bool wantsPerPixel = FenceMaterial::isTranslucent(fence.view->panelColor().alpha());
-    if (fence.surface->perPixelAlpha() == wantsPerPixel)
+    // T-075: this used to be `isTranslucent(panel alpha)` -- and that is what the
+    // user saw as "the corners are round but a right angle spills out of them".
+    // A fence is a *rounded panel*: the pixels outside that shape are the frame's
+    // under-layer (renderFence), and only an alpha channel can make them
+    // transparent. The opaque GDI blit has no alpha to spend, so an opaque fence
+    // came out as a full rectangle behind its own rounded border. Every material
+    // takes the per-pixel push now; the material decides how opaque the *panel*
+    // is, never whether the window has an alpha channel.
+    if (fence.surface->perPixelAlpha())
         return true;
-    if (!fence.surface->setPerPixelAlpha(wantsPerPixel)) {
+    if (!fence.surface->setPerPixelAlpha(true)) {
         qCWarning(lc).noquote()
-            << QStringLiteral("fence %1: could not switch the surface to the %2 path -- "
-                              "the panel stays opaque")
-                   .arg(fence.id,
-                        wantsPerPixel ? QStringLiteral("per-pixel") : QStringLiteral("GDI"));
+            << QStringLiteral("fence %1: could not switch the surface to the per-pixel path -- "
+                              "the panel stays opaque and its corners square")
+                   .arg(fence.id);
         return false;
     }
-    qCInfo(lc).noquote() << QStringLiteral("fence %1: %2 path (panel alpha %3)")
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: per-pixel path (panel alpha %2)")
                                 .arg(fence.id)
-                                .arg(wantsPerPixel ? QStringLiteral("per-pixel")
-                                                   : QStringLiteral("opaque"))
                                 .arg(fence.view->panelColor().alpha());
     return true;
 }
@@ -773,12 +777,12 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                 target->view->addDroppedItems(dropped);
         });
 #endif
-        // F-038 / T-057: the material decides how the *window* is created, so it
-        // is set before attach() -- in per-pixel mode attach() skips the one-way
-        // SetLayeredWindowAttributes call, and changing the mode on a live surface
-        // means recreating it. A translucent panel needs the per-pixel push,
-        // because the opaque GDI blit ignores the alpha channel the material is.
-        surface->setPerPixelAlpha(FenceMaterial::isTranslucent(view->panelColor().alpha()));
+        // T-057 / T-075: the window's layered mode is fixed at *creation* --
+        // attach() skips the one-way SetLayeredWindowAttributes call in per-pixel
+        // mode, and switching a live surface means recreating it. Every fence is
+        // born per-pixel: a rounded panel is a shape, and only an alpha channel
+        // can make the pixels outside it transparent (T-075).
+        surface->setPerPixelAlpha(true);
         if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
             qCWarning(lc).noquote()
                 << QStringLiteral("fence %1: could not host the surface (no desktop?)").arg(id);
@@ -1043,36 +1047,42 @@ void FenceContainer::renderFence(const QString& id)
     QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
     frame.setDevicePixelRatio(dpr);
 
-    // F-038 / T-057: the frame's alpha channel *is* the material, and the layer
-    // under the panel is what makes it work.
+    // F-038 / T-057 / T-075: the frame's alpha channel *is* the fence's shape,
+    // and the layer under the panel is what makes it work.
     //
-    //  * An opaque material fills with the panel colour at full alpha. That is
-    //    not decoration: the opaque GDI blit ignores alpha, so a transparent
-    //    pixel outside the rounded corners would come out black.
-    //  * A translucent material fills with the same colour at the **input alpha
-    //    floor** instead of staying transparent (ADR-11, whose corollary is
-    //    exactly this case). A per-pixel layered window is hit-tested against its
-    //    own alpha, so a fence whose corners were alpha 0 would lose the mouse on
-    //    the corners alone -- it would look like a bug in the rounded corners
-    //    rather than like the panel failing to answer. One level out of 255 is
-    //    invisible on any wallpaper, and it keeps the whole rectangle reachable.
+    //  * A fence is a rounded panel. The pixels outside that shape are the
+    //    under-layer: they have to be (almost) transparent, or the wallpaper
+    //    cannot show through the corner and the fence reads as a rectangle with
+    //    a rounded border drawn inside it -- "the corners are round but a right
+    //    angle spills out of them" (T-075). Only an alpha channel can do that,
+    //    which is why every fence takes the per-pixel push (see
+    //    applyMaterialToSurface).
+    //  * The fill is at the **input alpha floor** and not at zero: a per-pixel
+    //    layered window is hit-tested against its own alpha (ADR-11, T-060), so
+    //    a fence whose corners were alpha 0 would lose the mouse on the corners
+    //    alone. One level out of 255 is invisible on any wallpaper, and it keeps
+    //    the whole rectangle reachable.
+    //  * The only case that still needs an opaque fill is the *fallback*: when
+    //    the per-pixel push was refused, the surface blits with GDI, which
+    //    ignores alpha -- a transparent pixel would come out black. The frame
+    //    then follows the window it is going to, not the material.
     //
     // The fill goes through a QPainter rather than QImage::fill: QPainter's output
     // on a premultiplied image is premultiplied by construction, and a "premultiplied"
     // frame whose RGB is larger than its alpha is exactly the kind of value that
     // renders as a bright artefact instead of an almost invisible one.
     const QColor panel = fence->view->panelColor();
-    const bool translucent = FenceMaterial::isTranslucent(panel.alpha());
+    const bool carriesAlpha = !fence->surface || fence->surface->perPixelAlpha();
     {
         QPainter painter(&frame);
         painter.setCompositionMode(QPainter::CompositionMode_Source);
         // The rect is the frame's *logical* extent -- the same conversion the
         // widget is sized with -- because the image carries the device pixel ratio.
         painter.fillRect(QRect(QPoint(0, 0), logicalSize(visible.size(), dpr)),
-                         translucent ? QColor(panel.red(), panel.green(), panel.blue(),
-                                              starfish::platform::win::DesktopSurface::
-                                                  kInputAlphaFloor)
-                                     : QColor(panel.red(), panel.green(), panel.blue()));
+                         carriesAlpha ? QColor(panel.red(), panel.green(), panel.blue(),
+                                               starfish::platform::win::DesktopSurface::
+                                                   kInputAlphaFloor)
+                                      : QColor(panel.red(), panel.green(), panel.blue()));
         // Back to the default mode: the widget itself paints *over* that layer.
         painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
         fence->view->render(&painter);

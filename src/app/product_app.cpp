@@ -672,10 +672,10 @@ void ProductApp::onDesktopIconsToggled(bool hidden)
 
 // F-038 / T-057: the materials. Both are a one-line style change on purpose --
 // the container turns the preset into an alpha on the fence's colour (which the
-// document already carries), switches the hosted surface to the per-pixel path
-// when the panel stops being opaque, and emits the lifecycle signal that
-// auto-saves and refreshes the tray and the settings window. There is nothing
-// left for the product to remember.
+// document already carries), keeps the hosted surface on the per-pixel path (it
+// is the only one that can show a rounded panel, T-075) and emits the lifecycle
+// signal that auto-saves and refreshes the tray and the settings window. There
+// is nothing left for the product to remember.
 void ProductApp::applyMaterialToFence(const QString& id, const QString& material)
 {
     m_container->setFenceMaterial(id, material);

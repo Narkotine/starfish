@@ -1777,15 +1777,64 @@ int main(int argc, char* argv[])
         };
         const int kFloor = starfish::platform::win::DesktopSurface::kInputAlphaFloor;
 
+        // T-075 -- the rounded panel is a *shape*, and whatever the frame shows
+        // outside that shape is the fence's rectangle leaking out from behind its
+        // own corners. That is what was reported ("the corners are round but a
+        // right angle spills out of them"), and it is a property of the pixels, so
+        // it is counted rather than argued.
+        //
+        // The reference shape is the one FenceView::paintEvent draws: the very
+        // same rounded rect, built by the very same toolkit, into an empty image
+        // (the pen and the brush are black on purpose -- only the coverage
+        // matters). Reconstructing the geometry by hand was tried first and got
+        // the arc's centre half a pixel wrong, which is exactly how a measurement
+        // turns into an opinion: it reported 216 pixels of "spill" on a frame
+        // whose corners are visibly clean.
+        const auto panelMask = [](const QImage& frame, int radius) {
+            QImage mask(frame.size(), QImage::Format_ARGB32_Premultiplied);
+            mask.fill(Qt::transparent);
+            const qreal dpr = frame.devicePixelRatio();
+            mask.setDevicePixelRatio(dpr);
+            QPainter painter(&mask);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setPen(QPen(Qt::black, 1.0));
+            painter.setBrush(Qt::black);
+            painter.drawRoundedRect(QRectF(0, 0, frame.width() / dpr, frame.height() / dpr)
+                                        .adjusted(0.5, 0.5, -0.5, -0.5),
+                                    radius, radius);
+            return mask;
+        };
+        // Pixels the panel does not cover at all (its antialiased edge is not
+        // spill -- it legitimately blends into the wallpaper) and that are
+        // nonetheless clearly painted. With a correct fence this is 0: everything
+        // outside the panel is the under-layer, at the input alpha floor.
+        const auto spillOutsideThePanel = [&panelMask](const QImage& frame, int radius) {
+            if (frame.isNull() || radius <= 0)
+                return -1;
+            const QImage mask = panelMask(frame, radius);
+            int spill = 0;
+            for (int y = 0; y < frame.height(); ++y) {
+                for (int x = 0; x < frame.width(); ++x) {
+                    if (qAlpha(mask.pixel(x, y)) != 0)
+                        continue;
+                    if (qAlpha(frame.pixel(x, y)) > 128)
+                        ++spill;
+                }
+            }
+            return spill;
+        };
+
         const int defaultPanel = panelAlpha(idM);
+        const QImage defaultFrame = frameOf(idM);
+        const int defaultRadius = container->fenceStyle(idM).radius;
+        const int defaultOverflow = spillOutsideThePanel(defaultFrame, defaultRadius);
         check(QStringLiteral("a new fence is shown in the schema's default material"),
-              container->fenceMaterial(idM) == QStringLiteral("translucent") && defaultPanel == 204,
+              container->fenceMaterial(idM) == QStringLiteral("opaque") && defaultPanel == 255,
               QStringLiteral("material %1, panel alpha %2 of 255 (%3)")
                   .arg(container->fenceMaterial(idM))
                   .arg(defaultPanel)
                   .arg(starfish::ui::FenceMaterial::summary()));
 
-        const QImage defaultFrame = frameOf(idM);
         int transparentPixels = 0;
         int invalidPremultiplied = 0;
         for (int y = 0; y < defaultFrame.height(); ++y) {
@@ -1799,7 +1848,7 @@ int main(int argc, char* argv[])
             }
         }
         const int defaultCorner = alphaAt(idM, QPoint(0, 0));
-        check(QStringLiteral("a translucent fence has nowhere the cursor falls through"),
+        check(QStringLiteral("a fence has nowhere the cursor falls through"),
               defaultCorner == kFloor && transparentPixels == 0,
               QStringLiteral("corner alpha %1 (floor %2), %3 of %4 pixel(s) at alpha 0 -- a "
                              "transparent corner would hand the mouse to the desktop there")
@@ -1807,6 +1856,18 @@ int main(int argc, char* argv[])
                   .arg(kFloor)
                   .arg(transparentPixels)
                   .arg(defaultFrame.width() * defaultFrame.height()));
+
+        // The default material is the opaque one (T-074) *and* the corners are
+        // round: the two changes are one feature. An opaque panel is the case the
+        // user was looking at, so the absence of spill is measured on it first.
+        check(QStringLiteral("nothing is painted outside the rounded panel of an opaque fence"),
+              defaultOverflow == 0,
+              QStringLiteral("%1 pixel(s) painted outside the rounded shape of a %2x%3 frame "
+                             "(radius %4)")
+                  .arg(defaultOverflow)
+                  .arg(defaultFrame.width())
+                  .arg(defaultFrame.height())
+                  .arg(defaultRadius));
 
         // A frame that is not valid premultiplied alpha renders as a bright
         // artefact rather than as an almost invisible pixel, and the floor is
@@ -1869,15 +1930,31 @@ int main(int argc, char* argv[])
                            : QStringLiteral(" (%1)").arg(materialApplyError)));
         delete materialReader;
 
+        // T-075, the other half: an *opaque* fence. Its panel is fully opaque and
+        // its corners are round at the same time -- which is only possible because
+        // it is pushed with an alpha channel: the pixels outside the panel are the
+        // under-layer, at the input alpha floor. The check that used to live here
+        // asserted the exact opposite (`corner alpha 255`, "no transparency at
+        // all"), i.e. it *encoded* the square corner the user reported.
         container->setFenceMaterial(idM, QStringLiteral("opaque"));
         const int opaquePanel = panelAlpha(idM);
         const int opaqueCorner = alphaAt(idM, QPoint(0, 0));
-        check(QStringLiteral("an opaque fence has no transparency at all"),
-              container->fenceMaterial(idM) == QStringLiteral("opaque") && opaquePanel == 255
-                  && opaqueCorner == 255,
-              QStringLiteral("panel alpha %1, corner alpha %2 (the floor is for translucency only)")
+        const QImage opaqueFrame = frameOf(idM);
+        const int opaqueOverflow = spillOutsideThePanel(opaqueFrame, container->fenceStyle(idM).radius);
+        check(QStringLiteral("an opaque fence is opaque where its panel is"),
+              container->fenceMaterial(idM) == QStringLiteral("opaque") && opaquePanel == 255,
+              QStringLiteral("panel alpha %1 of 255 at the centre of a %2x%3 frame")
                   .arg(opaquePanel)
-                  .arg(opaqueCorner));
+                  .arg(opaqueFrame.width())
+                  .arg(opaqueFrame.height()));
+        check(QStringLiteral("an opaque fence's corners are round, not square"),
+              opaqueCorner == kFloor && opaqueOverflow == 0,
+              QStringLiteral("corner alpha %1 (floor %2), %3 pixel(s) painted outside the "
+                             "rounded panel (radius %4)")
+                  .arg(opaqueCorner)
+                  .arg(kFloor)
+                  .arg(opaqueOverflow)
+                  .arg(container->fenceStyle(idM).radius));
 
         if (hosted) {
             QString scanError;
@@ -2064,11 +2141,14 @@ int main(int argc, char* argv[])
             }
 #endif
 
-            // T-057, hosted half: a translucent panel can only *be* translucent
-            // through the per-pixel push -- the opaque path blits with GDI, which
-            // ignores the alpha channel the material is. So the window has to be
-            // in that mode, and it has to come back out of it when the panel is
-            // opaque again.
+            // T-057 / T-075, hosted half: a translucent panel can only *be*
+            // translucent through the per-pixel push -- the opaque path blits with
+            // GDI, which ignores the alpha channel the material is. And since
+            // T-075 the *opaque* panel needs it just as much: GDI has no alpha to
+            // spend on the pixels outside a rounded panel, so an opaque fence came
+            // out as a rectangle behind its own rounded border. Both materials are
+            // measured here, and the opaque one is measured on the very bitmap the
+            // window was handed.
             container->setFenceMaterial(idM, QStringLiteral("very-translucent"));
             auto* translucentSurface = container->surface(idM);
             check(QStringLiteral("a translucent fence is hosted through the per-pixel push"),
@@ -2080,12 +2160,34 @@ int main(int argc, char* argv[])
 
             container->setFenceMaterial(idM, QStringLiteral("opaque"));
             auto* opaqueSurface = container->surface(idM);
-            check(QStringLiteral("an opaque fence goes back to the blit path"),
-                  opaqueSurface && !opaqueSurface->perPixelAlpha(),
+            check(QStringLiteral("an opaque fence keeps the per-pixel push (its corners are round)"),
+                  opaqueSurface && opaqueSurface->perPixelAlpha(),
                   QStringLiteral("fence %1: hosted=%2, per-pixel=%3")
                       .arg(idM)
                       .arg(opaqueSurface ? 1 : 0)
                       .arg(opaqueSurface && opaqueSurface->perPixelAlpha() ? 1 : 0));
+
+            // ...and what the window is actually showing: the bitmap it was
+            // handed, read back from the surface (there is no alpha in a
+            // PrintWindow readback of a layered window, so this is the honest
+            // window-side measurement).
+            const QImage pushedFrame = opaqueSurface ? opaqueSurface->frame() : QImage();
+            const int pushedCorner = pushedFrame.isNull()
+                                         ? -1
+                                         : int(qAlpha(pushedFrame.pixel(0, 0)));
+            const int pushedOverflow =
+                spillOutsideThePanel(pushedFrame, container->fenceStyle(idM).radius);
+            check(QStringLiteral("the bitmap the hosted window shows has nothing outside its "
+                                 "rounded panel either"),
+                  pushedCorner == kFloor && pushedOverflow == 0,
+                  QStringLiteral("hosted fence %1: corner alpha %2 (floor %3), %4 pixel(s) "
+                                 "outside the rounded panel of the %5x%6 bitmap it was given")
+                      .arg(idM)
+                      .arg(pushedCorner)
+                      .arg(kFloor)
+                      .arg(pushedOverflow)
+                      .arg(pushedFrame.width())
+                      .arg(pushedFrame.height()));
 
             // And the creation path, which is a different thing from the switch:
             // the layered mode is fixed when the window is created (attach()
@@ -2099,12 +2201,22 @@ int main(int argc, char* argv[])
             born.rect = QRect(600, 420, 200, 160);
             born.style.background = QStringLiteral("#801F2937");
             bornLayout.fences.append(born);
+            // ...and the same for the *default* material: since T-074 the schema
+            // default is the opaque preset, and T-075 says an opaque fence is
+            // pushed per-pixel too -- so this one is left at the default on
+            // purpose, and it must not be born on the GDI path.
+            starfish::core::Fence bornOpaque;
+            bornOpaque.id = QStringLiteral("fence-born-opaque");
+            bornOpaque.title = QStringLiteral("born opaque");
+            bornOpaque.rect = QRect(600, 600, 200, 160);
+            bornLayout.fences.append(bornOpaque);
             auto* bornHost = new starfish::ui::FenceContainer(&app);
             bornHost->setDesktopBounds(bounds);
             bornHost->setHostOnDesktop(true);
             QString bornError;
             const bool bornApplied = bornHost->applyLayout(bornLayout, &bornError);
             auto* bornSurface = bornHost->surface(born.id);
+            auto* bornOpaqueSurface = bornHost->surface(bornOpaque.id);
             check(QStringLiteral("a fence restored from a translucent document is born per-pixel"),
                   bornApplied && bornSurface && bornSurface->perPixelAlpha(),
                   QStringLiteral("applied=%1, hosted=%2, per-pixel=%3%4")
@@ -2113,6 +2225,14 @@ int main(int argc, char* argv[])
                       .arg(bornSurface && bornSurface->perPixelAlpha() ? 1 : 0)
                       .arg(bornError.isEmpty() ? QString()
                                                : QStringLiteral(" (%1)").arg(bornError)));
+            check(QStringLiteral("a fence restored from an opaque document is born per-pixel too"),
+                  bornApplied && bornOpaqueSurface && bornOpaqueSurface->perPixelAlpha()
+                      && bornHost->fenceMaterial(bornOpaque.id) == QStringLiteral("opaque"),
+                  QStringLiteral("applied=%1, material=%2, hosted=%3, per-pixel=%4")
+                      .arg(bornApplied ? 1 : 0)
+                      .arg(bornHost->fenceMaterial(bornOpaque.id))
+                      .arg(bornOpaqueSurface ? 1 : 0)
+                      .arg(bornOpaqueSurface && bornOpaqueSurface->perPixelAlpha() ? 1 : 0));
             delete bornHost;
         }
 
@@ -2287,10 +2407,12 @@ int main(int argc, char* argv[])
                       .arg(document->fences.at(0).sortAscending ? QStringLiteral("asc")
                                                                 : QStringLiteral("desc")));
             check(QStringLiteral("the style is in the file"),
-                  document->fences.at(0).style.background == QLatin1String("#CC1F2937")
+                  document->fences.at(0).style.background
+                          == starfish::core::FenceStyle().background
                       && document->fences.at(0).style.radius == 10,
-                  QStringLiteral("bg=%1 radius=%2")
+                  QStringLiteral("bg=%1 (the default is %2) radius=%3")
                       .arg(document->fences.at(0).style.background)
+                      .arg(starfish::core::FenceStyle().background)
                       .arg(document->fences.at(0).style.radius));
             check(QStringLiteral("the deleted fence is gone from the file"),
                   document->fences.at(0).id == idA && document->fences.at(1).id == idB,
@@ -2361,10 +2483,12 @@ int main(int argc, char* argv[])
                   : QStringLiteral("no view"));
         check(QStringLiteral("restart: the style comes back"),
               second->fenceStyle(idA).radius == 10
-                  && second->fenceStyle(idA).background == QLatin1String("#CC1F2937"),
-              QStringLiteral("radius=%1 bg=%2")
+                  && second->fenceStyle(idA).background
+                         == starfish::core::FenceStyle().background,
+              QStringLiteral("radius=%1 bg=%2 (the default is %3)")
                   .arg(second->fenceStyle(idA).radius)
-                  .arg(second->fenceStyle(idA).background));
+                  .arg(second->fenceStyle(idA).background)
+                  .arg(starfish::core::FenceStyle().background));
         check(QStringLiteral("restart: the document round-trips byte for byte"),
               starfish::core::JsonStore::toJson(second->toLayout())
                   == starfish::core::JsonStore::toJson(reopened.layout()),

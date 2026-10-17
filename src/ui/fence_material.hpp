@@ -27,8 +27,16 @@ namespace starfish::ui {
 //     document's spelling of a colour survives a preset change byte for byte.
 //
 // It does **not** own a colour, a window, or the schema: a document written
-// before T-057 (`#CC1F2937`, the schema default) is already the "translucent"
-// preset, which is why changing a material never needs a schema bump (ADR-7).
+// before T-057 holds `#CC1F2937` (the alpha 204 default of that time) and is
+// therefore already the "translucent" preset, which is why changing a material
+// never needs a schema bump (ADR-7). The schema default itself moved to the
+// opaque preset in T-074 -- see core/jsonstore.hpp.
+//
+// T-075 decided one thing this header used to decide: the window's path is **no
+// longer** the material's business. Only an alpha channel can make the pixels
+// outside a rounded panel transparent, and every fence is a rounded panel, so
+// every fence is pushed per-pixel and the material only says how opaque the
+// *panel* is.
 //
 // Everything here is Qt Core only and free of widgets, so it is tested without a
 // desktop, a window or a mouse -- the same split as fence_geometry and
@@ -44,7 +52,7 @@ struct Preset {
 };
 
 // opaque            the panel as it looks today: the wallpaper does not show.
-// translucent       the schema default (#CC...), kept as the default material.
+// translucent       the schema default until T-074 (#CC...), still a preset.
 // very-translucent  the wallpaper reads through the panel.
 inline const std::array<Preset, 3>& presets()
 {
@@ -78,9 +86,15 @@ inline QString presetFor(int alpha)
     return QString();
 }
 
-// Anything below full opacity needs the per-pixel path: that is the whole of the
-// decision (DesktopSurface::setPerPixelAlpha), and both the container and the
-// probes ask this one function.
+// Whether a material's panel lets anything through -- i.e. whether the alpha it
+// means is below full opacity.
+//
+// T-075: this is a *classification of the material*, no longer the switch that
+// picks the window's path. It used to be both (`setPerPixelAlpha(isTranslucent(
+// alpha))`), and that is exactly what left an opaque fence with square corners:
+// the opaque path blits with GDI, which has no alpha to spend on the pixels
+// outside a rounded panel. Every fence is pushed per-pixel now; see
+// FenceContainer::applyMaterialToSurface.
 inline bool isTranslucent(int alpha)
 {
     return alpha < 255;

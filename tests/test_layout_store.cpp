@@ -94,6 +94,12 @@ void TestLayoutStore::jsonRoundTripsEveryField()
     QCOMPARE(parsed->schema, 1);
     QCOMPARE(parsed->fences.size(), 2);
 
+    // T-074: a fence the code creates without saying anything about its style is
+    // the *opaque* preset now. The document has no `material` field (a material
+    // is this alpha), so this default is the whole of the change -- and nothing
+    // migrates: what an older document holds is what it keeps.
+    QCOMPARE(FenceStyle().background, QStringLiteral("#FF1F2937"));
+
     const Fence& fence = parsed->fences.at(0);
     QCOMPARE(fence.id, QStringLiteral("fence-001"));
     QCOMPARE(fence.title, QStringLiteral("Travail"));

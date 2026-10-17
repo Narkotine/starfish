@@ -14,7 +14,13 @@ namespace starfish::core {
 struct FenceStyle {
     // #AARRGGBB, i.e. exactly what QColor::name(QColor::HexArgb) produces, so
     // the string round-trips through QColor unchanged.
-    QString background = "#CC1F2937";
+    //
+    // T-074: the default is the *opaque* preset. It used to be `#CC1F2937`
+    // (alpha 204), which the material presets read back as `translucent`. A
+    // material *is* this alpha and a document keeps the one it was saved with,
+    // so moving the default changes what a **new** fence looks like, and nothing
+    // at all for the fences already in someone's layout.json.
+    QString background = "#FF1F2937";
     int radius = 10;
     int padding = 12;
     int iconSize = 48;

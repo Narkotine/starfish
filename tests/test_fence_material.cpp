@@ -6,6 +6,11 @@
 
 #include "ui/fence_material.hpp"
 
+// T-074: the schema's default style is where the *document* says what a new fence
+// looks like, so the material tests read it from there rather than copying the
+// string -- the day the default moves, this is what has to move with it.
+#include "core/jsonstore.hpp"
+
 using namespace starfish::ui;
 
 // T-057 (F-038): the pure half of the fence materials. What it has to get right
@@ -62,17 +67,31 @@ private slots:
         QCOMPARE(FenceMaterial::presetFor(0), QString());
     }
 
-    void theSchemaDefaultIsTheTranslucentPreset()
+    void theSchemaDefaultIsTheOpaquePreset()
     {
-        // The default FenceStyle has carried an alpha since T-008, and this is
-        // the whole reason T-057 needs no schema bump: the colour a document
-        // already holds *is* a material.
+        // T-057's reason to exist: the default FenceStyle has carried an alpha
+        // since T-008, so the colour a document already holds *is* a material --
+        // which is why no preset ever needed a schema field.
+        //
+        // T-074 moved that default: a *new* fence is opaque ("opaque by default,
+        // not transparent, for now"). Nothing migrates, because a material is the
+        // alpha of the colour each document row was saved with.
+        QCOMPARE(FenceMaterial::materialOf(starfish::core::FenceStyle().background),
+                 QStringLiteral("opaque"));
+        QCOMPARE(FenceMaterial::alphaOf(starfish::core::FenceStyle().background), 255);
+        // The preset that used to be the default is still a preset -- which is
+        // what keeps a document written before T-074 readable and unchanged.
         QCOMPARE(FenceMaterial::materialOf(QStringLiteral("#CC1F2937")),
                  QStringLiteral("translucent"));
     }
 
-    void translucencyIsWhatNeedsThePerPixelPath()
+    void translucencyOnlyClassifiesTheMaterial()
     {
+        // T-075: this predicate no longer picks the window's path. Every fence is
+        // pushed per-pixel -- that is the only way a rounded panel can have
+        // transparent pixels outside it -- and this says what the material *is*.
+        // The consequence is asserted where it belongs, in `--fence-demo`: the
+        // frame of an opaque fence has nothing painted outside its rounded shape.
         QVERIFY(!FenceMaterial::isTranslucent(255));
         QVERIFY(FenceMaterial::isTranslucent(254));
         QVERIFY(FenceMaterial::isTranslucent(204));
@@ -166,11 +185,14 @@ private slots:
             QCOMPARE(colour.green(), 0x29);
             QCOMPARE(colour.blue(), 0x37);
         }
-        // And the default style really is what QColor::name(HexArgb) produces, so
-        // a material change does not move the document to another spelling.
-        const QColor defaultStyle(0x1F, 0x29, 0x37, 204);
-        QCOMPARE(defaultStyle.name(QColor::HexArgb).toUpper(),
-                 QStringLiteral("#CC1F2937"));
+        // And the schema's default style really is a spelling QColor round-trips
+        // (T-074 moved the default, so this is read from the default rather than
+        // typed here): a material change never moves the document to another
+        // spelling of the same colour.
+        const QString defaultBackground = starfish::core::FenceStyle().background;
+        const QColor defaultStyle(defaultBackground);
+        QVERIFY2(defaultStyle.isValid(), qPrintable(defaultBackground));
+        QCOMPARE(defaultStyle.name(QColor::HexArgb).toUpper(), defaultBackground.toUpper());
     }
 
     void everyPresetHasItsOwnLabel()
