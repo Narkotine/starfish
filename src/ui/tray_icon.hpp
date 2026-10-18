@@ -64,6 +64,15 @@ public:
     // worse, is a trap -- it is a development tool now, and it is hidden as one.
     void setIconHidingOffered(bool offered);
     bool iconHidingOffered() const { return m_offerIconHiding; }
+
+    // T-088: the emergency exit on its own, because it has to be reachable exactly
+    // when it can be needed -- i.e. whenever StarFish is allowed to be the one
+    // drawing the desktop (the user's own switch, in the settings window). Kept
+    // apart from setIconHidingOffered so that what the product grows is not the
+    // developer path's "Hide desktop icons" toggle: "Restore my icons" is a plain
+    // command (it asks the desktop, and asks it again whatever our bookkeeping
+    // believes, T-046), and offering it costs the user nothing.
+    void setRestoreIconsOffered(bool offered);
     void setFenceCount(int count);
 
     // A short balloon message, for an action whose effect is on the desktop and
@@ -100,6 +109,10 @@ private:
     // setIconHidingOffered -- off unless the caller asks, and no caller in the
     // product does.
     bool m_offerIconHiding = false;
+    // T-088: whether "Restore my icons" alone is offered. It folds into the flag
+    // above, and it can be true while that one is false -- the way back without
+    // the developer toggle.
+    bool m_offerRestoreIcons = false;
     QAction* m_settings = nullptr;
     // F-038 / T-057: the "Fence material" submenu and one entry per preset, keyed
     // by FenceMaterial id so setFenceMaterial() cannot drift from the menu.

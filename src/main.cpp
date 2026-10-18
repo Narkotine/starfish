@@ -5241,6 +5241,12 @@ int main(int argc, char* argv[])
         QDir().mkpath(probeDir);
         const QString layoutPath = probeDir + QLatin1String("/layout.json");
         QFile::remove(layoutPath);
+        // T-088: the desktop-icon switch is the user's own preference, and this
+        // diagnostic must never read or write *theirs* -- a probe run would
+        // otherwise flip a real setting on the machine it runs on. Its own file,
+        // exactly like its own document.
+        const QString preferencesPath = probeDir + QLatin1String("/preferences.json");
+        QFile::remove(preferencesPath);
 
         starfish::app::ProductApp::Options options;
         options.layoutPath = layoutPath;
@@ -5251,6 +5257,7 @@ int main(int argc, char* argv[])
         options.hotkeys = false;
         options.watchDesktop = false;
         options.starterFence = true;
+        options.preferencesPath = preferencesPath;
 
         {
             starfish::app::ProductApp product;
@@ -5424,22 +5431,29 @@ int main(int argc, char* argv[])
                           .arg(QString::number(lists.size()))
                           .arg(QString::number(combos.size())));
 
-                // What is left is what no other surface says in words: one line, and
-                // a Close button. The button count is part of the check -- a second
-                // button is a second way to change something.
+                // What is left is what no other surface says in words: one line, a
+                // Close button, and -- since T-088 -- exactly **one** switch, the
+                // desktop-icon preference the user asked to be able to configure
+                // (« alors si ce n'est pas le défaut du produit, fais une case où je
+                // peux le configurer »). The button count is part of the check (a
+                // second button is a second way to change something), and so is the
+                // check box count: a fence list or a material combo reappearing here
+                // is the second path to the document this check exists to catch.
                 const QList<QPushButton*> buttons = settings->findChildren<QPushButton*>();
                 const QList<QCheckBox*> boxes = settings->findChildren<QCheckBox*>();
                 auto* statusLabel = settings->findChild<QLabel*>(QLatin1String("statusText"));
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
-                check(QLatin1String("... and it holds one status line and a Close button"),
+                auto* switchBox = settings->findChild<QCheckBox*>(QLatin1String("ownDesktopIcons"));
+                check(QLatin1String("... and it holds one status line, a Close button and one switch"),
                       buttons.size() == 1 && buttons.first()->text() == QLatin1String("Close")
-                          && boxes.isEmpty() && statusLabel != nullptr
-                          && !statusShown.isEmpty(),
-                      QLatin1String("%1 button(s), %2 check box(es), status line [%3]")
+                          && boxes.size() == 1 && switchBox != nullptr
+                          && statusLabel != nullptr && !statusShown.isEmpty(),
+                      QLatin1String("%1 button(s), %2 check box(es), switch %3, status line [%4]")
                           .arg(QString::number(buttons.size()))
                           .arg(QString::number(boxes.size()))
-                          .arg(statusShown));
+                          .arg(switchBox ? QLatin1String("found") : QLatin1String("missing"),
+                               statusShown));
 
                 // The half of the retired check that still has a subject: opening
                 // the window is not a way to change anything, and the line it shows
@@ -5454,6 +5468,49 @@ int main(int argc, char* argv[])
                       QLatin1String("%1 document change(s) for showing it; line reads [%2]")
                           .arg(QString::number(contentChanges - changesBefore))
                           .arg(statusLabel ? statusLabel->text() : QString()));
+
+                // -------------------------------------------------------------------
+                // T-088 -- the desktop-icon switch the user asked for.
+                //
+                // The point of these checks is not that a checkbox exists: it is the
+                // three things T-066 made necessary, and each of them is a different
+                // way to be wrong.
+                //   1. It starts **off**. The takeover must never come back as the
+                //      automatic consequence of filing an icon -- that was the whole
+                //      of session 36 (« là en l'état c'est inutilisable »).
+                //   2. Flipping it in the window reaches the product, and the product
+                //      writes it: the window holds no state at all, so a switch that
+                //      only ticked itself would be a lie.
+                //   3. A **later run** reads it back. That is what the file is for,
+                //      and the second product below is what proves it.
+                // -------------------------------------------------------------------
+                check(QLatin1String("the desktop-icon switch starts off"),
+                      !product.ownsDesktopIcons(),
+                      QLatin1String("ownsDesktopIcons=%1")
+                          .arg(product.ownsDesktopIcons() ? QLatin1String("true")
+                                                          : QLatin1String("false")));
+
+                if (switchBox) {
+                    // Through the widget, not through the product method: the signal,
+                    // the slot and the product's own apply path are the thing being
+                    // checked, and calling the method would skip all three.
+                    switchBox->setChecked(true);
+                    check(QLatin1String("the window's switch reaches the product and is kept"),
+                          product.ownsDesktopIcons() && QFileInfo::exists(preferencesPath),
+                          QLatin1String("ownsDesktopIcons=%1, file %2")
+                              .arg(product.ownsDesktopIcons() ? QLatin1String("true")
+                                                              : QLatin1String("false"))
+                              .arg(QFileInfo::exists(preferencesPath) ? QLatin1String("written")
+                                                                      : QLatin1String("missing")));
+                    // ...and the status line says what the product is *doing*, not
+                    // what was asked for: no fence holds a desktop icon in this
+                    // document, so nothing is drawn by StarFish yet. Measured, not
+                    // reasoned about: the string is the product's own.
+                    check(QLatin1String("the switch is reported as what it is doing"),
+                          product.statusText().contains(
+                              QLatin1String("StarFish will draw the desktop icons")),
+                          product.statusText());
+                }
 
                 product.store()->saveNow(nullptr);
             }
@@ -5482,6 +5539,33 @@ int main(int argc, char* argv[])
                   started && second.sharedFenceMaterial() == QLatin1String("very-translucent")
                       && second.statusText().contains(QLatin1String("Very translucent")),
                   started ? second.statusText() : startError);
+
+            // T-088, the other end of the switch: the choice went to a file, so it
+            // comes back with it -- and a later run has to *read* it, not merely have
+            // written it.
+            check(QLatin1String("a later run reads the desktop-icon switch back"),
+                  started && second.ownsDesktopIcons()
+                      && second.statusText().contains(
+                          QLatin1String("StarFish will draw the desktop icons")),
+                  started ? second.statusText() : startError);
+
+            // Turning it off is a write too: a switch that only lived in this run
+            // would take the desktop over again at the next launch, after the user
+            // had said no.
+            second.setOwnsDesktopIcons(false);
+            QFile preferencesFile(preferencesPath);
+            const QString preferencesText =
+                preferencesFile.open(QIODevice::ReadOnly)
+                    ? QString::fromUtf8(preferencesFile.readAll())
+                    : QString();
+            check(QLatin1String("turning it off is written, not merely remembered"),
+                  !second.ownsDesktopIcons()
+                      && preferencesText.contains(QLatin1String("\"desktopIconsOwned\":false")),
+                  QLatin1String("ownsDesktopIcons=%1, file [%2]")
+                      .arg(second.ownsDesktopIcons() ? QLatin1String("true")
+                                                     : QLatin1String("false"),
+                           preferencesText));
+
             second.shutdown();
         }
 

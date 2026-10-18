@@ -19,6 +19,7 @@
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
+#include "core/preferences.hpp"
 #include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_surface.hpp"
@@ -139,6 +140,20 @@ bool ProductApp::start(const Options& options, QString* error)
     // document or this options set.
     repairIconHidingFromPreviousRun();
 
+    // T-088: the user's own choices, read before anything can act on them. A file
+    // that cannot be read is reported and the defaults stand -- and the default
+    // here is the safe one (the desktop keeps its icons).
+    m_prefs = core::Preferences(m_options.preferencesPath.isEmpty()
+                                    ? core::Preferences::defaultFilePath()
+                                    : m_options.preferencesPath);
+    {
+        QString preferencesError;
+        if (!m_prefs.load(&preferencesError))
+            qCWarning(lc).noquote()
+                << QStringLiteral("preferences not read (%1): using the defaults")
+                       .arg(preferencesError);
+    }
+
     if (m_options.hostOnDesktop && !platform::win::DesktopSurface::isDesktopAvailable()) {
         if (error)
             *error = tr("the Windows desktop is not reachable (is Explorer running?)");
@@ -224,6 +239,15 @@ bool ProductApp::start(const Options& options, QString* error)
         // describe (T-062).
         syncNativeIcons();
         setDesktopIconsHidden(true);
+    } else if (m_prefs.desktopIconsOwned()) {
+        // T-088: the user asked for it in the settings window, so it happens at
+        // launch rather than mid-session -- and only if a fence really holds
+        // something: taking the layer over for nothing would mute a desktop that
+        // had nothing to gain (T-066). The desktop is re-read first, because both
+        // the free set and the slots the icons are drawn at come from that read,
+        // and it has to happen while the Shell is still drawing the list.
+        refreshDesktopItems();
+        syncNativeIcons();
     }
 
     // The screen arrangement changes while StarFish is running: a monitor is
@@ -398,6 +422,10 @@ void ProductApp::wireTray()
     // probes). In the product they do not exist, because clicking them does
     // nothing the user could want.
     m_tray->setIconHidingOffered(m_options.claimDesktop);
+    // T-088: and the way back is offered whenever StarFish *may* take the desktop's
+    // icons over -- the user's switch, present in the product, is not the developer
+    // path, so it cannot be the only thing that carries the exit.
+    m_tray->setRestoreIconsOffered(m_options.claimDesktop || m_prefs.desktopIconsOwned());
     connect(m_tray, &ui::TrayIcon::newFenceRequested, this, &ProductApp::onNewFence);
     connect(m_tray, &ui::TrayIcon::settingsRequested, this, &ProductApp::showSettings);
     connect(m_tray, &ui::TrayIcon::quitRequested, this, &ProductApp::quitRequested);
@@ -436,6 +464,13 @@ void ProductApp::wireSettings()
     // fence's own menu (T-076 / ADR-16). What the window carries is the status
     // line, and the rules screen (T-032) is assigned to it.
     m_settings = new ui::SettingsDialog(nullptr);
+    // T-088: the settings window's checkbox is the user's handle on the preference,
+    // and it is the *only* thing it is allowed to change (T-059: it holds no
+    // container, so it cannot touch a fence). One signal, one method, and that
+    // method is the same one a probe or a hot key would call.
+    connect(m_settings, &ui::SettingsDialog::desktopIconsOwnedToggled, this,
+            &ProductApp::setOwnsDesktopIcons);
+    m_settings->setDesktopIconsOwned(m_prefs.desktopIconsOwned());
     refreshStatus();
 }
 
@@ -968,6 +1003,52 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
     refreshStatus();
 }
 
+bool ProductApp::ownsDesktopIcons() const
+{
+    return m_prefs.desktopIconsOwned();
+}
+
+bool ProductApp::setOwnsDesktopIcons(bool owned)
+{
+    if (m_prefs.desktopIconsOwned() == owned)
+        return true;
+
+    m_prefs.setDesktopIconsOwned(owned);
+    QString error;
+    const bool saved = m_prefs.save(&error);
+    if (!saved) {
+        // Said out loud, and not hidden behind a checkbox that stays ticked: this
+        // run behaves as asked, the next one will not remember it. A choice that
+        // silently fails to persist is worse than one that refuses to be made.
+        qCWarning(lc).noquote()
+            << QStringLiteral("could not write the preferences %1: %2")
+                   .arg(m_prefs.filePath(), error);
+        if (m_tray)
+            m_tray->notify(tr("StarFish"), tr("The choice could not be saved: %1").arg(error));
+    }
+
+    if (owned) {
+        // The desktop has to be re-read before the layer goes away: the icons
+        // outside the fences are redrawn at the slots the Shell gave them.
+        refreshDesktopItems();
+        if (m_tray)
+            m_tray->notify(tr("StarFish"),
+                           tr("An icon a fence holds is now drawn only in its fence. The icons outside the fences no longer answer the mouse until this is turned off."));
+    }
+
+    // Turning it on takes the layer over as soon as a fence holds an icon; turning
+    // it off gives the icons back immediately. Both are syncNativeIcons' job, so
+    // there is exactly one place where "the icons are ours" is decided.
+    syncNativeIcons();
+
+    if (m_tray)
+        m_tray->setRestoreIconsOffered(m_options.claimDesktop || m_prefs.desktopIconsOwned());
+    if (m_settings)
+        m_settings->setDesktopIconsOwned(m_prefs.desktopIconsOwned());
+    refreshStatus();
+    return saved;
+}
+
 bool ProductApp::enableBackdrop()
 {
     if (!m_container)
@@ -1059,24 +1140,29 @@ void ProductApp::syncNativeIcons()
     // where the icon was is gone.
     //
     // ⚠️ T-066 -- and StarFish does **not** take the list over either, in the
-    // product. Hiding the desktop's icons and drawing them ourselves means the
-    // icons on screen stop being the user's: they cannot be clicked, dragged or
-    // right-clicked (that is T-042, unwritten), so the desktop answers nothing and
-    // reads as broken. What triggers it was not a mode the user chose but the
-    // *first* icon dropped into a fence -- the whole point of the application --
-    // so the desktop was taken over minutes after a normal launch, with no way
-    // back except quitting. The user reported exactly that: "starfish ne masque
-    // pas les icônes du bureau, affiche les fences sur le bureau normal, et que ce
-    // soit comme ça dès le démarrage".
+    // product, unless the user asked for it. Hiding the desktop's icons and drawing
+    // them ourselves means the icons on screen stop being the user's: they cannot be
+    // clicked, dragged or right-clicked (that is T-042, unwritten). [T-066, session
+    // 36: what triggered it was not a mode the user chose but the *first* icon
+    // dropped into a fence -- the whole point of the application -- so the desktop
+    // was taken over minutes after a normal launch, with no way back except
+    // quitting. The user reported exactly that: "starfish ne masque pas les icônes
+    // du bureau, affiche les fences sur le bureau normal, et que ce soit comme ça
+    // dès le démarrage".]
     //
-    // The price is stated rather than hidden: an icon a fence holds is drawn
-    // **twice**, once by the desktop at its place and once as a tile in the fence.
-    // Removing the duplicate is what T-042 is for; until then a duplicate is a
-    // cosmetic annoyance while a dead desktop is a broken product.
+    // T-088 keeps the lesson and gives the wish a handle: the takeover happens
+    // **only** behind `claimDesktop` (the development path and the probes) or behind
+    // the user's own switch (the settings window's checkbox, persisted in
+    // core::Preferences). It is still never a consequence of filing an icon -- the
+    // switch decides, once, and the guardrail's own words are the rule: "si un jour
+    // il doit revenir, ce sera une case à cocher assumée, jamais un effet de bord de
+    // « ranger une icône »".
     //
-    // The takeover survives behind `claimDesktop` (--claim-desktop, the
-    // development path and the probes), where the icons really are ours to draw.
-    if (!m_options.claimDesktop) {
+    // The price stays stated rather than hidden: with the switch off, an icon a
+    // fence holds is drawn **twice**, once by the desktop at its place and once as a
+    // tile in the fence. Removing the duplicate is what T-042 is for; until then a
+    // duplicate is a cosmetic annoyance while a dead desktop is a broken product.
+    if (!m_options.claimDesktop && !m_prefs.desktopIconsOwned()) {
         if (m_ownsIcons)
             giveBackDesktopIcons(); // left over from the claim path, or an older run
         return;
@@ -1092,6 +1178,21 @@ void ProductApp::takeOverDesktopIcons()
 {
     if (m_ownsIcons)
         return;
+
+    // T-039 / T-088: the backdrop is what draws the icon we are about to stop
+    // showing, so it goes on screen **first** -- and if it cannot be, the desktop
+    // keeps its icons. Same discipline as the crash marker (T-046): when the safe
+    // step cannot be taken, the risky one is refused. (Before T-088 the claim path
+    // happened to attach it a line later; the product's own switch must not depend
+    // on that ordering.)
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr) {
+        if (!backdrop->enabled() && !enableBackdrop()) {
+            qCWarning(lc) << "the desktop backdrop could not be hosted; the desktop keeps its "
+                             "icons and a fenced icon will show twice";
+            return;
+        }
+    }
+
     if (!platform::win::DesktopSurface::setDesktopIconsHidden(true)) {
         qCWarning(lc) << "could not take the desktop's icon list away; the icons a fence holds "
                          "will show twice";
@@ -1205,6 +1306,12 @@ QString ProductApp::statusText() const
     }
     parts << tr("%1 rule(s)").arg(m_container->rules().size());
     parts << (m_iconsHidden ? tr("desktop icons hidden") : tr("desktop icons visible"));
+    // T-088: the user's own switch, described as what it is *doing* rather than as
+    // what was asked for -- with no fenced icon there is nothing to draw, and the
+    // line must not claim otherwise.
+    if (m_prefs.desktopIconsOwned())
+        parts << (m_ownsIcons ? tr("StarFish draws the desktop icons")
+                              : tr("StarFish will draw the desktop icons (no fenced icon yet)"));
     if (m_container->backdrop() && m_container->backdrop()->enabled())
         parts << m_container->backdrop()->statusText();
     parts << (m_watcher && m_watcher->isWatching()

@@ -118,19 +118,21 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+144"/>
+        <location filename="../app/product_app.cpp" line="+159"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+316"/>
+        <location line="+336"/>
         <location line="+124"/>
         <location line="+45"/>
+        <location line="+363"/>
+        <location line="+8"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="-169"/>
+        <location line="-540"/>
         <source>%1 item(s) filed by the rules</source>
         <translation>%1 élément(s) rangé(s) par les règles</translation>
     </message>
@@ -176,7 +178,17 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+360"/>
+        <location line="+159"/>
+        <source>The choice could not be saved: %1</source>
+        <translation>Le choix n&apos;a pas pu être enregistré : %1</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>An icon a fence holds is now drawn only in its fence. The icons outside the fences no longer answer the mouse until this is turned off.</source>
+        <translation>Une icône rangée dans une zone n&apos;est désormais dessinée que dans sa zone. Les icônes restées sur le bureau ne répondent plus à la souris tant que ce mode est actif.</translation>
+    </message>
+    <message>
+        <location line="+258"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -209,6 +221,16 @@
         <location line="+0"/>
         <source>desktop icons visible</source>
         <translation>icônes du bureau visibles</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>StarFish draws the desktop icons</source>
+        <translation>StarFish dessine les icônes du bureau</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>StarFish will draw the desktop icons (no fenced icon yet)</source>
+        <translation>StarFish dessinera les icônes du bureau (aucune icône rangée pour l&apos;instant)</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -264,7 +286,7 @@
     <message>
         <location filename="../ui/fence_view.cpp" line="+244"/>
         <source>empty fence -- no icons yet</source>
-        <translation>zone vide -- aucune icône pour l'instant</translation>
+        <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
         <location line="+381"/>
@@ -275,17 +297,32 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+14"/>
+        <location filename="../ui/settings_dialog.cpp" line="+16"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+9"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+22"/>
+        <source>Desktop icons</source>
+        <translation>Icônes du bureau</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>StarFish draws the desktop icons</source>
+        <translation>StarFish dessine les icônes du bureau</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>An icon filed in a fence is then drawn only in its fence, and no longer on the desktop. The icons left outside the fences are still drawn, where the Shell put them, but they stop answering a click, a double click or the right button until this is turned off -- &quot;Restore my icons&quot; in the tray brings the desktop back at any time.</source>
+        <translation>Une icône rangée dans une zone n&apos;est alors dessinée que dans sa zone, et plus sur le bureau. Les icônes restées hors des zones sont toujours dessinées, là où la coquille les avait placées, mais elles ne répondent plus au clic, au double-clic ni au bouton droit tant que ce mode est actif — « Restaurer mes icônes » dans la zone de notification rend le bureau normal à tout moment.</translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>Close</source>
         <translation>Fermer</translation>
     </message>
@@ -318,7 +355,7 @@
         <translation>Masquer les icônes du bureau</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+12"/>
         <source>Restore my icons</source>
         <translation>Restaurer mes icônes</translation>
     </message>
@@ -338,7 +375,7 @@
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+68"/>
         <source>StarFish -- %1 fence(s)</source>
         <translation>StarFish -- %1 zone(s)</translation>
     </message>

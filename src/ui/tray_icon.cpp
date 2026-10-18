@@ -128,10 +128,12 @@ bool TrayIcon::show()
 
         // The emergency exit (T-046), next to the toggle on purpose: it is a
         // plain command, and it exists for the states the toggle cannot reach
-        // (the icons hidden by a run that never came back).
+        // (the icons hidden by a run that never came back). T-088: it is offered
+        // on its own flag as well, because a user who switches the icons over to
+        // StarFish must keep a way back.
         m_restoreIcons = m_menu->addAction(tr("Restore my icons"));
         connect(m_restoreIcons, &QAction::triggered, this, &TrayIcon::restoreIconsRequested);
-        m_restoreIcons->setVisible(m_offerIconHiding);
+        m_restoreIcons->setVisible(m_offerRestoreIcons);
 
         m_menu->addSeparator();
 
@@ -196,6 +198,17 @@ void TrayIcon::setIconHidingOffered(bool offered)
         m_hideIcons->setVisible(offered);
     if (m_restoreIcons)
         m_restoreIcons->setVisible(offered);
+}
+
+void TrayIcon::setRestoreIconsOffered(bool offered)
+{
+    // Only the plain command, and only that one: "Hide desktop icons" stays where
+    // T-062/ADR-13 put it -- behind the developer path that still claims the
+    // desktop -- while the way back is offered whenever StarFish may take the
+    // desktop's icons (T-088).
+    m_offerRestoreIcons = offered || m_offerIconHiding;
+    if (m_restoreIcons)
+        m_restoreIcons->setVisible(m_offerRestoreIcons);
 }
 
 void TrayIcon::setFenceCount(int count)
