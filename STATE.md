@@ -5,21 +5,20 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (`starfish_fr.qm` à côté de l'exécutable, chaînes de Qt incluses), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. `ctest` **16/16**, `--product-probe` **31/31** (7 neuves), autres sondes **inchangées**, 0 warning. **§40**.
+- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (`starfish_fr.qm` à côté de l'exécutable, chaînes de Qt incluses), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. `ctest` **16/16**, `--product-probe` **31/31**, 0 warning. **§40**.
 - **Livré juste avant :** 51 — **T-059 ✅** (la fenêtre de réglages n'est plus le produit, **§39**) ; 50 — **T-080 ✅ / ADR-18** (apparence par zone, **§38**).
-- **Dernière session :** 53 — **consolidation, aucun code** : arbre propre, `ctest` **16/16**, sondes headless **vertes** (seule `--nav-demo` **21/22** : raccourci tenu par une instance en cours, **T-044**), **4 commits poussés** ; `README.md` ramené à la révision courante (une seule ligne de compteurs). Avant : 52 — « je ne suis pas devant l'ordinateur » ; l'essai à l'œil **reste en attente**.
-- **Dernière mise à jour :** 2026-10-18 (session 53)
+- **Dernière session :** 54 — **son essai à l'œil a eu lieu, et il a parlé** : validés (clignotements, bureau rendu, icônes intactes, matériau du panneau, coins, couleurs/arrondis) ; **ouverts par son retour** : `T-084` (deux crans d'arrondi, 30/40), `T-085` (l'espace par icône en **réglage**), `T-086` (le **bord opposé** bouge parfois pendant un redimensionnement), `T-087` (fantôme de la tuile tenue + aperçu de la zone tracée) ; **tranché** : `T-073` accord de packaging, `T-032` non demandée, `T-052` tel quel, `T-053` le Peek part, `T-048` abandonnée. Avant : 53 — consolidation.
+- **Dernière mise à jour :** 2026-10-18 (session 54)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **poussé** au 2026-10-18 (session 53, accord de l'utilisateur) — tout push déclenche la CI.
 
 ## 3 prochaines actions
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **L'essai à l'œil — en attente de son retour au poste** : `Colours ▸`, `Corner radius ▸`, puis *Very translucent* et `Material on the icons too` (script clic par clic : `docs/state/next-actions-detail.md`).
-2. **T-073 ❓ — l'entrée F-001 dans le menu principal de Windows 11** : extension shell `IExplorerCommand` ⇒ **paquet sparse MSIX** ⇒ **dépendance de packaging** : **spike et accord avant toute installation**. Ensuite **T-042**.
-3. ❓ **T-032 (l'écran des règles) : à trancher avant tout code** — `TODO.md` le porte, `docs/plan.md` dit « l'auto-organisation (F-017/F-018, T-031/T-032) n'est pas demandée — ne pas y investir ». Question posée en s52, **rien écrit**. Puis **T-058** (les coins, à l'œil), **T-081** (défaut général + « appliquer à toutes »), `T-076` (barre de titre affichable/masquable), `T-070`.
-**Sans blocage**, à prendre ensuite : le reste de `T-014b` (les **thèmes** : `iconSize`/`padding`/`gap`/`titleBar` persistés et **inertes**), `T-047`, `T-013`, `T-083` (sonde `--icons-demo` : un compte au lieu d'un élément), `T-015` (packaging v0.1) — voir `TODO.md`.
-
+1. **Le retour de son essai, dans l'ordre** : `T-084` (arrondis 30/40), `T-053` (retirer le Peek), `T-085` (l'espace par icône devient un **réglage**), `T-086` (**instrumenter** le redimensionnement avant de corriger), `T-087` (fantôme + aperçu de la zone tracée). Ordre, raisons et descriptions en clair : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
+2. **T-073 — le spike du paquet MSIX** : son accord est **obtenu** (« ok pour dépendances ») ⇒ mesurer ce que l'extension shell impose (signature, inscription, mode développeur) ; **rien installé sur sa machine sans son accord**.
+3. ❓ **Trois questions posées en clair, sans réponse** : `T-036` (les portails en **écriture**), `T-033` (suivre les **sous-dossiers**), `T-030` (les **raccourcis**). Et **T-070** (le hook souris) attend **un geste à la main**.
+**Sans blocage** : le reste de `T-014b` (les **thèmes** : `iconSize`/`padding`/`gap`/`titleBar` persistés et **inertes**), `T-081`, `T-083` (sonde `--icons-demo`), `T-047`, `T-076`, `T-042`, `T-013`, `T-072`, `T-015` — voir `TODO.md`.
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |
