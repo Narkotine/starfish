@@ -1,7 +1,7 @@
 # TODO — Suivi des tâches
 
 > Légende statut : ⬜ à faire · 🔄 en cours · ✅ fait · ⛔ bloquée. IDs liés aux phases de `docs/plan.md`. Toute tâche terminée doit être consignée dans `devlog/`.
-> **Ce fichier ne liste que ce qui reste** : **14 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
+> **Ce fichier ne liste que ce qui reste** : **16 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
 > Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap **50 Ko**, vérifié par `python tools/docs_size.py` (étape CI).
 
 ## Tâches ouvertes
@@ -9,7 +9,8 @@
 | ID | Tâche | Phase | Prio | Statut |
 |---|---|---|---|---|
 | T-013 | Pages de bureau multiples (F-030/F-031) | 5 | P2 | ⬜ |
-| T-014b | i18n en/fr (F-036) + thèmes de zones (F-004 : `iconSize`, `padding`, `gap`, `titleBar` sont persistés mais inertes) | 5 (v0.2) | P1 | ⬜ |
+| T-014b | **i18n en/fr (F-036)** — ✅ **LIVRÉ (session 52)** pour l'i18n : catalogue `src/i18n/starfish_fr.ts` → `starfish_fr.qm` à côté de l'exécutable, langue prise de la **locale** (ou `--lang`), **chaînes de Qt** incluses, `tools/i18n_check.py` en CI. Reste ici les **thèmes de zones** (F-004 : `iconSize`, `padding`, `gap`, `titleBar` sont persistés mais **inertes** — un champ qu'un widget jette est une promesse) | 5 (v0.2) | P1 | 🔄 |
+| T-083 | ⚠️ **La sonde `--icons-demo` lit un *compte* là où sa question porte sur un *élément*** (trouvé en session 52, en cherchant une prémisse) : « un clic sur une icône du bureau atteint encore la coquille » lit `LVM_GETSELECTEDCOUNT`, donc si l'icône cliquée était **déjà** sélectionnée le compte ne bouge pas (1 → 1) et la vérification tombe **alors que le clic est livré** (mesuré : 11/12, **identique** avec le binaire de la révision de base). Candidats : lire l'**index** sélectionné (`LVM_GETNEXTITEM` + `LVNI_SELECTED`), ou le **nom** de l'élément sélectionné | 5 | P2 | ⬜ |
 | T-047 | **Créer une zone plus facilement** (F-001) — **absorbée par T-055** : le geste est désormais le glisser au bouton droit + le menu du bureau. Ne reste ici que la création de zones **prédéfinies** (F-019 : haut/milieu/bas, gauche/droite) | 5 | P2 | ⬜ |
 | T-048 | ⚠️ **Bugs quand on met « certains » éléments dans une zone** (rapport utilisateur session 28, **à caractériser**) : reproduire, identifier la classe d'éléments, corriger | 5 | P0 | ⬜ |
 | T-052 | **Déposer un fichier sur le bureau vide** ne fait plus rien tant que StarFish possède la couche d'icônes (conséquence assumée de T-039 : `SHELLDLL_DefView` est masquée, c'est elle qui recevait le drop) — à trancher avec l'utilisateur | 5 | P1 | ⬜ |
@@ -32,7 +33,7 @@
 
 ## Tâches ouvertes — détail
 
-- **T-014b** (Phase 5 → **v0.2**, P1) — **i18n en/fr (F-036) + thèmes de zones (F-004)**. Sortis de l'ex-T-014 par l'arbitrage du 2026-10-15, conformément à `produit.md` §7 (i18n = v0.2). L'interface est déjà écrite avec `tr()` et des chaînes sources **en anglais**, donc l'i18n est un **fichier de traduction** (`QTranslator`, détection de locale) et non une chasse. Les thèmes recouvrent l'application des champs de style aujourd'hui **inertes** (`iconSize`, `padding`, `gap`, `titleBar`) et, éventuellement, des jeux de styles prédéfinis.
+- **T-014b** (Phase 5 → **v0.2**, P1) — **i18n en/fr (F-036)** — ✅ **l'i18n est livré (session 52)** : la langue suit la **locale** de la machine (français ⇒ `starfish_fr.qm`, sinon l'anglais, langue source), `--lang en|fr` la force, les chaînes de **Qt** voyagent avec le binaire et `tools/i18n_check.py` (CI) refuse une chaîne non traduite, vide ou obsolète. Détail : `docs/technique.md` §40. **Reste dans cette tâche : les thèmes de zones (F-004)**. Sortis de l'ex-T-014 par l'arbitrage du 2026-10-15, conformément à `produit.md` §7 (i18n = v0.2). L'interface est déjà écrite avec `tr()` et des chaînes sources **en anglais**, donc l'i18n est un **fichier de traduction** (`QTranslator`, détection de locale) et non une chasse. Les thèmes recouvrent l'application des champs de style aujourd'hui **inertes** (`iconSize`, `padding`, `gap`, `titleBar`) et, éventuellement, des jeux de styles prédéfinis.
 
 - **T-018** (Phase 1, P1) — Valider manuellement le redémarrage d'Explorer : les zones sont enfants de `Progman` et meurent avec lui ; vérifier que `desktopReacquired()` + `attach()` les recréent sans crash Qt (`taskkill /f /im explorer.exe`, relance).
 
@@ -81,6 +82,8 @@
   - **Ce qui n'existe pas** : un défaut autre que le **littéral compilé** (`FenceStyle::background`, `radius`). Deux candidats : un **réglage d'application**, ou un bloc **`defaults`** dans le document — le document est l'autorité (ADR-7) et c'est ce qui survit à un redémarrage **et** voyage avec une disposition exportée.
   - **À trancher** : où vit le défaut, et s'il touche les zones **déjà** créées — réponse par défaut **non** (même règle qu'en T-074 : changer un défaut change les zones **neuves** ; « appliquer à toutes » est une action **explicite**, jamais un effet de bord).
 
+
+- **T-083** (Phase 5, P2) — **La sonde `--icons-demo` mesure un compte au lieu d'un élément.** Sa vérification « un clic sur une des icônes du bureau atteint encore la coquille » prend son instrument dans la coquille elle-même (`LVM_GETSELECTEDCOUNT`) : c'est un bon instrument *sauf* qu'un **compte** ne dit pas **laquelle** est sélectionnée. Mesuré (session 52) : une icône était **déjà** sélectionnée avant le clic, le compte est resté à `1` et la vérification est tombée (`selection 1 -> 1`) alors que la livraison avait eu lieu ; le **même** verdict est obtenu avec le binaire de la **révision de base** (`build2/starfish.exe`), donc la cause est l'instrument, pas le produit. Deux candidats, tous deux sans nouvelle machinerie inter-processus : (a) comparer l'**index** de l'élément sélectionné (`LVM_GETNEXTITEM`, `wParam=-1`, `lParam=LVNI_SELECTED` — un message qui **rend** un entier, donc rien à allouer chez l'explorateur), (b) comparer son **nom**, que la lecture inter-processus existante sait déjà lire. ⚠️ Le second sert aussi à la **restitution** de la sélection (le nettoyage actuel, en Ctrl+clic, peut atterrir sur une icône voisine — c'est ce qui s'est produit ici).
 
 ## Tâches découvertes en cours de route
 

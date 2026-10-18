@@ -5,20 +5,20 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 51 (2026-10-18) — **T-059 ✅** : la **fenêtre de réglages n'est plus le produit**. Liste des zones et dimensions, `New fence`/`Rename...`/`Roll up`/`Delete`, combo `Material:` et case « masquer les icônes du bureau » (retirée du produit par T-062) **partent** ; la fenêtre **ne reçoit plus de conteneur** ⇒ elle ne *peut* plus toucher au document (**propriété du code**, plus une promesse). Reste **une ligne d'état**, et c'est la page que **T-032** (l'écran des règles) attend. `--product-probe` **24/24** (trois vérifications **remplacées**), `ctest` **15/15**, autres sondes **inchangées** ; prémisse prouvée (**2 `FAIL`**). **§39**.
-- **Livré juste avant :** 50 — **T-080 ✅ / ADR-18** : l'apparence par zone (`Colours ▸`, `Corner radius ▸`), `titleBarColor` **vide = pas de bande** et le rayon **dessiné** borné par la taille. Détail : **§38**.
-- **Dernière session :** 51 — ouverte par « je ne suis pas devant le poste » : tâche sans arbitrage ni effet sur sa machine ; l'essai à l'œil de T-080/T-082 **reste en attente**.
-- **Dernière mise à jour :** 2026-10-18 (session 51)
+- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b, moitié i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (catalogue `starfish_fr.qm` compilé à côté de l'exécutable, **chaînes de Qt incluses**), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. Deux chaînes **peintes** trouvées non traduisibles ; le contexte d'une chaîne est **qualifié** (`starfish::ui::X`). `ctest` **16/16**, `--product-probe` **31/31** (7 neuves), autres sondes **inchangées**, 0 warning. **§40**.
+- **Livré juste avant :** 51 — **T-059 ✅** (la fenêtre de réglages n'est plus le produit, **§39**) ; 50 — **T-080 ✅ / ADR-18** (apparence par zone, **§38**).
+- **Dernière session :** 52 — ouverte par « je ne suis pas devant l'ordinateur » : tâche sans arbitrage ni effet sur sa machine ; l'essai à l'œil (T-080/T-082/T-058) **reste en attente**.
+- **Dernière mise à jour :** 2026-10-18 (session 52)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **non poussé** (le push déclenche la CI et exige l'accord de l'utilisateur).
 
 ## 3 prochaines actions
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **L'essai à l'œil — en attente de son retour au poste** (session 50) : clic droit sur une zone → **`Colours ▸` → `Title bar colour...`** (la barre prend la couleur, le panneau ne bouge pas), **`Title bar: same as the panel`** (elle n'apparaît **que** là), puis **`Corner radius ▸`** (*Square* et deux autres : **T-058** juge). Puis l'essai de la s49 (*Very translucent* : papier peint à travers le **panneau**, **tuiles nettes**, puis `Material on the icons too`).
+1. **L'essai à l'œil — en attente de son retour au poste** : `Colours ▸`, `Corner radius ▸`, puis *Very translucent* et `Material on the icons too` (script clic par clic : `docs/state/next-actions-detail.md`).
 2. **T-073 ❓ — l'entrée F-001 dans le menu principal de Windows 11** : extension shell `IExplorerCommand` ⇒ **paquet sparse MSIX** ⇒ **dépendance de packaging** : **spike et accord avant toute installation**. Ensuite **T-042**.
-3. **`T-032` puis `T-058` / `T-081`** — la page existe maintenant **pour** l'écran des règles (**T-032** : elles ne se déclarent qu'en JSON). Puis les **coins** (T-058, à l'œil) et le **défaut général + « appliquer à toutes »** (T-081 : une clé, un défaut, rien qui migre). **`T-076`** reste ouvert d'une entrée (barre de titre affichable/masquable), **`T-070`** ferme la marche.
-**Sans blocage**, à prendre ensuite : `T-047`, `T-013`, `T-014b`, `T-015` (packaging v0.1) — voir `TODO.md`.
+3. ❓ **T-032 (l'écran des règles) : à trancher avant tout code** — `TODO.md` le porte, `docs/plan.md` dit « l'auto-organisation (F-017/F-018, T-031/T-032) n'est pas demandée — ne pas y investir ». Question posée en s52, **rien écrit**. Puis **T-058** (les coins, à l'œil), **T-081** (défaut général + « appliquer à toutes »), `T-076` (barre de titre affichable/masquable), `T-070`.
+**Sans blocage**, à prendre ensuite : le reste de `T-014b` (les **thèmes** : `iconSize`/`padding`/`gap`/`titleBar` persistés et **inertes**), `T-047`, `T-013`, `T-083` (sonde `--icons-demo` : un compte au lieu d'un élément), `T-015` (packaging v0.1) — voir `TODO.md`.
 
 ## Où lire quoi (à la demande)
 
