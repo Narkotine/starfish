@@ -8,6 +8,7 @@ qt_add_executable(starfish WIN32
     core/desktop_item.cpp
     core/desktop_watcher.cpp
     core/icon_hiding_marker.cpp
+    core/i18n.cpp
     core/portal.cpp
     core/rules.cpp
     core/jsonstore.cpp
@@ -60,6 +61,48 @@ set_property(SOURCE starfish.rc APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/starfish.manifest"
     "${CMAKE_CURRENT_SOURCE_DIR}/starfish.ico")
 
+# --- interface language (F-036 / T-014b) ------------------------------------
+# The French catalogue is *built*, never committed as a binary: `lrelease` turns
+# src/i18n/starfish_fr.ts into starfish_fr.qm next to the executable, which is
+# the first place core::i18n looks. Guarded exactly like windeployqt below -- a
+# Qt installation without LinguistTools cannot build a catalogue, and the
+# application then stays in English (the source language) rather than failing to
+# build over a translation.
+#
+# The `.qm` is also what --product-probe loads: a build that ships the catalogue
+# is verified from the product's own window instead of being trusted.
+find_package(Qt6 QUIET COMPONENTS LinguistTools)
+if(TARGET Qt6::lrelease)
+    set(starfish_ts_file ${CMAKE_CURRENT_SOURCE_DIR}/i18n/starfish_fr.ts)
+    set(starfish_qm_file ${CMAKE_CURRENT_BINARY_DIR}/starfish_fr.qm)
+    add_custom_command(
+        OUTPUT ${starfish_qm_file}
+        COMMAND Qt6::lrelease ${starfish_ts_file} -qm ${starfish_qm_file}
+        DEPENDS ${starfish_ts_file}
+        COMMENT "Compiling the French catalogue (F-036)"
+        VERBATIM)
+    # The catalogue has to sit next to the executables (the application *and* the
+    # test binaries all land in the build directory): that is where core::i18n
+    # looks first, and what the unit test reads back.
+    #
+    # This is its own rule, with the `.qm` as its input -- **not** a POST_BUILD
+    # step of the application, which fires only on a relink. Measured: editing a
+    # translation rebuilt the `.qm` and left the copy next to starfish.exe
+    # untouched, silently, with `ninja` reporting "no work to do" (the same trap
+    # as an untracked `.rc` resource, src/CMakeLists.txt above).
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/starfish_fr.qm
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${starfish_qm_file} ${CMAKE_BINARY_DIR}/starfish_fr.qm
+        DEPENDS ${starfish_qm_file}
+        COMMENT "Placing starfish_fr.qm next to the executables"
+        VERBATIM)
+    add_custom_target(starfish_translations ALL DEPENDS ${CMAKE_BINARY_DIR}/starfish_fr.qm)
+    add_dependencies(starfish starfish_translations)
+else()
+    message(STATUS "Qt6::lrelease not found: no translation is built, the interface stays in English")
+endif()
+
 # Deployment is load bearing too, for the same reason as the manifest: the MinGW
 # build links Qt dynamically, so `build\starfish.exe` refuses to start with
 # "Qt6Widgets.dll introuvable" unless Qt's bin directory happens to be on PATH.
@@ -73,9 +116,14 @@ if(WIN32)
     get_filename_component(_starfish_qt_bin_dir "${_starfish_qmake}" DIRECTORY)
     find_program(WINDEPLOYQT_EXE windeployqt HINTS "${_starfish_qt_bin_dir}")
     if(WINDEPLOYQT_EXE)
+        # Qt's *own* strings are deployed on purpose (T-014b): F-036 is about the
+        # interface, and the toolkit's dialogs are part of it -- the rename box, the
+        # colour picker and their OK/Cancel are Qt's, and they only follow our
+        # language if `translations/qtbase_<lang>.qm` travels with the binary. This
+        # used to be `--no-translations`.
         add_custom_command(TARGET starfish POST_BUILD
             COMMAND "${WINDEPLOYQT_EXE}" --release
-                    --no-translations --no-system-d3d-compiler --no-opengl-sw
+                    --no-system-d3d-compiler --no-opengl-sw
                     --compiler-runtime
                     "$<TARGET_FILE:starfish>"
             COMMENT "Deploying the Qt runtime next to starfish.exe"

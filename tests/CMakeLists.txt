@@ -230,3 +230,21 @@ target_include_directories(test_starfish_fence_menu PRIVATE
 target_link_libraries(test_starfish_fence_menu PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME ui_fence_menu COMMAND test_starfish_fence_menu)
+
+# The interface language (F-036 / T-014b): which language a launch speaks, what a
+# request for a language the product does not have does, and the fact that the
+# source language needs no catalogue. Pure Qt Core, and deliberately *not* the
+# compiled catalogue: that artifact is checked where it matters -- next to the
+# executable, by --product-probe, which asks the product's own window.
+add_executable(test_starfish_i18n
+    test_i18n.cpp
+    ../src/core/i18n.cpp
+)
+
+target_include_directories(test_starfish_i18n PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_i18n PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_i18n COMMAND test_starfish_i18n)

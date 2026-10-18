@@ -36,9 +36,14 @@ QString entryPath()
 
 QString desktopMenuLabel()
 {
-    // Same language as the interface (F-036 / T-014b is what will translate it, if
-    // the user wants: it is one string).
-    return QObject::tr("StarFish: create a fence");
+    // F-036 / T-014b: `QObject::tr()` gives a free function the context "QObject"
+    // -- a shared, meaningless bucket that the catalogue would have to name. A
+    // named context says where the string lives.
+    //
+    // ⚠️ The label is a *registry* value: it is frozen in the language that was in
+    // force when `--install-desktop-menu` ran, and Windows draws it as-is. Running
+    // the install again refreshes it; nothing else will.
+    return QCoreApplication::translate("DesktopMenu", "StarFish: create a fence");
 }
 
 QString desktopMenuCommand()
@@ -78,7 +83,8 @@ bool installDesktopMenu(QString* error)
 
     if (shell.status() != QSettings::NoError) {
         if (error)
-            *error = QObject::tr("could not write %1 (QSettings status %2)")
+            *error = QCoreApplication::translate("DesktopMenu",
+                                                "could not write %1 (QSettings status %2)")
                          .arg(QString::fromLatin1(kShellKey))
                          .arg(int(shell.status()));
         return false;
@@ -93,7 +99,7 @@ bool uninstallDesktopMenu(QString* error)
     shell.sync();
     if (shell.status() != QSettings::NoError) {
         if (error)
-            *error = QObject::tr("could not remove %1\\%2")
+            *error = QCoreApplication::translate("DesktopMenu", "could not remove %1\\%2")
                          .arg(QString::fromLatin1(kShellKey),
                               QString::fromLatin1(kEntryName));
         return false;

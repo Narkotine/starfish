@@ -238,8 +238,10 @@ void FenceView::paintEvent(QPaintEvent* event)
     if (m_grid.items().isEmpty()) {
         painter.setFont(font());
         painter.setPen(hintText);
-        painter.drawText(content, Qt::AlignCenter,
-                         QStringLiteral("empty fence -- no icons yet"));
+        // F-036 / T-014b: a string drawn *in* a fence is part of the interface, so
+        // it goes through tr() like a menu label. It was a QStringLiteral -- the
+        // one kind of user-visible text a translation catalogue cannot see.
+        painter.drawText(content, Qt::AlignCenter, tr("empty fence -- no icons yet"));
         return;
     }
 
@@ -620,7 +622,7 @@ void FenceView::paintReleaseHint(QPainter& painter)
     if (!content.isEmpty()) {
         painter.setPen(accent);
         painter.drawText(content, Qt::AlignCenter,
-                         QStringLiteral("release to put it back on the desktop"));
+                         tr("release to put it back on the desktop"));
     }
     painter.restore();
 }

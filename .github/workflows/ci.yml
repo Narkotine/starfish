@@ -48,5 +48,13 @@ jobs:
       # STATE.md and TODO.md are read at the start of every session: a doc that
       # grows without a cap stops being read at all, and the session grep the
       # first 200 lines instead. The caps are checked, not trusted.
+      # The docs caps and the translation catalogue are the two things that fail
+      # *silently*: a doc nobody reads, and a French window with one English line
+      # in it. Both are checked, not trusted.
       - name: Check the docs stay short
         run: python tools/docs_size.py
+
+      # F-036 / T-014b: every translatable string the code carries has a finished
+      # French translation, and the catalogue holds nothing the code lost.
+      - name: Check the French catalogue is complete
+        run: python tools/i18n_check.py

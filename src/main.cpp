@@ -30,6 +30,7 @@
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
+#include "core/i18n.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/jsonstore.hpp"
 #include "core/layout_store.hpp"
@@ -933,6 +934,15 @@ int main(int argc, char* argv[])
         QStringLiteral("host"),
         QStringLiteral("With --fence-demo: also host the fences on the desktop through "
                        "DesktopSurface instead of running headless."));
+    // F-036 / T-014b: which language the interface speaks. Empty means "decide
+    // from the machine's locale" (a French Windows gets French, anything else the
+    // source language, English); naming one makes the run deterministic, which is
+    // what a diagnostic that reads a label needs.
+    const QCommandLineOption langOption(
+        QStringLiteral("lang"),
+        QStringLiteral("Interface language (F-036): en, fr, or a full locale name. "
+                       "Defaults to the system locale."),
+        QStringLiteral("code"));
     const QCommandLineOption layoutOption(
         QStringLiteral("layout"),
         QStringLiteral("Path of the layout document (T-008). Defaults to "
@@ -995,6 +1005,7 @@ int main(int argc, char* argv[])
     parser.addOption(fenceDemoOption);
     parser.addOption(hostOption);
     parser.addOption(layoutOption);
+    parser.addOption(langOption);
     parser.addOption(persistDemoOption);
     parser.addOption(navDemoOption);
     parser.addOption(rulesDemoOption);
@@ -1122,6 +1133,21 @@ int main(int argc, char* argv[])
     parser.addOption(noWatchOption);
     parser.addOption(noSettingsOption);
     parser.process(app);
+
+    // F-036 / T-014b: the interface language, installed **before anything draws**.
+    // Every label is tr()'d when its widget is built, so a translator installed
+    // after the first window would change nothing at all -- and that failure is
+    // perfectly silent.
+    //
+    // A catalogue that cannot be found is a warning and an English interface,
+    // never a refused launch: trading a working program for a broken one over a
+    // translation would be the wrong trade. The probe is what checks the
+    // catalogue really ships (--product-probe).
+    {
+        QString languageError;
+        if (!starfish::core::i18n::install(parser.value(langOption), &languageError))
+            qCWarning(lc).noquote() << languageError;
+    }
 
     if (parser.isSet(dumpOption)) {
         starfish::platform::win::DesktopHost::dumpDesktopHierarchy();
@@ -5194,6 +5220,23 @@ int main(int argc, char* argv[])
                        .arg(detail);
         };
 
+        // F-036 / T-014b: three checks below read *labels* ("Close", "Very
+        // translucent"), so this diagnostic **pins the language** instead of
+        // inheriting the machine's -- a French Windows must not turn a probe red.
+        // The French section at the end of this block is what exercises the other
+        // language, and it asks the product's own window rather than the catalogue.
+        {
+            QString languageError;
+            // ⚠️ The verdict is taken into a named `const bool` on purpose: inside a
+            // single call the *order* of the argument expressions is unspecified, so
+            // `check(..., install(...), installedLanguage())` reads the language
+            // before installing it -- a detail line that reports the machine's
+            // language while the check itself did its job.
+            const bool pinned = starfish::core::i18n::install(QLatin1String("en"), &languageError);
+            check(QLatin1String("the diagnostic pins the interface language"), pinned,
+                  pinned ? starfish::core::i18n::installedLanguage() : languageError);
+        }
+
         const QString probeDir = QLatin1String("build/product_probe");
         QDir().mkpath(probeDir);
         const QString layoutPath = probeDir + QLatin1String("/layout.json");
@@ -5440,6 +5483,91 @@ int main(int argc, char* argv[])
                       && second.statusText().contains(QLatin1String("Very translucent")),
                   started ? second.statusText() : startError);
             second.shutdown();
+        }
+
+        // -------------------------------------------------------------------
+        // F-036 / T-014b -- the same product, in French.
+        //
+        // The catalogue is a *build artifact that lives next to the executable*,
+        // so this is the only place where it can be verified for what it is: the
+        // product's own window, its own status line and a fence-menu label, asked
+        // in the language the .qm carries. Four things can be wrong and every one
+        // of them is silent otherwise -- the file missing, the translation left
+        // empty, a context that does not match what the runtime tr() looks for, and
+        // Qt's own strings not travelling with the binary.
+        //
+        // Note the layout: its own document, so the English checks above keep
+        // describing the state they built.
+        // -------------------------------------------------------------------
+        {
+            QString frenchError;
+            const bool french = starfish::core::i18n::install(QStringLiteral("fr"), &frenchError);
+            check(QLatin1String("the French catalogue loads next to the executable"), french,
+                  french ? QStringLiteral("starfish_fr.qm") : frenchError);
+
+            if (french) {
+                starfish::app::ProductApp::Options frenchOptions = options;
+                frenchOptions.layoutPath = probeDir + QLatin1String("/layout_fr.json");
+                frenchOptions.starterFence = true;
+                QFile::remove(frenchOptions.layoutPath);
+
+                starfish::app::ProductApp product;
+                QString startError;
+                const bool started = product.start(frenchOptions, &startError);
+                check(QLatin1String("the product starts in French"), started,
+                      started ? product.statusText() : startError);
+
+                if (started) {
+                    auto* settings = product.settingsDialog();
+                    const QList<QPushButton*> buttons =
+                        settings ? settings->findChildren<QPushButton*>() : QList<QPushButton*>();
+                    const QString title = settings ? settings->windowTitle() : QString();
+                    const QString closeLabel = buttons.isEmpty() ? QString() : buttons.first()->text();
+                    check(QLatin1String("the settings window speaks French"),
+                          title == QStringLiteral("Réglages StarFish")
+                              && closeLabel == QStringLiteral("Fermer"),
+                          QLatin1String("title [%1], close [%2]").arg(title, closeLabel));
+
+                    // The status line is the product describing itself in words --
+                    // and it is the *same* string the window shows, so this is also
+                    // the product's own report, read in French.
+                    check(QLatin1String("the status line speaks French"),
+                          product.statusText().contains(QStringLiteral("zone(s)"))
+                              && product.statusText().contains(QStringLiteral("matériau")),
+                          product.statusText());
+
+                    // A second translation context, and it needs no window: the
+                    // fence menu is pure data (T-076), so its labels can be read
+                    // here. A catalogue that translates one context and misses
+                    // another is exactly what this catches.
+                    starfish::ui::FenceMenu::State state;
+                    state.material = QLatin1String("opaque");
+                    QStringList menuLabels;
+                    for (const starfish::ui::FenceMenu::Entry& entry
+                         : starfish::ui::FenceMenu::materialEntries(state)) {
+                        menuLabels << entry.label;
+                    }
+                    check(QLatin1String("a fence menu label speaks French"),
+                          menuLabels.contains(QStringLiteral("Très translucide")),
+                          menuLabels.join(QLatin1Char('|')));
+
+                    // Qt's own strings: the rename box and the colour picker are the
+                    // toolkit's, and they follow our language only if
+                    // `qtbase_<lang>.qm` was found (deployed by windeployqt since
+                    // T-014b, read from the Qt installation in a dev build).
+                    const QString qtCancel =
+                        QCoreApplication::translate("QPlatformTheme", "Cancel");
+                    check(QLatin1String("Qt's own dialogs speak French"),
+                          qtCancel == QStringLiteral("Annuler"),
+                          QLatin1String("QPlatformTheme/Cancel = [%1]").arg(qtCancel));
+
+                    product.shutdown();
+                }
+            }
+
+            // Back to the source language: the checks above keep meaning what they
+            // meant, whatever the machine is configured to speak.
+            starfish::core::i18n::install(QLatin1String("en"));
         }
 
         // Leave nothing behind: the probe owns this directory and only removes it.
