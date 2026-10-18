@@ -5,25 +5,25 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (`starfish_fr.qm` à côté de l'exécutable, chaînes de Qt incluses), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. `ctest` **16/16**, `--product-probe` **31/31**, 0 warning. **§40**.
-- **Livré juste avant :** 51 — **T-059 ✅** (la fenêtre de réglages n'est plus le produit, **§39**) ; 50 — **T-080 ✅ / ADR-18** (apparence par zone, **§38**).
-- **Dernière session :** 54 — **son essai à l'œil a eu lieu, et il a parlé** : validés (clignotements, bureau rendu, icônes intactes, matériau du panneau, coins, couleurs/arrondis) ; **ouverts par son retour** : `T-084` (deux crans d'arrondi, 30/40), `T-085` (l'espace par icône en **réglage**), `T-086` (le **bord opposé** bouge parfois pendant un redimensionnement), `T-087` (fantôme de la tuile tenue + aperçu de la zone tracée) ; **tranché** : `T-073` accord de packaging, `T-032` non demandée, `T-052` tel quel, `T-053` le Peek part, `T-048` abandonnée. Avant : 53 — consolidation.
-- **Dernière mise à jour :** 2026-10-18 (session 54)
+- **Dernière session de code livrée :** 55 (2026-10-18) — **T-088 ✅ (F-040) / ADR-19 : le rachat des icônes devient une case** — « StarFish draws the desktop icons » dans Réglages, **son prix dessous**, persistée (`%APPDATA%/StarFish/preferences.json`, jamais dans le document ni dans le registre), « Restaurer mes icônes » offert dans le tray, et le rachat ne se déclenche **que si une zone détient une icône**. Défaut : **non**. `ctest` **17/17**, `--product-probe` **36/36**, i18n 67/67. **§41**.
+- **Livré juste avant :** 52 — **T-014b i18n ✅ (F-036)** (`--lang` pour forcer) ; 51 — **T-059 ✅** (la fenêtre de réglages n'est pas le produit) ; 50 — **T-080 ✅ / ADR-18** (apparence par zone).
+- **Dernière session avant :** 54 — **son essai à l'œil** : validés (clignotements, bureau rendu, icônes intactes, matériau, coins, couleurs/arrondis) ; ouverts : `T-084` à `T-087` ; tranchés : `T-073`, `T-032`, `T-052`, `T-053` (le Peek part), `T-048` (abandonnée).
+- **Dernière mise à jour :** 2026-10-18 (session 55)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **poussé** au 2026-10-18 (session 53, accord de l'utilisateur) — tout push déclenche la CI.
 
 ## 3 prochaines actions
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **Le retour de son essai, dans l'ordre** : `T-084` (arrondis 30/40), `T-053` (retirer le Peek), `T-085` (l'espace par icône devient un **réglage**), `T-086` (**instrumenter** le redimensionnement avant de corriger), `T-087` (fantôme + aperçu de la zone tracée). Ordre, raisons et descriptions en clair : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
-2. **T-073 — le spike du paquet MSIX** : son accord est **obtenu** (« ok pour dépendances ») ⇒ mesurer ce que l'extension shell impose (signature, inscription, mode développeur) ; **rien installé sur sa machine sans son accord**.
+1. **Son essai — une case neuve l'attend** : **Réglages** (clic sur l'icône de la zone de notification) → cocher « **StarFish dessine les icônes du bureau** », ranger une icône dans une zone, regarder le bureau. Les icônes **hors zone** deviennent muettes tant que la case est cochée (ni clic, ni lancement, ni menu) : c'est ce que la case dit sous elle, et **`T-042`** est ce qui leur rendrait la vie. Puis son retour : `T-084` (arrondis 30/40), `T-053` (retirer le Peek), `T-085` (l'espace par icône en **réglage**), `T-086` (**instrumenter** avant de corriger), `T-087` (fantôme + aperçu). Ordre, raisons et scripts : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
+2. **T-073 — le spike du paquet MSIX** : accord **obtenu** (« ok pour dépendances ») ⇒ mesurer ce que l'extension shell impose (signature, inscription, mode développeur) ; **rien installé sans son accord**.
 3. ❓ **Trois questions posées en clair, sans réponse** : `T-036` (les portails en **écriture**), `T-033` (suivre les **sous-dossiers**), `T-030` (les **raccourcis**). Et **T-070** (le hook souris) attend **un geste à la main**.
-**Sans blocage** : le reste de `T-014b` (les **thèmes** : `iconSize`/`padding`/`gap`/`titleBar` persistés et **inertes**), `T-081`, `T-083` (sonde `--icons-demo`), `T-047`, `T-076`, `T-042`, `T-013`, `T-072`, `T-015` — voir `TODO.md`.
+**Sans blocage** : le reste de `T-014b` (les **thèmes** : `iconSize`/`padding`/`gap`/`titleBar` persistés et **inertes**), `T-081`, `T-083` (sonde `--icons-demo`), `T-042`, `T-013`, `T-072`, `T-015` — voir `TODO.md`.
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |
 |---|---|
-| Décisions actées — **index** des 50, une ligne chacune | [`docs/state/decisions.md`](docs/state/decisions.md) |
+| Décisions actées — **index** des 51, une ligne chacune | [`docs/state/decisions.md`](docs/state/decisions.md) |
 | Détail d'une décision, par domaine (contraintes · windows · rendu · layout · navigation · règles · produit · outils) | `docs/state/decisions/*.md` |
 | Pièges déjà payés, à ne pas rejouer — **mêmes domaines** | `docs/state/guardrails.md` → `docs/state/guardrails/*.md` |
 | « Est-ce que X existe déjà ? » — inventaire composant par composant | [`docs/state/inventory.md`](docs/state/inventory.md) |
@@ -39,6 +39,6 @@
 - Ne pas déplacer un fichier sur le disque : StarFish gère l'**affichage**, pas l'emplacement (`moveFiles` reste sans effet, T-031).
 - Ne pas juger un placement par le z-order seul, ni par une capture sans vérifier que le bureau est visible : validation **au vrai curseur**.
 - **Ne pas confondre « le produit va bien » et « la sonde est verte » : une sonde mesure ce qu'elle a été écrite pour mesurer (le reste est dans `docs/state/guardrails/08-outils-verification.md`).**
-- **Ne pas réordonner les deux fenêtres d'une zone** (T-082) : `SetWindowPos` insère **sous** la fenêtre nommée, donc c'est **le panneau** qui est posé **sous son overlay** (`setStackedBelow`). L'inverse laisse les tuiles effacées derrière leur panneau (mesuré).
-- **Écrire court** : une session = une entrée `devlog/` + ses lignes ici + un commit. Rien de plus. Et **détail technique non déroulé** (consigne utilisateur du 2026-10-17 — vibe coding) : on consigne les faits (mesures, fichiers, pièges), **une ligne par fait**, sans justifications pas à pas ; la conclusion d'abord.
+- **Ne pas réordonner les deux fenêtres d'une zone** (T-082) : `SetWindowPos` insère **sous** la fenêtre nommée, donc c'est **le panneau** qui est posé **sous son overlay** (`setStackedBelow`) — l'inverse laisse les tuiles effacées derrière lui (mesuré).
+- **Écrire court** : une session = une entrée `devlog/` + ses lignes ici + un commit. Rien de plus. **Détail non déroulé** (consigne utilisateur du 2026-10-17 — vibe coding) : les faits (mesures, fichiers, pièges), **une ligne par fait**, la conclusion d'abord.
 - **Ne pas confondre le rayon *demandé* et le rayon *dessiné* (T-080)** : la vue borne (`min(demandé, demi-petit-côté)`) — et c'est **ce** nombre que la **région** doit recevoir.
