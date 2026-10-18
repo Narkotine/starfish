@@ -3,73 +3,48 @@
 #include <QDialog>
 #include <QString>
 
-class QCheckBox;
-class QComboBox;
 class QLabel;
-class QListWidget;
-class QPushButton;
 
 namespace starfish::ui {
 
-class FenceContainer;
-
-// The settings window (F-034) -- the first piece of StarFish a user can actually
-// click on.
+// The settings window (F-034). T-059 -- it is **no longer the fence manager**.
 //
-// It *reads* the container to draw the fences that exist, and only ever *asks*
-// for changes through signals: the container stays the sole owner of the fences,
-// exactly as in every other widget of this codebase. Deletion asks for
-// confirmation and says plainly that the files are not touched (F-007).
+// It used to draw every fence with its dimensions, create, rename, roll up and
+// delete them, and pick one fence's material. The user named that surface for
+// what it was: « il ne devrait pas y avoir de menu séparé comme il y a à présent,
+// avec les fences et leurs dimensions, pour créer les fences, ce n'est que pour
+// la démo ». Every one of those abilities now has a place of its own -- the tray
+// creates a fence and applies a material to all of them, and a fence's **own
+// menu** (T-076, ADR-16) is where one fence is renamed, rolled up, removed,
+// coloured and materialised (T-064, T-080).
 //
-// Non-modal on purpose: the fences live on the desktop behind it, so a modal
-// window would stop the user from seeing the effect of what they just changed.
+// So this window reads **nothing**, and the strongest form of that is that it no
+// longer holds a FenceContainer at all: "a window is not a second path to the
+// document" stops being a promise and becomes a property of the code. Nor does it
+// offer the desktop-icon switch that used to sit here: T-062 took that entry out
+// of the product and left it behind the `claimDesktop` developer path, where the
+// tray offers it -- a switch whose only effect is to take the user's icons away
+// does not belong in a window.
+//
+// What is left is what no other surface says in words: **one line describing what
+// is running** (fences, rules, watched folders, hot keys). The rules screen
+// (T-032) is assigned to this page, which is why the window still exists rather
+// than being deleted.
+//
+// Non-modal on purpose: what it describes lives on the desktop behind it.
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit SettingsDialog(FenceContainer* container, QWidget* parent = nullptr);
+    explicit SettingsDialog(QWidget* parent = nullptr);
 
-    void setDesktopIconsHidden(bool hidden);
-    bool desktopIconsHidden() const;
-    // Free-form line under the desktop group: rules, watched folders, hot keys.
+    // Free-form line describing what is running. Written by the product and never
+    // read back: the window owns no state, so nothing it shows can be mistaken for
+    // a choice.
     void setStatusText(const QString& text);
 
-public slots:
-    // Rebuilds the list from the container. The product connects it to the
-    // container's lifecycle signals, so the window follows the desktop instead
-    // of the other way round.
-    void refresh();
-
-signals:
-    void newFenceRequested();
-    void renameFenceRequested(const QString& id, const QString& title);
-    void removeFenceRequested(const QString& id);
-    void rollUpToggled(const QString& id, bool rolledUp);
-    void desktopIconsToggled(bool hidden);
-    // F-038 / T-057: the material chosen for one fence (`material` is a
-    // FenceMaterial preset id). The tray applies a material to every fence at
-    // once; this is the per-fence choice.
-    void fenceMaterialRequested(const QString& id, const QString& material);
-
 private:
-    void onRenameClicked();
-    void onRollUpClicked();
-    void onDeleteClicked();
-    void updateButtons();
-    // Puts the material combo in step with the container for the selected fence:
-    // the preset it is shown in, or a one-off "Custom" entry when its alpha is
-    // nobody's preset. Programmatic, so it blocks the combo's own signal.
-    void updateMaterialCombo();
-    QString selectedId() const;
-
-    FenceContainer* m_container = nullptr;
-    QListWidget* m_list = nullptr;
-    QPushButton* m_rename = nullptr;
-    QPushButton* m_rollUp = nullptr;
-    QPushButton* m_delete = nullptr;
-    QComboBox* m_material = nullptr;
-    QCheckBox* m_hideIcons = nullptr;
     QLabel* m_status = nullptr;
 };
 

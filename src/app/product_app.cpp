@@ -354,16 +354,13 @@ void ProductApp::onLifecycleChanged()
     m_store->setLayout(m_container->toLayout());
     m_store->scheduleSave();
 
-    if (m_settings)
-        m_settings->refresh();
-
     if (m_tray) {
         m_tray->setFenceCount(m_container->fenceCount());
         m_tray->setFencesVisible(m_container->fencesVisible());
         m_tray->setPeekActive(m_container->peekActive());
         m_tray->setDesktopIconsHidden(desktopIconsHidden());
         // F-038 / T-057: the material entry follows the document like the other
-        // menu states -- a change made in the settings window shows up here.
+        // menu states -- a change made from a fence's own menu shows up here.
         m_tray->setFenceMaterial(sharedFenceMaterial());
     }
 
@@ -413,7 +410,7 @@ void ProductApp::wireTray()
     connect(m_tray, &ui::TrayIcon::restoreIconsRequested, this,
             &ProductApp::restoreDesktopIcons);
     // F-038 / T-057: the tray speaks for the whole desktop, so its material entry
-    // applies to every fence (the settings window is the per-fence one).
+    // applies to every fence (a fence's own menu is the per-fence one).
     connect(m_tray, &ui::TrayIcon::fenceMaterialRequested, this,
             &ProductApp::applyMaterialToAllFences);
 
@@ -432,19 +429,14 @@ void ProductApp::wireSettings()
     if (!m_options.settingsWindow)
         return;
 
-    m_settings = new ui::SettingsDialog(m_container, nullptr);
-    connect(m_settings, &ui::SettingsDialog::newFenceRequested, this, &ProductApp::onNewFence);
-    connect(m_settings, &ui::SettingsDialog::renameFenceRequested, this,
-            &ProductApp::onRenameFence);
-    connect(m_settings, &ui::SettingsDialog::removeFenceRequested, this,
-            &ProductApp::onRemoveFence);
-    connect(m_settings, &ui::SettingsDialog::rollUpToggled, this, &ProductApp::onRollUpToggled);
-    // F-038 / T-057: the settings window is where one fence's material is chosen.
-    connect(m_settings, &ui::SettingsDialog::fenceMaterialRequested, this,
-            &ProductApp::applyMaterialToFence);
-    connect(m_settings, &ui::SettingsDialog::desktopIconsToggled, this,
-            &ProductApp::onDesktopIconsToggled);
-    m_settings->setDesktopIconsHidden(desktopIconsHidden());
+    // T-059: the window is no longer the fence manager, so it takes no container
+    // and no connection at all. Nothing here can change a fence: creating one is
+    // the tray's (or the desktop menu's, F-001), and everything that belongs to
+    // *one* fence -- rename, roll up, remove, material, colours, radius -- is the
+    // fence's own menu (T-076 / ADR-16). What the window carries is the status
+    // line, and the rules screen (T-032) is assigned to it.
+    m_settings = new ui::SettingsDialog(nullptr);
+    refreshStatus();
 }
 
 void ProductApp::wireWatcher()
@@ -577,7 +569,7 @@ QString ProductApp::createFenceWithDefaultPlacement()
 
 QString ProductApp::nextFenceTitle() const
 {
-    // One naming policy, shared by the tray, the settings window and a fence
+    // One naming policy, shared by the tray, the fence's own menu and a fence
     // drawn on the desktop: a fence created from anywhere is named the same way,
     // and only this function decides it.
     return tr("Fence %1").arg(m_container ? m_container->fenceCount() + 1 : 1);
@@ -672,7 +664,7 @@ void ProductApp::onRenameFence(const QString& id, const QString& title)
 //
 // The content is ui::FenceMenu's (pure, and checked without a desktop); what the
 // product adds is the mechanism and, above all, that every entry *calls the same
-// method the tray and the settings window call*. A menu choice that reached the
+// method the tray and a fence's own menu call*. A menu choice that reached the
 // document by its own route is exactly how two sources of truth start.
 void ProductApp::wireFenceMenu()
 {
@@ -896,7 +888,7 @@ void ProductApp::onDesktopIconsToggled(bool hidden)
 // the container turns the preset into an alpha on the fence's colour (which the
 // document already carries), keeps the hosted surface on the per-pixel path (it
 // is the only one that can show a rounded panel, T-075) and emits the lifecycle
-// signal that auto-saves and refreshes the tray and the settings window. There
+// signal that auto-saves and refreshes the tray and the status line. There
 // is nothing left for the product to remember.
 void ProductApp::applyMaterialToFence(const QString& id, const QString& material)
 {
@@ -972,8 +964,6 @@ void ProductApp::setDesktopIconsHidden(bool hidden)
 
     if (m_tray)
         m_tray->setDesktopIconsHidden(m_iconsHidden);
-    if (m_settings)
-        m_settings->setDesktopIconsHidden(m_iconsHidden);
 
     refreshStatus();
 }
@@ -1113,8 +1103,6 @@ void ProductApp::takeOverDesktopIcons()
         backdrop->setDrawFreeIcons(true);
     if (m_tray)
         m_tray->setDesktopIconsHidden(true);
-    if (m_settings)
-        m_settings->setDesktopIconsHidden(true);
     refreshStatus();
 }
 
@@ -1135,8 +1123,6 @@ void ProductApp::giveBackDesktopIcons()
         backdrop->setDrawFreeIcons(false);
     if (m_tray)
         m_tray->setDesktopIconsHidden(false);
-    if (m_settings)
-        m_settings->setDesktopIconsHidden(false);
     refreshStatus();
 }
 
@@ -1178,8 +1164,6 @@ void ProductApp::restoreDesktopIcons()
 
     if (m_tray)
         m_tray->setDesktopIconsHidden(m_iconsHidden);
-    if (m_settings)
-        m_settings->setDesktopIconsHidden(m_iconsHidden);
 
     refreshStatus();
 }
@@ -1188,7 +1172,10 @@ void ProductApp::showSettings()
 {
     if (!m_settings)
         return;
-    m_settings->refresh();
+    // T-059: there is nothing to rebuild any more -- the window holds no list of
+    // fences to follow. Its one line is refreshed like everywhere else, so it is
+    // current the moment it appears.
+    refreshStatus();
     m_settings->show();
     m_settings->raise();
     m_settings->activateWindow();

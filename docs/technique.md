@@ -1952,3 +1952,43 @@ La demande est un retour de la session 46 : « customisation des **couleurs** de
 
 - **T-080 est livré** ; **T-058** (coins : rayon, liseré, ombre, **juge** l'œil) reste humain, et **T-059** (déclasser la fenêtre de réglages) a maintenant un endroit pour **tout** ce qui est par zone. **T-081** (un défaut général, « appliquer à toutes ») garde la même forme : une clé, un défaut, aucune migration.
 - **Reste humain** : l'œil sur les deux couleurs et sur l'échelle d'arrondi (la sonde mesure des pixels, pas un goût).
+## 39. La fenêtre de réglages n'est pas le produit (T-059, session 51)
+
+La demande est de la session 33 : « il ne devrait pas y avoir de menu séparé comme il y a à présent, avec les fences et leurs dimensions, pour créer les fences, ce n'est que pour la démo ». Ce qui manquait n'était pas l'intention mais la **succession** : la condition écrite alors (« avant de retirer la liste des zones, il faut que le matériau par zone ait un autre endroit ») a été levée par **T-064** (s47) puis **T-080** (s50), et l'apparence, les couleurs et le rayon s'y sont ajoutés.
+
+### La règle (décision 51)
+
+- **La fenêtre ne gère plus les zones** : ni liste (ni dimensions), ni `New fence` / `Rename...` / `Roll up` / `Delete`, ni combo `Material:`.
+- **Elle ne peut plus les gérer** : elle **ne reçoit plus aucun conteneur** (le constructeur prend `QWidget*` seul, `refresh()` disparaît, aucune connexion n'est posée). « Une fenêtre n'est pas un second chemin vers le document » cesse donc d'être une promesse pour devenir une **propriété du code**.
+- **Où chaque capacité vit désormais** : créer une zone = la zone de notification (ou l'entrée du menu du bureau, F-001) ; le matériau de **toutes** les zones = la zone de notification ; matériau, couleurs, rayon, enrouler, renommer, supprimer **d'une** zone = le menu de cette zone (T-076 / ADR-16, T-064, T-080).
+- **Ce qui reste** : **une ligne d'état** (zones, matériau, règles, icônes du bureau, dossier surveillé, document) et un bouton `Close`. C'est la page que **T-032** (l'écran de création/édition des règles) s'est déjà vu assigner — la fenêtre existe pour ça, pas pour les zones.
+- **La case « masquer les icônes du bureau » part aussi** : T-062 avait retiré cette entrée du **produit** et l'avait laissée derrière le chemin de développement (`--claim-desktop`, que la zone de notification conditionne). La fenêtre l'offrait encore, et son seul effet était de **retirer ses icônes à l'utilisateur** — le genre d'entrée que T-071 a proscrit.
+
+### Vérification (session 51)
+
+Trois vérifications de `--product-probe` **remplacées, pas ajustées** (elles pilotaient le combo de la fenêtre : « la fenêtre montre le matériau », « montrer n'est pas choisir », « un matériau choisi dans la fenêtre prend ») :
+
+| vérification (neuve) | lecture |
+|---|---|
+| la fenêtre ne gère plus les zones | `0 list(s) and 0 combo(s) in the window` |
+| elle ne contient qu'une ligne d'état et `Close` | `1 button(s), 0 check box(es), status line [1 fence(s) / material: Very translucent / 0 rule(s) / desktop icons visible / …]` |
+| l'ouvrir n'écrit rien et répète la ligne du produit | `0 document change(s) for showing it`, texte identique à `statusText()` |
+
+| lecture | avant | après |
+|---|---|---|
+| `ctest` | 15/15 | **15/15** (aucun test ne portait sur cette fenêtre : rien à changer) |
+| `--product-probe` | 24/24 | **24/24** — trois vérifications remplacées par trois |
+| les autres sondes | — | **inchangées** : `--fence-demo` 44, `--persist-demo` 26, `--nav-demo` 22, `--backdrop-demo` 37, `--crash-demo` 20, `--rules-demo` 28, `--portal-demo` 30, `--snapshot-demo` 11, `--screen-demo` 19, `--icons-demo` 12 ; build **0 warning** |
+
+**Prémisse prouvée** : une liste **et** une case à cocher remises dans la fenêtre (patch temporaire, revert + rebuild) ⇒ `rc=1`, **exactement 2 `FAIL`** — les deux vérifications de structure —, les 22 autres vertes. La troisième passe dans les deux états, et c'est honnête : elle mesure l'écriture, pas la structure.
+
+### Piège
+
+- **`QLatin1String("…").arg(cond ? QStringLiteral("%1").arg(x) : autre)` ne compile pas** : l'erreur est « expected ')' before ';' » et elle pointe la **fin** de l'appel, en accusant la parenthèse du `check(` ouvert plus haut — pas la ligne fautive. Un `arg` imbriqué dans l'argument d'un `QLatin1String::arg` ne se résout pas : **hisser le ternaire dans une `QString` nommée** avant l'appel. Même famille que le piège déjà payé sur `QLatin1String::arg(<entier>)`.
+
+**Reste humain** : rien à valider pour cette tâche (la fenêtre n'a plus d'action) — la ligne d'état se lit d'un coup d'œil.
+
+### Ce que ça déplace
+
+- **T-059 est livré** ; **T-032** (l'écran des règles) a désormais une page vide qui l'attend, et `docs/produit.md` **F-034** reste vrai (la zone de notification **et** la fenêtre existent).
+- L'apparence et le matériau d'une zone n'ont plus qu'**un** chemin (le menu de la zone), ce que la s50 avait déjà mesuré par les pixels.

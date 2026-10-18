@@ -113,8 +113,8 @@ public:
     void restoreDesktopIcons();
 
     // One line describing what is actually running: fences, rules, what is
-    // watched, which hot keys Windows accepted. Used by the settings window and
-    // by --product-probe, so both report the same thing.
+    // watched, which hot keys Windows accepted. Shown by the settings window and
+    // read back by --product-probe, so both report the same thing.
     QString statusText() const;
 
     // Creates a fence in the first free spot, with a default title, and returns
@@ -124,11 +124,11 @@ public:
     // F-038 / T-057 -- the materials, as the product applies them.
     //
     // Both are public because they are the *whole* effect of a click: the tray's
-    // submenu applies one material to every fence, the settings window's combo to
-    // the selected one, and a probe drives the same two calls. What they do is a
-    // style change (the material is the alpha of the fence's colour, which the
-    // document already stores), so the auto-save follows on its own and nothing
-    // else has to know about materials at all.
+    // submenu applies one material to every fence, a fence's own menu (T-076) to
+    // the one under the cursor, and a probe drives the same two calls. What they
+    // do is a style change (the material is the alpha of the fence's colour, which
+    // the document already stores), so the auto-save follows on its own and
+    // nothing else has to know about materials at all.
     void applyMaterialToFence(const QString& id, const QString& material);
     void applyMaterialToAllFences(const QString& material);
 
@@ -137,7 +137,7 @@ public:
     QString sharedFenceMaterial() const;
 
     // The default title of the next fence ("Fence 3"), the single naming policy
-    // shared by the tray, the settings window and a fence drawn on the desktop
+    // shared by the tray, a fence's own menu and a fence drawn on the desktop
     // (T-041).
     QString nextFenceTitle() const;
 

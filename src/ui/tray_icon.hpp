@@ -53,8 +53,8 @@ public:
     // entry. `material` is a FenceMaterial preset id, or an empty string when the
     // fences do not agree (a mixed desktop): the submenu then shows nothing as
     // current instead of picking one of them. The tray applies a material to
-    // **all** fences -- it has no way to point at one -- and the settings window
-    // is what chooses per fence.
+    // **all** fences -- it has no way to point at one -- and a fence's own menu
+    // (T-076, ADR-16) is what chooses per fence.
     void setFenceMaterial(const QString& material);
 
     // ADR-13: StarFish never hides the desktop's icons, so the two entries that

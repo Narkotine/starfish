@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
 #include <QDir>
@@ -11,12 +12,14 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QLabel>
 #include <QListWidget>
 #include <QLoggingCategory>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QProcess>
+#include <QPushButton>
 #include <QRect>
 #include <QScreen>
 #include <QTextStream>
@@ -5324,11 +5327,10 @@ int main(int argc, char* argv[])
                       document.has_value() ? document->fences.at(0).title : QString());
 
                 // F-038 / T-057: the material as the *product* applies it. The
-                // tray's "apply to every fence" and the settings window's
-                // per-fence choice both end up in these two calls, and what they
-                // do is a style change -- so it is the document that carries the
-                // material, not the session, and the second launch below is what
-                // proves it.
+                // tray's "apply to every fence" and a fence's own menu (T-076,
+                // ADR-16) both end up in these two calls, and what they do is a
+                // style change -- so it is the document that carries the material,
+                // not the session, and the second launch below is what proves it.
                 product.applyMaterialToAllFences(QLatin1String("very-translucent"));
                 check(QLatin1String("a material reaches every fence"),
                       product.sharedFenceMaterial() == QLatin1String("very-translucent")
@@ -5349,49 +5351,67 @@ int main(int argc, char* argv[])
                           .arg(QString::number(product.container()->fenceCount())));
                 product.container()->removeFence(mixedId);
 
-                // ... and the settings window, which is the per-fence choice. Its
-                // two widgets are driven the way a user drives them (selecting a
-                // row, picking an entry), so what is measured is the window's
-                // *wiring* -- including the part that must **not** travel: putting
-                // the document's state on screen is not a choice, and a refresh
-                // that looked like one would rewrite the document on every change.
+                // -------------------------------------------------------------------
+                // T-059 -- the settings window is **not** the fence manager.
+                //
+                // It used to draw every fence with its dimensions, create, rename,
+                // roll up and delete them, and pick one fence's material. The user
+                // named that surface for what it was: « il ne devrait pas y avoir
+                // de menu séparé comme il y a à présent, avec les fences et leurs
+                // dimensions, pour créer les fences, ce n'est que pour la démo ».
+                // Every one of those abilities now has a place of its own -- the
+                // tray applies a material to **every** fence and creates them, and
+                // a fence's **own** menu does one fence (T-076 / ADR-16) -- and the
+                // three checks that used to drive the window's combo are
+                // **replaced, not retuned**: what the window *is* can still go
+                // wrong, since a fence list or a material combo reappearing there
+                // would be a second path to the document again.
+                // -------------------------------------------------------------------
                 int contentChanges = 0;
                 QObject::connect(product.container(),
                                  &starfish::ui::FenceContainer::fenceContentChanged, &product,
                                  [&contentChanges](const QString&) { ++contentChanges; });
-                auto* fenceList = product.settingsDialog()->findChild<QListWidget*>(
-                    QLatin1String("fenceList"));
-                auto* materialCombo = product.settingsDialog()->findChild<QComboBox*>(
-                    QLatin1String("fenceMaterial"));
 
+                auto* settings = product.settingsDialog();
+                const QList<QListWidget*> lists = settings->findChildren<QListWidget*>();
+                const QList<QComboBox*> combos = settings->findChildren<QComboBox*>();
+                check(QLatin1String("the settings window no longer manages the fences"),
+                      lists.isEmpty() && combos.isEmpty(),
+                      QLatin1String("%1 list(s) and %2 combo(s) in the window")
+                          .arg(QString::number(lists.size()))
+                          .arg(QString::number(combos.size())));
+
+                // What is left is what no other surface says in words: one line, and
+                // a Close button. The button count is part of the check -- a second
+                // button is a second way to change something.
+                const QList<QPushButton*> buttons = settings->findChildren<QPushButton*>();
+                const QList<QCheckBox*> boxes = settings->findChildren<QCheckBox*>();
+                auto* statusLabel = settings->findChild<QLabel*>(QLatin1String("statusText"));
+                const QString statusShown =
+                    statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
+                check(QLatin1String("... and it holds one status line and a Close button"),
+                      buttons.size() == 1 && buttons.first()->text() == QLatin1String("Close")
+                          && boxes.isEmpty() && statusLabel != nullptr
+                          && !statusShown.isEmpty(),
+                      QLatin1String("%1 button(s), %2 check box(es), status line [%3]")
+                          .arg(QString::number(buttons.size()))
+                          .arg(QString::number(boxes.size()))
+                          .arg(statusShown));
+
+                // The half of the retired check that still has a subject: opening
+                // the window is not a way to change anything, and the line it shows
+                // is the *product's* own status text -- the same string the probe
+                // reads, so the window cannot be describing a different program.
                 const int changesBefore = contentChanges;
-                product.settingsDialog()->refresh();
-                if (fenceList && fenceList->count() > 0)
-                    fenceList->setCurrentRow(0); // the user picking a fence
-                check(QLatin1String("the settings window shows the fence's material"),
-                      materialCombo && materialCombo->count() > 0
-                          && materialCombo->currentData().toString()
-                                 == QLatin1String("very-translucent"),
-                      QLatin1String("combo=%1 of %2, row selected=%3, shows %4")
-                          .arg(QString::number(materialCombo ? materialCombo->currentIndex() : -9))
-                          .arg(QString::number(materialCombo ? materialCombo->count() : -1))
-                          .arg(QString::number(fenceList ? fenceList->currentRow() : -9))
-                          .arg(materialCombo ? materialCombo->currentText()
-                                             : QLatin1String("(no combo)")));
-                check(QLatin1String("showing the state is not a choice"),
-                      contentChanges == changesBefore,
-                      QLatin1String("%1 document change(s) for a refresh and a selection")
-                          .arg(QString::number(contentChanges - changesBefore)));
+                settings->show();
+                settings->hide();
+                check(QLatin1String("opening it changes nothing and repeats the product's own line"),
+                      contentChanges == changesBefore && statusLabel != nullptr
+                          && statusLabel->text() == product.statusText(),
+                      QLatin1String("%1 document change(s) for showing it; line reads [%2]")
+                          .arg(QString::number(contentChanges - changesBefore))
+                          .arg(statusLabel ? statusLabel->text() : QString()));
 
-                const int opaqueIndex =
-                    materialCombo ? materialCombo->findData(QLatin1String("opaque")) : -1;
-                if (materialCombo && opaqueIndex >= 0)
-                    materialCombo->setCurrentIndex(opaqueIndex); // exactly what a click does
-                check(QLatin1String("a material chosen in the settings window takes"),
-                      opaqueIndex >= 0
-                          && product.sharedFenceMaterial() == QLatin1String("opaque"),
-                      product.statusText());
-                product.applyMaterialToAllFences(QLatin1String("very-translucent"));
                 product.store()->saveNow(nullptr);
             }
 
