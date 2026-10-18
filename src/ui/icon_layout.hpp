@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 
 #include <QPoint>
@@ -30,6 +31,10 @@ namespace starfish::ui {
 // s'affichent pas entièrement" -- the names do not show in full). The icon is
 // centred inside the cell, and the caption wraps to the cell width, on two
 // lines at most, elided on the right.
+//
+// Since T-078 the cell is not a fixed 1.5x either: `cellWidthFor` is the floor
+// and `cellWidthForCaptions` gives a fence whose longest name needs more the
+// room it needs (bounded by `maxCellWidthFor`). See IconGrid::cellWidth.
 struct IconCell {
     QRect icon;  // square the icon pixmap is drawn into (centred inside cellW)
     QRect label; // band below the icon the caption is drawn into
@@ -40,8 +45,20 @@ class IconLayout
 public:
     // How wide a cell is for a given icon size: 1.5x, i.e. 72 px for the default
     // 48 px icon. That is the room a two-line caption needs, and the same order
-    // as the Windows desktop (~75 px for 48 px icons).
+    // as the Windows desktop (~75 px for 48 px icons). Since T-078 this is the
+    // *floor*: a fence whose longest caption needs more gets a wider cell, up to
+    // `maxCellWidthFor`.
     static int cellWidthFor(int iconSize) { return iconSize + iconSize / 2; }
+
+    // The widest a cell may get (T-078): twice the icon. Deriving the width from
+    // the longest caption would otherwise let one very long name thin out the
+    // whole grid, and past this point a caption is elided whatever the cell
+    // does -- so the search below is bounded, and the bound is a documented
+    // number rather than a constant buried in a caller.
+    static int maxCellWidthFor(int iconSize) { return iconSize * 2; }
+
+    // The character a shortened caption ends with.
+    static constexpr QChar kEllipsis = QChar(u'\u2026');
 
     // How many columns fit given the content width. Always at least one, so a
     // fence narrower than a single cell still shows a single column. A column is
@@ -158,7 +175,6 @@ public:
     static QString elidedRight(const QString& text, int width,
                                const std::function<int(const QString&)>& widthOf)
     {
-        static const QString kEllipsis = QStringLiteral("\u2026");
         if (widthOf(text) <= width)
             return text;
         int lo = 0;
@@ -171,6 +187,68 @@ public:
                 hi = mid - 1;
         }
         return text.left(lo).trimmed() + kEllipsis;
+    }
+
+    // The width a cell must have for *every* caption to wrap onto at most
+    // `maxLines` lines without being elided (T-078) -- never below `minWidth`
+    // (the fixed cell of T-049) and never above `maxWidth`.
+    //
+    // The user's report was "lisible pour la plupart des noms, manque encore un
+    // peu pour les plus longs": a fixed cell is exactly right for the average
+    // name and cuts the long ones, and the fix is to let the *longest* caption
+    // of the fence decide -- there is only one cell width per grid, so one name
+    // that needs room already decides for all of them.
+    //
+    // `fits()` asks `wrapToLines` itself, the very function the painter wraps
+    // with, so the geometry cannot disagree with what is drawn. Candidates are
+    // the widths of every group of consecutive words: between two of them the
+    // greedy wrap makes the same decisions, so a width in between can never be
+    // the first one that fits -- which is why this scans instead of searching,
+    // and why the answer does not rest on `fits` being monotone.
+    static int cellWidthForCaptions(int minWidth, int maxWidth, const QStringList& captions,
+                                    int maxLines, const std::function<int(const QString&)>& widthOf)
+    {
+        const int floorWidth = qMax(1, minWidth);
+        const int ceilWidth = qMax(floorWidth, maxWidth);
+        const auto fits = [&](int width) {
+            for (const QString& caption : captions) {
+                const QStringList lines = wrapToLines(caption, maxLines, width, widthOf);
+                for (const QString& line : lines) {
+                    if (line.endsWith(kEllipsis))
+                        return false;
+                }
+            }
+            return true;
+        };
+
+        if (captions.isEmpty() || fits(floorWidth))
+            return floorWidth;
+
+        QVector<int> candidates;
+        candidates.append(ceilWidth);
+        for (const QString& caption : captions) {
+            const QStringList words =
+                caption.trimmed().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (int first = 0; first < words.size(); ++first) {
+                QString group;
+                for (int last = first; last < words.size(); ++last) {
+                    group = group.isEmpty() ? words.at(last)
+                                            : group + QLatin1Char(' ') + words.at(last);
+                    const int width = widthOf(group);
+                    if (width > floorWidth && width < ceilWidth)
+                        candidates.append(width);
+                }
+            }
+        }
+        std::sort(candidates.begin(), candidates.end());
+        for (int width : candidates) {
+            if (fits(width))
+                return width;
+        }
+        // Not even the widest cell holds this caption (a single word longer than
+        // the ceiling, say): the cell takes the ceiling and the caption is elided
+        // there, exactly as it was before T-078 -- only wider.
+        return ceilWidth;
     }
 };
 

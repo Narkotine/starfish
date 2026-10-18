@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <QFont>
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -46,11 +47,22 @@ public:
     void setPadding(int px) { m_padding = qMax(0, px); }
     void setLabelHeight(int px) { m_labelHeight = qMax(0, px); }
 
+    // The font the captions are drawn with -- and the one the cell width is
+    // derived from (T-078). The view hands over its own font, so the room a
+    // caption asks for and the room it is painted into are measured by the same
+    // metrics, and `hitTest` keeps landing on the cells `paint` drew. A grid
+    // that is never given one (a unit test, a grid with no view) keeps the fixed
+    // 1.5x cell and whatever font the painter arrives with.
+    void setBaseFont(const QFont& font);
+    bool hasBaseFont() const { return m_hasBaseFont; }
+
     int iconSize() const { return m_iconSize; }
     // The width of one grid cell: wider than the icon, so a caption has room to
-    // wrap instead of being cut to the width of the icon square (T-049). Derived
-    // from the icon size rather than stored, so the two cannot drift apart.
-    int cellWidth() const { return IconLayout::cellWidthFor(m_iconSize); }
+    // wrap instead of being cut to the width of the icon square (T-049) --
+    // and, since T-078, as wide as the longest caption of this grid needs,
+    // between 1.5x and 2x the icon. Derived from the items rather than stored,
+    // so the two cannot drift apart.
+    int cellWidth() const;
     int gap() const { return m_gap; }
     int padding() const { return m_padding; }
     int labelHeight() const { return m_labelHeight; }
@@ -114,6 +126,12 @@ private:
     int m_gap = 8;
     int m_padding = 12;
     int m_labelHeight = 34;
+
+    // The caption font, one point below the view's own (T-049). Only meaningful
+    // once setBaseFont() has been called: m_hasBaseFont tells the two apart, so a
+    // grid that was never given a font measures nothing and keeps the fixed cell.
+    QFont m_captionFont;
+    bool m_hasBaseFont = false;
 
     QSet<int> m_selected;
     int m_anchor = 0;

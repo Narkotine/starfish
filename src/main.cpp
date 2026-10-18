@@ -1509,12 +1509,20 @@ int main(int argc, char* argv[])
             const QImage longFrame = container->frame(idLongCaption);
             const QImage shortFrame = container->frame(idShortCaption);
             const starfish::ui::FenceView* captionView = container->view(idLongCaption);
+            const starfish::ui::FenceView* shortCaptionView = container->view(idShortCaption);
             const QRect captionContent = captionView ? captionView->contentRect() : QRect();
 
             // Content-local geometry of the single cell: padding 12, icon 48, and
-            // the cell width taken from the layout itself rather than copied.
+            // the cell width read from the view itself -- since T-078 it is no
+            // longer a formula to copy, it is the room the fence's longest caption
+            // asked for (72 here, unless the name needs more).
             const int captionIconSize = 48;
-            const int captionCellW = starfish::ui::IconLayout::cellWidthFor(captionIconSize);
+            const int captionCellW =
+                captionView ? captionView->cellWidth()
+                            : starfish::ui::IconLayout::cellWidthFor(captionIconSize);
+            const int captionCellFloor = starfish::ui::IconLayout::cellWidthFor(captionIconSize);
+            const int captionCellCeiling =
+                starfish::ui::IconLayout::maxCellWidthFor(captionIconSize);
             const int captionIconLeft = 12 + (captionCellW - captionIconSize) / 2;
             const QRect captionBand(12, 12 + captionIconSize, captionCellW, 34);
 
@@ -1608,6 +1616,27 @@ int main(int argc, char* argv[])
                       .arg(shortInk.firstRow)
                       .arg(shortInk.lastRow));
 
+            // T-078 -- the cell itself is what changed. T-049 gave every cell the
+            // same 1.5x width, which is right for the average name and still cut
+            // the longest ones ("manque encore un peu pour les plus longs"). Now
+            // the longest caption of a fence decides, so a fence of short names
+            // keeps exactly the cell it had and only the fence that needs the room
+            // pays for it (up to twice the icon -- the ceiling is what stops one
+            // name from thinning out the whole grid). Both numbers are read from
+            // the layout, and the two checks above bound the *pixels* by the same
+            // width, so geometry and paint are measured against one another.
+            const int longCaptionCell = captionView ? captionView->cellWidth() : -1;
+            const int shortCaptionCell = shortCaptionView ? shortCaptionView->cellWidth() : -1;
+            check(QStringLiteral("only a long caption widens the cell (T-078)"),
+                  longCaptionCell > captionCellFloor && longCaptionCell <= captionCellCeiling
+                      && shortCaptionCell == captionCellFloor,
+                  QStringLiteral("long caption cell %1, short caption cell %2 (floor %3, "
+                                 "ceiling %4)")
+                      .arg(longCaptionCell)
+                      .arg(shortCaptionCell)
+                      .arg(captionCellFloor)
+                      .arg(captionCellCeiling));
+
             container->removeFence(idLongCaption);
             container->removeFence(idShortCaption);
         }
@@ -1655,7 +1684,12 @@ int main(int argc, char* argv[])
         starfish::ui::FenceView* viewC = container->view(idC);
         const QPoint firstCell =
             viewC ? viewC->contentRect().topLeft() + QPoint(24, 24) : QPoint();
-        const QPoint secondCell = firstCell + QPoint(72 + 8, 0); // cell + gap (T-049)
+        // One column step is the *cell* + gap, read from the view rather than
+        // copied: since T-078 a fence whose captions are long gets a wider cell,
+        // and a hard-coded 72 would then quietly point at the wrong neighbour.
+        const int columnPitch =
+            (viewC ? viewC->cellWidth() : starfish::ui::IconLayout::cellWidthFor(48)) + 8;
+        const QPoint secondCell = firstCell + QPoint(columnPitch, 0);
         check(QStringLiteral("the drag starts on the first tile"),
               viewC && viewC->itemAt(firstCell) == 0 && viewC->itemAt(secondCell) == 1,
               QStringLiteral("cell centres %1,%2 -> index %3 ; %4,%5 -> index %6")

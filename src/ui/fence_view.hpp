@@ -63,6 +63,13 @@ public:
     // fence's outer padding). The grid is drawn here.
     QRect contentRect() const;
 
+    // The width of one grid cell as the grid currently computes it: 1.5x the
+    // icon, or wider when the fence's longest caption needs the room (T-078).
+    // Exposed so a caller laying something out against the grid -- a probe
+    // reading the painted bands, most of all -- asks the layout instead of
+    // copying the formula and drifting away from it.
+    int cellWidth() const { return m_grid.cellWidth(); }
+
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
 

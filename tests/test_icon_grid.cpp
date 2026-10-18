@@ -38,6 +38,11 @@ private slots:
     void aCaptionTooLongForBothLinesIsElidedOnTheRight();
     void aShortCaptionStaysOnOneLine();
     void aSingleWordWiderThanTheLineIsCutNotSplit();
+    void aCellKeepsItsFixedWidthWhenTheNamesFit();
+    void aCellTakesExactlyTheWidthTheLongestNameNeeds();
+    void aCellStopsAtTwiceTheIcon();
+    void aGridWithoutAFontKeepsTheFixedCell();
+    void aGridWithAFontWidensTheCellForALongName();
     void selectionSelectOnlyToggleRange();
     void launchPathResolvesShortcut();
     void sortReordersItems();
@@ -187,6 +192,131 @@ void TestIconGrid::aSingleWordWiderThanTheLineIsCutNotSplit()
     QCOMPARE(lines.size(), 1);
     QVERIFY(lines.at(0).endsWith(QChar(0x2026)));
     QVERIFY(widthOf(lines.at(0)) <= cellW);
+}
+
+void TestIconGrid::aCellKeepsItsFixedWidthWhenTheNamesFit()
+{
+    // T-078 keeps T-049's cell for every name that already fits it: a fence of
+    // ordinary names is *exactly* what it was before, so the change costs nothing
+    // where nothing was wrong. The stub metric is 7 px per character, so 72 px is
+    // ten characters -- and "Epic Games Launcher" is the very name T-049 measured,
+    // which fits on its two lines and therefore does not move a pixel.
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int floorWidth = IconLayout::cellWidthFor(48);
+    const int ceiling = IconLayout::maxCellWidthFor(48);
+
+    QCOMPARE(IconLayout::cellWidthForCaptions(floorWidth, ceiling, {}, 2, widthOf), floorWidth);
+    QCOMPARE(IconLayout::cellWidthForCaptions(floorWidth, ceiling,
+                                              {QStringLiteral("notes.txt")}, 2, widthOf),
+             floorWidth);
+    QCOMPARE(IconLayout::cellWidthForCaptions(floorWidth, ceiling,
+                                              {QStringLiteral("Epic Games Launcher")}, 2,
+                                              widthOf),
+             floorWidth);
+    // ...and that is the same wrapping the painter does, not a parallel rule:
+    // both lines together are the whole name.
+    const QStringList lines =
+        IconLayout::wrapToLines(QStringLiteral("Epic Games Launcher"), 2, floorWidth, widthOf);
+    QCOMPARE(lines.join(QLatin1Char(' ')), QStringLiteral("Epic Games Launcher"));
+}
+
+void TestIconGrid::aCellTakesExactlyTheWidthTheLongestNameNeeds()
+{
+    // The smallest width at which the caption survives its two lines -- not a
+    // blanket "make the cell twice as wide". With 7 px characters, "Epic Games
+    // Launcher Xx" needs eleven characters on its second line ("Launcher Xx"),
+    // i.e. 77 px; one pixel less and that line is elided again. This is the
+    // boundary, checked from both sides.
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int floorWidth = IconLayout::cellWidthFor(48);
+    const int ceiling = IconLayout::maxCellWidthFor(48);
+    const QString caption = QStringLiteral("Epic Games Launcher Xx");
+
+    const int needed =
+        IconLayout::cellWidthForCaptions(floorWidth, ceiling, {caption}, 2, widthOf);
+    QCOMPARE(needed, 77);
+    QVERIFY(needed > floorWidth && needed < ceiling);
+
+    // The caption is whole at the width the cell takes: nothing lost, no stub.
+    const QStringList lines = IconLayout::wrapToLines(caption, 2, needed, widthOf);
+    QCOMPARE(lines.size(), 2);
+    QCOMPARE(lines.join(QLatin1Char(' ')), caption);
+
+    // ...and one pixel narrower it is still cut, so the width is what the name
+    // *needed* rather than merely a width that happens to work.
+    const QStringList tight = IconLayout::wrapToLines(caption, 2, needed - 1, widthOf);
+    QVERIFY(tight.join(QLatin1Char(' ')).contains(IconLayout::kEllipsis));
+}
+
+void TestIconGrid::aCellStopsAtTwiceTheIcon()
+{
+    // There is a ceiling, because this is a grid: one very long name must not
+    // thin out every column of the fence, and past twice the icon the caption is
+    // elided whatever the cell does. A name starting with a word wider than the
+    // whole ceiling is what proves the ceiling is *applied* -- no split ever fits
+    // it, so without a stop the search would keep widening for nothing.
+    const auto widthOf = [](const QString& text) { return text.size() * 7; };
+    const int floorWidth = IconLayout::cellWidthFor(48);
+    const int ceiling = IconLayout::maxCellWidthFor(48);
+
+    QCOMPARE(IconLayout::cellWidthForCaptions(
+                 floorWidth, ceiling,
+                 {QStringLiteral("Supercalifragilisticexpialidocious Extra Words")}, 2, widthOf),
+             ceiling);
+    // A single long word is sized like any other caption: the cell grows to hold
+    // it (13 characters = 91 px here)...
+    QCOMPARE(IconLayout::cellWidthForCaptions(floorWidth, ceiling,
+                                              {QStringLiteral("abcdefghijklm")}, 2, widthOf),
+             91);
+    // ...up to the ceiling, where "even longer" stops changing anything.
+    QCOMPARE(IconLayout::cellWidthForCaptions(floorWidth, ceiling,
+                                              {QStringLiteral("abcdefghijklmnop")}, 2, widthOf),
+             ceiling);
+    // And within its bounds whatever it is handed (an empty caption included).
+    const QStringList motley{QStringLiteral("a"), QString(), QStringLiteral("x  y zzzz")};
+    const int width = IconLayout::cellWidthForCaptions(floorWidth, ceiling, motley, 2, widthOf);
+    QCOMPARE(width, floorWidth);
+}
+
+void TestIconGrid::aGridWithoutAFontKeepsTheFixedCell()
+{
+    // The derivation needs a font, and a grid that was never given one (a unit
+    // test, a grid with no view) must not invent one: it falls back to T-049's
+    // fixed cell. The long name is deliberate -- it shows the fallback is a
+    // decision rather than short names hiding the question.
+    IconGrid grid;
+    grid.setItems({makeItem(QStringLiteral("Epic Games Launcher Deluxe Extra"))});
+    QVERIFY(!grid.hasBaseFont());
+    QCOMPARE(grid.cellWidth(), IconLayout::cellWidthFor(48));
+}
+
+void TestIconGrid::aGridWithAFontWidensTheCellForALongName()
+{
+    // Where the two meet. The view hands the grid its font (FenceView does it in
+    // its constructor, so hitTest -- a mouse event, no painter -- measures the
+    // same text the painter draws), and a fence holding one long name gets wider
+    // cells while a fence of short names is left exactly as it was. The numbers
+    // are relative: the real metrics of a real font are not a constant a test may
+    // write down.
+    IconGrid grid;
+    QFont font;
+    font.setPointSize(10);
+    grid.setBaseFont(font);
+
+    grid.setItems({makeItem(QStringLiteral("note.txt"))});
+    QCOMPARE(grid.cellWidth(), IconLayout::cellWidthFor(48));
+
+    grid.setItems({makeItem(QStringLiteral("Epic Games Launcher Deluxe Extra"))});
+    QVERIFY(grid.cellWidth() > IconLayout::cellWidthFor(48));
+    QVERIFY(grid.cellWidth() <= IconLayout::maxCellWidthFor(48));
+
+    // The *longest* name decides for the whole grid, and taking it out gives the
+    // room back: the width follows the items, it is not a one-way ratchet.
+    grid.setItems({makeItem(QStringLiteral("note.txt")),
+                   makeItem(QStringLiteral("Epic Games Launcher Deluxe Extra"))});
+    QVERIFY(grid.cellWidth() > IconLayout::cellWidthFor(48));
+    grid.setItems({makeItem(QStringLiteral("note.txt"))});
+    QCOMPARE(grid.cellWidth(), IconLayout::cellWidthFor(48));
 }
 
 void TestIconGrid::selectionSelectOnlyToggleRange()

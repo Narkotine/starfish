@@ -67,6 +67,11 @@ FenceView::FenceView(QWidget* parent)
     m_grid.setGap(8);
     m_grid.setPadding(12);
     m_grid.setLabelHeight(34);
+    // The grid derives its cell width from the captions it holds (T-078), and it
+    // must measure them with the font it paints them with -- so it is handed the
+    // widget's font here rather than reading it off the painter later, which
+    // hitTest (a mouse event, no painter in sight) could not do.
+    m_grid.setBaseFont(font());
 
     // The fence accepts files dropped from the Explorer (T-006-3). This is the
     // path used when the fence is a real Qt window; the desktop-hosted surface

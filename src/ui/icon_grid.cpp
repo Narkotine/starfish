@@ -20,9 +20,47 @@ const QColor kLabelText(0xE5, 0xE7, 0xEB);
 const QColor kLabelTextSelected(0xFF, 0xFF, 0xFF);
 const QColor kSelection(0x3B, 0x82, 0xF6, 0x66); // accent, semi-transparent
 const QColor kSelectionBorder(0x3B, 0x82, 0xF6);
+
+// The caption font for a given base font: one point smaller, never below 8 pt.
+// One function, used by setBaseFont() *and* by paint() when no font was handed
+// over, so the width a caption is measured into and the width it is drawn into
+// are the same number (T-078) -- the cell is derived from the text, and a
+// measurement taken with another font would be a measurement of something else.
+QFont captionFontFrom(const QFont& base)
+{
+    QFont font = base;
+    font.setPointSize(qMax(8, font.pointSize() - 1));
+    return font;
+}
 } // namespace
 
 IconGrid::IconGrid() = default;
+
+void IconGrid::setBaseFont(const QFont& font)
+{
+    m_captionFont = captionFontFrom(font);
+    m_hasBaseFont = true;
+}
+
+int IconGrid::cellWidth() const
+{
+    // T-049's fixed cell is the floor; a fence whose longest caption does not fit
+    // it gets the room it needs, up to twice the icon (T-078). Nothing else
+    // changes: short names keep the exact cell they had.
+    const int floorWidth = IconLayout::cellWidthFor(m_iconSize);
+    if (!m_hasBaseFont || m_items.isEmpty())
+        return floorWidth;
+
+    const QFontMetrics metrics(m_captionFont);
+    QStringList captions;
+    captions.reserve(m_items.size());
+    for (const core::DesktopItem& item : m_items)
+        captions.append(item.name.isEmpty() ? item.fileName : item.name);
+
+    return IconLayout::cellWidthForCaptions(
+        floorWidth, IconLayout::maxCellWidthFor(m_iconSize), captions, kCaptionLines,
+        [&metrics](const QString& text) { return metrics.horizontalAdvance(text); });
+}
 
 void IconGrid::setItems(QList<core::DesktopItem> items)
 {
@@ -62,8 +100,9 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
     painter.setClipRect(QRect(QPoint(0, 0), contentRect.size()));
 
     const QFont baseFont = painter.font();
-    QFont labelFont = baseFont;
-    labelFont.setPointSize(qMax(8, labelFont.pointSize() - 1));
+    // The font the cell width was derived from, when the view gave us one -- so
+    // what is drawn is what was measured (T-078).
+    const QFont labelFont = m_hasBaseFont ? m_captionFont : captionFontFrom(baseFont);
     painter.setFont(labelFont);
     const QFontMetrics metrics(labelFont);
 
@@ -115,7 +154,6 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
     }
 
     painter.restore();
-    Q_UNUSED(baseFont);
 }
 
 int IconGrid::hitTest(const QPoint& contentLocalPoint, const QSize& contentSize) const

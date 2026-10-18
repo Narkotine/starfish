@@ -1807,3 +1807,48 @@ Et après fermeture : **0** pixel du rect diffère de la ligne de base. Trois le
 
 
 
+
+## 36. La cellule d'une zone s'élargit pour le plus long des noms (T-078, session 48)
+
+### Ce qui restait après T-049
+
+T-049 (§31) a sorti la cellule de la largeur de l'icône et l'a portée à **1,5×** l'icône (72 px pour 48), avec une légende sur **deux lignes au plus**, élidée **à droite**. C'est exactement ce qu'il faut au nom moyen, et le retour utilisateur de la session 42 ajoutait : « lisible pour la plupart des noms, **manque encore un peu pour les plus longs** ». Un nom qui ne tient pas sur deux lignes à 72 px est élidé, à droite, **définitivement** — la largeur était une constante, elle ne pouvait pas dépendre du texte.
+
+### La règle
+
+Des quatre pistes écrites dans la tâche (cellule **2×**, légende sur **3 lignes**, **police plus petite**, largeur **dérivée du plus long libellé**), c'est la **dernière** qui a été prise — la seule qui ne prenne rien à personne — et elle a été **bornée** :
+
+| | valeur | pourquoi |
+|---|---|---|
+| plancher | `cellWidthFor(icon)` = **1,5×** | la règle de T-049, inchangée : un nom qui tenait tient toujours, dans la **même** cellule |
+| cible | la plus petite largeur à laquelle **chaque** libellé de la zone se replie sur ≤ 2 lignes **sans élision** | c'est le texte qui décide, pas une constante choisie pour lui |
+| plafond | `maxCellWidthFor(icon)` = **2×** | un nom monstrueux ne doit pas appauvrir toute la grille (le plafond est le point où la largeur cesse de servir : au-delà, la légende est élidée quoi qu'on fasse) |
+
+`IconLayout::cellWidthForCaptions()` est **pure** et, surtout, elle interroge **`wrapToLines`** — la fonction avec laquelle le peintre replie réellement. La géométrie ne peut donc pas contredire ce qui est dessiné, et c'est la même propriété dont §31 s'était servi pour l'élision. Elle balaie les largeurs **qu'un repli peut distinguer** (la largeur de chaque groupe de mots consécutifs) au lieu de chercher à l'aveugle : entre deux de ces largeurs, le repli glouton prend les mêmes décisions.
+
+### Le coût annoncé n'existait pas
+
+La tâche écrivait que dériver la largeur du texte demanderait « un aller-retour modèle → géométrie ». En réalité la **grille possède déjà ses textes** (`IconGrid` porte les items) : il ne lui manquait que la **police**, et c'est la seule chose qui a été ajoutée — `IconGrid::setBaseFont()`, que `FenceView` appelle dans son constructeur. Une seule source, donc :
+
+- `cellWidth()` mesure avec cette police ;
+- `paint()` **repose** la même sur le peintre avant d'écrire les légendes ;
+- `hitTest()`, appelé sur un événement souris (**aucun peintre en vue**), mesure le même texte — donc les cellules touchées sont celles qui ont été peintes, ce qui est la contrainte que §31 avait déjà posée pour la géométrie de la grille.
+
+Une grille **sans** police (test unitaire, grille sans vue) ne mesure rien et garde la cellule fixe d'avant : le repli est une décision, pas un accident.
+
+Il n'y a **aucun champ de document** : la largeur est dérivée des items, jamais stockée — et un test vérifie qu'elle **redescend** quand le nom long quitte la zone (ce n'est pas un cliquet).
+
+### Vérification (session 48)
+
+| lecture | avant | après |
+|---|---|---|
+| `ctest` | 15/15 | **15/15** — `ui_icon_grid` **25 cas** (+5 : plancher, largeur exacte, plafond, grille sans police, grille avec) |
+| `--fence-demo` headless | 35/35 | **36/36** |
+| `--fence-demo --host` | 48/48 | **50/50** (dont la vérification de z-order du watchdog, **conditionnelle**, demandée cette fois) |
+| la cellule d'une zone à nom long | 72 px, légende élidée | **96 px** (le plafond), l'encre de la légende à **106 px** à droite de l'icône, **0** au-delà de sa cellule |
+| la cellule d'une zone à noms courts | 72 px | **72 px** — inchangée |
+| toutes les autres sondes | — | **inchangées** (26/28/30/11/19/24/37/22) |
+
+**Prémisse prouvée** : la dérivation neutralisée (`return floorWidth;` en tête de `IconGrid::cellWidth()`), `--fence-demo` tombe à `rc=1` avec **exactement 1 `FAIL`** — « long caption cell 72 » là où la vérification attend 96. Les trois vérifications de légende de T-049, elles, restaient vertes : ce sont bien les nouvelles qui portent la revendication.
+
+⚠️ **Hors périmètre, dit** : le **fond de bureau** (`BackdropLayout`, chemin de développement depuis ADR-13) garde sa cellule fixe de 72 px. T-078 ne concerne que les zones.
