@@ -50,6 +50,11 @@ enum class Action {
     Material,   // the submenu itself; its children come from materialEntries()
     ToggleRoll, // F-020
     Rename,
+    // ⚠️ T-082: the material applies to the fence's own chrome (panel + title bar)
+    // and *not* to its icons -- F-038's wording, and the user's request after
+    // trying the opposite. This entry, on a fence whose panel is translucent,
+    // asks for the other behaviour: the material on the icons too.
+    FadeIcons,
     Remove, // F-007 -- the fence goes, the files never move (AGENTS.md golden rule)
 };
 
@@ -72,6 +77,14 @@ struct State {
     // FenceMaterial preset id, or empty when the fence's alpha is a value of its
     // own (a hand-written document, or a preset that no longer exists).
     QString material;
+    // T-082: whether that material leaves the panel below full opacity. It is the
+    // only case where "keep the icons out of it" is a choice at all, so the entry
+    // is *absent* on an opaque fence rather than greyed out (a disabled entry is a
+    // promise -- the rule the whole menu is written under).
+    bool materialIsTranslucent = false;
+    // ... and whether the choice is currently on: the document's `fadeIcons`, read
+    // from the fence every time the menu opens.
+    bool fadeIcons = false;
 };
 
 // The three presets, as the "Material" submenu shows them: one radio mark, on the
@@ -109,6 +122,19 @@ inline QList<Entry> entries(const State& state)
     material.action = Action::Material;
     material.label = QCoreApplication::translate("FenceMenu", "Material");
     out.append(material);
+
+    // T-082, right under the material it qualifies: what the choice *covers*. On
+    // a fence whose panel is still fully opaque there is nothing to decide, so the
+    // entry is not there at all.
+    if (state.materialIsTranslucent) {
+        Entry icons;
+        icons.kind = Kind::Action;
+        icons.action = Action::FadeIcons;
+        icons.label = QCoreApplication::translate("FenceMenu", "Material on the icons too");
+        icons.checkable = true;
+        icons.checked = state.fadeIcons;
+        out.append(icons);
+    }
 
     Entry separator;
     separator.kind = Kind::Separator;

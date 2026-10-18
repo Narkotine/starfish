@@ -2216,6 +2216,147 @@ int main(int argc, char* argv[])
                       .arg(translucentSurface ? 1 : 0)
                       .arg(translucentSurface ? translucentSurface->uniformAlpha() : -1));
 
+            // The icon overlay needs tiles to be about, and the material fence is
+            // born empty: it gets two (a path-only item is enough -- what is
+            // measured below is a window's shape, not the file behind a tile).
+            {
+                const QList<starfish::core::DesktopItem> tilesOfTheFence{
+                    starfish::core::itemFromPathOnly(QStringLiteral("C:/fence-demo/tile-one.txt")),
+                    starfish::core::itemFromPathOnly(QStringLiteral("C:/fence-demo/tile-two.txt")),
+                };
+                container->view(idM)->setItems(tilesOfTheFence);
+            }
+
+            // ⚠️ T-082: and the *icons* are not part of that window. F-038 asks for
+            // a translucent **panel**, the user asked for the panel (« je ne pensais
+            // pas que changer material s'appliquerait aussi aux icônes »), and one
+            // window carries one alpha -- so the tiles are shown by a **second**
+            // window, opaque, whose region is the union of the tiles. Read from the
+            // windows, never from the document.
+            auto* iconOverlay = container->iconOverlay(idM);
+            const bool overlayIsASecondWindow =
+                iconOverlay && translucentSurface && iconOverlay->hwnd() != translucentSurface->hwnd();
+            check(QStringLiteral("a translucent fence shows its icons through a second, opaque "
+                                 "window (the panel is what fades)"),
+                  overlayIsASecondWindow && iconOverlay->uniformAlpha() == 255
+                      && iconOverlay->clickThrough()
+                      && translucentSurface->stackedBelow() == iconOverlay,
+                  QStringLiteral("fence %1: panel 0x%2 alpha %3 | overlay 0x%4 alpha %5, "
+                                 "click-through=%6, stacked above the panel=%7")
+                      .arg(idM)
+                      .arg(translucentSurface ? static_cast<qulonglong>(translucentSurface->hwnd()) : 0,
+                           0, 16)
+                      .arg(translucentSurface ? translucentSurface->uniformAlpha() : -1)
+                      .arg(iconOverlay ? static_cast<qulonglong>(iconOverlay->hwnd()) : 0, 0, 16)
+                      .arg(iconOverlay ? iconOverlay->uniformAlpha() : -1)
+                      .arg(iconOverlay && iconOverlay->clickThrough() ? 1 : 0)
+                      .arg(translucentSurface && translucentSurface->stackedBelow() == iconOverlay ? 1 : 0));
+
+            // The pair's order as *Windows* holds it -- walking down from the overlay
+            // has to reach the panel, which is the same relation place() repairs.
+            const auto windowIsAbove = [](quintptr upper, quintptr lower) {
+                const HWND up = reinterpret_cast<HWND>(upper);
+                const HWND low = reinterpret_cast<HWND>(lower);
+                if (!up || !low)
+                    return false;
+                for (HWND w = ::GetWindow(up, GW_HWNDNEXT); w; w = ::GetWindow(w, GW_HWNDNEXT)) {
+                    if (w == low)
+                        return true;
+                }
+                return false;
+            };
+            const bool overlayIsOnTop = iconOverlay && translucentSurface
+                && windowIsAbove(iconOverlay->hwnd(), translucentSurface->hwnd());
+
+            // The shape: only the pixels of a tile are the overlay's, so the panel
+            // below is what shows everywhere else -- and the title bar, which belongs
+            // to the panel, must not be the overlay's either.
+            const QRect overlayRect = container->fenceVisibleRect(idM);
+            const QVector<QRect> tiles =
+                container->view(idM) ? container->view(idM)->tileRects() : QVector<QRect>();
+            HRGN iconShape = ::CreateRectRgn(0, 0, 0, 0);
+            const HWND overlayHwnd = iconOverlay ? reinterpret_cast<HWND>(iconOverlay->hwnd()) : nullptr;
+            const int iconShapeType = overlayHwnd ? ::GetWindowRgn(overlayHwnd, iconShape) : ERROR;
+            int tilesInside = 0;
+            for (const QRect& tile : tiles) {
+                if (::PtInRegion(iconShape, tile.center().x(), tile.center().y()))
+                    ++tilesInside;
+            }
+            const bool barIsNotTheOverlay =
+                ::PtInRegion(iconShape, overlayRect.width() / 2,
+                             starfish::ui::FenceGeometry::kTitleBarHeight / 2) == FALSE;
+            ::DeleteObject(iconShape);
+            check(QStringLiteral("the second window exists exactly where the tiles are, and nowhere "
+                                 "else"),
+                  iconShapeType != ERROR && !tiles.isEmpty() && tilesInside == tiles.size()
+                      && barIsNotTheOverlay && overlayIsOnTop,
+                  QStringLiteral("fence %1: %2 tile raster(s), %3 of their centres inside the "
+                                 "window's region (type %4), title bar inside=%5, overlay above the "
+                                 "panel=%6 [tiles in widget pixels, this desktop is 100 %%]")
+                      .arg(idM)
+                      .arg(tiles.size())
+                      .arg(tilesInside)
+                      .arg(iconShapeType)
+                      .arg(barIsNotTheOverlay ? 0 : 1)
+                      .arg(overlayIsOnTop ? 1 : 0));
+
+            // ...and the click still belongs to the panel: the overlay is
+            // click-through on purpose, so the mouse reaches the window that owns the
+            // input target *and* the OLE drop target. Only asked when the window under
+            // the tile is one of ours -- with somebody else's window in front the
+            // answer would be about that one (decision 13: the desktop has to be
+            // visible to measure this).
+            if (!tiles.isEmpty()) {
+                const QPoint tileCentre = tiles.first().center() + overlayRect.topLeft();
+                const HWND underTile = ::WindowFromPoint(POINT{tileCentre.x(), tileCentre.y()});
+                const bool ours = underTile && translucentSurface
+                    && (reinterpret_cast<quintptr>(underTile) == translucentSurface->hwnd()
+                        || reinterpret_cast<quintptr>(underTile)
+                               == reinterpret_cast<quintptr>(overlayHwnd));
+                if (ours) {
+                    check(QStringLiteral("a click on a tile still lands on the panel underneath (the "
+                                         "overlay is click-through)"),
+                          reinterpret_cast<quintptr>(underTile) == translucentSurface->hwnd(),
+                          QStringLiteral("WindowFromPoint at the first tile's centre %1,%2 -> 0x%3 "
+                                         "(panel 0x%4, overlay 0x%5)")
+                              .arg(tileCentre.x())
+                              .arg(tileCentre.y())
+                              .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(underTile)), 0, 16)
+                              .arg(translucentSurface
+                                       ? static_cast<qulonglong>(translucentSurface->hwnd())
+                                       : 0, 0, 16)
+                              .arg(overlayHwnd
+                                       ? static_cast<qulonglong>(reinterpret_cast<quintptr>(overlayHwnd))
+                                       : 0, 0, 16));
+                } else {
+                    wchar_t covering[128] = {0};
+                    if (underTile)
+                        ::GetClassNameW(underTile, covering, 128);
+                    log << QStringLiteral("the click-through clause was NOT asked: \"%1\" covers the "
+                                          "fence -- bring the desktop to the front and re-run")
+                               .arg(QString::fromWCharArray(covering));
+                }
+            }
+
+            // The option, and the whole of it: `fadeIcons` hands the fence back its
+            // single window -- the material on the icons as well, which is exactly
+            // what it did before T-082 -- and the document carries the choice.
+            container->setFenceIconsFollowMaterial(idM, true);
+            const bool goneWhenAsked = container->iconOverlay(idM) == nullptr
+                && container->fenceIconsFollowMaterial(idM);
+            container->setFenceIconsFollowMaterial(idM, false);
+            const bool backWhenUnasked = container->iconOverlay(idM) != nullptr
+                && !container->fenceIconsFollowMaterial(idM);
+            check(QStringLiteral("asking for the material on the icons drops the second window, and "
+                                 "unasking brings it back"),
+                  goneWhenAsked && backWhenUnasked,
+                  QStringLiteral("fence %1: overlay after asking=%2, after unasking=%3, "
+                                 "fadeIcons now=%4")
+                      .arg(idM)
+                      .arg(goneWhenAsked ? QStringLiteral("none") : QStringLiteral("still there"))
+                      .arg(backWhenUnasked ? QStringLiteral("hosted") : QStringLiteral("missing"))
+                      .arg(container->fenceIconsFollowMaterial(idM) ? 1 : 0));
+
             container->setFenceMaterial(idM, QStringLiteral("opaque"));
             auto* opaqueSurface = container->surface(idM);
             check(QStringLiteral("an opaque fence is a fully opaque window (the material *is* the "

@@ -89,6 +89,10 @@ FenceContainer::FenceContainer(QObject* parent)
 FenceContainer::~FenceContainer()
 {
     for (FenceWindow& fence : m_fences) {
+        // T-082: the overlay goes *before* the panel it is stacked above -- it
+        // holds a pointer to that window (setStackAbove), so the order is not a
+        // detail.
+        delete fence.iconOverlay;
         delete fence.surface; // destroys the hosted window before the view
         delete fence.view;
     }
@@ -482,10 +486,177 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
         return false;
     }
     fence.surface->setCornerRadius(fence.view->cornerRadius());
-    qCInfo(lc).noquote() << QStringLiteral("fence %1: window alpha %2, rounded panel %3 px")
+    // T-082: the icons are not part of that window any more. The panel is what
+    // fades, so the tiles get the second window that keeps them opaque -- or lose
+    // it, when the material is opaque or the fence asks for its icons to fade too.
+    syncIconOverlay(fence);
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: window alpha %2, rounded panel %3 px, "
+                                           "icons %4")
                                 .arg(fence.id)
                                 .arg(alpha)
-                                .arg(fence.view->cornerRadius());
+                                .arg(fence.view->cornerRadius())
+                                .arg(fence.iconOverlay ? QStringLiteral("opaque (icon overlay)")
+                                                       : QStringLiteral("faded with the panel"));
+    return true;
+}
+
+// --- the icon overlay (T-082) ----------------------------------------------
+//
+// F-038 asks for a *panel* that is partly transparent, and the user, after
+// trying T-057: « je ne pensais pas que changer material s'appliquerait aussi
+// aux icônes. Est-il possible de ne l'appliquer qu'à la fence ? » ADR-15's
+// material is one uniform alpha for the whole window, so a translucent panel
+// faded the tiles with it. A window carries one alpha and no more; the tiles
+// therefore need a window of their own, and this is it.
+//
+// The pair: the **panel** (the fence's surface, translucent, rounded region,
+// input target, drop target) below, the **overlay** (opaque, region = the union
+// of the tiles, click-through) above. One render feeds both -- the overlay's
+// region cuts the same image down to the tiles -- so a tile is the very pixel
+// the panel would have drawn at that place, and nothing about the grid, the
+// selection or the drag changes: every click still arrives through the panel.
+bool FenceContainer::wantsIconOverlay(const FenceWindow& fence) const
+{
+    // `fadeIcons` is the whole option: the one case where the user asked for the
+    // material to apply to the icons as well -- and therefore the one case with
+    // exactly the behaviour of before T-082, which is one window and nothing else.
+    if (fence.style.fadeIcons)
+        return false;
+    if (!m_host || !fence.surface)
+        return false;
+    return FenceMaterial::isTranslucent(QColor(fence.style.background).alpha());
+}
+
+QVector<QRect> FenceContainer::iconOverlayTiles(const FenceWindow& fence, qreal dpr) const
+{
+    QVector<QRect> tiles;
+    if (!fence.view)
+        return tiles;
+    for (const QRect& tile : fence.view->tileRects()) {
+        // The ratio only converts the widget's logical pixels into the window's
+        // physical ones; at 100 % (the only shape v1 has been measured on) it is
+        // the identity.
+        tiles.append(QRect(QPoint(qRound(tile.x() * dpr), qRound(tile.y() * dpr)),
+                           QSize(qRound(tile.width() * dpr), qRound(tile.height() * dpr))));
+    }
+    return tiles;
+}
+
+bool FenceContainer::attachIconOverlay(FenceWindow& fence)
+{
+    if (fence.iconOverlay || !fence.surface || !fence.view)
+        return false;
+
+    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+
+    auto* overlay = new starfish::platform::win::DesktopSurface(this);
+    // Pixels only. The mouse, the input target and the OLE drop target stay on
+    // the panel underneath: HTTRANSPARENT hands the click straight down, in the
+    // same thread, at the same coordinates -- so a click on a tile is the click
+    // it was, and a file dropped on one still lands in the fence (T-042's rule).
+    overlay->setClickThrough(true);
+    overlay->setUniformAlpha(255);
+    overlay->setDevicePixelRatio(dpr);
+    // The pair's order, expressed the only way Win32 can: the overlay takes the
+    // top of the host's children (its own placement), and the *panel* is told to
+    // sit directly below it. See DesktopSurface::setStackedBelow.
+    fence.surface->setStackedBelow(overlay);
+    // The shape goes on *before* attach(): the window is then never a bare
+    // rectangle, not even for the instant between being shown and being regioned.
+    const QVector<QRect> tiles = iconOverlayTiles(fence, dpr);
+    overlay->setRegionRects(tiles);
+
+    if (!overlay->attach(visible)) {
+        qCWarning(lc).noquote()
+            << QStringLiteral("fence %1: could not host the icon overlay").arg(fence.id);
+        delete overlay;
+        return false;
+    }
+    fence.iconOverlay = overlay;
+    fence.overlayShapeSize = visible.size();
+    fence.overlayHasTiles = !tiles.isEmpty();
+    if (!fence.frame.isNull())
+        overlay->setFrame(fence.frame);
+    overlay->setVisible(m_fencesVisible && fence.overlayHasTiles);
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: icon overlay hosted at %2,%3 %4x%5, "
+                                           "%6 tile(s)")
+                                .arg(fence.id)
+                                .arg(visible.x())
+                                .arg(visible.y())
+                                .arg(visible.width())
+                                .arg(visible.height())
+                                .arg(tiles.size());
+    return true;
+}
+
+void FenceContainer::destroyIconOverlay(FenceWindow& fence)
+{
+    if (!fence.iconOverlay)
+        return;
+    // The relation goes first: the panel must not be left holding a pointer to a
+    // window that is about to be destroyed -- and dropping it puts the panel back
+    // at the top of Progman's children, which is where a lone fence belongs.
+    if (fence.surface)
+        fence.surface->setStackedBelow(nullptr);
+    delete fence.iconOverlay;
+    fence.iconOverlay = nullptr;
+    fence.overlayShapeSize = QSize();
+    fence.overlayHasTiles = false;
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: icon overlay gone").arg(fence.id);
+}
+
+void FenceContainer::syncIconOverlay(FenceWindow& fence)
+{
+    if (!wantsIconOverlay(fence)) {
+        // Opaque material, `fadeIcons` on, headless, or the panel is gone: there
+        // is nothing to keep crisp, and a second window that shows nothing is a
+        // window the desktop does not need.
+        destroyIconOverlay(fence);
+        return;
+    }
+    if (!fence.iconOverlay && !attachIconOverlay(fence))
+        return;
+
+    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+    fence.iconOverlay->setDevicePixelRatio(dpr);
+    // ⚠️ The tiles are measured once per *size*, never per move: the shape is a
+    // function of the size (ADR-15), and measuring one caption costs a font
+    // metric -- a title-bar drag would pay it sixty times a second. renderFence()
+    // clears this record, which is what makes a content change re-shape the window.
+    if (fence.overlayShapeSize != visible.size()) {
+        const QVector<QRect> tiles = iconOverlayTiles(fence, dpr);
+        fence.iconOverlay->setRegionRects(tiles);
+        fence.overlayShapeSize = visible.size();
+        fence.overlayHasTiles = !tiles.isEmpty();
+    }
+    fence.iconOverlay->setGeometry(visible);
+    // A fence with no tile to show (empty, or rolled up to its bar) keeps its
+    // overlay but shows none of it; quick hide hides both halves together.
+    fence.iconOverlay->setVisible(m_fencesVisible && fence.overlayHasTiles);
+}
+
+bool FenceContainer::fenceIconsFollowMaterial(const QString& id) const
+{
+    for (const FenceWindow& fence : m_fences) {
+        if (fence.id == id)
+            return fence.style.fadeIcons;
+    }
+    return false;
+}
+
+bool FenceContainer::setFenceIconsFollowMaterial(const QString& id, bool fadeIcons)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || fence->style.fadeIcons == fadeIcons)
+        return false;
+    // Through setFenceStyle, like every other appearance change: one path to the
+    // document, one signal for the auto-save, and the material is re-applied in
+    // the same breath (which is what creates or drops the overlay).
+    core::FenceStyle style = fence->style;
+    style.fadeIcons = fadeIcons;
+    setFenceStyle(id, style);
     return true;
 }
 
@@ -512,6 +683,15 @@ starfish::platform::win::DesktopSurface* FenceContainer::surface(const QString& 
     for (const FenceWindow& fence : m_fences) {
         if (fence.id == id)
             return fence.surface;
+    }
+    return nullptr;
+}
+
+starfish::platform::win::DesktopSurface* FenceContainer::iconOverlay(const QString& id) const
+{
+    for (const FenceWindow& fence : m_fences) {
+        if (fence.id == id)
+            return fence.iconOverlay;
     }
     return nullptr;
 }
@@ -813,6 +993,11 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         }
     }
 
+    // T-082: a fence born in a translucent material is born with its icon overlay
+    // (the panel it stacks above has just been hosted). renderFence() below pushes
+    // the first frame to both windows.
+    syncIconOverlay(*find(id));
+
     renderFence(id);
     qCInfo(lc).noquote() << QStringLiteral("created fence %1 \"%2\" at %3,%4 %5x%6")
                                 .arg(id)
@@ -917,6 +1102,7 @@ bool FenceContainer::removeFence(const QString& id)
             continue;
         // Deleting a zone removes the zone, never the files it showed
         // (AGENTS.md golden rule).
+        delete m_fences.at(i).iconOverlay; // T-082: above the panel, so first
         delete m_fences.at(i).surface;
         delete m_fences.at(i).view;
         m_fences.removeAt(i);
@@ -962,6 +1148,11 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
         fence.view->setRolledUp(fence.rolledUp);
         fence.view->resize(logicalSize(visible.size(), dpr));
     }
+    // T-082: the overlay is placed *first*. It is the window that goes to the top
+    // of Progman's children, and the panel then takes its place directly below it
+    // (DesktopSurface::setStackedBelow) -- a pair, which is what keeps the tiles
+    // over the panel they belong to when a fence is dragged past another.
+    syncIconOverlay(fence);
     if (fence.surface) {
         // The surface owns a raw Win32 window, whose coordinates are physical
         // pixels: it gets the physical rect, plus the ratio it needs to turn the
@@ -1031,6 +1222,12 @@ bool FenceContainer::setFencesVisible(bool visible)
         if (fence.surface) {
             // The hosted surface is the only thing actually on screen.
             fence.surface->setVisible(visible);
+            // T-082: ... and it is not alone any more when the material is
+            // translucent. Hiding half a fence is the kind of bug the eye catches
+            // and a counter does not, so the overlay is told in the same breath --
+            // syncIconOverlay() keeps its own state (an empty fence shows nothing)
+            // and is a no-op when there is no overlay.
+            syncIconOverlay(fence);
         } else if (fence.view && !fence.view->isHidden()) {
             // Windowed mode (no surface): the widget is the window. A widget
             // that was never shown is left alone, so a headless container does
@@ -1106,6 +1303,18 @@ void FenceContainer::renderFence(const QString& id)
     fence->frame = frame;
     if (fence->surface)
         fence->surface->setFrame(frame);
+    if (fence->iconOverlay) {
+        // The very same image: the overlay's region already cuts it down to the
+        // tiles, so a tile is the pixel the panel would have painted at that
+        // place, and one render still serves both windows (T-082).
+        fence->iconOverlay->setFrame(frame);
+        // The tile layout changed with the frame -- an item added, removed,
+        // wrapped or renamed -- and the overlay's shape *is* that layout: the
+        // record is cleared so the next sync re-measures it (and a move, which
+        // renders nothing, does not).
+        fence->overlayShapeSize = QSize();
+        syncIconOverlay(*fence);
+    }
 }
 
 void FenceContainer::beginGeometryDrag(const QString& id)

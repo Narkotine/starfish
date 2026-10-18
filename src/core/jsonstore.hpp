@@ -27,6 +27,20 @@ struct FenceStyle {
     int gap = 8;
     bool titleBar = true;
     QString iconTint; // empty = no tint (F-015)
+    // T-082 (F-038): whether the material also fades the **icons**, or only the
+    // fence's own chrome -- the panel and its title bar.
+    //
+    // Off by default, which is the user's request after trying it: « je ne
+    // pensais pas que changer material s'appliquerait aussi aux icônes. Est-il
+    // possible de ne l'appliquer qu'à la fence ? et du coup de garder l'option de
+    // l'appliquer aux icônes en option, par fence ? » Until T-082 a material was
+    // the window's uniform alpha (ADR-15), so it faded everything the fence drew.
+    //
+    // A key with its default and no migration: an absent key reads as `false`,
+    // exactly like T-074's, so a document written before this key exists keeps
+    // describing the fence it describes -- and a *new* fence gets the new
+    // behaviour.
+    bool fadeIcons = false;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

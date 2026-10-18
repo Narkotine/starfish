@@ -690,6 +690,11 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     // the check mark must follow the document, and the document may have been
     // changed by the tray a moment ago.
     state.material = m_container->fenceMaterial(id);
+    // T-082: what the material covers. Both come from the document -- the material
+    // *is* the fence's alpha -- so the menu cannot drift from what is on screen.
+    state.materialIsTranslucent =
+        ui::FenceMaterial::isTranslucent(ui::FenceMaterial::alphaOf(m_container->fenceStyle(id).background));
+    state.fadeIcons = m_container->fenceIconsFollowMaterial(id);
 
     QMenu menu;
     for (const ui::FenceMenu::Entry& entry : ui::FenceMenu::entries(state)) {
@@ -762,6 +767,12 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     }
     case ui::FenceMenu::Action::Remove:
         onRemoveFence(id);
+        break;
+    case ui::FenceMenu::Action::FadeIcons:
+        // T-082: the option that puts the material on the fence's icons as well.
+        // One call, through setFenceStyle: the container re-applies the material,
+        // creates or drops the icon overlay, and the document follows.
+        m_container->setFenceIconsFollowMaterial(id, !m_container->fenceIconsFollowMaterial(id));
         break;
     case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
     case ui::FenceMenu::Action::None:

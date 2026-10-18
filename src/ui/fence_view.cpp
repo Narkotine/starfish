@@ -154,6 +154,17 @@ int FenceView::itemAt(const QPoint& localPoint) const
     return m_grid.hitTest(localPoint - contentRect().topLeft(), contentRect().size());
 }
 
+QVector<QRect> FenceView::tileRects() const
+{
+    // The grid lays its cells out from the content origin (hitTest subtracts it
+    // above), so the tile rectangles are the cells moved there.
+    const QRect content = contentRect();
+    QVector<QRect> rects = m_grid.cellRects(content.size());
+    for (QRect& rect : rects)
+        rect.translate(content.topLeft());
+    return rects;
+}
+
 void FenceView::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);

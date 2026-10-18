@@ -164,6 +164,28 @@ int IconGrid::hitTest(const QPoint& contentLocalPoint, const QSize& contentSize)
     return IconLayout::hitTest(cells, contentLocalPoint);
 }
 
+QVector<QRect> IconGrid::cellRects(const QSize& contentSize) const
+{
+    QVector<QRect> rects;
+    if (m_items.isEmpty() || contentSize.isEmpty())
+        return rects;
+    // The same call hitTest() and paint() make, with the same arguments: the cell
+    // a tile is drawn in is the cell its region is built from.
+    const QVector<IconCell> cells =
+        IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
+                            m_items.size());
+    const QRect area(QPoint(0, 0), contentSize);
+    rects.reserve(cells.size());
+    for (const IconCell& cell : cells) {
+        // Rows past the bottom are computed but never drawn: a tile that is not
+        // on screen has no pixels to stand for, so it is not part of the shape.
+        const QRect tile = cell.icon.united(cell.label).intersected(area);
+        if (!tile.isEmpty())
+            rects.append(tile);
+    }
+    return rects;
+}
+
 void IconGrid::selectOnly(int index)
 {
     m_selected.clear();

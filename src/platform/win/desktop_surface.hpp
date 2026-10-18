@@ -190,6 +190,40 @@ public:
     void setCornerRadius(int radiusPx);
     int cornerRadius() const { return m_cornerRadius; }
 
+    // ⚠️ T-082 -- the *other* shape a hosted surface can take: the **union of
+    // these rectangles** (window coordinates, physical pixels) instead of the
+    // rounded panel. A fence whose material is translucent uses it for its icon
+    // overlay: the window then exists only where a tile is, so the panel's
+    // uniform alpha shows the wallpaper through everywhere else while the tiles
+    // themselves are painted by this opaque window sitting above it.
+    //
+    // Calling this selects the tile shape (setShape(TileUnion)); an empty vector
+    // is then a *real* state -- a fence with no icon yet -- and means the window
+    // shows nothing at all. That is deliberately not the same as "no region",
+    // which Windows reads as "the whole window".
+    void setRegionRects(const QVector<QRect>& rects);
+    const QVector<QRect>& regionRects() const { return m_regionRects; }
+
+    // The shape of the window's visible pixels: the rounded panel of a fence
+    // (setCornerRadius) or the union of the tile rectangles above (T-082).
+    enum class Shape {
+        RoundedPanel,
+        TileUnion,
+    };
+    void setShape(Shape shape);
+    Shape shape() const { return m_shape; }
+
+    // T-082: places this surface directly **below** `other` (another surface of
+    // ours on the same icon host) instead of at the top of the host's child order.
+    //
+    // ⚠️ The direction is not a detail: `SetWindowPos(hwnd, hwndInsertAfter, ...)`
+    // puts `hwnd` *below* `hwndInsertAfter`, so "directly above" cannot be asked
+    // for at all -- the pair is expressed the other way round: the overlay takes
+    // the top of the host's children, and the panel takes its place directly below
+    // it (that is why the *panel* is the one holding this relation).
+    void setStackedBelow(const DesktopSurface* other);
+    const DesktopSurface* stackedBelow() const { return m_stackedBelow; }
+
     // Per-pixel transparency mode (T-017). DEV PATH ONLY, and known not to reach
     // the screen on a child of Progman (ADR-15). It is kept for the one surface
     // that has nothing else -- the full-screen backdrop drawn by --claim-desktop
@@ -300,6 +334,14 @@ private:
     // frame -- the frame is blitted with alpha ignored.
     int m_uniformAlpha = 255;
     int m_cornerRadius = 0;
+    // T-082: the tiles' shape (see setRegionRects), and the surface this one is
+    // stacked directly above (see setStackAbove). Both are empty/null for every
+    // fence panel -- they exist for the icon overlay.
+    QVector<QRect> m_regionRects;
+    Shape m_shape = Shape::RoundedPanel;
+    // The surface this one is stacked directly below -- set on a fence's *panel*
+    // (its overlay is the window above it). See setStackedBelow.
+    const DesktopSurface* m_stackedBelow = nullptr;
     QSize m_shapedSize; // the size the region was built for
     // Navigation state (T-009), both honoured by place() so the watchdog cannot
     // undo them.

@@ -53,6 +53,28 @@ struct FenceWindow {
     QList<core::Portal> portals;
     FenceView* view = nullptr;
     starfish::platform::win::DesktopSurface* surface = nullptr;
+    // ⚠️ T-082: the fence's **icon overlay** -- a second hosted window, stacked
+    // directly above `surface`, opaque (alpha 255) and whose region is the union
+    // of the tile rectangles (DesktopSurface::setRegionRects). It is what lets a
+    // translucent *panel* carry crisp icons: a window carries one alpha, so the
+    // tiles cannot stay opaque in the very window that is fading.
+    //
+    // It is **click-through** and owns nothing: the panel below keeps the mouse,
+    // the input target and the OLE drop target, and the overlay is exactly on top
+    // of it, so a click on a tile is the same click it was (T-042's rule -- a
+    // replayed click is a different click).
+    //
+    // Null whenever there is nothing to keep crisp: an opaque material, a fence
+    // whose `fadeIcons` is on, an empty fence, a rolled-up one, or a headless
+    // container.
+    starfish::platform::win::DesktopSurface* iconOverlay = nullptr;
+    // T-082: the size the overlay's shape was last built for, and whether that
+    // build found any tile at all. The shape is a function of the size alone
+    // (ADR-15), so a *move* must not re-measure every caption of the grid -- and
+    // measuring one costs a font metric. renderFence() invalidates the record,
+    // which is what makes a content change re-shape the window.
+    QSize overlayShapeSize;
+    bool overlayHasTiles = false;
 
     // Last frame produced by renderFence(). Kept even without a surface, so the
     // lifecycle can be exercised headless (tests, CI, --fence-demo).
@@ -176,6 +198,24 @@ public:
     // is a value of its own (see FenceMaterial::materialOf).
     QString fenceMaterial(const QString& id) const;
 
+    // ⚠️ T-082 -- where the material applies. F-038 says the *panel* is
+    // translucent, and until now a material faded everything the fence drew,
+    // because it was the window's uniform alpha (ADR-15, one alpha per window).
+    // The user, after trying it: « je ne pensais pas que changer material
+    // s'appliquerait aussi aux icônes. Est-il possible de ne l'appliquer qu'à la
+    // fence ? et du coup de garder l'option de l'appliquer aux icônes en option,
+    // par fence ? »
+    //
+    // So the default is now the panel (and its title bar): the fence's icons stay
+    // opaque, which is what the second hosted window below is for. `fadeIcons`
+    // restores the old behaviour *for that fence* -- an option, never the effect.
+    // A default never rewrites what is already there: a document written before
+    // T-082 reads `false` for the key it does not carry, so an *existing* fence
+    // changes appearance once, and every fence written afterwards keeps what the
+    // document says.
+    bool setFenceIconsFollowMaterial(const QString& id, bool fadeIcons);
+    bool fenceIconsFollowMaterial(const QString& id) const;
+
     // --- navigation (T-009) -------------------------------------------------
     //
     // The three "get the desktop out of the way" behaviours of docs/produit.md
@@ -270,6 +310,10 @@ public:
     // Access for tests / diagnostics. May be null in headless mode (surface).
     FenceView* view(const QString& id) const;
     starfish::platform::win::DesktopSurface* surface(const QString& id) const;
+    // T-082: the second hosted window of a fence whose icons must stay opaque.
+    // Null in the cases listed on FenceWindow::iconOverlay -- so a probe can ask
+    // the container rather than guess from the material.
+    starfish::platform::win::DesktopSurface* iconOverlay(const QString& id) const;
     QImage frame(const QString& id) const;
 
     // How many times a fence's frame has been *rendered* (the work a resize, a
@@ -409,6 +453,25 @@ private:
     // either way, because a fence whose alpha is wrong is still a fence, while a
     // fence whose window failed to come back is not.
     bool applyMaterialToSurface(FenceWindow& fence);
+
+    // --- the icon overlay (T-082) -------------------------------------------
+    // Whether this fence wants its icons kept out of the material: hosted, a
+    // material that is not fully opaque, and `fadeIcons` off. The last condition
+    // is the whole option -- a fence that asks for the material on its icons has
+    // no second window at all, and falls back to exactly what it did before
+    // T-082.
+    bool wantsIconOverlay(const FenceWindow& fence) const;
+    // The tiles of a fence, in the overlay's own pixels (the surface is physical,
+    // the widget logical -- T-014).
+    QVector<QRect> iconOverlayTiles(const FenceWindow& fence, qreal dpr) const;
+    // Creates the overlay if it is wanted and missing. Returns true when there is
+    // one afterwards.
+    bool attachIconOverlay(FenceWindow& fence);
+    // Creates it, moves it with its panel, re-shapes it for the tiles it has now,
+    // or destroys it when it is no longer wanted. Idempotent, and cheap when
+    // nothing changed: every call it makes is a no-op in that case.
+    void syncIconOverlay(FenceWindow& fence);
+    void destroyIconOverlay(FenceWindow& fence);
 
     QString nextId();
 

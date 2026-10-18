@@ -58,6 +58,9 @@ private slots:
         QCOMPARE(countOf(entries, FenceMenu::Action::ToggleRoll), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Rename), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Remove), 1);
+        // T-082: and *not* the icons entry -- the state here is a fence whose panel
+        // is fully opaque, where the material has nothing else to cover.
+        QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 0);
 
         int submenus = 0;
         for (const FenceMenu::Entry& entry : entries) {
@@ -176,6 +179,41 @@ private slots:
             QVERIFY(entry.enabled);
         for (const FenceMenu::Entry& entry : FenceMenu::materialEntries(state))
             QVERIFY(entry.enabled);
+    }
+
+    void theIconsEntryExistsOnlyUnderATranslucentPanel()
+    {
+        // T-082: the material fades the fence's own chrome (panel + title bar) by
+        // default, and the entry that asks for it on the icons *too* is absent
+        // while the panel is still opaque -- there is nothing to decide there, and
+        // an entry that could not change anything would be a promise.
+        FenceMenu::State opaque;
+        opaque.materialIsTranslucent = false;
+        QCOMPARE(countOf(FenceMenu::entries(opaque), FenceMenu::Action::FadeIcons), 0);
+
+        FenceMenu::State translucent;
+        translucent.materialIsTranslucent = true;
+        // The list is kept in a local: find() hands back a pointer *into* it.
+        const QList<FenceMenu::Entry> entries = FenceMenu::entries(translucent);
+
+        // Exactly one, and it is a *state*: checkable, right under the material it
+        // qualifies (first entry, then the separator that opens the navigation
+        // group).
+        QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 1);
+        QCOMPARE(entries.at(0).action, FenceMenu::Action::Material);
+        QCOMPARE(entries.at(1).action, FenceMenu::Action::FadeIcons);
+        const FenceMenu::Entry* entry = find(entries, FenceMenu::Action::FadeIcons);
+        QVERIFY(entry != nullptr);
+        QVERIFY(entry->checkable);
+        QVERIFY(!entry->checked); // the document says `fadeIcons: false`
+        QVERIFY(entry->enabled);
+
+        // ...and the mark follows the document.
+        translucent.fadeIcons = true;
+        const QList<FenceMenu::Entry> asked = FenceMenu::entries(translucent);
+        const FenceMenu::Entry* marked = find(asked, FenceMenu::Action::FadeIcons);
+        QVERIFY(marked != nullptr);
+        QVERIFY(marked->checked);
     }
 };
 

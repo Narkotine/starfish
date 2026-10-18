@@ -6,6 +6,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include "core/jsonstore.hpp"
@@ -27,6 +30,9 @@ Fence makeFence(const QString& id, const QString& title, const QRect& rect)
     fence.style.iconSize = 64;
     fence.style.titleBar = false;
     fence.style.iconTint = QStringLiteral("#80FFAA00");
+    // T-082: the option that hands the material to the icons as well. Written for
+    // every fence, so the round-trip below covers it like any other field.
+    fence.style.fadeIcons = true;
     fence.sortBy = QStringLiteral("size");
     fence.sortAscending = false;
     fence.rolledUp = true;
@@ -110,6 +116,7 @@ void TestLayoutStore::jsonRoundTripsEveryField()
     QCOMPARE(fence.style.iconSize, 64);
     QCOMPARE(fence.style.titleBar, false);
     QCOMPARE(fence.style.iconTint, QStringLiteral("#80FFAA00"));
+    QCOMPARE(fence.style.fadeIcons, true);
     QCOMPARE(fence.sortBy, QStringLiteral("size"));
     QCOMPARE(fence.sortAscending, false);
     QCOMPARE(fence.rolledUp, true);
@@ -121,6 +128,29 @@ void TestLayoutStore::jsonRoundTripsEveryField()
 
     // Deterministic serialisation is what lets LayoutStore detect "no change".
     QCOMPARE(JsonStore::toJson(*parsed), payload);
+
+    // T-082: and a document that predates the key -- or a hand-written one -- simply
+    // does not carry it. It has to read as `false` (the material on the panel, not
+    // on the icons), because that is what makes this key need no migration and no
+    // schema bump: the *default* is the new behaviour, and what a document says it
+    // keeps.
+    QCOMPARE(FenceStyle().fadeIcons, false);
+    QJsonObject root = QJsonDocument::fromJson(payload).object();
+    QJsonArray fences = root[QStringLiteral("fences")].toArray();
+    for (int i = 0; i < fences.size(); ++i) {
+        QJsonObject one = fences.at(i).toObject();
+        QJsonObject style = one[QStringLiteral("style")].toObject();
+        style.remove(QStringLiteral("fadeIcons"));
+        one[QStringLiteral("style")] = style;
+        fences.replace(i, one);
+    }
+    root[QStringLiteral("fences")] = fences;
+    const auto withoutTheKey =
+        JsonStore::fromJson(QJsonDocument(root).toJson(QJsonDocument::Indented), &error);
+    QVERIFY2(withoutTheKey.has_value(), qPrintable(error));
+    QVERIFY(!withoutTheKey->fences.isEmpty());
+    for (const Fence& fenceWithout : withoutTheKey->fences)
+        QCOMPARE(fenceWithout.style.fadeIcons, false);
 }
 
 void TestLayoutStore::jsonRejectsAnotherSchema()

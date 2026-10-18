@@ -74,6 +74,14 @@ public:
     // Index of the item at a content-local point, or -1.
     int hitTest(const QPoint& contentLocalPoint, const QSize& contentSize) const;
 
+    // Where the tiles are, in content-local coordinates: one rectangle per item
+    // -- the icon square united with its caption band -- clipped to
+    // `contentSize`. Exactly the pixels a tile owns, and the very cells `paint`
+    // and `hitTest` use, so the three cannot disagree (T-082). The container
+    // turns these into its icon overlay's window region, which is what keeps a
+    // translucent fence's tiles opaque.
+    QVector<QRect> cellRects(const QSize& contentSize) const;
+
     // --- selection ---------------------------------------------------------
     void selectOnly(int index);
     void toggle(int index);

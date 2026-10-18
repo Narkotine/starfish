@@ -610,6 +610,38 @@ void DesktopSurface::setCornerRadius(int radiusPx)
     applyShape();
 }
 
+// T-082. The tiles' shape: the union of the rectangles, and nothing else. The
+// overlay's *content* is the very same frame the panel blits -- one render serves
+// both windows, and no pixel of a tile can drift from the pixel the panel would
+// have painted, because it is the same pixel. The region is what makes the two
+// windows differ, and it is a function of the *size* alone, exactly like the
+// rounded panel (ADR-15), so a move costs no region rebuild.
+void DesktopSurface::setRegionRects(const QVector<QRect>& rects)
+{
+    if (m_regionRects == rects && m_shape == Shape::TileUnion)
+        return;
+    m_regionRects = rects;
+    m_shape = Shape::TileUnion;
+    applyShape();
+}
+
+void DesktopSurface::setShape(Shape shape)
+{
+    if (m_shape == shape)
+        return;
+    m_shape = shape;
+    applyShape();
+}
+
+void DesktopSurface::setStackedBelow(const DesktopSurface* other)
+{
+    if (m_stackedBelow == other)
+        return;
+    m_stackedBelow = other;
+    if (isAttached())
+        place();
+}
+
 void DesktopSurface::applyShape()
 {
     if (!isAttached())
@@ -621,7 +653,53 @@ void DesktopSurface::applyShape()
     const int w = client.right - client.left;
     const int h = client.bottom - client.top;
 
-    if (m_cornerRadius <= 0 || w <= 0 || h <= 0) {
+    if (w <= 0 || h <= 0) {
+        ::SetWindowRgn(self, nullptr, TRUE);
+        m_shapedSize = QSize();
+        return;
+    }
+
+    // T-082: the union of the tile rectangles -- the icon overlay's shape. Only
+    // the pixels of a tile are this window's, so the translucent panel *below* it
+    // is what shows everywhere else: that is the whole point of the pair.
+    //
+    // An overlay with no tile at all (a fence that holds nothing yet) gets an
+    // *empty* region rather than no region: "no region" means "the whole window",
+    // so it would paint a rectangle of panel over the very thing this window
+    // exists to reveal. The container hides such a window as well -- two
+    // mechanisms for one state, because the failure of this one is a rectangle of
+    // the wrong colour on someone's desktop.
+    if (m_shape == Shape::TileUnion) {
+        const QRect clientRect(0, 0, w, h);
+        HRGN region = nullptr;
+        for (const QRect& rect : m_regionRects) {
+            const QRect piece = rect.intersected(clientRect);
+            if (piece.isEmpty())
+                continue;
+            HRGN pieceRegion = ::CreateRectRgn(piece.x(), piece.y(), piece.x() + piece.width(),
+                                               piece.y() + piece.height());
+            if (!pieceRegion)
+                continue;
+            if (!region) {
+                region = pieceRegion;
+            } else {
+                ::CombineRgn(region, region, pieceRegion, RGN_OR);
+                ::DeleteObject(pieceRegion);
+            }
+        }
+        if (!region)
+            region = ::CreateRectRgn(0, 0, 0, 0);
+        if (!region || !::SetWindowRgn(self, region, TRUE)) {
+            qCWarning(lc) << "SetWindowRgn (tile rects) failed, error" << ::GetLastError();
+            if (region)
+                ::DeleteObject(region);
+            return;
+        }
+        m_shapedSize = QSize(w, h);
+        return;
+    }
+
+    if (m_cornerRadius <= 0) {
         ::SetWindowRgn(self, nullptr, TRUE);
         m_shapedSize = QSize();
         return;
@@ -873,7 +951,12 @@ bool DesktopSurface::place()
     // which is what lets the wallpaper show through its transparent pixels and
     // still lets the empty desktop's gestures reach it (T-041/T-055).
     HWND anchor = HWND_TOP;
-    switch (m_layer) {
+    if (m_stackedBelow && m_stackedBelow->hwnd()) {
+        // T-082: the fence's *panel* takes its place directly below the overlay
+        // that shows its icons (see setStackedBelow for why the pair is expressed
+        // this way round).
+        anchor = toHwnd(m_stackedBelow->hwnd());
+    } else switch (m_layer) {
     case Layer::AboveIconLayer:
     case Layer::BelowIconLayer:
         anchor = HWND_TOP;
@@ -932,9 +1015,20 @@ bool DesktopSurface::place()
     // corners stay square and the fence is a rectangle. Measured: the region check
     // in --fence-demo --host caught exactly that (region type ERROR on a fence
     // whose rect was right).
-    const bool shapeIsCurrent = m_cornerRadius <= 0 || m_shapedSize == m_rect.size();
+    // T-082: an icon overlay's shape is a union of tile rectangles, and the same
+    // rule applies -- it is a function of the size alone, so a stale one counts as
+    // "not where it belongs" and gets rebuilt.
+    const bool shapeIsCurrent =
+        (m_regionRects.isEmpty() && m_cornerRadius <= 0) || m_shapedSize == m_rect.size();
+    // ... and a panel that belongs to an overlay is only where it belongs when the
+    // overlay is **directly above** it: anything in between would hide the tiles
+    // behind its own panel. Moving a fence is what breaks that (both windows are
+    // re-placed, and the overlay lands at the top of the host's children), and this
+    // clause is what repairs it -- on the next placement, not two seconds later.
+    const bool anchorIsAbove = !m_stackedBelow || !m_stackedBelow->hwnd()
+        || (::GetWindow(self, GW_HWNDPREV) == toHwnd(m_stackedBelow->hwnd()));
     if (haveRect && actual == m_rect && ::IsWindowVisible(self) == (m_visible ? TRUE : FALSE)
-        && shapeIsCurrent && wallpaperIsBelow()) {
+        && shapeIsCurrent && wallpaperIsBelow() && anchorIsAbove) {
         ++m_currentPlaceCount;
         return true; // already where it belongs: nothing to repair
     }
@@ -951,7 +1045,7 @@ bool DesktopSurface::place()
     // ADR-15: a window region is expressed in window coordinates, so it is the
     // *size* that decides whether it has to be rebuilt -- a move changes nothing
     // about it. A rolled-up fence changes height, and a resize changes both.
-    if (m_cornerRadius > 0 && m_shapedSize != m_rect.size())
+    if ((m_cornerRadius > 0 || !m_regionRects.isEmpty()) && m_shapedSize != m_rect.size())
         applyShape();
     if (m_perPixelAlpha) {
         // UpdateLayeredWindow carries the position *and the size*: the frame it is
@@ -1079,6 +1173,11 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         // for; owning the WndProc makes it trivial.
         auto* pos = reinterpret_cast<WINDOWPOS*>(lParam);
         if (pos && !(pos->flags & SWP_NOZORDER)) {
+            if (m_stackedBelow && m_stackedBelow->hwnd()) {
+                // T-082: a fence's panel only ever sits directly below its overlay.
+                pos->hwndInsertAfter = toHwnd(m_stackedBelow->hwnd());
+                return false;
+            }
             switch (m_layer) {
             case Layer::AboveIconLayer:
             case Layer::BelowIconLayer:

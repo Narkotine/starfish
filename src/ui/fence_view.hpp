@@ -73,6 +73,13 @@ public:
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
 
+    // T-082: where the grid's tiles are, in *widget* coordinates -- one rectangle
+    // per tile, the pixels it owns and nothing more. The container hands these to
+    // the icon overlay, whose window region is their union, so the tiles stay
+    // opaque while the panel around them takes the material's alpha. Empty for a
+    // rolled-up fence (there is no content area) and for a fence with no tiles.
+    QVector<QRect> tileRects() const;
+
     // Accepts items dropped from the Explorer (T-006-3) and appends them to the
     // grid. `contentChanged` is emitted so the owner re-renders. The source
     // (Windows Shell resolution) is done by the caller; this method is pure.

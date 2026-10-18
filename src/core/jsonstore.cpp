@@ -21,6 +21,10 @@ static QJsonObject styleToJson(const FenceStyle& s)
     o["titleBar"] = s.titleBar;
     if (!s.iconTint.isEmpty())
         o["iconTint"] = s.iconTint;
+    // T-082: written for every fence, like titleBar -- an explicit `false` is what
+    // the behaviour is, and a bool that is only written when true would make the
+    // document depend on comparing it to a default.
+    o["fadeIcons"] = s.fadeIcons;
     return o;
 }
 
@@ -67,6 +71,10 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     if (o.contains("titleBar"))
         s.titleBar = o["titleBar"].toBool();
     s.iconTint = o["iconTint"].toString();
+    // T-082: absent means false -- which is the whole point of the key (a
+    // document written before it exists keeps the fence it describes, and stays
+    // valid: no migration, no schema bump).
+    s.fadeIcons = o["fadeIcons"].toBool(false);
     return s;
 }
 

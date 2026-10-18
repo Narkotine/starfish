@@ -53,6 +53,7 @@ private slots:
     void moveItemClampsShiftedTarget();
     void appendItemsAddsDedupesAndSorts();
     void removeItemsByPathTakesTilesOut();
+    void cellRectsAreTheTilesAndNothingElse();
 };
 
 void TestIconGrid::columnsFitTheWidth()
@@ -542,6 +543,48 @@ void TestIconGrid::removeItemsByPathTakesTilesOut()
     QCOMPARE(grid.removeItemsByPath({QStringLiteral("C:/Desktop/zzz.txt")}), 0);
     QCOMPARE(grid.removeItemsByPath({}), 0);
     QCOMPARE(grid.items().size(), 2);
+}
+
+void TestIconGrid::cellRectsAreTheTilesAndNothingElse()
+{
+    // T-082: the rectangles a fence's icon overlay is made of. They are the very
+    // cells `paint` and `hitTest` use -- the icon square united with its caption
+    // band -- clipped to the content area, so a row past the bottom contributes no
+    // pixel. The overlay's window region *is* this list, so a discrepancy here is
+    // a hole (or a rectangle of panel) on someone's desktop.
+    IconGrid grid;
+    QCOMPARE(grid.cellRects(QSize(480, 240)).size(), 0); // nothing to show: nothing to be
+
+    grid.setItems(QList<DesktopItem>{
+        makeItem(QStringLiteral("a.txt")), makeItem(QStringLiteral("b.txt")),
+        makeItem(QStringLiteral("c.txt")), makeItem(QStringLiteral("d.txt")),
+        makeItem(QStringLiteral("e.txt")), makeItem(QStringLiteral("f.txt"))});
+
+    const QSize content(480, 240);
+    const QVector<QRect> rects = grid.cellRects(content);
+    QCOMPARE(rects.size(), 6);
+
+    // Each rectangle is exactly one cell, and it is the cell its item is drawn in:
+    // the rectangle's own centre has to hit-test back to that item.
+    const int cellW = IconLayout::cellWidthFor(grid.iconSize());
+    const int cellH = grid.iconSize() + grid.labelHeight();
+    for (int i = 0; i < rects.size(); ++i) {
+        const QRect& rect = rects.at(i);
+        QCOMPARE(grid.hitTest(rect.center(), content), i);
+        QCOMPARE(rect.width(), cellW);
+        QCOMPARE(rect.height(), cellH);
+    }
+    // Five columns of 72 in 480 px (T-049/T-078), so the sixth tile is the first of
+    // the second row -- and it starts a whole row lower, not beside the others.
+    QCOMPARE(rects.at(1).top(), rects.at(0).top());
+    QVERIFY(rects.at(1).left() >= rects.at(0).right());
+    QVERIFY(rects.at(5).top() > rects.at(0).bottom());
+
+    // A fence too short to show that second row contributes no rectangle for it:
+    // the window must not exist where nothing is drawn, and "a region the size of
+    // the whole window" is exactly what an empty list would mean.
+    QCOMPARE(grid.cellRects(QSize(480, 100)).size(), 5);
+    QCOMPARE(grid.cellRects(QSize(40, 40)).size(), 1); // narrower than a cell: one column
 }
 
 QTEST_MAIN(TestIconGrid)

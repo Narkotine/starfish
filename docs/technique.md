@@ -1852,3 +1852,60 @@ Il n'y a **aucun champ de document** : la largeur est dérivée des items, jamai
 **Prémisse prouvée** : la dérivation neutralisée (`return floorWidth;` en tête de `IconGrid::cellWidth()`), `--fence-demo` tombe à `rc=1` avec **exactement 1 `FAIL`** — « long caption cell 72 » là où la vérification attend 96. Les trois vérifications de légende de T-049, elles, restaient vertes : ce sont bien les nouvelles qui portent la revendication.
 
 ⚠️ **Hors périmètre, dit** : le **fond de bureau** (`BackdropLayout`, chemin de développement depuis ADR-13) garde sa cellule fixe de 72 px. T-078 ne concerne que les zones.
+
+## 37. ADR-17 — le matériau est celui du panneau : une seconde fenêtre pour les icônes (T-082, session 49)
+
+La demande est un retour d'usage de la session 47, **après un essai confirmé** (« tests ok ») : « je ne pensais pas que changer material s'appliquerait aussi aux icônes. Est-il possible de ne l'appliquer qu'à la **fence** ? et du coup de garder l'option de l'appliquer aux icônes en **option, par fence** ? »
+
+### Pourquoi c'était vrai, et pas un malentendu
+
+**ADR-15** (§34) a remplacé le push par pixel — **mesuré** comme ne composant pas sur un enfant de `Progman` — par l'**alpha uniforme de la fenêtre** (`SetLayeredWindowAttributes(LWA_ALPHA, a)`) et une **région** pour la forme ronde. Un alpha de fenêtre **ne distingue pas les pixels** : tout ce que la zone dessine s'efface, barre de titre **et tuiles**. Or `F-038` décrit « transparence partielle du **panneau**, le papier peint traverse la zone ». L'implémentation était donc **plus grossière** que la fonctionnalité — ce n'est pas la fonctionnalité qui était trop ambitieuse.
+
+Une fenêtre porte **un** alpha, et rien de moins : les tuiles ont donc besoin de la **leur**.
+
+### La règle (ADR-17)
+
+- **Le matériau s'applique au panneau et à sa barre de titre** ; les **tuiles restent opaques**. C'est le **défaut**, pour toute zone écrite à partir de maintenant.
+- **L'application aux icônes est une option par zone** : `core::FenceStyle::fadeIcons`, écrit dans le document, `false` par défaut — donc **aucune migration** (une clé absente se lit au défaut, comme en T-074). Elle vit dans le menu d'une zone (**T-076**), juste **sous** `Material ▸`, et **seulement quand le panneau n'est pas opaque** : là où il y a quelque chose à décider. Sur une zone opaque l'entrée est **absente** et non grisée (une entrée grisée est une promesse).
+- **Le mécanisme : une seconde fenêtre par zone translucide**, l'**overlay d'icônes** — opaque (`alpha 255`), **région = union des rectangles de tuiles** (`DesktopSurface::setRegionRects`, un **mode de forme** à côté du panneau arrondi), **clic-traversante**.
+
+### Ce qui n'a pas changé — et c'est là que se joue la sûreté
+
+- **Un seul rendu.** L'overlay reçoit **exactement la même frame** que le panneau ; sa région la découpe aux tuiles. Une tuile est donc **le pixel** que le panneau aurait peint au même endroit : les deux fenêtres ne peuvent pas dériver, et il n'y a pas deux façons de dessiner une zone.
+- **Aucun chemin d'entrée ne change.** La souris, `setInputTarget` et la cible de dépôt OLE restent sur le **panneau**. L'overlay répond `HTTRANSPARENT`, **dans le même thread**, aux **mêmes coordonnées** : un clic sur une tuile reste le clic qu'il était (la règle de T-042 — un clic rejoué est un autre clic), et un fichier déposé sur une tuile arrive toujours dans la zone.
+- **L'ordre du couple est exprimé à l'envers**, et ce n'est pas un détail de style : `SetWindowPos(hwnd, hwndInsertAfter, …)` place la fenêtre **sous** `hwndInsertAfter`. « Directement au-dessus » ne peut donc pas s'exprimer ; l'overlay prend le haut des enfants de `Progman` (son propre placement), et c'est **le panneau** qui est posé **directement sous lui** (`DesktopSurface::setStackedBelow`). La garde « déjà en place » du panneau inclut désormais « l'overlay est **directement** au-dessus de moi » : c'est ce qui remet le couple d'aplomb après un déplacement, **sans** attendre les 2 s du watchdog — et sans rien coûter au repos.
+- **Le coût est nul quand il n'y a rien à garder opaque** : matériau opaque, `fadeIcons` à `true`, zone vide, zone enroulée ⇒ **pas de seconde fenêtre**, et la zone se comporte **exactement** comme avant T-082. Une zone neuve (opaque depuis T-074) n'a donc rien de neuf à l'écran.
+- **La forme de l'overlay est fonction de la taille**, comme la région du panneau (ADR-15) : les tuiles ne sont mesurées **qu'au changement de taille** (et à chaque rendu, qui est un changement de contenu) — jamais pendant un déplacement, où mesurer une légende coûterait une métrique de police soixante fois par seconde.
+
+### La mesure a corrigé la première version
+
+⚠️ **La première implémentation était fausse, et c'est la sonde qui l'a dit.** L'ordre du couple était exprimé dans le mauvais sens (`SetWindowPos` insère **sous** la fenêtre nommée : `setStackAbove(panel)` mettait donc l'overlay **sous** son panneau). La vérification neuve (« la seconde fenêtre existe exactement là où sont les tuiles ») a échoué sur `overlay above the panel=0` — c'est-à-dire **exactement** le bug que T-082 existe pour supprimer : des tuiles effacées derrière leur propre panneau. Corrigé en exprimant la relation du bon côté (`setStackedBelow` sur le panneau), puis remesuré vert.
+
+### Vérification (session 49)
+
+`--fence-demo --host` porte quatre vérifications neuves, lues **sur les fenêtres** et non sur le document :
+
+| vérification | lecture |
+|---|---|
+| la seconde fenêtre existe, opaque et clic-traversante, et le panneau la déclare **au-dessus** de lui | `panel 0x1f0c6e alpha 128` / `overlay 0x3d0a8c alpha 255`, `click-through=1` |
+| **Windows** la tient au-dessus du panneau (`GetWindow(GW_HWNDNEXT)`) | `overlay above the panel=1` |
+| `GetWindowRgn` + `PtInRegion` : les centres des **deux** tuiles sont **dans** la région, la **barre de titre n'y est pas** | `2 tile raster(s), 2 inside (type 3), title bar inside=0` |
+| `WindowFromPoint` sur la première tuile | répond **le panneau** (`0x1f0c6e`), pas l'overlay |
+| `fadeIcons` : `true` détruit la fenêtre, `false` la fait revenir | `after asking=none, after unasking=hosted` |
+
+| lecture | avant | après |
+|---|---|---|
+| `ctest` | 15/15 | **15/15** — `ui_icon_grid` **26 cas** (+1 : les rectangles de tuiles), `ui_fence_menu` **10** (+1 : l'entrée n'existe que sous un panneau translucide), `core_layout_store` **13** (+1 : la clé, et son absence) |
+| `--fence-demo` headless | 36/36 | **36/36** |
+| `--fence-demo --host` | 50/50 | **54/54** |
+| les autres sondes | — | **inchangées** : `--product-probe` 24, `--fence-menu-probe` 8, `--backdrop-demo` 37 / 51 `--host`, `--nav-demo` 22 / 29 `--host`, `--icons-demo` 12, `--screen-demo` 19, `--snapshot-demo` 11, `--rules-demo` 28, `--persist-demo` 26 |
+
+⚠️ **Piège payé, et il n'était pas dans le produit** : les sondes qui comptent les fenêtres de **notre** classe sous `Progman` comptent aussi celles d'une **autre instance** de StarFish en train de se terminer. Lancées à la suite sans pause, `--icons-demo` a vu **5** fenêtres « à nous » pour **1** zone et a échoué ; relancée seule (et deux fois de suite), elle passe **12/12**. Mesurer un état du bureau, c'est mesurer un **moment**.
+
+**Reste humain** : l'œil sur une zone en « Very translucent » — le papier peint doit traverser le **panneau** et les **tuiles** rester **nettes** ; puis l'option, qui doit rendre l'ancien comportement (tout s'efface). La sonde mesure des fenêtres, des régions et des hit-tests, pas le fait que « ça se voit » (décision 13 : le bureau doit être visible).
+
+### Ce que ça déplace
+
+- **T-082 est livré** ; le candidat (a) de la tâche (deux fenêtres par zone) est celui qui a été retenu, parce que le second — composer le panneau dans la frame avec le papier peint lu — est **faux au-dessus d'une autre zone**, dont il ne connaît pas le contenu.
+- **T-080** (couleurs et rayon par zone) et **T-081** (un défaut général + « appliquer à toutes ») gardent le même lieu : le menu d'une zone. `fadeIcons` y est le premier champ de style **par zone** exposé par ce menu, et il donne la forme à suivre (une clé, un défaut, aucune migration).
+- ⚠️ **Porte toujours fermée** : le chemin **par pixel** ne compose pas sur un enfant de `Progman` (T-079/ADR-15). T-082 ne l'a pas rouverte — la seconde fenêtre est, elle aussi, une fenêtre **blittée** avec une région.
