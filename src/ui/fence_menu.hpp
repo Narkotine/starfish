@@ -26,11 +26,13 @@ namespace starfish::ui {
 // mechanical part -- turning an entry into a call.
 //
 // Three deliberate limits:
-//  * the menu is built from state that already exists (roll-up, material) and
-//    stores nothing, so a menu can never become a second source of truth;
+//  * the menu is built from state that already exists (roll-up, material, colours,
+//    radius) and stores nothing, so a menu can never become a second source of
+//    truth;
 //  * nothing is offered that the product cannot do: there is no greyed
 //    "coming soon" line, because a disabled entry is a promise (that is why the
-//    per-fence colour/radius of T-080 and the crash-restore of T-042 are absent);
+//    crash-restore of T-042 is absent, and why "same as the panel" only exists
+//    once a fence has a band of its own);
 //  * the title bar cannot be hidden yet. A fence is moved by its title bar
 //    (T-007's drag band), so hiding it would trade one entry for the loss of a
 //    gesture; that half of T-076 waits for a move that survives it.
@@ -55,6 +57,14 @@ enum class Action {
     // trying the opposite. This entry, on a fence whose panel is translucent,
     // asks for the other behaviour: the material on the icons too.
     FadeIcons,
+    // T-080: the fence's own appearance. `Colours` is a submenu (its children come
+    // from colourEntries()), `Radius` a submenu whose children carry the value in
+    // `Entry::value`, and the other two are the colour pickers themselves.
+    Colours,
+    PanelColor,
+    TitleBarColor,
+    ClearTitleBarColor, // "same as the panel" -- back to the pre-T-080 look
+    Radius,
     Remove, // F-007 -- the fence goes, the files never move (AGENTS.md golden rule)
 };
 
@@ -63,6 +73,10 @@ struct Entry {
     Action action = Action::None;
     // Only for Action::Material entries: the FenceMaterial preset id.
     QString material;
+    // T-080: only for Action::Radius entries -- the radius in pixels the entry
+    // means. A value rather than a name: a radius has no id, and the document
+    // stores the number.
+    int value = -1;
     QString label;
     bool checkable = false;
     bool checked = false;
@@ -85,6 +99,11 @@ struct State {
     // ... and whether the choice is currently on: the document's `fadeIcons`, read
     // from the fence every time the menu opens.
     bool fadeIcons = false;
+    // T-080: the radius in force (the document's, not the one the geometry allows
+    // -- the menu shows what the fence *is*, and an entry is marked only when it
+    // names that value), and whether the fence draws a band of its own.
+    int radius = 0;
+    bool hasTitleBarColor = false;
 };
 
 // The three presets, as the "Material" submenu shows them: one radio mark, on the
@@ -104,6 +123,74 @@ inline QList<Entry> materialEntries(const State& state)
         entry.checkable = true;
         entry.checked = !state.material.isEmpty() && state.material == id;
         entries.append(entry);
+    }
+    return entries;
+}
+
+// T-080: the radii the menu offers, in pixels. A short ladder rather than a
+// number box, because this is an eye decision (F-004) and every value on the
+// ladder is one the user can recognise on screen -- "Square" is the fence with no
+// rounding at all, and 10 is what the schema has always used.
+//
+// The list is *offered*, never enforced: the document may hold any radius (a
+// hand-written file), and the widget bounds what it can draw (FenceView: never
+// more than half the shorter side). A radius of 13 therefore marks no entry --
+// the same honesty as a custom alpha marking no material.
+inline QList<int> radiusPresets()
+{
+    return {0, 6, 10, 14, 20};
+}
+
+inline QString radiusLabel(int px)
+{
+    if (px <= 0)
+        return QCoreApplication::translate("FenceMenu", "Square");
+    if (px == 10) // the schema's default (core::FenceStyle::radius)
+        return QCoreApplication::translate("FenceMenu", "10 px (default)");
+    return QCoreApplication::translate("FenceMenu", "%1 px").arg(px);
+}
+
+inline QList<Entry> radiusEntries(const State& state)
+{
+    QList<Entry> entries;
+    for (const int px : radiusPresets()) {
+        Entry entry;
+        entry.kind = Kind::Action;
+        entry.action = Action::Radius;
+        entry.value = px;
+        entry.label = radiusLabel(px);
+        entry.checkable = true;
+        entry.checked = state.radius == px;
+        entries.append(entry);
+    }
+    return entries;
+}
+
+// T-080: what the "Colours" submenu shows. Two pickers, and -- only once the
+// fence has a band of its own -- the way back to the look that predates it. An
+// entry that removed something that is not there would be a promise.
+inline QList<Entry> colourEntries(const State& state)
+{
+    QList<Entry> entries;
+
+    Entry panel;
+    panel.kind = Kind::Action;
+    panel.action = Action::PanelColor;
+    panel.label = QCoreApplication::translate("FenceMenu", "Panel colour...");
+    entries.append(panel);
+
+    Entry bar;
+    bar.kind = Kind::Action;
+    bar.action = Action::TitleBarColor;
+    bar.label = QCoreApplication::translate("FenceMenu", "Title bar colour...");
+    entries.append(bar);
+
+    if (state.hasTitleBarColor) {
+        Entry clear;
+        clear.kind = Kind::Action;
+        clear.action = Action::ClearTitleBarColor;
+        clear.label = QCoreApplication::translate("FenceMenu", "Title bar: same as the panel");
+        entries.append(clear);
     }
     return entries;
 }
@@ -138,6 +225,23 @@ inline QList<Entry> entries(const State& state)
 
     Entry separator;
     separator.kind = Kind::Separator;
+    out.append(separator);
+
+    // T-080: the fence's own look, next to the material it belongs with (both are
+    // "what this fence looks like", and the material is a colour's alpha, so the
+    // two submenus are two halves of one choice).
+    Entry colours;
+    colours.kind = Kind::Submenu;
+    colours.action = Action::Colours;
+    colours.label = QCoreApplication::translate("FenceMenu", "Colours");
+    out.append(colours);
+
+    Entry radius;
+    radius.kind = Kind::Submenu;
+    radius.action = Action::Radius;
+    radius.label = QCoreApplication::translate("FenceMenu", "Corner radius");
+    out.append(radius);
+
     out.append(separator);
 
     Entry roll;

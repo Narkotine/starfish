@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QColorDialog>
 #include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
@@ -695,6 +696,12 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     state.materialIsTranslucent =
         ui::FenceMaterial::isTranslucent(ui::FenceMaterial::alphaOf(m_container->fenceStyle(id).background));
     state.fadeIcons = m_container->fenceIconsFollowMaterial(id);
+    // T-080: the fence's own look, read from the document each time the menu
+    // opens -- the radius entry marked is the one the fence *is*, and the way back
+    // to "no band" only exists when there is a band.
+    const core::FenceStyle fenceStyle = m_container->fenceStyle(id);
+    state.radius = fenceStyle.radius;
+    state.hasTitleBarColor = !fenceStyle.titleBarColor.isEmpty();
 
     QMenu menu;
     for (const ui::FenceMenu::Entry& entry : ui::FenceMenu::entries(state)) {
@@ -705,20 +712,48 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
         case ui::FenceMenu::Kind::Submenu: {
             QMenu* submenu = menu.addMenu(entry.label);
             submenu->setEnabled(entry.enabled);
-            // Exclusive: a fence is shown in one material, and a radio mark that
-            // can mark two at once would be describing a state the document
-            // cannot hold (the material *is* the alpha of the fence's colour).
-            auto* group = new QActionGroup(submenu);
-            group->setExclusive(true);
-            for (const ui::FenceMenu::Entry& preset : ui::FenceMenu::materialEntries(state)) {
-                QAction* choice = submenu->addAction(preset.label);
-                choice->setCheckable(true);
-                choice->setChecked(preset.checked);
-                choice->setEnabled(preset.enabled);
-                group->addAction(choice);
-                const QString material = preset.material;
-                connect(choice, &QAction::triggered, this,
-                        [this, id, material] { applyMaterialToFence(id, material); });
+            // Which children a submenu shows is the entry's own action, so a
+            // submenu added to FenceMenu is a case here and nothing else.
+            QList<ui::FenceMenu::Entry> children;
+            switch (entry.action) {
+            case ui::FenceMenu::Action::Material:
+                children = ui::FenceMenu::materialEntries(state);
+                break;
+            case ui::FenceMenu::Action::Colours:
+                children = ui::FenceMenu::colourEntries(state);
+                break;
+            case ui::FenceMenu::Action::Radius:
+                children = ui::FenceMenu::radiusEntries(state);
+                break;
+            default:
+                break;
+            }
+            // Exclusive where the choice is one of a set: a fence is shown in one
+            // material and has one radius, and a radio mark that can mark two at
+            // once would be describing a state the document cannot hold (the
+            // material *is* the alpha of the fence's colour). The colours submenu
+            // is commands, not a state, so it gets no group at all.
+            const bool radio = entry.action != ui::FenceMenu::Action::Colours;
+            auto* group = radio ? new QActionGroup(submenu) : nullptr;
+            if (group)
+                group->setExclusive(true);
+            for (const ui::FenceMenu::Entry& child : children) {
+                QAction* choice = submenu->addAction(child.label);
+                choice->setCheckable(child.checkable);
+                choice->setChecked(child.checked);
+                choice->setEnabled(child.enabled);
+                if (group)
+                    group->addAction(choice);
+                if (child.action == ui::FenceMenu::Action::Material) {
+                    const QString material = child.material;
+                    connect(choice, &QAction::triggered, this,
+                            [this, id, material] { applyMaterialToFence(id, material); });
+                } else {
+                    const ui::FenceMenu::Action what = child.action;
+                    const int value = child.value;
+                    connect(choice, &QAction::triggered, this,
+                            [this, id, what, value] { runFenceMenuCommand(id, what, value); });
+                }
             }
             break;
         }
@@ -728,8 +763,9 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
             action->setChecked(entry.checked);
             action->setEnabled(entry.enabled);
             const ui::FenceMenu::Action what = entry.action;
+            const int value = entry.value;
             connect(action, &QAction::triggered, this,
-                    [this, id, what] { runFenceMenuCommand(id, what); });
+                    [this, id, what, value] { runFenceMenuCommand(id, what, value); });
             break;
         }
         }
@@ -740,7 +776,7 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     menu.exec(globalPos);
 }
 
-void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action)
+void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action, int value)
 {
     // The fence may be gone by now -- the menu held the pointer for as long as the
     // user took to choose, and the tray can remove a fence in the meantime.
@@ -774,7 +810,68 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         // creates or drops the icon overlay, and the document follows.
         m_container->setFenceIconsFollowMaterial(id, !m_container->fenceIconsFollowMaterial(id));
         break;
+    // T-080: the fence's own appearance. Like the material, every one of these is
+    // a style change through setFenceStyle: the container repaints, the region
+    // follows the new radius, and the auto-save sees one document change. Nothing
+    // is remembered here -- the colour pickers read the *document* for their
+    // starting colour and cancel changes nothing at all.
+    case ui::FenceMenu::Action::PanelColor: {
+        const core::FenceStyle current = m_container->fenceStyle(id);
+        const QColor picked = QColorDialog::getColor(QColor(current.background), nullptr,
+                                                     tr("Panel colour"),
+                                                     QColorDialog::ShowAlphaChannel);
+        if (!picked.isValid())
+            break;
+        // The same `#AARRGGBB` spelling the presets write, so a colour chosen here
+        // and a material chosen there describe the same field the same way.
+        const QString background = picked.name(QColor::HexArgb).toUpper();
+        if (background == current.background)
+            break; // re-picking the colour it already has is not a document change
+        core::FenceStyle style = current;
+        style.background = background;
+        m_container->setFenceStyle(id, style);
+        break;
+    }
+    case ui::FenceMenu::Action::TitleBarColor: {
+        const core::FenceStyle current = m_container->fenceStyle(id);
+        // The dialog opens on what the fence shows now: its band if it has one, and
+        // otherwise its panel -- because that is the colour the eye sees up there.
+        const QColor start = current.titleBarColor.isEmpty() ? QColor(current.background)
+                                                             : QColor(current.titleBarColor);
+        const QColor picked = QColorDialog::getColor(start, nullptr, tr("Title bar colour"),
+                                                     QColorDialog::ShowAlphaChannel);
+        if (!picked.isValid())
+            break;
+        const QString band = picked.name(QColor::HexArgb).toUpper();
+        if (band == current.titleBarColor)
+            break;
+        core::FenceStyle style = current;
+        style.titleBarColor = band;
+        m_container->setFenceStyle(id, style);
+        break;
+    }
+    case ui::FenceMenu::Action::ClearTitleBarColor: {
+        core::FenceStyle style = m_container->fenceStyle(id);
+        if (style.titleBarColor.isEmpty())
+            break;
+        // Empty, not a colour of its own: "no band" is what the fence showed
+        // before T-080 existed, and the key simply disappears from the document.
+        style.titleBarColor.clear();
+        m_container->setFenceStyle(id, style);
+        break;
+    }
+    case ui::FenceMenu::Action::Radius: {
+        if (value < 0)
+            break;
+        core::FenceStyle style = m_container->fenceStyle(id);
+        if (style.radius == value)
+            break;
+        style.radius = value;
+        m_container->setFenceStyle(id, style);
+        break;
+    }
     case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
+    case ui::FenceMenu::Action::Colours:  // ... and so are the colours
     case ui::FenceMenu::Action::None:
         break;
     }

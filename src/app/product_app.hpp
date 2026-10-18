@@ -246,7 +246,10 @@ private:
     // Shell's menu the tiles already show (T-006) -- a right-click is the only
     // thing that needs it.
     void showFenceMenu(const QString& id, const QPoint& globalPos);
-    void runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action);
+    // `value` is the entry's own value, and only Action::Radius uses it (T-080):
+    // a radius has no id to switch on, so it travels as the number the document
+    // stores.
+    void runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action, int value = -1);
 
     Options m_options;
     bool m_started = false;

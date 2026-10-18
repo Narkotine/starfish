@@ -2011,6 +2011,168 @@ int main(int argc, char* argv[])
                    .arg(opaqueFrame.height())
                    .arg(container->fenceStyle(idM).radius);
 
+        // -------------------------------------------------------------------
+        // T-080 -- the fence's own appearance: the panel's colour, the title bar's
+        // own colour, and the amount of rounding.
+        //
+        // None of this needs a second style system: `style.background`, `radius`
+        // and the new `titleBarColor` are the document (ADR-7), the container has
+        // exactly one path to it (`setFenceStyle`), and FenceView paints what it is
+        // given. What is measured here is the chain that matters and that no unit
+        // test can see: a colour chosen for one part of the fence reaches *that*
+        // part's pixels and no other, the band stops where the title bar stops, and
+        // the rounding the user asks for is what is drawn -- bounded by the fence's
+        // own size, because past half the shorter side the shape is empty.
+        // -------------------------------------------------------------------
+        const auto rgbAt = [&frameOf](const QString& id, const QPoint& at) {
+            const QImage frame = frameOf(id);
+            if (frame.isNull() || !frame.rect().contains(at))
+                return QColor();
+            return QColor(frame.pixel(at)); // the frame is opaque where the panel is
+        };
+        // The band's sample sits *inside the band and left of the title text* (the
+        // text starts at x=12); the "below the band" sample sits in the fence's own
+        // padding, between the bar and the grid, where only the panel is painted.
+        const QPoint bandSpot(6, 15);
+        const QPoint belowTheBand(100, 40);
+        const QPoint panelSpot(100, 140);
+
+        starfish::core::FenceStyle appearance = container->fenceStyle(idM);
+        const QColor panelBefore = rgbAt(idM, panelSpot);
+        appearance.titleBarColor = QStringLiteral("#FFB03030");
+        container->setFenceStyle(idM, appearance);
+        const QColor bandPainted = rgbAt(idM, bandSpot);
+        const QColor panelUntouched = rgbAt(idM, panelSpot);
+        check(QStringLiteral("a title bar colour is painted on the title bar and nowhere else"),
+              bandPainted.red() == 0xB0 && bandPainted.green() == 0x30 && bandPainted.blue() == 0x30
+                  && panelUntouched == panelBefore,
+              QStringLiteral("band %1 at %2,%3 (asked #FFB03030), panel %4 at %5,%6 (was %7)")
+                  .arg(bandPainted.name())
+                  .arg(bandSpot.x())
+                  .arg(bandSpot.y())
+                  .arg(panelUntouched.name())
+                  .arg(panelSpot.x())
+                  .arg(panelSpot.y())
+                  .arg(panelBefore.name()));
+
+        // The band is the title bar, not "the top of the fence": one pixel below
+        // kTitleBarHeight it must already be the panel again.
+        const QColor justBelow = rgbAt(idM, belowTheBand);
+        check(QStringLiteral("the band stops where the title bar stops"),
+              justBelow == panelBefore,
+              QStringLiteral("at %1,%2 (the bar is %3 px tall): %4, panel %5)")
+                  .arg(belowTheBand.x())
+                  .arg(belowTheBand.y())
+                  .arg(starfish::ui::FenceGeometry::kTitleBarHeight)
+                  .arg(justBelow.name())
+                  .arg(panelBefore.name()));
+
+        // A panel colour is a *different* field: it repaints the panel and leaves
+        // the band alone (the two are painted one after the other, and mixing them
+        // up would be invisible in the document and obvious here).
+        appearance.background = QStringLiteral("#FF25303C");
+        container->setFenceStyle(idM, appearance);
+        const QColor panelPainted = rgbAt(idM, panelSpot);
+        const QColor bandKept = rgbAt(idM, bandSpot);
+        check(QStringLiteral("a panel colour repaints the panel and leaves the band alone"),
+              panelPainted.red() == 0x25 && panelPainted.green() == 0x30 && panelPainted.blue() == 0x3C
+                  && bandKept == bandPainted,
+              QStringLiteral("panel %1 at %2,%3 (asked #FF25303C), band %4 (was %5)")
+                  .arg(panelPainted.name())
+                  .arg(panelSpot.x())
+                  .arg(panelSpot.y())
+                  .arg(bandKept.name())
+                  .arg(bandPainted.name()));
+
+        // The rounding: the document keeps what was asked, the fence draws what its
+        // size allows -- and what is drawn is what the window's region will cut.
+        const int defaultSpill = spillOutsideThePanel(frameOf(idM), appearance.radius);
+        appearance.radius = 20;
+        container->setFenceStyle(idM, appearance);
+        const int roundSpill = spillOutsideThePanel(frameOf(idM), 20);
+        check(QStringLiteral("a rounder fence is rounder: more of its frame falls outside the panel"),
+              container->fenceStyle(idM).radius == 20 && roundSpill > defaultSpill
+                  && container->view(idM)->cornerRadius() == 20,
+              QStringLiteral("radius 20: %1 pixel(s) outside the panel against %2 at radius %3 "
+                             "(drawn radius %4)")
+                  .arg(roundSpill)
+                  .arg(defaultSpill)
+                  .arg(starfish::core::FenceStyle().radius)
+                  .arg(container->view(idM)->cornerRadius()));
+
+        // ... and a radius the fence cannot draw is bounded, not obeyed: half the
+        // shorter side is the last radius that describes a shape at all. The
+        // *document* keeps the number the user asked for (it is theirs, and the
+        // fence may grow), while the widget and the region use the possible one.
+        appearance.radius = 500;
+        container->setFenceStyle(idM, appearance);
+        const int drawnRadius = container->view(idM)->cornerRadius();
+        const int halfShorter = qMin(container->fenceVisibleRect(idM).width(),
+                                     container->fenceVisibleRect(idM).height()) / 2;
+        // What a bounded radius has to leave behind is a fence: the same frame, with
+        // the panel still painted at its centre.
+        const QColor panelStillThere = rgbAt(idM, panelSpot);
+        check(QStringLiteral("a radius wider than the fence is bounded by the fence"),
+              container->fenceStyle(idM).radius == 500 && drawnRadius == halfShorter
+                  && drawnRadius > 0 && panelStillThere == panelPainted,
+              QStringLiteral("asked 500, document %1, drawn %2 (half the shorter side of %3x%4), "
+                             "panel still %5)")
+                  .arg(container->fenceStyle(idM).radius)
+                  .arg(drawnRadius)
+                  .arg(container->fenceVisibleRect(idM).width())
+                  .arg(container->fenceVisibleRect(idM).height())
+                  .arg(panelStillThere.name()));
+
+        // The appearance is a *document* value: the bytes the container serialises
+        // carry both colours and the radius, and a second container that reads them
+        // paints the same band. This is what makes the per-fence choice survive a
+        // restart without a single line of migration code (the key is simply
+        // absent from the documents that predate it).
+        appearance.radius = 10;
+        container->setFenceStyle(idM, appearance);
+        const QByteArray appearanceDoc = starfish::core::JsonStore::toJson(container->toLayout());
+        auto* appearanceReader = new starfish::ui::FenceContainer(&app);
+        appearanceReader->setDesktopBounds(bounds);
+        const auto parsedAppearance = starfish::core::JsonStore::fromJson(appearanceDoc);
+        QString appearanceApplyError;
+        const bool appearanceApplied = parsedAppearance.has_value()
+            && appearanceReader->applyLayout(*parsedAppearance, &appearanceApplyError);
+        const QImage restartedFrame = appearanceReader->frame(idM);
+        const QColor bandAfterRestart =
+            (!restartedFrame.isNull() && restartedFrame.rect().contains(bandSpot))
+                ? QColor(restartedFrame.pixel(bandSpot))
+                : QColor();
+        check(QStringLiteral("the per-fence appearance is a document value, not a session one"),
+              appearanceApplied && appearanceReader->fenceStyle(idM).titleBarColor
+                      == QStringLiteral("#FFB03030")
+                  && appearanceReader->fenceStyle(idM).radius == 10
+                  && bandAfterRestart == bandPainted,
+              QStringLiteral("applied=%1, band in the document %2, repainted %3 (was %4)%5")
+                  .arg(appearanceApplied ? 1 : 0)
+                  .arg(appearanceReader->fenceStyle(idM).titleBarColor)
+                  .arg(bandAfterRestart.name())
+                  .arg(bandPainted.name())
+                  .arg(appearanceApplyError.isEmpty()
+                           ? QString()
+                           : QStringLiteral(" (%1)").arg(appearanceApplyError)));
+        delete appearanceReader;
+
+        // ... and the way back, which is what "Title bar: same as the panel" does:
+        // an *empty* key, i.e. no band at all -- the fence every document written
+        // before T-080 describes.
+        starfish::core::FenceStyle cleared = container->fenceStyle(idM);
+        cleared.titleBarColor.clear();
+        container->setFenceStyle(idM, cleared);
+        const QColor bandGone = rgbAt(idM, bandSpot);
+        check(QStringLiteral("clearing the title bar colour brings the panel back up there"),
+              container->fenceStyle(idM).titleBarColor.isEmpty()
+                  && bandGone.red() == panelPainted.red() && bandGone.green() == panelPainted.green()
+                  && bandGone.blue() == panelPainted.blue(),
+              QStringLiteral("titleBarColor \"%1\", band spot now %2 (panel %3)")
+                  .arg(container->fenceStyle(idM).titleBarColor)
+                  .arg(bandGone.name())
+                  .arg(panelPainted.name()));
+
         if (hosted) {
             QString scanError;
             QList<starfish::core::DesktopItem> items =
@@ -2846,15 +3008,25 @@ int main(int argc, char* argv[])
             starfish::ui::FenceMenu::State finalState;
             finalState.rolledUp = container->fenceRolledUp(idMenu);
             finalState.material = container->fenceMaterial(idMenu);
+            // T-080: the appearance the menu will offer for *this* fence, read from
+            // the container exactly as the product reads it.
+            finalState.radius = container->fenceStyle(idMenu).radius;
+            finalState.hasTitleBarColor = !container->fenceStyle(idMenu).titleBarColor.isEmpty();
             const QList<starfish::ui::FenceMenu::Entry> menuEntries =
                 starfish::ui::FenceMenu::entries(finalState);
             int rollEntries = 0;
             int renameEntries = 0;
             int removeEntries = 0;
             int submenus = 0;
+            int colourSubmenus = 0;
+            int radiusSubmenus = 0;
             for (const starfish::ui::FenceMenu::Entry& entry : menuEntries) {
                 if (entry.kind == starfish::ui::FenceMenu::Kind::Submenu)
                     ++submenus;
+                if (entry.action == starfish::ui::FenceMenu::Action::Colours)
+                    ++colourSubmenus;
+                if (entry.action == starfish::ui::FenceMenu::Action::Radius)
+                    ++radiusSubmenus;
                 if (entry.action == starfish::ui::FenceMenu::Action::ToggleRoll)
                     ++rollEntries;
                 if (entry.action == starfish::ui::FenceMenu::Action::Rename)
@@ -2862,19 +3034,45 @@ int main(int argc, char* argv[])
                 if (entry.action == starfish::ui::FenceMenu::Action::Remove)
                     ++removeEntries;
             }
-            check(QStringLiteral("the menu holds one material submenu, one roll, one rename and "
-                                 "one remove, remove last"),
-                  submenus == 1 && rollEntries == 1 && renameEntries == 1 && removeEntries == 1
+            check(QStringLiteral("the menu holds a material submenu, the two appearance submenus, "
+                                 "one roll, one rename and one remove, remove last"),
+                  submenus == 3 && colourSubmenus == 1 && radiusSubmenus == 1 && rollEntries == 1
+                      && renameEntries == 1 && removeEntries == 1
                       && menuEntries.last().action == starfish::ui::FenceMenu::Action::Remove,
-                  QStringLiteral("%1 entry(ies): %2 submenu, %3 roll, %4 rename, %5 remove -- "
-                                 "last: %6")
+                  QStringLiteral("%1 entry(ies): %2 submenu(s) (%3 colour(s), %4 radius), %5 roll, "
+                                 "%6 rename, %7 remove -- last: %8")
                       .arg(menuEntries.size())
                       .arg(submenus)
+                      .arg(colourSubmenus)
+                      .arg(radiusSubmenus)
                       .arg(rollEntries)
                       .arg(renameEntries)
                       .arg(removeEntries)
                       .arg(menuEntries.isEmpty() ? QStringLiteral("<none>")
                                                  : menuEntries.last().label));
+
+            // T-080: what the two appearance submenus hold for this fence -- the two
+            // pickers, no way back while there is no band, and a radio mark on the
+            // radius the document holds.
+            const QList<starfish::ui::FenceMenu::Entry> colours =
+                starfish::ui::FenceMenu::colourEntries(finalState);
+            int marksOnTheRadius = 0;
+            int markedRadius = -1;
+            for (const starfish::ui::FenceMenu::Entry& entry :
+                 starfish::ui::FenceMenu::radiusEntries(finalState)) {
+                if (entry.checked) {
+                    ++marksOnTheRadius;
+                    markedRadius = entry.value;
+                }
+            }
+            check(QStringLiteral("the appearance submenus follow the fence's own document"),
+                  colours.size() == 2 && marksOnTheRadius == 1
+                      && markedRadius == finalState.radius,
+                  QStringLiteral("%1 colour entr(ies), %2 radius mark(s) on %3 (document says %4)")
+                      .arg(colours.size())
+                      .arg(marksOnTheRadius)
+                      .arg(markedRadius)
+                      .arg(finalState.radius));
 
             QObject::disconnect(menuConnection);
             container->removeFence(idMenu);

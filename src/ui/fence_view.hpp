@@ -46,8 +46,19 @@ public:
     // blit ignores it). Dropping it here is what made F-038 impossible.
     void setPanelColor(const QColor& color);
     QColor panelColor() const { return m_panelColor; }
+    // T-080: the band's own colour, or an **invalid** QColor for "no band" -- the
+    // fence as it has always looked, the title drawn straight on the panel. The
+    // band is painted inside the panel's own rounded shape, so its top corners
+    // follow the panel's rounding rather than getting a rounding of their own.
+    void setTitleBarColor(const QColor& color);
+    QColor titleBarColor() const { return m_titleBarColor; }
+    // The radius as the fence **draws** it: the stored value, bounded so it can
+    // never exceed half the shorter side (a larger radius describes no shape at
+    // all, and a region built from it would erase the panel). The document keeps
+    // what was chosen; the geometry decides what is possible, here, in the one
+    // place both the paint and the window's region ask.
     void setCornerRadius(int px);
-    int cornerRadius() const { return m_cornerRadius; }
+    int cornerRadius() const;
 
     // Roll-up (F-020). A rolled-up fence is only its title bar: the grid is not
     // drawn and there is no content area. The widget is resized to the visible
@@ -182,6 +193,8 @@ private:
 
     QString m_title;
     QColor m_panelColor{0x1F, 0x29, 0x37};
+    // T-080: invalid until someone picks one (see setTitleBarColor).
+    QColor m_titleBarColor;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;
     IconGrid m_grid;

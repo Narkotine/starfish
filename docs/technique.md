@@ -1909,3 +1909,46 @@ Une fenêtre porte **un** alpha, et rien de moins : les tuiles ont donc besoin d
 - **T-082 est livré** ; le candidat (a) de la tâche (deux fenêtres par zone) est celui qui a été retenu, parce que le second — composer le panneau dans la frame avec le papier peint lu — est **faux au-dessus d'une autre zone**, dont il ne connaît pas le contenu.
 - **T-080** (couleurs et rayon par zone) et **T-081** (un défaut général + « appliquer à toutes ») gardent le même lieu : le menu d'une zone. `fadeIcons` y est le premier champ de style **par zone** exposé par ce menu, et il donne la forme à suivre (une clé, un défaut, aucune migration).
 - ⚠️ **Porte toujours fermée** : le chemin **par pixel** ne compose pas sur un enfant de `Progman` (T-079/ADR-15). T-082 ne l'a pas rouverte — la seconde fenêtre est, elle aussi, une fenêtre **blittée** avec une région.
+
+## 38. ADR-18 — l'apparence par zone : deux couleurs, un rayon, et le menu qui les porte (T-080, session 50)
+
+La demande est un retour de la session 46 : « customisation des **couleurs** des fences et **barre des titres**, ainsi que la **quantité d'arrondi** ». Ce qui manquait n'était pas le style mais **l'interface** : `style.background` et `style.radius` sont **persistés par zone et appliqués** depuis T-008 (§26), et la couleur de barre de titre n'existait **pas** dans le schéma.
+
+### La règle (ADR-18)
+
+- **L'apparence se choisit depuis le menu d'une zone** (T-076, ADR-16), sous deux sous-menus neufs : `Colours ▸` (couleur du **panneau**, couleur de la **barre de titre**) et `Corner radius` (une échelle : *Square*, 6, 10 (défaut), 14, 20 px). Pas dans la fenêtre de réglages : T-064 y a déplacé le matériau pour la même raison, et une apparence par zone appartient au menu de la zone. `--fence-menu-probe` reste **8/8** (le menu atteint toujours l'écran).
+- **`core::FenceStyle::titleBarColor`** (`#AARRGGBB`), écrit **seulement quand la zone a une bande** : une clé absente se lit « pas de bande » — la zone telle qu'elle a **toujours** été, le titre dessiné à même le panneau. Donc **aucune migration** et, plus fort : **aucun document existant ne gagne une ligne** (ce que `LayoutStore` compare pour décider s'il écrit).
+- **La bande est peinte dans le chemin arrondi du panneau**, découpée à `kTitleBarHeight` (`QPainterPath` + `setClipRect`) : ses coins hauts suivent l'arrondi du panneau au lieu de le **couper carrément**, et elle est peinte **après** le panneau, donc sous la bordure. Le titre reste au-dessus. C'est un pixel de la **frame**, sous l'alpha uniforme de la fenêtre (ADR-15/17) : cette couleur dit **laquelle**, jamais **combien** on voit à travers — une zone translucide efface sa barre de titre avec son panneau.
+- **Le rayon appartient à la géométrie, pas au document.** `FenceView::cornerRadius()` est désormais le rayon **effectif** : `min(demandé, min(largeur, hauteur) / 2)`. Le **document garde** le nombre demandé (il est à l'utilisateur, et la zone peut grandir) ; le widget **et la région** de la fenêtre prennent le possible. C'était auparavant un `qBound(0, px, 64)` dans `setCornerRadius()` : la même limite, devinée **sans connaître la taille**.
+- **La région suit.** `applyVisibleGeometry()` remet au `DesktopSurface` le rayon effectif de la vue à **chaque** changement de géométrie (une zone rétrécie ne peut pas garder un arrondi que sa taille n'autorise plus) ; un changement de style passe déjà par `applyMaterialToSurface()`. Les entrées de menu sont des **commandes** (les deux sélecteurs, sans groupe exclusif) ou des **états** (radio sur le rayon en vigueur, rien sur un rayon hors échelle) ; « **Title bar: same as the panel** » n'existe **que** si la zone a une bande — absente, jamais grisée (la règle du menu entier).
+
+### Vérification (session 50)
+
+| vérification (neuve) | lecture |
+|---|---|
+| une couleur de barre atteint **la barre et rien d'autre** | `band #b03030 at 6,15 (asked #FFB03030)`, panneau `#1f2937` à `100,140` inchangé |
+| la bande **s'arrête** où la barre s'arrête | à `100,40` (barre de 30 px) : `#1f2937` = le panneau |
+| une couleur de panneau **ne touche pas** la bande | panneau `#25303c` (demandé `#FF25303C`), bande `#b03030` inchangée |
+| « plus rond » est **plus rond** | rayon 20 : **328** pixels hors du panneau contre **76** à rayon 10 |
+| un rayon **que la zone ne peut pas dessiner** est borné | demandé 500, document 500, **dessiné 80** (demi-petit-côté de 200x160), panneau toujours peint |
+| l'apparence est une **valeur de document** | un second conteneur relit les octets et **repeint la même bande** (`#b03030`) |
+| « same as the panel » **ramène le panneau** | `titleBarColor ""`, tache de bande redevenue la couleur du panneau |
+
+| lecture | avant | après |
+|---|---|---|
+| `ctest` | 15/15 | **15/15** — `ui_fence_menu` **10 → 13 cas** (les deux sous-menus, le rayon marqué, l'échelle qui contient le défaut du schéma), `core_layout_store` **13 → 14** (la clé écrite, la clé absente, l'absence de ligne) |
+| `--fence-demo` headless | 36/36 | **44/44** (sept vérifications neuves) |
+| `--fence-demo --host` | 54/54 | **62/62** |
+| les autres sondes | — | **inchangées** : `--product-probe` 24, `--crash-demo` 20, `--nav-demo` 22, `--backdrop-demo` 37, `--persist-demo` 26, `--rules-demo` 28, `--portal-demo` 30, `--snapshot-demo` 11, `--screen-demo` 19, `--fence-menu-probe` 8, `--icons-demo` 12 ; build **0 warning** |
+
+**Prémisse prouvée** (patch temporaire : la peinture de la bande neutralisée, revert + rebuild) : `rc=1`, **exactement 3 `FAIL`** — les trois vérifications qui lisent les pixels de la bande — et les **41** autres restent vertes. Aucune vérification de ce bloc ne peut donc passer sans la peinture qu'elle prétend mesurer.
+
+### Deux pièges, écrits
+
+- **Un rayon stocké dit ce qui a été demandé ; ce qui est *dessiné* est ce que la taille autorise.** Les deux doivent être le même nombre là où la **région** se construit : une région bâtie sur un rayon trop grand ne dessine **plus rien** de la zone (c'est le « rayon borné » de T-080, et la raison pour laquelle la borne vit dans la vue, seul endroit que le peintre et la région interrogent tous les deux).
+- **Un style par zone n'a pas besoin d'un second chemin.** Tout passe par `setFenceStyle` : le menu lit le **document** pour la couleur de départ de ses sélecteurs, et **annuler** n'écrit rien. C'est la forme que `fadeIcons` (T-082) avait ouverte et qu'il suffisait de suivre.
+
+### Ce que ça déplace
+
+- **T-080 est livré** ; **T-058** (coins : rayon, liseré, ombre, **juge** l'œil) reste humain, et **T-059** (déclasser la fenêtre de réglages) a maintenant un endroit pour **tout** ce qui est par zone. **T-081** (un défaut général, « appliquer à toutes ») garde la même forme : une clé, un défaut, aucune migration.
+- **Reste humain** : l'œil sur les deux couleurs et sur l'échelle d'arrondi (la sonde mesure des pixels, pas un goût).

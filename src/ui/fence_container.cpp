@@ -416,6 +416,9 @@ void FenceContainer::setFenceStyle(const QString& id, const core::FenceStyle& st
     if (fence->view) {
         fence->view->setPanelColor(QColor(style.background));
         fence->view->setCornerRadius(style.radius);
+        // T-080: an empty string is "no band of its own" -- QColor() is invalid,
+        // which is exactly what FenceView means by it.
+        fence->view->setTitleBarColor(QColor(style.titleBarColor));
     }
     // F-038 / T-057: the panel's alpha is a *mode* of the hosted window, not a
     // paint detail, so a style change can switch it -- and this is the only place
@@ -902,6 +905,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     fence.view->setIconProvider(m_iconProvider);
     fence.view->setPanelColor(QColor(style.background));
     fence.view->setCornerRadius(style.radius);
+    fence.view->setTitleBarColor(QColor(style.titleBarColor));
     fence.view->setRolledUp(rolledUp);
     // The widget is sized to what is visible: a restored rolled-up fence comes
     // back as a title bar, not as a full panel. Logical pixels -- the stored
@@ -1158,6 +1162,11 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
         // pixels: it gets the physical rect, plus the ratio it needs to turn the
         // mouse coordinates it receives back into widget coordinates.
         fence.surface->setDevicePixelRatio(dpr);
+        // T-080: the region's rounding is the widget's, and the widget's is now
+        // bounded by its own size -- so a fence resized *smaller* has to hand the
+        // surface the smaller radius, or the window would be cut to a shape the
+        // panel no longer draws. Idempotent (an unchanged radius returns at once).
+        fence.surface->setCornerRadius(fence.view ? fence.view->cornerRadius() : 0);
         fence.surface->setGeometry(visible);
     }
 

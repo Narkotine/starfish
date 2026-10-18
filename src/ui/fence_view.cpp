@@ -13,6 +13,7 @@
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 #include <QPoint>
 #include <QRect>
@@ -122,7 +123,33 @@ void FenceView::setPanelColor(const QColor& color)
 
 void FenceView::setCornerRadius(int px)
 {
-    m_cornerRadius = qBound(0, px, 64);
+    // T-080: the widget keeps the value it was *asked* for; cornerRadius() bounds
+    // it by the geometry, because a radius wider than half the fence describes no
+    // shape at all. It used to be clamped to 64 here, which was a guess at the
+    // same limit made without knowing the size.
+    m_cornerRadius = qMax(0, px);
+    update();
+    emit contentChanged();
+}
+
+int FenceView::cornerRadius() const
+{
+    // T-080: the radius never exceeds half the shorter side (T-080's own warning:
+    // past that, the rounded shape is empty and the window's region would erase the
+    // panel). Recomputed on every ask rather than stored, so a fence that is
+    // resized smaller -- by a gesture, or by coming back on a smaller screen --
+    // cannot keep a rounding its own size no longer allows.
+    return qBound(0, m_cornerRadius, qMin(width(), height()) / 2);
+}
+
+void FenceView::setTitleBarColor(const QColor& color)
+{
+    // T-080: an invalid colour is not an error, it is the *absence* of a band --
+    // the fence as it looked before this existed, the title on the panel. Storing
+    // the alpha as given keeps the same contract as the panel's colour.
+    m_titleBarColor = color.isValid()
+        ? QColor(color.red(), color.green(), color.blue(), color.alpha())
+        : QColor();
     update();
     emit contentChanged();
 }
@@ -178,8 +205,22 @@ void FenceView::paintEvent(QPaintEvent* event)
 
     painter.setPen(QPen(panelBorder, 1.0));
     painter.setBrush(m_panelColor);
-    painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                            m_cornerRadius, m_cornerRadius);
+    const QRectF panelRect = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    const int radius = cornerRadius();
+    painter.drawRoundedRect(panelRect, radius, radius);
+
+    // T-080: the title bar's own colour, when one was chosen. It is filled inside
+    // the panel's own path and clipped to the band, so its top corners follow the
+    // panel's rounding instead of squaring them off -- and drawing it *after* the
+    // panel keeps the band inside the border, which is drawn with the panel.
+    if (m_titleBarColor.isValid()) {
+        QPainterPath panel;
+        panel.addRoundedRect(panelRect, radius, radius);
+        painter.save();
+        painter.setClipRect(QRect(0, 0, width(), kTitleBarHeight));
+        painter.fillPath(panel, m_titleBarColor);
+        painter.restore();
+    }
 
     QFont titleFont = font();
     titleFont.setBold(true);

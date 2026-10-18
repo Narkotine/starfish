@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "core/jsonstore.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/fence_menu.hpp"
 
@@ -61,18 +62,103 @@ private slots:
         // T-082: and *not* the icons entry -- the state here is a fence whose panel
         // is fully opaque, where the material has nothing else to cover.
         QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 0);
+        // T-080: the appearance is offered as submenus too, so none of its actions
+        // is a top-level entry -- and "same as the panel" is absent while the fence
+        // has no band of its own (that is what State::hasTitleBarColor is for).
+        QCOMPARE(countOf(entries, FenceMenu::Action::PanelColor), 0);
+        QCOMPARE(countOf(entries, FenceMenu::Action::TitleBarColor), 0);
+        QCOMPARE(countOf(entries, FenceMenu::Action::ClearTitleBarColor), 0);
+        QCOMPARE(countOf(entries, FenceMenu::Action::Radius), 0);
 
-        int submenus = 0;
+        QStringList submenuActions;
         for (const FenceMenu::Entry& entry : entries) {
             if (entry.kind == FenceMenu::Kind::Submenu) {
-                ++submenus;
-                QCOMPARE(entry.action, FenceMenu::Action::Material);
+                submenuActions << QString::number(static_cast<int>(entry.action));
                 QVERIFY(!entry.label.isEmpty());
             }
             if (entry.kind == FenceMenu::Kind::Separator)
                 QCOMPARE(entry.action, FenceMenu::Action::None);
         }
-        QCOMPARE(submenus, 1);
+        // T-064's material, then T-080's two.
+        QCOMPARE(submenuActions.size(), 3);
+        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Material))));
+        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Colours))));
+        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Radius))));
+    }
+
+    void theColoursSubmenuOffersTheTwoPickersAndTheWayBack()
+    {
+        // T-080. The two pickers are always there; the way back to "the title bar
+        // is the panel" only exists once the fence has a band of its own -- the same
+        // rule as the material-on-the-icons entry, and for the same reason: an entry
+        // that removes nothing is a promise.
+        FenceMenu::State plain;
+        plain.hasTitleBarColor = false;
+        const QList<FenceMenu::Entry> without =
+            FenceMenu::colourEntries(plain);
+        QCOMPARE(without.size(), 2);
+        QCOMPARE(countOf(without, FenceMenu::Action::PanelColor), 1);
+        QCOMPARE(countOf(without, FenceMenu::Action::TitleBarColor), 1);
+        QCOMPARE(countOf(without, FenceMenu::Action::ClearTitleBarColor), 0);
+        for (const FenceMenu::Entry& entry : without) {
+            QCOMPARE(entry.kind, FenceMenu::Kind::Action);
+            // Commands, not a state: no radio mark on a colour picker.
+            QVERIFY(!entry.checkable);
+            QVERIFY(!entry.label.isEmpty());
+            QVERIFY(entry.enabled);
+        }
+
+        FenceMenu::State banded;
+        banded.hasTitleBarColor = true;
+        const QList<FenceMenu::Entry> with = FenceMenu::colourEntries(banded);
+        QCOMPARE(with.size(), 3);
+        QCOMPARE(countOf(with, FenceMenu::Action::ClearTitleBarColor), 1);
+    }
+
+    void theRadiusSubmenuMarksTheRadiusInForceAndNothingElse()
+    {
+        // T-080. One radio mark, on the value the document holds -- and none at all
+        // for a radius that is not on the ladder (a hand-written document), exactly
+        // like a custom alpha marking no material.
+        const QList<int> ladder = FenceMenu::radiusPresets();
+        QVERIFY(ladder.size() >= 3);
+        QVERIFY(ladder.first() <= 0); // "Square" is offered: no rounding is a choice
+
+        for (const int px : ladder) {
+            FenceMenu::State state;
+            state.radius = px;
+            int checked = 0;
+            for (const FenceMenu::Entry& entry : FenceMenu::radiusEntries(state)) {
+                QCOMPARE(entry.kind, FenceMenu::Kind::Action);
+                QCOMPARE(entry.action, FenceMenu::Action::Radius);
+                QVERIFY(entry.checkable);
+                QVERIFY(entry.enabled);
+                QVERIFY(!entry.label.isEmpty());
+                QVERIFY(entry.value >= 0);
+                if (entry.checked) {
+                    ++checked;
+                    QCOMPARE(entry.value, px);
+                }
+            }
+            QCOMPARE(checked, 1);
+        }
+
+        FenceMenu::State custom;
+        custom.radius = 13; // a value of its own: the widget draws it, no entry names it
+        int checked = 0;
+        for (const FenceMenu::Entry& entry : FenceMenu::radiusEntries(custom))
+            checked += entry.checked ? 1 : 0;
+        QCOMPARE(checked, 0);
+    }
+
+    void theLadderOffersTheSchemaDefault()
+    {
+        // The label says "(default)" on one entry, and a label that lied about what
+        // a new fence looks like would be worse than no label: the ladder has to
+        // carry the radius the schema gives a fence nobody has styled.
+        QVERIFY(FenceMenu::radiusPresets().contains(starfish::core::FenceStyle().radius));
+        QVERIFY(!FenceMenu::radiusLabel(starfish::core::FenceStyle().radius).isEmpty());
+        QVERIFY(FenceMenu::radiusLabel(0) != FenceMenu::radiusLabel(6));
     }
 
     void theOrderPutsTheDestructiveEntryLastBehindASeparator()

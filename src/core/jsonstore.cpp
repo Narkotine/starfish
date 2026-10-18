@@ -25,6 +25,12 @@ static QJsonObject styleToJson(const FenceStyle& s)
     // the behaviour is, and a bool that is only written when true would make the
     // document depend on comparing it to a default.
     o["fadeIcons"] = s.fadeIcons;
+    // T-080: written only when the fence has a band of its own. A document that
+    // has never been asked for one keeps exactly the bytes it had -- which is what
+    // LayoutStore compares to decide whether anything changed, and what makes a
+    // disposition exported before T-080 identical to one exported after.
+    if (!s.titleBarColor.isEmpty())
+        o["titleBarColor"] = s.titleBarColor;
     return o;
 }
 
@@ -75,6 +81,9 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     // document written before it exists keeps the fence it describes, and stays
     // valid: no migration, no schema bump).
     s.fadeIcons = o["fadeIcons"].toBool(false);
+    // T-080: absent -- or empty, which is the same thing -- is "no band of its
+    // own", i.e. the title drawn on the panel, exactly as before this key existed.
+    s.titleBarColor = o["titleBarColor"].toString();
     return s;
 }
 

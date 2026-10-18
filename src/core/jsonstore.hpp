@@ -41,6 +41,20 @@ struct FenceStyle {
     // describing the fence it describes -- and a *new* fence gets the new
     // behaviour.
     bool fadeIcons = false;
+    // T-080 (F-004): the title bar's **own** colour, in `#AARRGGBB` like the
+    // panel's. Empty means what the fence shows today: there is no band at all,
+    // the title is drawn straight on the panel.
+    //
+    // Empty is the default for the same reason `fadeIcons` is `false`: an absent
+    // key already describes the fence a document was written with, so this needs
+    // no migration and no schema bump -- and a *new* fence keeps the look it has
+    // always had until its owner asks for a band.
+    //
+    // The band is painted *into the frame*, under the window's uniform alpha
+    // (ADR-15/ADR-17): a fence in a translucent material fades its title bar with
+    // its panel, whatever alpha is written here. This colour is therefore about
+    // **which** colour the band is, never about how much shows through.
+    QString titleBarColor;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.
