@@ -1,10 +1,15 @@
 #include "app/product_app.hpp"
 
+#include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QLoggingCategory>
+#include <QMenu>
 #include <QRect>
 #include <QScreen>
 #include <QTimer>
@@ -23,6 +28,7 @@
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
+#include "ui/fence_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 
@@ -190,6 +196,7 @@ bool ProductApp::start(const Options& options, QString* error)
     wireWatcher();
     wireHotkeys();
     wireBackdrop();
+    wireFenceMenu();
 
     // ⚠️ T-071 / ADR-14 -- and the product puts **no window of ours on the desktop
     // at all**. Four user reports in a row came out of the one we used to host
@@ -653,6 +660,113 @@ void ProductApp::wireBackdrop()
 void ProductApp::onRenameFence(const QString& id, const QString& title)
 {
     m_container->setFenceTitle(id, title); // emits contentChanged -> auto-save
+}
+
+// T-076 / T-064 -- the fence's own menu.
+//
+// The user asked for it in session 42 (« un menu rien qu'à nous »); what it costs
+// the desktop is nothing, because it opens on a right-click inside a fence we
+// already own. The tiles keep the Shell's menu (T-006) -- FenceView decides which
+// of the two a right-click is, and this is the half that is ours.
+//
+// The content is ui::FenceMenu's (pure, and checked without a desktop); what the
+// product adds is the mechanism and, above all, that every entry *calls the same
+// method the tray and the settings window call*. A menu choice that reached the
+// document by its own route is exactly how two sources of truth start.
+void ProductApp::wireFenceMenu()
+{
+    connect(m_container, &ui::FenceContainer::fenceMenuRequested, this,
+            &ProductApp::showFenceMenu);
+}
+
+void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
+{
+    if (!m_container || !m_container->contains(id))
+        return;
+
+    ui::FenceMenu::State state;
+    state.rolledUp = m_container->fenceRolledUp(id);
+    // Read from the fence every time the menu opens rather than remembered here:
+    // the check mark must follow the document, and the document may have been
+    // changed by the tray a moment ago.
+    state.material = m_container->fenceMaterial(id);
+
+    QMenu menu;
+    for (const ui::FenceMenu::Entry& entry : ui::FenceMenu::entries(state)) {
+        switch (entry.kind) {
+        case ui::FenceMenu::Kind::Separator:
+            menu.addSeparator();
+            break;
+        case ui::FenceMenu::Kind::Submenu: {
+            QMenu* submenu = menu.addMenu(entry.label);
+            submenu->setEnabled(entry.enabled);
+            // Exclusive: a fence is shown in one material, and a radio mark that
+            // can mark two at once would be describing a state the document
+            // cannot hold (the material *is* the alpha of the fence's colour).
+            auto* group = new QActionGroup(submenu);
+            group->setExclusive(true);
+            for (const ui::FenceMenu::Entry& preset : ui::FenceMenu::materialEntries(state)) {
+                QAction* choice = submenu->addAction(preset.label);
+                choice->setCheckable(true);
+                choice->setChecked(preset.checked);
+                choice->setEnabled(preset.enabled);
+                group->addAction(choice);
+                const QString material = preset.material;
+                connect(choice, &QAction::triggered, this,
+                        [this, id, material] { applyMaterialToFence(id, material); });
+            }
+            break;
+        }
+        case ui::FenceMenu::Kind::Action: {
+            QAction* action = menu.addAction(entry.label);
+            action->setCheckable(entry.checkable);
+            action->setChecked(entry.checked);
+            action->setEnabled(entry.enabled);
+            const ui::FenceMenu::Action what = entry.action;
+            connect(action, &QAction::triggered, this,
+                    [this, id, what] { runFenceMenuCommand(id, what); });
+            break;
+        }
+        }
+    }
+
+    // Blocking, like the Shell's menu the tiles show: a context menu is the one
+    // place where the product waits for the user.
+    menu.exec(globalPos);
+}
+
+void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action)
+{
+    // The fence may be gone by now -- the menu held the pointer for as long as the
+    // user took to choose, and the tray can remove a fence in the meantime.
+    if (!m_container || !m_container->contains(id))
+        return;
+
+    switch (action) {
+    case ui::FenceMenu::Action::ToggleRoll:
+        onRollUpToggled(id, !m_container->fenceRolledUp(id));
+        break;
+    case ui::FenceMenu::Action::Rename: {
+        bool accepted = false;
+        const QString current = m_container->fenceTitle(id);
+        const QString title = QInputDialog::getText(nullptr, tr("Rename fence"),
+                                                    tr("Fence name:"), QLineEdit::Normal,
+                                                    current, &accepted);
+        const QString name = title.trimmed();
+        // An empty or unchanged name changes nothing, and the name is stored
+        // trimmed: it is the one piece of text the fence shows, and a title made
+        // of spaces would leave a fence that looks unnamed with no way to say so.
+        if (accepted && !name.isEmpty() && name != current)
+            onRenameFence(id, name);
+        break;
+    }
+    case ui::FenceMenu::Action::Remove:
+        onRemoveFence(id);
+        break;
+    case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
+    case ui::FenceMenu::Action::None:
+        break;
+    }
 }
 
 void ProductApp::onRemoveFence(const QString& id)

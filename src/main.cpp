@@ -47,6 +47,7 @@
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
+#include "ui/fence_menu.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/settings_dialog.hpp"
 #include "version.h"
@@ -1032,6 +1033,15 @@ int main(int argc, char* argv[])
                       "the desktop's icons are still the shell's -- visible, readable and "
                       "clickable -- during the launch and after the exit. Needs a real desktop "
                       "and visible icons; report in build/icons_demo.txt."));
+    const QCommandLineOption fenceMenuProbeOption(
+        QLatin1String("fence-menu-probe"),
+        QLatin1String("T-076 diagnostic: does the fence's own menu reach the *screen*? "
+                      "Hosts one fence on the real desktop, opens the real menu with a real "
+                      "right-click on its title bar, samples the screen while it is up, "
+                      "dismisses it and samples again. Needs a real desktop (nothing is "
+                      "hidden, and the document it writes to is thrown away); report in "
+                      "build/fence_menu_probe.txt."));
+    parser.addOption(fenceMenuProbeOption);
     const QCommandLineOption installMenuOption(
         QLatin1String("install-desktop-menu"),
         QLatin1String("T-071: add StarFish's entry to the desktop's *own* context menu "
@@ -2504,6 +2514,195 @@ int main(int argc, char* argv[])
                                    ? QStringLiteral("reused (not redrawn)")
                                    : QStringLiteral("rebuilt")));
             }
+        }
+
+        // -------------------------------------------------------------------
+        // T-076 / T-064 -- the fence's **own** menu.
+        //
+        // What is measured is the half the probe can measure: a right-click
+        // inside a fence *reaches the product* as a menu request for the right
+        // fence, at the right screen point, while a left press asks for nothing --
+        // and the content the product will show follows the fence's own state
+        // (the radio mark on the material in force, the roll entry naming the
+        // gesture). The popup itself is Qt's, and the actions it triggers are the
+        // same calls the tray and the settings window already make, so they are
+        // covered by the checks above rather than duplicated here.
+        // -------------------------------------------------------------------
+        {
+            const QString idMenu =
+                container->createFence(QStringLiteral("menu"), QRect(680, 80, 320, 240));
+
+            QString askedFor;
+            QPoint askedAt;
+            int menuRequests = 0;
+            const QMetaObject::Connection menuConnection = QObject::connect(
+                container, &starfish::ui::FenceContainer::fenceMenuRequested,
+                [&askedFor, &askedAt, &menuRequests](const QString& fenceId, const QPoint& at) {
+                    askedFor = fenceId;
+                    askedAt = at;
+                    ++menuRequests;
+                });
+
+            // A right-click is delivered the way the desktop delivers it: a press
+            // with the button, in screen coordinates (the fence's own rect is what
+            // the surface translates from).
+            auto rightClickAt = [&container](const QString& fenceId, const QPoint& local) {
+                auto* view = container->view(fenceId);
+                const QPoint screen = container->fenceRect(fenceId).topLeft() + local;
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(local), QPointF(screen),
+                                  Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(view, &press);
+                return screen;
+            };
+
+            const QPoint onTitleBar(160, 15);
+            const QPoint expected = rightClickAt(idMenu, onTitleBar);
+            check(QStringLiteral("a right-click on a fence asks for its own menu (T-076)"),
+                  menuRequests == 1 && askedFor == idMenu && askedAt == expected,
+                  QStringLiteral("%1 request(s) for %2 at %3,%4 (expected one for %5 at %6,%7)")
+                      .arg(menuRequests)
+                      .arg(askedFor.isEmpty() ? QStringLiteral("<none>") : askedFor)
+                      .arg(askedAt.x())
+                      .arg(askedAt.y())
+                      .arg(idMenu)
+                      .arg(expected.x())
+                      .arg(expected.y()));
+
+            // Empty panel too -- the title bar is not the only way in, and it is
+            // what makes this usable on a fence whose bar is out of reach.
+            const QPoint onPanel(160, 150);
+            const QPoint expectedPanel = rightClickAt(idMenu, onPanel);
+            check(QStringLiteral("the empty part of the panel asks for it as well"),
+                  menuRequests == 2 && askedAt == expectedPanel,
+                  QStringLiteral("%1 request(s), last at %2,%3 (expected %4,%5)")
+                      .arg(menuRequests)
+                      .arg(askedAt.x())
+                      .arg(askedAt.y())
+                      .arg(expectedPanel.x())
+                      .arg(expectedPanel.y()));
+
+            // The gesture that must NOT open a menu: a left press on the same
+            // spot starts a geometry drag. (A right-click on a *tile* keeps the
+            // Shell's menu, T-006 -- that path opens a blocking popup and is
+            // therefore not driven here.)
+            auto* menuView = container->view(idMenu);
+            const QPoint local(onTitleBar);
+            QMouseEvent leftPress(QEvent::MouseButtonPress, QPointF(local),
+                                  QPointF(container->fenceRect(idMenu).topLeft() + local),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(menuView, &leftPress);
+            QMouseEvent leftRelease(QEvent::MouseButtonRelease, QPointF(local),
+                                    QPointF(container->fenceRect(idMenu).topLeft() + local),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(menuView, &leftRelease);
+            check(QStringLiteral("a left press asks for no menu at all"), menuRequests == 2,
+                  QStringLiteral("%1 request(s) after a left press on the title bar")
+                      .arg(menuRequests));
+
+            // The content follows the fence, not the code: a menu built from the
+            // fence's own material marks that material, and only it.
+            starfish::ui::FenceMenu::State menuState;
+            menuState.rolledUp = container->fenceRolledUp(idMenu);
+            menuState.material = container->fenceMaterial(idMenu);
+            int marks = 0;
+            QString marked;
+            for (const starfish::ui::FenceMenu::Entry& preset :
+                 starfish::ui::FenceMenu::materialEntries(menuState)) {
+                if (preset.checked) {
+                    ++marks;
+                    marked = preset.material;
+                }
+            }
+            check(QStringLiteral("the menu marks the material the fence is shown in"),
+                  marks == 1 && marked == menuState.material,
+                  QStringLiteral("fence %1 is \"%2\", the menu marks %3 preset(s) (%4)")
+                      .arg(idMenu)
+                      .arg(menuState.material)
+                      .arg(marks)
+                      .arg(marked.isEmpty() ? QStringLiteral("none") : marked));
+
+            container->setFenceMaterial(idMenu, QStringLiteral("very-translucent"));
+            menuState.material = container->fenceMaterial(idMenu);
+            bool marksTheNewOne = false;
+            for (const starfish::ui::FenceMenu::Entry& preset :
+                 starfish::ui::FenceMenu::materialEntries(menuState)) {
+                if (preset.checked)
+                    marksTheNewOne = preset.material == QStringLiteral("very-translucent");
+            }
+            check(QStringLiteral("and it follows a material the fence just took"),
+                  menuState.material == QStringLiteral("very-translucent") && marksTheNewOne,
+                  QStringLiteral("fence now \"%1\", the mark %2")
+                      .arg(menuState.material.isEmpty() ? QStringLiteral("<custom>")
+                                                        : menuState.material)
+                      .arg(marksTheNewOne ? QStringLiteral("moved with it")
+                                          : QStringLiteral("did NOT move")));
+
+            // The roll entry names the gesture, and the fence's state is what
+            // changes it -- on an expanded fence and on a rolled-up one alike (a
+            // rolled-up fence is all title bar, and that is exactly where a menu
+            // has to stay reachable).
+            const auto rollLabel = [&container](const QString& fenceId) {
+                starfish::ui::FenceMenu::State state;
+                state.rolledUp = container->fenceRolledUp(fenceId);
+                for (const starfish::ui::FenceMenu::Entry& entry :
+                     starfish::ui::FenceMenu::entries(state)) {
+                    if (entry.action == starfish::ui::FenceMenu::Action::ToggleRoll)
+                        return entry.label;
+                }
+                return QString();
+            };
+            const QString expandedLabel = rollLabel(idMenu);
+            container->setFenceRolledUp(idMenu, true);
+            const QString rolledLabel = rollLabel(idMenu);
+            const int requestsBefore = menuRequests;
+            rightClickAt(idMenu, onTitleBar);
+            check(QStringLiteral("a rolled-up fence still offers its menu, and the roll entry "
+                                 "names the way back"),
+                  !expandedLabel.isEmpty() && !rolledLabel.isEmpty()
+                      && expandedLabel != rolledLabel && menuRequests == requestsBefore + 1
+                      && container->fenceRolledUp(idMenu),
+                  QStringLiteral("expanded: \"%1\", rolled up: \"%2\", %3 request(s) from the bar")
+                      .arg(expandedLabel)
+                      .arg(rolledLabel)
+                      .arg(menuRequests - requestsBefore));
+
+            // The whole menu, as the product will build it: one entry per action,
+            // and the destructive one last.
+            starfish::ui::FenceMenu::State finalState;
+            finalState.rolledUp = container->fenceRolledUp(idMenu);
+            finalState.material = container->fenceMaterial(idMenu);
+            const QList<starfish::ui::FenceMenu::Entry> menuEntries =
+                starfish::ui::FenceMenu::entries(finalState);
+            int rollEntries = 0;
+            int renameEntries = 0;
+            int removeEntries = 0;
+            int submenus = 0;
+            for (const starfish::ui::FenceMenu::Entry& entry : menuEntries) {
+                if (entry.kind == starfish::ui::FenceMenu::Kind::Submenu)
+                    ++submenus;
+                if (entry.action == starfish::ui::FenceMenu::Action::ToggleRoll)
+                    ++rollEntries;
+                if (entry.action == starfish::ui::FenceMenu::Action::Rename)
+                    ++renameEntries;
+                if (entry.action == starfish::ui::FenceMenu::Action::Remove)
+                    ++removeEntries;
+            }
+            check(QStringLiteral("the menu holds one material submenu, one roll, one rename and "
+                                 "one remove, remove last"),
+                  submenus == 1 && rollEntries == 1 && renameEntries == 1 && removeEntries == 1
+                      && menuEntries.last().action == starfish::ui::FenceMenu::Action::Remove,
+                  QStringLiteral("%1 entry(ies): %2 submenu, %3 roll, %4 rename, %5 remove -- "
+                                 "last: %6")
+                      .arg(menuEntries.size())
+                      .arg(submenus)
+                      .arg(rollEntries)
+                      .arg(renameEntries)
+                      .arg(removeEntries)
+                      .arg(menuEntries.isEmpty() ? QStringLiteral("<none>")
+                                                 : menuEntries.last().label));
+
+            QObject::disconnect(menuConnection);
+            container->removeFence(idMenu);
         }
 
         const QString reportPath = QStringLiteral("build/fence_demo.txt");
@@ -4875,6 +5074,255 @@ int main(int argc, char* argv[])
 
         const int exitCode = failures == 0 ? 0 : 1;
         QTimer::singleShot(0, &app, [&app, exitCode] { QCoreApplication::exit(exitCode); });
+        return app.exec();
+    }
+
+    if (parser.isSet(fenceMenuProbeOption)) {
+        // T-076: the one claim no other probe makes -- that the fence's own menu is
+        // **on the screen**.
+        //
+        // Session 46 paid for the lesson (T-079): a window can exist, be visible to
+        // the window manager, print its own content back through PrintWindow and
+        // still not be composed. So nothing here is read from Qt's state alone. One
+        // fence is hosted on the real desktop, a real right-click is posted to its
+        // surface (the message the mouse sends), and while the menu is up the
+        // *screen* is asked -- pixels, and the system's own hit test -- before the
+        // menu is dismissed and the same questions are asked again.
+        //
+        // The document is a throwaway (`build/fence_menu_probe/layout.json`): a
+        // probe must not write to the user's own fences.
+        QStringList log;
+        int failures = 0;
+        auto check = [&log, &failures](const QString& step, bool ok, const QString& detail) {
+            if (!ok)
+                ++failures;
+            log << QStringLiteral("%1  %2  %3")
+                       .arg(ok ? QStringLiteral("PASS") : QStringLiteral("FAIL"))
+                       .arg(step, -52)
+                       .arg(detail);
+        };
+
+        const QString probeDir = QStringLiteral("build/fence_menu_probe");
+        QDir().mkpath(probeDir);
+        const QString layoutPath = probeDir + QStringLiteral("/layout.json");
+        QFile::remove(layoutPath);
+
+#if !defined(_WIN32)
+        check(QStringLiteral("this probe needs a real Windows desktop"), false,
+              QStringLiteral("not Windows"));
+#else
+        starfish::app::ProductApp::Options options;
+        options.layoutPath = layoutPath;
+        options.hostOnDesktop = true;
+        options.tray = false;
+        options.settingsWindow = false;
+        options.showSettingsOnStart = false;
+        options.hotkeys = false;
+        options.watchDesktop = false;
+        options.starterFence = true;
+
+        starfish::app::ProductApp product;
+        QString startError;
+        const bool started = product.start(options, &startError);
+        check(QStringLiteral("the product runs with a fence on the real desktop"),
+              started && product.container()->fenceCount() >= 1,
+              started ? product.statusText() : startError);
+
+        if (!started || product.container()->fenceCount() < 1) {
+            log << QStringLiteral("the probe stops here: it needs one hosted fence");
+        } else {
+            const QString id = product.container()->fenceIds().value(0);
+            // A fixed spot on the primary screen: the probe compares screen captures,
+            // and the primary screen is the one they cover. Moved without snapping so
+            // the rect is the one asked for.
+            const QRect desktopBounds = starfish::app::ProductApp::screenLayout().bounds();
+            const QRect spot(200, 200, 320, 240);
+            product.container()->setFenceRect(id, spot, /*snap=*/false);
+            check(QStringLiteral("the fence sits where the probe can see it"),
+                  desktopBounds.contains(spot),
+                  QStringLiteral("fence at %1,%2 %3x%4, desktop %5x%6")
+                      .arg(spot.x())
+                      .arg(spot.y())
+                      .arg(spot.width())
+                      .arg(spot.height())
+                      .arg(desktopBounds.width())
+                      .arg(desktopBounds.height()));
+
+            starfish::platform::win::DesktopSurface* surface = product.container()->surface(id);
+            const HWND fenceHwnd = surface ? reinterpret_cast<HWND>(surface->hwnd()) : nullptr;
+            check(QStringLiteral("the fence is hosted -- it has a window of its own (the popup's "
+                                 "owner)"),
+                  fenceHwnd != nullptr,
+                  fenceHwnd ? QStringLiteral("hwnd %1")
+                                  .arg(static_cast<qulonglong>(
+                                      reinterpret_cast<quintptr>(fenceHwnd)),
+                                       0, 16)
+                            : QStringLiteral("no surface: hosting failed"));
+
+            if (fenceHwnd) {
+                // The right-click is delivered as a *message*, like the mouse does:
+                // WM_RBUTTONDOWN at the fence's own client coordinates (160,15 --
+                // inside the title bar, clear of the resize grips), then the release,
+                // so the surface's capture bookkeeping is symmetric.
+                constexpr int kClickX = 160;
+                constexpr int kClickY = 15;
+                const LPARAM clickPos = MAKELPARAM(kClickX, kClickY);
+
+                QImage before;
+                QImage during;
+                QImage after;
+                HWND popup = nullptr;
+                QRect popupRect;
+                bool popupVisible = false;
+                bool popupIsMenu = false;
+                qint64 pixelsThatAppeared = 0;
+                qint64 pixelsLeftBehind = 0;
+                bool menusPennyDropped = false; // WindowFromPoint answered with the popup
+
+                QTimer::singleShot(1500, &app, [&] {
+                    // The fence has painted by now (and the native icon pass has
+                    // settled): this is the baseline the menu must stand out from.
+                    before = grabPrimaryScreen();
+                    const POINT at{spot.x() + kClickX, spot.y() + kClickY};
+                    const HWND beforeHit = ::WindowFromPoint(at);
+                    log << QStringLiteral("before the click: %1x%2 capture, WindowFromPoint %3 "
+                                          "at %4,%5")
+                               .arg(before.width())
+                               .arg(before.height())
+                               .arg(static_cast<qulonglong>(
+                                        reinterpret_cast<quintptr>(beforeHit)),
+                                    0, 16)
+                               .arg(at.x)
+                               .arg(at.y);
+                    ::PostMessageW(fenceHwnd, WM_RBUTTONDOWN, MK_RBUTTON, clickPos);
+                    ::PostMessageW(fenceHwnd, WM_RBUTTONUP, 0, clickPos);
+
+                    // Fires *inside* the menu's own event loop: that is the only
+                    // moment the popup exists, and the only way to see it.
+                    QTimer::singleShot(900, &app, [&] {
+                        during = grabPrimaryScreen();
+                        if (QWidget* active = QApplication::activePopupWidget()) {
+                            popupVisible = active->isVisible();
+                            popupIsMenu = active->inherits("QMenu");
+                            popup = reinterpret_cast<HWND>(active->winId());
+                            RECT rect{};
+                            if (popup && ::GetWindowRect(popup, &rect)) {
+                                popupRect = QRect(QPoint(rect.left, rect.top),
+                                                  QPoint(rect.right - 1, rect.bottom - 1));
+                            }
+                            log << QStringLiteral("with the menu up: %1 (%2), hwnd %3, rect "
+                                                  "%4,%5 %6x%7, win32-visible %8")
+                                       .arg(QString::fromLatin1(active->metaObject()->className()))
+                                       .arg(popupIsMenu ? QStringLiteral("a QMenu")
+                                                        : QStringLiteral("not a QMenu"))
+                                       .arg(popup ? QLatin1String("yes") : QLatin1String("no"))
+                                       .arg(popupRect.x())
+                                       .arg(popupRect.y())
+                                       .arg(popupRect.width())
+                                       .arg(popupRect.height())
+                                       .arg(popup && ::IsWindowVisible(popup) ? 1 : 0);
+                            if (!popupRect.isEmpty() && popup) {
+                                const POINT centre{popupRect.x() + popupRect.width() / 2,
+                                                   popupRect.y() + popupRect.height() / 2};
+                                menusPennyDropped =
+                                    ::WindowFromPoint(centre) == popup;
+                                const QRect clipped = popupRect.intersected(
+                                    QRect(QPoint(0, 0), during.size()));
+                                if (!clipped.isEmpty() && !before.isNull()
+                                    && before.size() == during.size()) {
+                                    diffBounds(before.copy(clipped), during.copy(clipped),
+                                               &pixelsThatAppeared);
+                                }
+                                during.save(probeDir + QStringLiteral("/menu_up.png"));
+                            }
+                            // Dismissed the way a click elsewhere would.
+                            active->close();
+                        } else {
+                            log << QStringLiteral("with the menu up: no popup widget at all -- "
+                                                  "StarFish's menu never opened");
+                        }
+
+                        QTimer::singleShot(700, &app, [&] {
+                            after = grabPrimaryScreen();
+                            if (!popupRect.isEmpty() && !before.isNull()
+                                && before.size() == after.size()) {
+                                const QRect clipped =
+                                    popupRect.intersected(QRect(QPoint(0, 0), after.size()));
+                                if (!clipped.isEmpty()) {
+                                    diffBounds(before.copy(clipped), after.copy(clipped),
+                                               &pixelsLeftBehind);
+                                }
+                            }
+                            after.save(probeDir + QStringLiteral("/menu_gone.png"));
+
+                            const qint64 area = qint64(popupRect.width()) * popupRect.height();
+                            check(QStringLiteral("a right-click on a fence opens StarFish's own "
+                                                 "menu"),
+                                  popupVisible && popupIsMenu,
+                                  popupIsMenu
+                                      ? QStringLiteral("a visible QMenu, hwnd %1")
+                                            .arg(static_cast<qulonglong>(
+                                                     reinterpret_cast<quintptr>(popup)),
+                                                 0, 16)
+                                      : QStringLiteral("no visible QMenu came up (the click "
+                                                       "never reached a menu)"));
+                            check(QStringLiteral("the menu's pixels are on the screen (not just a "
+                                                 "widget that exists)"),
+                                  !popupRect.isEmpty() && pixelsThatAppeared > 0
+                                      && pixelsThatAppeared * 5 > area * 1,
+                                  QStringLiteral("%1 of the %2 pixel(s) of the menu's rect changed "
+                                                 "(%3%)")
+                                      .arg(pixelsThatAppeared)
+                                      .arg(area)
+                                      .arg(area > 0 ? (pixelsThatAppeared * 100 / area) : 0));
+                            check(QStringLiteral("the point inside the menu belongs to the menu"),
+                                  menusPennyDropped,
+                                  menusPennyDropped
+                                      ? QStringLiteral("WindowFromPoint answers our own popup -- the "
+                                                       "menu owns the mouse, as a menu must")
+                                      : QStringLiteral("WindowFromPoint answers someone else: the "
+                                                       "menu is under something"));
+                            check(QStringLiteral("dismissing it gives the pixels back"),
+                                  !popupRect.isEmpty() && pixelsLeftBehind == 0,
+                                  QStringLiteral("%1 of the menu's %2 pixel(s) still differ from the "
+                                                 "baseline after the menu was closed")
+                                      .arg(pixelsLeftBehind)
+                                      .arg(area));
+                            check(QStringLiteral("the fence is still there when the menu is gone"),
+                                  product.container()->contains(id)
+                                      && product.container()->fenceCount() >= 1,
+                                  QStringLiteral("%1 fence(s) left")
+                                      .arg(product.container()->fenceCount()));
+
+                            const QString reportPath =
+                                QStringLiteral("build/fence_menu_probe.txt");
+                            QFile report(reportPath);
+                            if (report.open(QIODevice::WriteOnly | QIODevice::Truncate
+                                            | QIODevice::Text)) {
+                                QTextStream stream(&report);
+                                for (const QString& line : log)
+                                    stream << line << '\n';
+                                stream << (failures == 0
+                                               ? QStringLiteral("RESULT: all checks passed\n")
+                                               : QStringLiteral("RESULT: %1 check(s) FAILED\n")
+                                                     .arg(failures));
+                            }
+                            for (const QString& line : log)
+                                qCInfo(lc).noquote() << line;
+                            qCInfo(lc).noquote()
+                                << QStringLiteral("report written to %1").arg(reportPath);
+                            qCInfo(lc).noquote()
+                                << QStringLiteral("the menu was opened and closed by the probe; "
+                                                  "the fence it lived on is a throwaway document "
+                                                  "(%1)")
+                                       .arg(layoutPath);
+                            QCoreApplication::exit(failures == 0 ? 0 : 1);
+                        });
+                    });
+                });
+            }
+        }
+#endif
         return app.exec();
     }
 

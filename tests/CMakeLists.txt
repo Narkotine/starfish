@@ -214,3 +214,19 @@ target_include_directories(test_starfish_fence_material PRIVATE
 target_link_libraries(test_starfish_fence_material PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
 
 add_test(NAME ui_fence_material COMMAND test_starfish_fence_material)
+
+# The fence's own context menu (T-076 / T-064): what it offers, in what order, and
+# which radio mark is set. Pure -- a menu described as data, so the rules that
+# matter (one entry per action, the check mark follows the document, the roll entry
+# names the gesture) are checked with no window and no mouse.
+add_executable(test_starfish_fence_menu
+    test_fence_menu.cpp
+)
+
+target_include_directories(test_starfish_fence_menu PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_fence_menu PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME ui_fence_menu COMMAND test_starfish_fence_menu)

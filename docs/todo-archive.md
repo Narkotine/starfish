@@ -52,6 +52,7 @@
 | T-044 | **Protection mono-instance** (mutex, mode produit seulement) : deux copies se disputaient le document **et** l'état des icônes natives | 5 | P1 | ✅ |
 | T-045 | **Les icônes étaient peintes 42 px trop haut** (trouvé par l'utilisateur, capture à l'appui) — cellules locales au contenu peintes dans le repère du widget ; la première rangée était **tranchée** par le clip. Corrigé, avec la vérification qui reproduit le symptôme | 5 | P0 | ✅ |
 
+| T-064 | **Le matériau par le clic droit sur une zone** (« Material ▸ » sur la barre de titre, comme Fences 6) — ✅ **LIVRÉ (session 47)** : la place naturelle de ce choix est le **menu d'une zone** (**T-076**, ADR-16), et c'est là qu'il vit désormais — `Material ▸`, trois presets, radio sur celui **en vigueur** (et aucune marque sur un alpha custom). Jusque-là il fallait passer par la **zone de notification** (toutes les zones) ou par la **fenêtre de réglages** (une zone), que **T-059** veut déclasser : la condition qu'elle posait est **levée**. Détail : **§35** | 5 (v0.2) | P1 | ✅ |
 ## Détail des tâches terminées
 
 - **T-014a** (Phase 5, P0) — **Multi-écran + awareness DPI (F-032)** ✅ (sessions 22-24). Tâche issue d'une **contradiction documentaire arbitrée le 2026-10-15** : `docs/produit.md` §6 classe **F-032 en P0** et §7 la met dans **v0.1 (MVP)**, alors que `TODO.md` portait la ligne unique « T-014 … Phase 5 / **P1** » qui empilait en plus l'i18n (**F-036**, P1/v0.2) et les thèmes de zones (**F-004**, P0 — dont `iconSize`/`padding`/`gap`/`titleBar` sont persistés **mais inertes**). L'arbitrage suit produit.md et **scinde** la tâche plutôt que de réécrire le périmètre : le multi-écran reste P0 et se fait maintenant, l'i18n et les thèmes passent en **T-014b / P1 / v0.2**. *(Arbitrage appliqué sans réponse de l'utilisateur — question posée, sans réponse dans le délai ; à confirmer, cf. `STATE.md` décision 23.)*
@@ -370,6 +371,11 @@
   - **Prix écrits** : le coin n'est plus anticrénelé (région 1 bit → **T-058**) et un clic **pile sur un coin** tombe au bureau (**ADR-11 devient sans objet**).
   - **Vérification** : `ctest` **14/14** ; `--fence-demo` **28/28** headless / **41/41** `--host`, toutes vertes ; à l'écran, les pixels au centre des zones passent du **papier peint** (`#010300`, `#182b0f`, `#499003`) au **panneau** (`#1f2937`). Les vérifications qui **encodaient** T-075 ont été **remplacées** (forme mesurée sur la **région** que Windows détient : `GetWindowRgn` + `PtInRegion`).
   - ⚠️ **Le diagnostic reconstitué (`docs/state/diagnostics/t079/`, 4 patchs) n'a pas eu besoin d'être réappliqué** : un instrument hors produit a suffi. Le dossier garde sa valeur — il mesure la frame **et** l'écran, et c'est la méthode qui manquait.
+- **T-064** (Phase 5 → v0.2, P1) — **Le matériau par le clic droit sur une zone** — ✅ **traité en session 47** (avec **T-076**, dont il est le premier morceau) ; détail : `docs/technique.md` **§35**, **ADR-16**.
+  - **Ce qui existait déjà** : `core::FenceStyle` porte `background` (`#AARRGGBB`, donc l'opacité avec), `radius`, `padding`, `iconSize`, `gap`, `titleBar` — **persistés par zone** et appliqués (`applyMaterialToSurface`, ADR-15). Le matériau **était** l'alpha de la couleur ; ce qui manquait était **l'interface par zone**, et elle n'avait **pas d'endroit** (les réglages, seuls à le proposer, sont ce que T-059 veut retirer).
+  - **Livré** : le sous-menu `Material ▸` du menu d'une zone — trois presets, **radio exclusif** sur celui en vigueur et **aucune** marque quand l'alpha est une valeur propre au document (le menu ne ment pas sur l'état du fichier). L'effet passe par `applyMaterialToFence`, **la méthode que la fenêtre de réglages appelle déjà**.
+  - **La règle qui va avec (ADR-16)** : le contenu du menu est une **donnée pure** (`ui::FenceMenu`), testé sans écran ; le clic droit **sur une tuile** garde le menu du **Shell** (un menu Shell veut un *chemin*, T-006).
+
 
 ## Récits de session (repris de `TODO.md`)
 

@@ -5,19 +5,18 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 46 (2026-10-18) — **T-079 ✅ (P0) / ADR-15** : les zones sont **visibles** — le push par pixel ne compose pas sur un enfant de `Progman` ; le matériau est l'alpha uniforme de la fenêtre, le panneau arrondi une **région**, la frame opaque et blittée. `ctest` 14/14 ; `--fence-demo` 28/28 headless, 41/41 `--host` ; à l'écran les centres de zones sont passés du **papier peint** au **panneau**.
-- **Dernière session :** 46 (2026-10-18) — session de **code**. Consigne utilisateur du soir : **écrire bref** (faits consignés, non déroulés), il est en vibe coding.
-- **Dernière mise à jour :** 2026-10-18 (session 46)
+- **Dernière session de code livrée :** 47 (2026-10-18) — **T-076 → 🔄 / T-064 ✅ / ADR-16** : une zone a **son** menu (clic droit sur la barre de titre ou le panneau vide — `Material ▸`, `Roll up`/`Roll down`, `Rename...`, `Remove this fence` ; le clic droit sur une **tuile** garde le menu du Shell). Contenu = donnée pure, effets = les appels du tray. Sonde neuve `--fence-menu-probe` : **98 %** des pixels du rect du menu changent à l'écran, `WindowFromPoint` rend notre popup, **0** pixel différent après fermeture. `ctest` 15/15 ; `--fence-demo` 35/35 headless, 48/48 `--host`.
+- **Dernière session :** 47 (2026-10-18) — session de **code**. Consigne utilisateur du soir : **écrire bref** (faits consignés, non déroulés), il est en vibe coding.
+- **Dernière mise à jour :** 2026-10-18 (session 47)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **non poussé** (le push déclenche la CI et exige l'accord de l'utilisateur).
 
 ## 3 prochaines actions
 
 > L'essai **humain** d'abord (il tranche et coûte une minute) ; le reste est du travail **ou** une décision ❓, pas les deux. Ordre, raisons et scripts clic par clic : [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md).
 
-1. **Essai à la main (utilisateur)** — les zones sont **revenues** ; à confirmer à l'œil : les **coins** (découpés par une région **1 bit**, donc non anticrénelés — **T-058**), le **matériau** translucide (papier peint à travers), et le **ressenti** de `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable). Un clic **pile sur un coin** tombe désormais au bureau : c'est écrit (ADR-11 sans objet), dites si c'est gênant.
-2. **Les retours de la session 42, puis `T-042` → `T-064` → `T-059`** — `T-076` (un menu à nous au clic droit sur une zone), `T-078` (les noms les plus longs, suite de `T-049`), `T-073` (l'entrée F-001 dans le menu principal de Windows 11) ; ensuite les interactions des icônes hors zone (le prix de l'ADR-3), puis le matériau par clic droit **avant** de nettoyer la fenêtre de réglages.
-3. **`T-070` (le hook souris) et le reste du fond plein écran** — il ne sert plus qu'au chemin de développement (le produit n'héberge plus rien, T-071) et il est le **dernier** porteur du chemin per-pixel, qui ne compose pas. Si le spike est concluant, la fenêtre et son code partent ensemble.
-
+1. **Essai à la main (utilisateur)** — le **menu d'une zone** : clic droit sur la **barre de titre** ou sur le **panneau vide** → `Material ▸` (le panneau doit changer sous les yeux), `Roll up`/`Roll down`, `Rename...`, `Remove this fence` ; et un clic droit sur une **tuile** → le menu **de Windows**, inchangé. Toujours en attente depuis la s46 : les **coins** (région 1 bit, non anticrénelés — **T-058**), le **translucide** (papier peint à travers) et le **ressenti** de `T-050`/`T-077` (plus de clignotement au repos, redimensionnement stable).
+2. **Les retours de la session 42, puis `T-042`** — **T-078** (les noms les plus longs, suite de `T-049`), **T-073** (l'entrée F-001 dans le menu **principal** de Windows 11 : extension shell/MSIX ⇒ spike **et** accord utilisateur avant toute installation) ; ensuite les interactions des icônes hors zone (**T-042**, le prix de l'ADR-3).
+3. **`T-059` puis `T-080`, maintenant que `T-064` est livré** — la fenêtre de réglages peut être déclassée (le matériau **par zone** a un endroit : le menu) ; l'apparence par zone (couleurs, rayon, couleur de barre de titre — absente du schéma) vit **dans ce même menu**. **`T-076` reste ouvert d'une entrée** : masquer/afficher la barre de titre, qui demande un geste de déplacement survivant à sa disparition. **`T-070`** (le hook souris) ferme la marche : il ne sert plus qu'au chemin de développement.
 **Sans blocage**, à prendre ensuite : `T-047`, `T-013`, `T-014b`, `T-015` (packaging v0.1) — voir `TODO.md`.
 
 ## Où lire quoi (à la demande)

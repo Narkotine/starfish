@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "platform/win/desktop_menu.hpp"
+#include "ui/fence_menu.hpp"
 #include "ui/screen_layout.hpp"
 
 namespace starfish::core {
@@ -170,6 +171,10 @@ private:
     // once at startup like the tray's, because they are the same kind of thing --
     // a request from a surface, answered by the product.
     void wireBackdrop();
+    // T-076: the fence's own context menu. Wired like the tray's entries -- the
+    // container reports which fence and where, the product decides what each entry
+    // does.
+    void wireFenceMenu();
 
     void syncWatchedFolders();
     void refreshStatus();
@@ -232,6 +237,16 @@ private:
     void onRemoveFence(const QString& id);
     void onRollUpToggled(const QString& id, bool rolledUp);
     void onDesktopIconsToggled(bool hidden);
+
+    // T-076: the fence's **own** menu (ui::FenceMenu says what is in it). Shown at
+    // a screen point and applied through the same calls the tray and the settings
+    // window use, so a menu choice cannot reach the document by a third route.
+    //
+    // Blocker by design: the menu runs its own event loop, exactly like the
+    // Shell's menu the tiles already show (T-006) -- a right-click is the only
+    // thing that needs it.
+    void showFenceMenu(const QString& id, const QPoint& globalPos);
+    void runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action);
 
     Options m_options;
     bool m_started = false;

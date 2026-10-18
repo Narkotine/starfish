@@ -352,6 +352,11 @@ signals:
     void fenceRolledUpChanged(const QString& id, bool rolledUp);
     void fencesVisibilityChanged(bool visible);
     void peekChanged(bool active);
+    // T-076: the user asked for the fence's **own** menu -- a right-click that
+    // landed on the title bar or on an empty panel, never on a tile (that one
+    // stays the Shell's menu). The container only says *which* fence and *where*:
+    // the content is ui::FenceMenu's, the actions are the product's.
+    void fenceMenuRequested(const QString& id, const QPoint& globalPos);
     // T-010. The rule list is persisted, so the product wires this to the same
     // auto-save as the other document-level signals. It is deliberately NOT
     // emitted by applyLayout: restoring the document is not changing it.

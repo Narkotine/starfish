@@ -119,6 +119,16 @@ signals:
     // FenceContainer owns the state and the resulting size.
     void rollUpRequested(bool rolledUp);
 
+    // T-076: a right-click that did **not** land on a tile -- the title bar, the
+    // empty part of the panel, or the whole bar of a rolled-up fence. The item
+    // under the cursor keeps the Shell's own menu (T-006); everything else is
+    // ours, and this is the report that says so. `globalPos` is screen
+    // coordinates, the only frame a menu can be placed in.
+    //
+    // Nothing is built here: FenceMenu owns the content, the product owns the
+    // actions (the same split as every other gesture in this widget).
+    void fenceMenuRequested(const QPoint& globalPos);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;

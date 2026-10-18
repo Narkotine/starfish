@@ -1766,5 +1766,44 @@ Gain collatéral : **plus aucune fenêtre n'est recréée** quand le matériau c
 - **Hors produit, à l'écran** : les pixels au centre des zones passent du **papier peint** (`#010300`, `#182b0f`, `#499003`) au **panneau** (`#1f2937`). L'instrument qui avait servi à décrire le défaut sert à constater le correctif.
 - ⚠️ **Le compteur de placements a d'abord dit 143 au lieu de 3** : l'utilisateur bougeait sa souris **sur les zones** pendant la sonde. Rejoué sans lui : **3**. Une mesure de repos se prend quand rien ne touche le sujet — même famille que « ne pas juger sur une capture sans vérifier que le bureau est visible ».
 
+## 35. ADR-16 — le menu d'une zone : le panneau est à nous, les tuiles restent au Shell (T-076 / T-064, session 47)
+
+La demande est de la session 42 : « un menu **rien qu'à nous**, de type fermer, afficher/masquer barre des titres et je ne sais quoi ». Jusqu'ici une zone ne pouvait montrer **qu'un** menu : celui du **Shell**, pour la **tuile** sous le curseur (`ShellContextMenu::showForPath`, T-006). La barre de titre n'avait aucun menu, et le panneau vide non plus — et le choix du matériau **par zone** n'existait que dans la fenêtre de réglages que **T-059** veut déclasser (**T-064**).
+
+### La règle (ADR-16)
+
+- **Sur une tuile** : le menu du Shell. Inchangé, et il n'y a rien à décider — un menu Shell a besoin d'un **chemin**, et une tuile en a un.
+- **Partout ailleurs dans la zone** (barre de titre, panneau vide, et la barre entière d'une zone **enroulée**) : le menu est **le nôtre**.
+- **Le contenu est une donnée pure** (`ui::FenceMenu::entries()` / `materialEntries()` : `Kind`, `Action`, libellé, coché, actif) — testable sans écran, comme `fence_geometry` et `fence_material`. Le **mécanisme** (`QMenu`) et l'**effet** vivent dans le produit, et chaque entrée appelle **la méthode que le tray appelle déjà** (`applyMaterialToFence`, `onRollUpToggled`, `onRenameFence`, `onRemoveFence`) : le menu n'ouvre **pas de troisième chemin** vers le document.
+- **Une entrée grisée est une promesse** : rien n'est offert que le produit ne sait pas faire. C'est pourquoi le **second demi de T-076** — masquer la barre de titre — est **absent** et non grisé : une zone se déplace **par sa barre** (T-007), donc masquer la barre troquerait une entrée contre un geste. Les couleurs/rayon par zone (**T-080**) arriveront ici, quand ils existeront.
+- Le contenu livré : `Material ▸` (trois presets, **radio** sur celui en vigueur, et **aucune** marque si l'alpha est custom), `Roll up` / `Roll down`, `Rename...`, une séparation, `Remove this fence` (dernière et isolée : une glissade de souris ne doit pas pouvoir l'atteindre).
+
+### La mesure qui compte : le menu **atteint l'écran**
+
+C'est la leçon de la session 46 (T-079) appliquée d'avance : un widget qui **existe** n'est pas un menu **composé**. La sonde `--fence-menu-probe` (nouvelle) héberge **une vraie zone** sur le vrai bureau, **poste un vrai clic droit** à la surface (`WM_RBUTTONDOWN`/`UP` aux coordonnées clientes de la barre de titre), puis interroge **trois instruments** pendant que le menu est ouvert :
+
+| instrument | lecture |
+|---|---|
+| les **pixels** (`grabWindow` avant / pendant / après) | **17 678** des 18 012 pixels du rect du menu ont changé (**98 %**) |
+| le **hit test du système** (`WindowFromPoint` au centre) | répond **notre** popup — le menu possède la souris, comme un menu doit le faire |
+| l'**état Qt** (`activePopupWidget`) | un `QMenu` visible, `hwnd` réel, rect `360,215 158x114` |
+
+Et après fermeture : **0** pixel du rect diffère de la ligne de base. Trois lectures, une seule conclusion : le menu s'affiche, prend la souris, et rend les pixels en partant. ⚠️ Un instrument de plus a servi : la **capture relue à l'œil** (`menu_up.png`) montre bien `Material ▸`, `Roll up`, `Rename...`, la séparation et `Remove this fence` — les **libellés** ne sont pas mesurés par les pixels.
+
+### Ce que ça déplace
+
+- **T-064 est livré** : le matériau **par zone** a enfin un endroit naturel. La condition que **T-059** posait (« T-064 doit exister avant de retirer la liste des zones ») est remplie.
+- **T-080** (couleurs + rayon par zone) vit désormais **dans ce menu** : il ne lui manque plus d'endroit, seulement le schéma (couleur de barre de titre) et l'interface.
+- **T-076 reste ouvert** d'une entrée : masquer/afficher la barre de titre, qui a besoin d'un geste de déplacement qui survive à sa disparition.
+
+### Vérification (session 47)
+
+- `ctest` **15/15** — `ui_fence_menu` est nouveau (**9 cas**) : une entrée par action, l'ordre (destructif dernier, derrière sa séparation), le libellé d'enroulement qui **nomme le geste**, le radio qui **suit le document** (trois presets), **aucune** marque sur un alpha custom, et **aucune** entrée grisée.
+- `--fence-demo` **35/35** headless (28 avant) / **48/48** `--host` (41 avant) : les sept vérifications ajoutées portent sur le **chemin** (un clic droit atteint le produit avec le bon id **et** le bon point d'écran, un clic gauche n'atteint rien, une zone enroulée reste joignable) et sur la **fidélité du contenu** à l'état de la zone.
+- `--fence-menu-probe` **7/7** ; build MinGW **0 warning**.
+- ⚠️ **Piège de test payé** : `find()` rendait un pointeur **dans la liste temporaire** de `FenceMenu::entries()` — les deux libellés comparés vivaient dans le **même tampon libéré**, et le cas a échoué en accusant le modèle. La liste est gardée dans une locale.
+- **Reste humain** : le geste au **vrai curseur** (clic droit sur la barre, choix dans le sous-menu `Material ▸`, renommage, « Remove this fence ») — la sonde mesure l'**ouverture** du menu, pas le **sous-menu** ni les actions qu'on y choisit.
+
+
 
 

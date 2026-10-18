@@ -762,6 +762,11 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
+    // T-076: the fence's own menu, reported with the fence it belongs to. Nothing
+    // is built here -- the container has no interface (it renders an image) and
+    // the actions are the product's, exactly like the tray's entries.
+    connect(view, &FenceView::fenceMenuRequested, this,
+            [this, id](const QPoint& globalPos) { emit fenceMenuRequested(id, globalPos); });
 
     if (m_host) {
         auto* surface = new starfish::platform::win::DesktopSurface(this);

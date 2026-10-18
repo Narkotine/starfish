@@ -206,11 +206,19 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         // QMouseEvent(RightButton) from its own WndProc: a QContextMenuEvent
         // would only fire from the platform, not from a posted event.
         const int index = itemAt(event->pos());
-        if (index >= 0)
+        // T-076: when no tile is under the cursor -- the title bar, the empty
+        // part of the panel, or the bar of a rolled-up fence -- the menu is
+        // **ours** (FenceMenu). The selection is left alone in that case: a
+        // right-click on empty space is not a statement about the icons, and the
+        // tile path below is unchanged, so an icon keeps the Shell's own menu.
+        if (index >= 0) {
             m_grid.selectOnly(index);
-        update();
-        emit contentChanged();
-        showContextMenuForIndex(index, event->globalPosition().toPoint());
+            update();
+            emit contentChanged();
+            showContextMenuForIndex(index, event->globalPosition().toPoint());
+            return;
+        }
+        emit fenceMenuRequested(event->globalPosition().toPoint());
         return;
     }
     if (event->button() != Qt::LeftButton) {
