@@ -5,11 +5,11 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b, moitié i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (catalogue `starfish_fr.qm` compilé à côté de l'exécutable, **chaînes de Qt incluses**), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. Deux chaînes **peintes** trouvées non traduisibles ; le contexte d'une chaîne est **qualifié** (`starfish::ui::X`). `ctest` **16/16**, `--product-probe` **31/31** (7 neuves), autres sondes **inchangées**, 0 warning. **§40**.
+- **Dernière session de code livrée :** 52 (2026-10-18) — **T-014b i18n ✅ (F-036)** : l'interface parle **français** sur une machine française (`starfish_fr.qm` à côté de l'exécutable, chaînes de Qt incluses), **anglais** ailleurs (langue source), et **`--lang`** pour forcer ; `tools/i18n_check.py` (CI) tient la **complétude** du catalogue. `ctest` **16/16**, `--product-probe` **31/31** (7 neuves), autres sondes **inchangées**, 0 warning. **§40**.
 - **Livré juste avant :** 51 — **T-059 ✅** (la fenêtre de réglages n'est plus le produit, **§39**) ; 50 — **T-080 ✅ / ADR-18** (apparence par zone, **§38**).
-- **Dernière session :** 52 — ouverte par « je ne suis pas devant l'ordinateur » : tâche sans arbitrage ni effet sur sa machine ; l'essai à l'œil (T-080/T-082/T-058) **reste en attente**.
-- **Dernière mise à jour :** 2026-10-18 (session 52)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **non poussé** (le push déclenche la CI et exige l'accord de l'utilisateur).
+- **Dernière session :** 53 — **consolidation, aucun code** : arbre propre, `ctest` **16/16**, sondes headless **vertes** (seule `--nav-demo` **21/22** : raccourci tenu par une instance en cours, **T-044**), **4 commits poussés** ; `README.md` ramené à la révision courante (une seule ligne de compteurs). Avant : 52 — « je ne suis pas devant l'ordinateur » ; l'essai à l'œil **reste en attente**.
+- **Dernière mise à jour :** 2026-10-18 (session 53)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **poussé** au 2026-10-18 (session 53, accord de l'utilisateur) — tout push déclenche la CI.
 
 ## 3 prochaines actions
 

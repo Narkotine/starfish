@@ -1,7 +1,9 @@
 # TODO — Suivi des tâches
 
 > Légende statut : ⬜ à faire · 🔄 en cours · ✅ fait · ⛔ bloquée. IDs liés aux phases de `docs/plan.md`. Toute tâche terminée doit être consignée dans `devlog/`.
-> **Ce fichier ne liste que ce qui reste** : **16 tâches ouvertes**. Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
+> **Ce fichier ne liste que ce qui reste** : **26 tâches ouvertes** — les **dix dernières lignes** du tableau sont
+> ouvertes mais **attendent un geste ou un arbitrage humain** (T-018, T-019, T-021, T-028 à T-033, T-036) : elles
+> sont détaillées plus bas et résumées, avec leur ordre, dans [`docs/state/next-actions-detail.md`](docs/state/next-actions-detail.md). Les tâches terminées ont une ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
 > Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap **50 Ko**, vérifié par `python tools/docs_size.py` (étape CI).
 
 ## Tâches ouvertes
@@ -30,6 +32,16 @@
 | T-080 | **L'apparence par zone** (F-004) — demande utilisateur session 46 : « customisation des **couleurs** des fences et **barre des titres**, ainsi que la **quantité d'arrondi** » — ✅ **LIVRÉ (session 50, ADR-18)** : le menu d'une zone porte `Colours ▸` (panneau, barre de titre) et `Corner radius ▸` (*Square* / 6 / 10 / 14 / 20) ; la clé neuve `FenceStyle::titleBarColor` est **vide par défaut** (« pas de bande » = la zone telle qu'elle a toujours été, **aucune migration**, aucune ligne ajoutée aux documents existants) ; le rayon **effectif** est borné par la taille (`FenceView::cornerRadius()`, la région de la fenêtre suit la géométrie). Détail : §38, à l'archive | 5 (v0.2) | P1 | ✅ |
 | T-081 | **Un défaut général pour les zones neuves** (F-004) — suite de la question utilisateur (session 46) : « est-ce possible d'avoir un **menu général** mais une **custo par fence** aussi ? » **Réponse : oui**, et c'est la forme qu'ont déjà les matériaux (zone de notification = toutes les zones, réglages = une zone). Ce qui manque : un **défaut** qui ne soit pas un littéral compilé (`FenceStyle::background`/`radius`) — réglage d'application ou bloc `defaults` du document — plus une action « **appliquer à toutes les zones** ». À trancher : où vit le défaut, et s'il s'applique aux zones **déjà** créées (réponse par défaut : **non**, cf. T-074) | 5 (v0.2) | P1 | ⬜ |
 | T-082 | **F-038 : la transparence doit être celle du *panneau*, pas de la zone entière** — retour utilisateur (session 47, après essai) : « je ne pensais pas que changer material s'appliquerait aussi aux icônes. Est-il possible de ne l'appliquer qu'à la fence ? et du coup de garder l'option de l'appliquer aux icônes en option, par fence ? » — ✅ **LIVRÉ (session 49, ADR-17)** : le matériau efface le **panneau et sa barre de titre**, les **tuiles restent opaques** — elles ont leur **seconde fenêtre** (opaque, région = union des tuiles, clic-traversante, un seul rendu pour les deux) ; `fadeIcons` (document, `false` par défaut, **aucune migration**) rend l'ancien comportement **par zone**, depuis le menu de la zone, et **seulement** sous un panneau translucide. Détail : §37, à l'archive | 5 (v0.2) | P1 | ✅ |
+| T-018 | **Valider à la main le redémarrage d'Explorer** — les zones sont enfants de `Progman` et meurent avec lui : vérifier que `desktopReacquired()` + `attach()` les recréent sans crash Qt | 1 | P1 | ⬜ |
+| T-019 | Vérifier `--host-demo` avec **Fences 6 actif ET arrêté** (les deux configurations n'ont été mesurées qu'avec le spike Python) | 1 | P2 | ⬜ |
+| T-021 | **Validation à l'écran de T-005** — les icônes réelles s'affichent dans une zone, la sélection et le double-clic fonctionnent (le routage est câblé, il n'est pas vérifiable en CI headless) | 2 | P2 | ⬜ |
+| T-028 | **Quick hide : le geste d'origine** (double-clic sur le bureau vide, F-022) — la zone appartient à `SysListView32`, donc il faut un porteur hors de nos fenêtres (hook souris ou `SetWinEventHook`) | 4 | P1 | ⬜ |
+| T-029 | **Peek au-dessus des fenêtres d'application** — suppose un modèle top-level (reparentage temporaire ou overlay qui recopie les frames) | 4 | P1 | ⬜ |
+| T-030 | **Raccourcis globaux configurables** (F-033) — aujourd'hui câblés en dur, et `Win+Space` est refusé par Windows (réservé au sélecteur de langue) | 4 | P2 | ⬜ |
+| T-031 | **Règles : déplacement réel sur le disque** (`moveFiles: true`) — `QFile::rename`, donc confirmation utilisateur, journal d'annulation, refus des cibles non locales : la règle d'or d'`AGENTS.md` le refuse par défaut | 4 | P2 | ⬜ |
+| T-032 | **Interface de création/édition des règles** (F-017) — le format est stable et testé, il manque l'écran ; ❓ `docs/plan.md` dit que l'auto-organisation **n'est pas demandée** : **à trancher avant tout code** | 5 | P2 | ⬜ |
+| T-033 | **Surveillance récursive des sous-dossiers** — `DesktopWatcher` ne regarde que le premier niveau (à trancher avec F-026, navigation dans un portail) | 4 | P2 | ⬜ |
+| T-036 | **Portails : la moitié écriture** (F-024) — déposer un fichier sur un portail ne le range pas dans le dossier ; même famille que T-031 (mutation du disque, opt-in explicite) | 4 | P1 | ⬜ |
 
 ## Tâches ouvertes — détail
 
