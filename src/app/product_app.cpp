@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QColorDialog>
 #include <QDebug>
+#include <QDesktopServices>
 #include <QDir>
 #include <QGuiApplication>
 #include <QInputDialog>
@@ -14,6 +15,7 @@
 #include <QRect>
 #include <QScreen>
 #include <QTimer>
+#include <QUrl>
 
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
@@ -31,6 +33,7 @@
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/fence_menu.hpp"
+#include "ui/icon_grid.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 
@@ -683,6 +686,53 @@ void ProductApp::wireBackdrop()
     // specified with. It is the same toggle the tray and the hot key use.
     connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this,
             [this] { m_container->toggleFencesVisible(); });
+
+    // -------------------------------------------------------------------------
+    // T-042 (first slice) -- the icons the backdrop draws answer the mouse.
+    //
+    // This is what F-040 made necessary: hiding the native list takes away the
+    // *source* of every drag, so with the switch on there was nothing left to
+    // pick up, and "file this icon in a fence" -- the whole point of the mode --
+    // became impossible. The backdrop reads the gesture (the cells are its
+    // business) and this decides what it means, like every other gesture here.
+    // -------------------------------------------------------------------------
+    connect(backdrop, &ui::DesktopBackdrop::iconDropRequested, this,
+            [this](const QString& path, const QPoint& point) {
+                if (!m_container)
+                    return;
+                // What the button came up *on* decides: a fence takes it. Letting
+                // go on the bare desktop is how a drag is called off -- the entry
+                // stays where it is, because an icon is never moved and never
+                // copied (the golden rule).
+                const QString id = m_container->fenceAt(point);
+                if (id.isEmpty()) {
+                    qCInfo(lc).noquote()
+                        << QStringLiteral("\"%1\" was let go on the bare desktop: nothing "
+                                          "filed")
+                               .arg(path);
+                    return;
+                }
+                const int filed = m_container->fileInto(id, {m_container->itemForPath(path)});
+                qCInfo(lc).noquote()
+                    << QStringLiteral("dropped \"%1\" on %2: %3 item(s) filed")
+                           .arg(path, id)
+                           .arg(filed);
+            });
+
+    // The desktop's oldest gesture, and ours to provide: the icon is only pixels
+    // here, so there is no shell list behind it to open anything.
+    connect(backdrop, &ui::DesktopBackdrop::iconActivateRequested, this,
+            [this](const QString& path) {
+                if (!m_container)
+                    return;
+                // The same resolution a fence's tile uses (F-006/T-005): a .lnk or
+                // a .url opens through its target, never through the link file.
+                const QString target = ui::IconGrid::launchPath(m_container->itemForPath(path));
+                if (target.isEmpty())
+                    return;
+                qCInfo(lc).noquote() << QStringLiteral("opening \"%1\"").arg(target);
+                QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+            });
 }
 
 void ProductApp::onRenameFence(const QString& id, const QString& title)

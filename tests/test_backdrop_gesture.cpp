@@ -48,10 +48,11 @@ QVector<BackdropCell> cellsOf(int count, const QRect& area)
 // F-022 (a left double-click hides or shows every fence).
 //
 // The rules worth testing are the ones that decide *whether* a gesture happened
-// at all: a click is not a draw, a wobble is not a draw, a press on one of the
-// icons is not ours, the left button draws nothing, and a rectangle too small to
-// be a fence is never offered. Each of those is a way to create something the
-// user did not ask for, which on a desktop is the expensive kind of bug.
+// at all: a click is not a draw, a wobble is not a draw, an icon is picked up by
+// the left button only (and never by the right one), the left button draws
+// nothing, and a rectangle too small to be a fence is never offered. Each of
+// those is a way to create something the user did not ask for, which on a
+// desktop is the expensive kind of bug.
 class TestBackdropGesture : public QObject
 {
     Q_OBJECT
@@ -226,10 +227,112 @@ private slots:
         QCOMPARE(gesture.doubleClick(QPoint(600, 600), false).action, Action::ToggleVisibility);
     }
 
-    void aDoubleClickOnAnIconIsNotOurs()
+    void aDoubleClickOnAnIconOpensIt()
+    {
+        // T-042 (first slice): the icons *this layer draws* have no shell list
+        // behind them, so the desktop's oldest gesture is ours to provide -- open
+        // the entry. (Before F-040 made the takeover the user's switch, an icon
+        // here was always the native one, and the shell answered this itself.)
+        BackdropGesture gesture;
+        const BackdropGesture::Result result = gesture.doubleClick(QPoint(600, 600), true);
+        QCOMPARE(result.action, Action::IconActivate);
+        // The point travels: the assertion of *which* item that is belongs to the
+        // caller, which is the only side that knows the cells (and the items).
+        QCOMPARE(result.point, QPoint(600, 600));
+    }
+
+    // --- T-042: picking up one of the icons this layer draws ------------------
+
+    void aLeftPressOnAnIconPicksItUp()
     {
         BackdropGesture gesture;
-        QCOMPARE(gesture.doubleClick(QPoint(600, 600), true).action, Action::None);
+        QCOMPARE(gesture.press(QPoint(100, 100), Button::Left, true).action, Action::None);
+        QVERIFY(gesture.iconArmed());
+        QVERIFY(!gesture.iconDragging());
+    }
+
+    void aClickOnAnIconIsNotAGesture()
+    {
+        // Below the threshold nothing has happened: a click on an icon is not a
+        // drop, and a drop would file the entry wherever the cursor happened to
+        // be. The desktop must not reorganise itself because the user tapped.
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Left, true);
+        gesture.move(QPoint(103, 102)); // inside the 6 px threshold
+        QCOMPARE(gesture.move(QPoint(104, 103)).action, Action::None);
+        const BackdropGesture::Result result = gesture.release(QPoint(104, 103), Button::Left);
+        QCOMPARE(result.action, Action::None);
+        QVERIFY(!gesture.iconArmed());
+        QVERIFY(!gesture.iconDragging());
+    }
+
+    void aCarriedIconIsDroppedWhereTheButtonCameUp()
+    {
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Left, true);
+        QCOMPARE(gesture.move(QPoint(105, 100)).action, Action::None); // still under the threshold
+        QCOMPARE(gesture.move(QPoint(140, 120)).action, Action::IconDrag);
+        QCOMPARE(gesture.move(QPoint(300, 400)).action, Action::IconDrag);
+        const BackdropGesture::Result result = gesture.release(QPoint(520, 300), Button::Left);
+        QCOMPARE(result.action, Action::IconDrop);
+        // The *release* point, not the press: that is what decides which fence
+        // takes it -- and it is the whole difference between filing an icon and
+        // dropping it back on the desktop.
+        QCOMPARE(result.point, QPoint(520, 300));
+        QVERIFY(!gesture.iconArmed());
+        QVERIFY(!gesture.iconDragging());
+    }
+
+    void theOtherButtonDoesNotDropACarriedIcon()
+    {
+        // A stray right click in the middle of a carry must not let the icon go
+        // somewhere, exactly as it must not end a fence draw (T-055's rule).
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Left, true);
+        gesture.move(QPoint(300, 300));
+        QCOMPARE(gesture.release(QPoint(300, 300), Button::Right).action, Action::None);
+        QVERIFY(gesture.iconArmed());
+        QVERIFY(gesture.iconDragging());
+        QCOMPARE(gesture.release(QPoint(320, 320), Button::Left).action, Action::IconDrop);
+    }
+
+    void aCarryTakenAwayDropsNothing()
+    {
+        // The capture was stolen, the mode was turned off: nothing is filed, and
+        // nothing stays armed for a later release to act on.
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Left, true);
+        gesture.move(QPoint(300, 300));
+        gesture.cancel();
+        QVERIFY(!gesture.iconArmed());
+        QVERIFY(!gesture.iconDragging());
+        QCOMPARE(gesture.release(QPoint(300, 300), Button::Left).action, Action::None);
+    }
+
+    void theRightButtonStillDoesNotPickAnIconUp()
+    {
+        // The right button is the desktop's menu (F-001/F-055): a press on an
+        // icon with it is not a carry, even though the left one is (T-042).
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Right, true);
+        QVERIFY(!gesture.iconArmed());
+        QVERIFY(!gesture.armed());
+    }
+
+    void aCarryAndADrawDoNotCoexist()
+    {
+        // One machine, two gestures: a right press takes over from a carry (and a
+        // left press from a draw), so no release can be read as both.
+        BackdropGesture gesture;
+        gesture.press(QPoint(100, 100), Button::Left, true);
+        gesture.move(QPoint(300, 300));
+        QVERIFY(gesture.iconDragging());
+
+        gesture.press(QPoint(400, 400), Button::Right, false);
+        QVERIFY(!gesture.iconArmed());
+        QVERIFY(!gesture.iconDragging());
+        QVERIFY(gesture.armed());
+        QCOMPARE(gesture.move(QPoint(600, 600)).action, Action::Drawing);
     }
 
     void aDoubleClickEndsAnArmedDraw()

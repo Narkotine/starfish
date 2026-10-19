@@ -18,10 +18,16 @@ namespace starfish::ui {
 //     (T-055). A plain right-click opens the same menu with nothing drawn, which
 //     is exactly the desktop menu T-039 had taken away (T-054).
 //   * **left double-click on the bare desktop** -> quick hide / show (F-022).
+//   * **left press on one of the icons this layer draws** -> pick it up, and let
+//     it go on a fence (T-042, first slice). This is the half that was missing
+//     when F-040 made the takeover a user's switch: hiding the native list takes
+//     away the *source* of every drag, so the icons StarFish draws have to
+//     answer the mouse themselves or the mode hides the icons and offers no way
+//     to file them.
 //
 // The right button is not a detail: it is what Fences does, it is what the user
 // asked for, and it leaves the left button free for the desktop icons' own
-// behaviour (marquee selection, T-042).
+// behaviour (the carry above, and later marquee selection).
 //
 // Both had always looked like they needed a global mouse hook (T-028): the bare
 // desktop belongs to SysListView32, another process's window, so the press never
@@ -65,6 +71,11 @@ public:
         DesktopMenu,      // show the desktop's menu; `rect` is the fence drawn, or null
         Cancelled,        // a draw that was taken away
         ToggleVisibility, // F-022
+        // T-042: an icon this layer draws. `point` is the cursor, in the same
+        // space as the cells, so a caller can ask what is under it.
+        IconDrag,     // ... is being carried: the caller paints what it paints
+        IconDrop,     // ... was let go at `point`: file it wherever that is
+        IconActivate, // ... was double-clicked: open it
     };
 
     struct Result {
@@ -82,25 +93,30 @@ public:
     const Metrics& metrics() const { return m_metrics; }
 
     // A button went down at `point`, which is -- or is not -- on one of the icons
-    // the backdrop draws. Nothing starts on an icon: those icons belong to the
-    // desktop and their behaviour is T-042's, and a fence drawn from on top of an
-    // icon is a fence the user did not ask for.
+    // the backdrop draws. The **left** button on an icon picks it up (T-042): the
+    // caller remembers *which* icon, because this machine only has to know that
+    // the gesture is not the desktop's. The right button never starts on an icon
+    // -- a fence drawn from on top of one is a fence nobody asked for.
     Result press(const QPoint& point, Button button, bool onIcon);
 
-    // The pointer moved. Reports only while a draw is in progress.
+    // The pointer moved. Reports while a draw or a carried icon is in progress.
     Result move(const QPoint& point);
 
-    // The button came up: this is where a right-drag becomes a menu. A release
-    // of the *other* button is ignored rather than treated as an ending -- a
-    // stray left click in the middle of a right-drag must not open the menu.
+    // The button came up: this is where a right-drag becomes a menu, and where a
+    // carried icon is let go. A release of the *other* button is ignored rather
+    // than treated as an ending -- a stray left click in the middle of a
+    // right-drag must not open the menu, nor drop the icon somewhere.
     Result release(const QPoint& point, Button button);
 
     // A double-click. On the bare desktop the *left* one toggles the fences'
-    // visibility (F-022); on an icon it is the desktop's business, not ours.
+    // visibility (F-022); on one of the icons this layer draws it opens the item
+    // (T-042) -- the desktop's oldest gesture, and ours to provide because there
+    // is no shell list behind the icon to answer it.
     Result doubleClick(const QPoint& point, bool onIcon);
 
     // The gesture was taken away -- the mouse capture was stolen, the window
-    // went away, the mode was turned off. Nothing is created, no menu opens.
+    // went away, the mode was turned off. Nothing is created, no menu opens, and
+    // a carried icon is put back where it was.
     Result cancel();
 
     bool armed() const { return m_armed; }
@@ -108,6 +124,12 @@ public:
     Button button() const { return m_button; }
     QPoint origin() const { return m_origin; }
     QPoint current() const { return m_current; }
+
+    // T-042: an icon of this layer is being held, and whether it has travelled
+    // far enough to count as a drag. Exposed for the probes: what is on screen
+    // during a carry is otherwise only observable as pixels.
+    bool iconArmed() const { return m_iconArmed; }
+    bool iconDragging() const { return m_iconDragging; }
 
     // The rubber band to paint, or a null rect when nothing is being drawn.
     QRect rubberBand() const;
@@ -132,6 +154,10 @@ private:
     Button m_button = Button::Left;
     QPoint m_origin;
     QPoint m_current;
+    // T-042: the left button is down on one of the icons this layer draws.
+    bool m_iconArmed = false;
+    bool m_iconDragging = false;
+    QPoint m_iconOrigin;
 };
 
 inline int BackdropGesture::iconAt(const QVector<BackdropCell>& cells, const QPoint& point)
@@ -161,15 +187,25 @@ inline void BackdropGesture::reset()
 {
     m_armed = false;
     m_drawing = false;
+    m_iconArmed = false;
+    m_iconDragging = false;
 }
 
 inline BackdropGesture::Result BackdropGesture::press(const QPoint& point, Button button,
                                                       bool onIcon)
 {
     reset();
-    // Only the right button draws a fence (F-001): the left one is the desktop
-    // icons' own gesture, which is T-042, and F-022's double-click arrives as a
-    // press too. An icon is nobody's drag yet.
+    // T-042 (first slice): the **left** button on one of the icons this layer
+    // draws picks it up. F-040 made the takeover the user's switch, and hiding
+    // the native list takes away the source of every drag -- so if these icons do
+    // not answer the mouse, the mode hides them and offers no way to file them.
+    if (onIcon && button == Button::Left) {
+        m_iconArmed = true;
+        m_iconOrigin = point;
+        return {};
+    }
+    // Only the right button draws a fence (F-001). A press on an icon never
+    // starts one: the fence would come out of an icon the user was aiming at.
     if (button != Button::Right || onIcon)
         return {};
     m_armed = true;
@@ -181,6 +217,21 @@ inline BackdropGesture::Result BackdropGesture::press(const QPoint& point, Butto
 
 inline BackdropGesture::Result BackdropGesture::move(const QPoint& point)
 {
+    if (m_iconArmed) {
+        // Carried past the threshold it is a drag -- the caller paints whatever
+        // it paints for one (T-087 asks for the ghost). Below it, nothing has
+        // happened yet: a click on an icon is not a gesture.
+        if (!m_iconDragging) {
+            const QPoint delta = point - m_iconOrigin;
+            if (qAbs(delta.x()) < m_metrics.dragThreshold
+                && qAbs(delta.y()) < m_metrics.dragThreshold)
+                return {};
+            m_iconDragging = true;
+        }
+        m_current = point;
+        return {Action::IconDrag, {}, point};
+    }
+
     if (!m_armed)
         return {};
 
@@ -197,6 +248,20 @@ inline BackdropGesture::Result BackdropGesture::move(const QPoint& point)
 
 inline BackdropGesture::Result BackdropGesture::release(const QPoint& point, Button button)
 {
+    if (m_iconArmed) {
+        // The other button does not end a carry: a stray right click in the
+        // middle of holding an icon must not drop it somewhere.
+        if (button != Button::Left)
+            return {};
+        const bool carried = m_iconDragging;
+        m_iconArmed = false;
+        m_iconDragging = false;
+        // Below the threshold this was a click on an icon, and a click on an icon
+        // is not a gesture yet (selection is T-042's other half): nothing to
+        // report rather than something the caller has to filter out.
+        return carried ? Result{Action::IconDrop, {}, point} : Result{};
+    }
+
     if (!m_armed || button != m_button)
         return {};
 
@@ -221,12 +286,14 @@ inline BackdropGesture::Result BackdropGesture::release(const QPoint& point, But
 
 inline BackdropGesture::Result BackdropGesture::doubleClick(const QPoint& point, bool onIcon)
 {
-    Q_UNUSED(point);
     // A double-click arrives as press, release, double-click, release: whatever
     // the presses armed has to be gone by the time the trailing release arrives.
     reset();
+    // T-042: on one of the icons this layer draws, the double-click is the
+    // desktop's oldest gesture -- open it. It is ours to provide, because the
+    // icon is only pixels here: there is no shell list behind it to answer.
     if (onIcon)
-        return {};
+        return {Action::IconActivate, {}, point};
     return {Action::ToggleVisibility, {}, {}};
 }
 

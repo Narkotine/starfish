@@ -231,6 +231,22 @@ public:
     // The rect a fence actually shows (its title bar when rolled up).
     QRect fenceVisibleRect(const QString& id) const;
 
+    // T-042: the fence whose *visible* rect contains `point` (virtual-screen
+    // pixels -- the space the backdrop's cells and this container's rects share),
+    // or an empty id. The visible rect, not the stored one: a rolled-up fence
+    // offers its title bar, which is what the user sees and aims at. Fences are
+    // searched in reverse creation order, so the one drawn last -- the one on top
+    // -- is the one that answers where two overlap.
+    QString fenceAt(const QPoint& point) const;
+
+    // T-042: files items into a named fence, the way a rule does, without a rule --
+    // the other half of dragging one of the icons the backdrop draws onto a fence
+    // (F-040). Returns how many were really added: an item the fence already holds
+    // is not appended twice (that would rewrite the document for nothing), and a
+    // fence that is gone files nothing. **No file is moved** (the golden rule):
+    // what changes is which fence *shows* the entry.
+    int fileInto(const QString& fenceId, const QList<core::DesktopItem>& items);
+
     // Quick hide (F-022): hide every fence at once, reversibly. The zones are
     // only taken off screen -- nothing is destroyed and no file is touched.
     bool setFencesVisible(bool visible);

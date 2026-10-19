@@ -195,6 +195,17 @@ signals:
     void desktopMenuRequested(const QRect& rect, const QPoint& point);
     // F-022: the user double-clicked the bare desktop.
     void quickHideRequested();
+    // T-042 (first slice): one of the icons *this layer draws*. The backdrop says
+    // which path and where, and the product decides what that means -- file it
+    // into the fence under the point, or open it. Same split as everywhere else:
+    // the widget signals, the owner decides.
+    //
+    // Only the icons we draw speak here -- both signals are emitted while
+    // setDrawFreeIcons(true) is in force, and never for a native icon. The native
+    // ones belong to the shell, which is exactly why the surface steps the mouse
+    // aside over them instead of reporting anything.
+    void iconDropRequested(const QString& path, const QPoint& point);
+    void iconActivateRequested(const QString& path);
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -240,6 +251,11 @@ private:
     BackdropGesture m_gesture;
     QRect m_rubberBand;
     bool m_gestures = false;
+    // T-042: the path of the icon the left button went down on. The machine only
+    // says "an icon, and it travelled"; *which* icon is the widget's business,
+    // because the identity lives in the cells (DesktopItem), which the pure
+    // machine has no reason to carry.
+    QString m_pressedIcon;
 };
 
 } // namespace starfish::ui

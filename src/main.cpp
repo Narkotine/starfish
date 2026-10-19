@@ -5510,6 +5510,69 @@ int main(int argc, char* argv[])
                           product.statusText().contains(
                               QLatin1String("StarFish will draw the desktop icons")),
                           product.statusText());
+
+                    // -------------------------------------------------------------------
+                    // T-042 (first slice) -- the product's own wiring for an icon the
+                    // backdrop draws, driven through the signal a real drag emits.
+                    //
+                    // --backdrop-demo measures the two halves (the gesture says
+                    // where the button came up, the container says which fence is
+                    // there); this is the one place where the *wiring* between them
+                    // is exercised, because this is the only probe that owns a
+                    // ProductApp. It has no desktop to drag on, so the signal is
+                    // emitted directly -- which is exactly what
+                    // DesktopBackdrop::handleMouse does when the user lets go.
+                    //
+                    // What it proves: the point decides the fence, the path goes
+                    // into it, and the document gains it -- the three things that
+                    // make "file this icon in that fence" true.
+                    // -------------------------------------------------------------------
+                    starfish::ui::DesktopBackdrop* const filingBackdrop =
+                        product.container()->backdrop();
+                    const QList<starfish::core::DesktopItem> desktopNow =
+                        filingBackdrop ? filingBackdrop->desktopItems()
+                                       : QList<starfish::core::DesktopItem>();
+                    const QStringList fenceIds = product.container()->fenceIds();
+                    if (filingBackdrop && !desktopNow.isEmpty() && !fenceIds.isEmpty()) {
+                        const QString into = fenceIds.first();
+                        const QString path = desktopNow.first().path;
+                        const QPoint inside = product.container()->fenceRect(into).center();
+
+                        filingBackdrop->iconDropRequested(path, inside);
+
+                        bool inFence = false;
+                        for (const starfish::core::DesktopItem& held :
+                             product.container()->fenceItems(into)) {
+                            if (held.path.compare(path, Qt::CaseInsensitive) == 0)
+                                inFence = true;
+                        }
+                        bool inDocument = false;
+                        for (const starfish::core::Fence& fence :
+                             product.store()->layout().fences) {
+                            if (fence.id != into)
+                                continue;
+                            for (const starfish::core::FenceItem& item : fence.items) {
+                                if (item.path.compare(path, Qt::CaseInsensitive) == 0)
+                                    inDocument = true;
+                            }
+                        }
+                        check(QLatin1String("a drop on a fence files the icon, and the document "
+                                            "keeps it"),
+                              inFence && inDocument,
+                              QLatin1String("\"%1\" in %2: fence %3, document %4")
+                                  .arg(path, into,
+                                       inFence ? QLatin1String("yes") : QLatin1String("no"),
+                                       inDocument ? QLatin1String("yes")
+                                                  : QLatin1String("no")));
+                    } else {
+                        check(QLatin1String("a drop on a fence files the icon, and the document "
+                                            "keeps it"),
+                              false,
+                              QLatin1String("no desktop entry to file: %1 item(s) read, %2 "
+                                            "fence(s)")
+                                  .arg(QString::number(desktopNow.size()),
+                                       QString::number(fenceIds.size())));
+                    }
                 }
 
                 product.store()->saveNow(nullptr);
@@ -6742,6 +6805,22 @@ int main(int argc, char* argv[])
                                  ++hideRequests;
                                  container.toggleFencesVisible();
                              });
+            // T-042: the other two answers the backdrop can give for an icon this
+            // layer draws. Counted and kept, never acted on here -- filing into a
+            // fence is the product's decision (and it is measured below, with the
+            // same two calls the product makes).
+            QString activatedPath;
+            QString droppedPath;
+            QPoint droppedAt;
+            QObject::connect(backdrop, &starfish::ui::DesktopBackdrop::iconActivateRequested,
+                             &container,
+                             [&activatedPath](const QString& path) { activatedPath = path; });
+            QObject::connect(
+                backdrop, &starfish::ui::DesktopBackdrop::iconDropRequested, &container,
+                [&droppedPath, &droppedAt](const QString& path, const QPoint& point) {
+                    droppedPath = path;
+                    droppedAt = point;
+                });
 
             const auto sendMouse = [&backdrop](QEvent::Type type, const QPoint& screen,
                                                Qt::MouseButton button, Qt::MouseButtons buttons) {
@@ -6863,12 +6942,14 @@ int main(int argc, char* argv[])
             drag(Qt::LeftButton, barePoint, farCorner);
             check(QStringLiteral("the left button draws nothing"),
                   menuRequests == 4 && container.fenceCount() == quietBefore,
-                  QStringLiteral("F-001 is the right button; the left one is T-042's"));
+                  QStringLiteral("F-001 is the right button; on the *bare* desktop the left "
+                                 "one draws nothing either (T-042)"));
 
             drag(Qt::RightButton, iconPoint, QPoint(iconPoint.x() + 300, iconPoint.y() + 200));
-            check(QStringLiteral("a press on one of the icons starts nothing"),
+            check(QStringLiteral("a right press on one of the icons draws nothing"),
                   menuRequests == 4 && container.fenceCount() == quietBefore,
-                  QStringLiteral("the icons the backdrop draws are not ours to drag yet"));
+                  QStringLiteral("the right button is the desktop's own menu; an icon is "
+                                 "carried with the left one (T-042)"));
 
             // F-022, the gesture the feature was always specified with.
             const bool visibleBefore = container.fencesVisible();
@@ -6885,9 +6966,98 @@ int main(int argc, char* argv[])
                       .arg(container.fencesVisible() ? QStringLiteral("yes")
                                                      : QStringLiteral("no")));
 
+            // T-042: and on one of the icons *this layer draws*, the double-click
+            // is the desktop's oldest gesture -- open it. Before F-040 made the
+            // takeover a switch the user can flip, these icons were always the
+            // native ones and the shell answered this itself; hiding the list is
+            // what makes it ours to provide.
             sendMouse(QEvent::MouseButtonDblClick, iconPoint, Qt::LeftButton, Qt::LeftButton);
-            check(QStringLiteral("a double-click on an icon is not ours"), hideRequests == 2,
-                  QStringLiteral("%1 request(s) in total").arg(hideRequests));
+            check(QStringLiteral("a double-click on an icon asks to open *that* icon"),
+                  hideRequests == 2 && activatedPath == gestureCells.at(0).item.path,
+                  QStringLiteral("asking for \\\"%1\\\", %2 hide request(s) in total")
+                      .arg(activatedPath)
+                      .arg(hideRequests));
+
+            // -----------------------------------------------------------------
+            // T-042 (first slice) -- filing an icon of this layer into a fence.
+            //
+            // F-040 turns the takeover into the user's own switch, and a takeover
+            // *removes* the native icon list -- which was the source of every
+            // drag. So the icons StarFish draws have to answer the mouse, or the
+            // switch hides the desktop's icons and leaves no way to file them.
+            //
+            // The drag is the real one, through the same events the hosted window
+            // posts; what follows is the two calls the product makes on the answer
+            // (FenceContainer::fenceAt, then FenceContainer::fileInto). The wiring
+            // itself -- backdrop's signal to the product's slot -- is measured in
+            // --product-probe, which owns a ProductApp.
+            // -----------------------------------------------------------------
+            const QRect dropRect(barePoint.x() - 200, barePoint.y() + 100, 320, 240);
+            const QString dropTarget =
+                container.createFence(QStringLiteral("T-042 drop target"), dropRect);
+            const QPoint dropPoint = dropRect.center();
+
+            drag(Qt::LeftButton, iconPoint, dropPoint);
+            check(QStringLiteral("a left drag from an icon reports the drop where it was let go"),
+                  droppedPath == gestureCells.at(0).item.path && droppedAt == dropPoint,
+                  QStringLiteral("\\\"%1\\\" dropped at %2,%3")
+                      .arg(droppedPath)
+                      .arg(droppedAt.x())
+                      .arg(droppedAt.y()));
+
+            // A click, without travel, must not file anything: the desktop must
+            // not reorganise itself because the user tapped an icon.
+            droppedPath.clear();
+            drag(Qt::LeftButton, iconPoint, QPoint(iconPoint.x() + 2, iconPoint.y() + 1));
+            check(QStringLiteral("a click on an icon files nothing"),
+                  droppedPath.isEmpty(),
+                  QStringLiteral("a 2 px move reports nothing"));
+
+            check(QStringLiteral("the fence under the drop is the one that takes it"),
+                  container.fenceAt(dropPoint) == dropTarget
+                      && container.fenceAt(barePoint).isEmpty(),
+                  QStringLiteral("under the drop: %1 (created %2), under the bare desktop: "
+                                 "\\\"%3\\\"")
+                      .arg(container.fenceAt(dropPoint), dropTarget,
+                           container.fenceAt(barePoint)));
+
+            const starfish::core::DesktopItem filed = gestureCells.at(0).item;
+            const int freeBeforeFiling = backdrop->freeCount();
+            const int filedCount = container.fileInto(dropTarget, {filed});
+            backdrop->renderNow();
+            check(QStringLiteral("filing it puts it in the fence and takes it off the desktop"),
+                  filedCount == 1 && container.fenceItems(dropTarget).size() == 1
+                      && backdrop->freeCount() == freeBeforeFiling - 1,
+                  QStringLiteral("%1 item(s) filed, the fence holds %2, free icons %3 -> %4")
+                      .arg(filedCount)
+                      .arg(container.fenceItems(dropTarget).size())
+                      .arg(freeBeforeFiling)
+                      .arg(backdrop->freeCount()));
+
+            check(QStringLiteral("filing the same entry twice adds nothing"),
+                  container.fileInto(dropTarget, {filed}) == 0
+                      && container.fenceItems(dropTarget).size() == 1,
+                  QStringLiteral("the fence still holds %1 item(s)")
+                      .arg(container.fenceItems(dropTarget).size()));
+
+            // The document follows, and the file itself has never moved: the
+            // golden rule is the point of the whole feature (AGENTS.md).
+            bool inDocument = false;
+            for (const starfish::core::Fence& fence : container.toLayout().fences) {
+                if (fence.id != dropTarget)
+                    continue;
+                for (const starfish::core::FenceItem& item : fence.items) {
+                    if (item.path.compare(filed.path, Qt::CaseInsensitive) == 0)
+                        inDocument = true;
+                }
+            }
+            check(QStringLiteral("the document gains the path, and the file has not moved"),
+                  inDocument && QFileInfo::exists(filed.path),
+                  QStringLiteral("\\\"%1\\\" is in the document and %2 on disk")
+                      .arg(filed.path,
+                           QFileInfo::exists(filed.path) ? QStringLiteral("present")
+                                                         : QStringLiteral("MISSING")));
+            container.removeFence(dropTarget);
         }
 
         // --- the desktop's own menu (T-055, and T-054 with it) ---------------

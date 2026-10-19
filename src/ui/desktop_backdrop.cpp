@@ -231,6 +231,10 @@ void DesktopBackdrop::setDrawFreeIcons(bool draw)
     if (m_drawFreeIcons == draw)
         return;
     m_drawFreeIcons = draw;
+    // T-042: the icons of this layer are only ours to carry while it draws them.
+    // Turning the drawing off mid-carry puts the icon back rather than leaving a
+    // path armed for a release that is no longer about anything.
+    m_pressedIcon.clear();
     refresh();
 }
 
@@ -344,13 +348,21 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     // native ones (ADR-13, the default) or the ones this layer would draw. Asking
     // the wrong set is how a right press on an icon would open the background
     // menu -- the cells are laid out in columns for a desktop that is no longer
-    // in columns.
-    const bool onIcon = m_drawFreeIcons ? BackdropGesture::iconAt(m_cells, screen) >= 0
-                                        : overNativeIcon(screen);
+    // in columns. Only the icons we draw have a path to carry (T-042): the native
+    // ones are the shell's, and its own behaviour is untouched because the
+    // surface steps the mouse aside over their rectangles.
+    const int iconIndex = m_drawFreeIcons ? BackdropGesture::iconAt(m_cells, screen) : -1;
+    const bool onIcon = m_drawFreeIcons ? iconIndex >= 0 : overNativeIcon(screen);
 
     BackdropGesture::Result result;
     switch (mouse->type()) {
     case QEvent::MouseButtonPress:
+        // T-042: the identity of the carried icon is taken here, at the press --
+        // the cells can be recomputed while the button is held (a fence takes the
+        // icon, the document changes), and a drop must file what was picked up.
+        m_pressedIcon = (mouse->button() == Qt::LeftButton && iconIndex >= 0)
+                            ? m_cells.at(iconIndex).item.path
+                            : QString();
         result = m_gesture.press(screen, button, onIcon);
         break;
     case QEvent::MouseMove:
@@ -379,9 +391,49 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
         // The rubber band moved, or went away: repaint. Coalesced like every
         // other render -- a drag emits ~60 moves a second and each one uploads
         // the whole virtual screen.
+        // T-042: a carry that was taken away drops nothing, so the icon it was
+        // holding is forgotten with the band.
+        if (result.action == BackdropGesture::Action::Cancelled)
+            m_pressedIcon.clear();
         m_rubberBand = m_gesture.rubberBand();
         refresh();
         return true;
+
+    case BackdropGesture::Action::IconDrag:
+        // T-042: the carry is under way. What the user *sees* while carrying is
+        // T-087 (a ghost of the tile, and the fence under the cursor); the
+        // gesture is complete without it, so nothing is painted yet -- and the
+        // product still gets the drop, which is the half that files an icon.
+        return true;
+
+    case BackdropGesture::Action::IconDrop: {
+        const QString path = m_pressedIcon;
+        m_pressedIcon.clear();
+        // Same rule as the activate above: an icon is only ours to file while we
+        // are the ones drawing it.
+        if (path.isEmpty() || !m_drawFreeIcons)
+            return true;
+        emit iconDropRequested(path, result.point);
+        return true;
+    }
+
+    case BackdropGesture::Action::IconActivate: {
+        // Only the icons *this layer draws* are ours to open (F-040): with the
+        // native layer visible the double-click is the shell's, and it opens the
+        // entry itself -- a second open from here would be a doubled launch.
+        // (The window's own HTTRANSPARENT hole over a native icon is what keeps
+        // this unreachable, but the rule belongs in the code, not in a hit test.)
+        if (!m_drawFreeIcons)
+            return true;
+        // Read from the point rather than from the press: a double-click arrives
+        // as press, release, double-click, and the activate is the answer to the
+        // *last* point the user aimed at.
+        const int index = BackdropGesture::iconAt(m_cells, result.point);
+        if (index < 0)
+            return true;
+        emit iconActivateRequested(m_cells.at(index).item.path);
+        return true;
+    }
 
     case BackdropGesture::Action::DesktopMenu:
         m_rubberBand = {};

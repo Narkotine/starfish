@@ -186,6 +186,62 @@ int FenceContainer::applyRulesTo(const QList<core::DesktopItem>& items)
     return placed;
 }
 
+int FenceContainer::fileInto(const QString& fenceId, const QList<core::DesktopItem>& items)
+{
+    FenceWindow* fence = find(fenceId);
+    if (!fence || !fence->view) {
+        qCWarning(lc).noquote()
+            << QStringLiteral("nothing to file into: fence %1 does not exist").arg(fenceId);
+        return 0;
+    }
+
+    int filed = 0;
+    for (const core::DesktopItem& item : items) {
+        if (item.path.isEmpty())
+            continue;
+
+        // The same rule the rule engine obeys: an item the fence already holds is
+        // not appended again. Re-adding it would re-render the fence and rewrite
+        // the document for a change nobody made.
+        bool alreadyThere = false;
+        for (const core::DesktopItem& existing : fence->view->items()) {
+            if (existing.path.compare(item.path, Qt::CaseInsensitive) == 0) {
+                alreadyThere = true;
+                break;
+            }
+        }
+        if (alreadyThere)
+            continue;
+
+        // addDroppedItems() emits contentChanged(), which this container relays as
+        // fenceContentChanged() -- the product writes the document from there.
+        fence->view->addDroppedItems({item});
+        ++filed;
+    }
+
+    if (filed > 0)
+        qCInfo(lc).noquote()
+            << QStringLiteral("filed %1 item(s) into %2").arg(filed).arg(fence->id);
+    return filed;
+}
+
+QString FenceContainer::fenceAt(const QPoint& point) const
+{
+    // Quick-hidden fences are not on screen: nothing can be dropped on what the
+    // user cannot see.
+    if (!m_fencesVisible)
+        return QString();
+
+    // Reverse creation order: the last fence created is the one drawn on top of
+    // any overlap, so it is the one the user is aiming at when they let go.
+    for (int i = m_fences.size() - 1; i >= 0; --i) {
+        const FenceWindow& fence = m_fences.at(i);
+        if (FenceGeometry::visibleRect(fence.rect, fence.rolledUp).contains(point))
+            return fence.id;
+    }
+    return QString();
+}
+
 void FenceContainer::setScreens(const ScreenLayout& layout)
 {
     if (layout.isEmpty())
