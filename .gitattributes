@@ -1,0 +1,6 @@
+# Line endings: LF in the repository and in the working tree, on every platform.
+# A tool that writes "\r\n" into a text-mode file on Windows produces "\r\r\n"
+# here (paid in session 55: devlog/2026-10-18.md, guardrails/08); keeping the
+# working tree at LF means such a slip shows up in `git status` instead of
+# silently rewriting a whole file in the next commit.
+* text=auto eol=lf
