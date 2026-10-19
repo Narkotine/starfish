@@ -8,7 +8,7 @@
 - **Dernière session de code livrée :** 56 (2026-10-19) — **T-042 (1ʳᵉ tranche) : les icônes que le fond dessine répondent à la souris** — son retour du matin (« l'option “dessine les icônes de bureau” les cache. comment je peux les mettre dans les fences ? ») désignait le trou de la s55 : prendre la couche d'icônes **retire la source de tout glisser**. Désormais **glisser** une icône libre sur une zone la **range** (et elle quitte le bureau), **double-clic** l'ouvre. `ctest` **17/17**, `--backdrop-demo` **43/43**, `--product-probe` **37/37**. **§42**.
 - **Livré juste avant :** 55 — **T-088 / F-040** la case « StarFish dessine les icônes du bureau » (préférence persistée, prix écrit dessous, défaut **non**) ; 52 — i18n (F-036) ; 51 — T-059 ; 50 — T-080 / ADR-18.
 - **Dernière mise à jour :** 2026-10-19 (session 56)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **poussé** au 2026-10-18 (session 53, accord de l'utilisateur) — tout push déclenche la CI.
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; **poussé** au 2026-10-19 (sessions 55-56, accord de l'utilisateur, `bf33643`) : CI **verte**, build **MSVC**, ctest, docs, i18n — tout push déclenche la CI.
 
 ## 3 prochaines actions
 
