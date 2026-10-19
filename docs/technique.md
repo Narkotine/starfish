@@ -2038,3 +2038,28 @@ Trois vérifications de `--product-probe` **remplacées, pas ajustées** (elles 
 **Limites assumées.** Le mode ne tient sa promesse qu'avec **T-042** : tant que les icônes dessinées ne répondent à rien, cocher la case échange « une icône en double » contre « un bureau muet », et la case le dit. Case cochée, déposer un fichier sur le **bureau vide** ne fait rien (T-052, accepté tel quel en session 54). Et le déclenchement reste lié à un contenu : une zone **vide** ne fait pas prendre la couche.
 
 **Pièges payés (outillage).** `lupdate` **réintroduit** le contexte `QPlatformTheme`/`Cancel` — la sonde interroge une chaîne de Qt (§40) — et `tools/i18n_check.py` le compte **stale** *et* **untranslated** : **`lupdate` seul rend la CI rouge**, l'entrée se retire à la main. Et `i18n_check.py` **lit les littéraux C++ un par un** : une chaîne `tr()` coupée en plusieurs littéraux est vue **tronquée** (⇒ « MISSING » côté code, « STALE » côté catalogue), donc une chaîne traduisible reste sur **une seule ligne**.
+
+## 42. T-042 (première tranche) — les icônes que le fond dessine répondent à la souris (session 56)
+
+**Le défaut trouvé par l'utilisateur, le lendemain de F-040.** Son essai de la case livrée en s55 : « l'option “dessine les icônes de bureau” les cache. **comment je peux les mettre dans les fences ?** ». Il a raison, et c'est un trou de ce qui venait d'être livré : **prendre la couche d'icônes retire la *source* de tout glisser**. Le mode cachait les icônes et n'offrait plus aucun moyen de les ranger — la seule chose qu'il voulait faire. Les tuiles *dans* une zone répondaient déjà (clic, lancement, menu, glisser entre zones : T-005/T-006) ; les icônes dessinées **hors** des zones étaient des pixels muets (**T-042**, non écrit).
+
+### La règle
+
+- **Le bouton gauche saisit une icône que cette couche dessine**, et rien d'autre ne la saisit. Le **bouton droit** reste le menu du bureau (F-001/T-055) : une zone tracée depuis une icône est une zone que personne n'a demandée.
+- **Sous le seuil de 6 px, un clic ne fait rien.** Le bureau ne se réorganise pas parce qu'on a tapé — c'est la même frontière que celle qui évite qu'un clic devienne une zone.
+- **Le relâchement porte le point où le bouton s'est relevé**, et **ce point seul** décide de la zone : c'est `FenceContainer::fenceAt(point)` (rect **visible** — une zone enroulée n'offre que sa barre —, ordre de création **inverse** — la zone du dessus répond —, aucune zone pendant un quick hide). Lâcher sur le bureau nu **annule** : rien n'est rangé, rien n'est déplacé.
+- **Le double-clic ouvre** (`IconGrid::launchPath` : un `.lnk`/`.url` s'ouvre par sa **cible**, exactement comme une tuile de zone, F-006). C'est le geste le plus ancien du bureau, et il est **à nous** parce qu'il n'y a plus de liste de la coquille derrière l'icône.
+- **Les deux signaux ne sortent que tant que la couche dessine les icônes** (`setDrawFreeIcons(true)`). Une icône native appartient à la coquille : elle ouvre elle-même au double-clic, et un second lancement depuis chez nous serait un **doublon**. La règle vit dans le code, pas dans l'`HTTRANSPARENT` de la fenêtre — une règle qui dépend d'un test de toucher n'est pas une règle.
+- **Ranger, c'est `fileInto`, pas déplacer.** `FenceContainer::fileInto(id, items)` fait ce que fait une règle **sans la règle** : un item déjà détenu n'est pas ajouté deux fois, une zone disparue ne range rien, et **aucun fichier ne bouge** (règle d'or). Ce qui change est **quel affichage détient l'entrée** — donc le bureau cesse de la dessiner, sans une ligne de code de restauration (§19).
+- **Ce que la machine à états ne sait pas, le widget le sait** : le transport garde le **chemin** de l'icône saisie (pris **au press** : les cellules peuvent être recalculées pendant le transport) ; la machine pure n'a que « une icône, et elle a bougé ».
+
+### Vérification
+
+- `ctest` **17/17** ; la suite des gestes passe de **21 à 28 cas**. ⚠️ Le cas « *a double-click on an icon is not ours* » est **remplacé, pas ajusté** : il était vrai quand ces icônes étaient toujours les natives, que la coquille servait toute seule.
+- `--backdrop-demo` **37 → 43/43**, sur un **vrai** glisser : depuis la cellule 0 (`WebTool.lnk`, en 43,31) le relâchement est rapporté à `468,259`, la zone sous ce point est celle qui vient d'être créée, le bureau nu n'en rend **aucune**, un clic de **2 px ne dépose rien**, `fileInto` range l'entrée et le fond passe de **85 à 84 icônes libres**, recommencer **n'ajoute rien**, le **document gagne le chemin** et le **fichier est toujours sur le disque**.
+- `--product-probe` **36 → 37/37** : le **câblage du produit** (le signal émis comme un vrai relâchement, `ProductApp` branché dessus) — le `WebTool.lnk` de l'utilisateur se retrouve **dans la zone et dans le document**. C'est le seul endroit où la jonction entre les deux moitiés est exercée, parce que c'est la seule sonde qui possède un `ProductApp`.
+- ⚠️ **Piège de compilation** : `QLatin1String("…").arg(<qsizetype>)` est **ambigu** (`long long` → `QChar`) — même famille qu'en §39, la réponse reste `QString::number()`.
+
+### Limites assumées
+
+Reste de **T-042** : le **menu au clic droit** sur une icône libre (avec un « ranger dans une zone ▸ » : c'est le geste de secours, et il manque), **renommer (F2)**, **couper/coller**, la **sélection rectangulaire** — et le **retour visuel pendant le transport**, qui est **T-087** (sa propre demande de la s54 : un fantôme de la tuile tenue et une proposition graphique de la zone tracée).

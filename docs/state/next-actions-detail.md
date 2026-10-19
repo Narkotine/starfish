@@ -1,6 +1,6 @@
 # Prochaines actions — détail et ordre
 
-> Dernière révision : **session 55 (2026-10-18)**. Lu quand on attaque une des actions de `STATE.md`.
+> Dernière révision : **session 56 (2026-10-19)**. Lu quand on attaque une des actions de `STATE.md`.
 > **Règle d'écriture** (leçon de la session 54) : **nommer la chose avant l'identifiant** — « les coins des zones
 > (T-058) », jamais « T-058 » seul. Les identifiants ne servent qu'au suivi, pas à la compréhension.
 
@@ -14,13 +14,7 @@ translucide laisse voir le papier peint **à travers son fond et sa barre de tit
 
 ## 2. Ce que son essai a ouvert — à faire, dans cet ordre
 
-0. **Essayer la case neuve : « StarFish dessine les icônes du bureau » (T-088, session 55)** — c'est **sa** demande,
-   livrée : une icône rangée dans une zone n'est alors **plus dessinée sur le bureau**, elle n'existe qu'en tuile dans
-   sa zone. Où : **clic sur l'icône de la zone de notification → « Réglages... » → la case, sous la ligne d'état**.
-   ⚠️ **À essayer en connaissance de cause** : le prix est écrit **sous** la case — les icônes restées **hors** des
-   zones ne répondent plus au clic, au double-clic ni au bouton droit (c'est **T-042** qui leur rendrait la vie, et
-   elle n'est pas écrite). Pour revenir en arrière : **décocher la case**, ou « **Restaurer mes icônes** » dans le menu
-   de la zone de notification. La case est **décochée** par défaut, donc **rien ne change** s'il ne l'essaie pas.
+0. **Essayer la case : « StarFish dessine les icônes du bureau » (T-088 + T-042, 1ʳᵉ tranche — session 56)** — c'est **sa** demande, et elle marche maintenant de bout en bout : **clic sur l'icône de la zone de notification → « Réglages... » → la case** ; puis **glisser une icône du bureau dans une zone** ⇒ elle y est **rangée** et **quitte le bureau** ; **double-clic** sur une icône restée libre ⇒ elle **s'ouvre**. Où sont les limites : les icônes **hors** des zones ne répondent **encore** ni au **clic droit**, ni à **F2**, ni au **couper/coller**, et il n'y a pas de **sélection rectangulaire** (reste de T-042) — ni de fantôme pendant le transport (**T-087**). Pour revenir en arrière : **décocher la case**, ou « **Restaurer mes icônes** » dans le menu de la zone de notification. La case est **décochée** par défaut, donc **rien ne change** s'il ne l'essaie pas.
 
 1. **Deux crans d'arrondi de plus (T-084)** — le menu « Arrondi des coins » d'une zone propose *Carré*, 6, 10, 14, 20 ;
    il passe à sept entrées en ajoutant **30** et **40**. Petit.
