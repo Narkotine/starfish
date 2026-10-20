@@ -12,7 +12,6 @@
 #include <memory>
 
 #include "platform/win/desktop_menu.hpp"
-#include "core/preferences.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/screen_layout.hpp"
 
@@ -81,11 +80,6 @@ public:
         // behaviour (and then the tray offers the entries that undo it).
         bool claimDesktop = false;
 
-        // T-088: empty = %APPDATA%/StarFish/preferences.json (Preferences::
-        // defaultFilePath). Only the probes and the tests pass a path of their
-        // own, so a diagnostic can never write the preferences of the person
-        // running it.
-        QString preferencesPath;
     };
 
     explicit ProductApp(QObject* parent = nullptr);
@@ -111,18 +105,6 @@ public:
 
     bool desktopIconsHidden() const;
     void setDesktopIconsHidden(bool hidden);
-
-    // T-088: whether StarFish is the one drawing the desktop's icons -- the user's
-    // own switch, and the answer to « alors si ce n'est pas le défaut du produit,
-    // fais une case où je peux le configurer ».
-    //
-    // Reading it is what `syncNativeIcons()` gates on; **setting** it persists the
-    // choice (core::Preferences) and applies it now: turning it on takes the layer
-    // over as soon as a fence holds an icon, turning it off gives the icons back
-    // immediately. Returns false when the choice could not be written -- this run
-    // still honours it, and the user is told it will not be remembered.
-    bool ownsDesktopIcons() const;
-    bool setOwnsDesktopIcons(bool owned);
 
     // The emergency exit (F-034 / T-046): asks the desktop to show the native
     // icons right now, whatever our own bookkeeping believes. Deliberately not a
@@ -244,12 +226,6 @@ private:
 
     // True while the icons are ours to draw (see takeOverDesktopIcons).
     bool m_ownsIcons = false;
-
-    // T-088: the user's own choices, read once at start and written when one of
-    // them changes. Not the document (see core/preferences.hpp), and not per-run
-    // state either: it is what decides whether a *later* run takes the desktop
-    // over, which is why it has to be on disk before anything is hidden.
-    core::Preferences m_prefs;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

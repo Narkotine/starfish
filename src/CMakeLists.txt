@@ -13,7 +13,6 @@ qt_add_executable(starfish WIN32
     core/rules.cpp
     core/jsonstore.cpp
     core/layout_store.cpp
-    core/preferences.cpp
     core/snapshot.cpp
     core/zorder.cpp
     platform/win/desktop_host.cpp

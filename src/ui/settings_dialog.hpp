@@ -3,7 +3,6 @@
 #include <QDialog>
 #include <QString>
 
-class QCheckBox;
 class QLabel;
 
 namespace starfish::ui {
@@ -23,18 +22,12 @@ namespace starfish::ui {
 // longer holds a FenceContainer at all: "a window is not a second path to the
 // document" stops being a promise and becomes a property of the code.
 //
-// What it holds is the two things no other surface says in words:
-//   * **one line describing what is running** (fences, rules, watched folders,
-//     hot keys);
-//   * T-088 -- **the desktop-icon switch the user asked for** (« alors si ce n'est
-//     pas le défaut du produit, fais une case où je peux le configurer »). It is a
-//     *preference*, not document state: it applies to this desktop through
-//     `core::Preferences`, the product decides what it means, and this window only
-//     reports it and asks for it -- exactly like a tray entry. T-062's decision
-//     stands where it was aimed: the switch is not a trap reached by accident, it
-//     says out loud what it costs, and the tray keeps the way back. The rules
-//     screen (T-032) is the other thing still assigned to this page, which is why
-//     the window exists rather than being deleted.
+// What it holds is the one thing no other surface says in words: **one line
+// describing what is running** (fences, rules, watched folders, hot keys). The
+// desktop-icon switch T-088 had added here is gone (ADR-20, session 57) -- the
+// user tried it and rejected it, and a mode the product no longer offers needs
+// no check box. The rules screen (T-032) is the other thing still assigned to
+// this page, which is why the window exists rather than being deleted.
 //
 // Non-modal on purpose: what it describes lives on the desktop behind it.
 class SettingsDialog : public QDialog
@@ -49,22 +42,8 @@ public:
     // a choice.
     void setStatusText(const QString& text);
 
-    // Reports the **real** state of the preference -- what the product applied,
-    // not what was asked for -- and does not emit the toggle signal for a
-    // programmatic change: a checkbox that answered its own signal would fight
-    // the product that set it.
-    void setDesktopIconsOwned(bool owned);
-    bool desktopIconsOwned() const;
-
-signals:
-    // T-088: the user asked for StarFish to draw the desktop's icons, or asked it
-    // to stop. The product decides what that means -- it persists the choice and
-    // applies it -- and this widget never does either.
-    void desktopIconsOwnedToggled(bool owned);
-
 private:
     QLabel* m_status = nullptr;
-    QCheckBox* m_ownIcons = nullptr;
 };
 
 } // namespace starfish::ui

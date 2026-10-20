@@ -165,23 +165,6 @@ target_link_libraries(test_starfish_icon_hiding_marker PRIVATE Qt6::Core Qt6::Te
 
 add_test(NAME core_icon_hiding_marker COMMAND test_starfish_icon_hiding_marker)
 
-# The user's own choices (T-088): the file that remembers the desktop-icon switch
-# across runs. Pure Qt Core -- and what is checked is mostly *direction*: a missing
-# or corrupt file has to land on the defaults, because the default here is the
-# answer that keeps the desktop's icons where they are (T-066).
-add_executable(test_starfish_preferences
-    test_preferences.cpp
-    ../src/core/preferences.cpp
-)
-
-target_include_directories(test_starfish_preferences PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
-
-target_link_libraries(test_starfish_preferences PRIVATE Qt6::Core Qt6::Test)
-
-add_test(NAME core_preferences COMMAND test_starfish_preferences)
-
 # The desktop backdrop (T-039 / ADR-9 option A): which entries a fence does NOT
 # hold, and where the icons StarFish draws itself land. Pure -- no Win32, no
 # window, so the two rules that matter (the free set is *computed*, and the
