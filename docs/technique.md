@@ -2017,6 +2017,8 @@ Trois vérifications de `--product-probe` **remplacées, pas ajustées** (elles 
 
 ## 41. ADR-19 — le rachat des icônes redevient un choix : une case, et son prix écrit dessous (T-088 / F-040, session 55)
 
+> ⛔ **ANNULÉ en session 57 par l'ADR-20 (§43)** : la case, la préférence et le mode ont été **retirés** sur sa demande. Ce qui suit reste le récit de ce qui a été livré et pourquoi — c'est la trace qui explique le retrait.
+
 **La demande était une question de conception**, posée telle quelle : « avoir les icônes normales sur le bureau, y compris celles qui se créent ; glisser une icône dans une zone pour qu'elle ne soit plus sur le bureau mais seulement dans la zone ; et si une zone est détruite avec ses icônes, qu'elles retournent sur le bureau » — avec l'idée, en option, d'une **métadonnée par fichier** (« dans une zone » ou pas). La réponse tient en trois lignes de fait :
 
 - **Les trois points sont déjà le design.** Le document dit qui détient quoi (`layout.json`, ADR-7) et « hors zone » est **calculé** par soustraction (§19) : détruire une zone **rend** ses icônes au bureau sans une seule ligne de code de restauration (mesuré 86 → 83 → 86), et aucun fichier n'a jamais bougé. Une métadonnée par fichier ou une base par fichier serait une **seconde autorité**, à resynchroniser à chaque renommage fait ailleurs — et elle écrirait sur le bureau de l'utilisateur pour une information que le document porte déjà.
@@ -2063,3 +2065,31 @@ Trois vérifications de `--product-probe` **remplacées, pas ajustées** (elles 
 ### Limites assumées
 
 Reste de **T-042** : le **menu au clic droit** sur une icône libre (avec un « ranger dans une zone ▸ » : c'est le geste de secours, et il manque), **renommer (F2)**, **couper/coller**, la **sélection rectangulaire** — et le **retour visuel pendant le transport**, qui est **T-087** (sa propre demande de la s54 : un fantôme de la tuile tenue et une proposition graphique de la zone tracée).
+
+## 43. ADR-20 — la case « StarFish dessine les icônes du bureau » est retirée, avec le mode qu'elle ouvrait (F-040 / T-088, session 57)
+
+**Le défaut, trouvé par l'utilisateur à la main.** Son essai de la s55 : « Si je clique StarFish dessine les icônes du bureau, alors ça me change le clic droit, mais surtout lorsque je ré-enlève cette option pour redevenir normal (...) j'ai toujours le clic droit bizarre de StarFish et non pas le clic droit normal de Windows. » Les deux moitiés sont vraies :
+
+- **Mode actif**, le bureau nu n'est plus à la coquille : c'est notre fond qui répond, et son menu est **reconstruit par nous** (T-055) — pas celui de Windows, extensions shell comprises. C'est le prix déjà écrit de l'ADR-9 option A.
+- **Mode décoché**, `giveBackDesktopIcons()` rendait bien la liste native (`ShowWindow(SW_SHOW)` sur `SysListView32`, marqueur retiré) mais **gardait le fond hébergé** — « le fond est la surface d'entrée du bureau nu » (ADR-13) — donc **le clic droit restait le nôtre jusqu'à la fermeture du produit**. Deux autres chemins détachaient le fond (`setDesktopIconsHidden(false)`, `restoreDesktopIcons()`) ; celui de la case, non.
+
+**Sa décision.** « Oui, enlève cette option. » C'est une **réversion d'ADR**, pas un correctif : l'ADR-19 est annulé, le mode et sa porte d'entrée sont retirés du produit.
+
+### Ce qui part, ce qui reste
+
+- **Partent** : la case et son texte de prix (`SettingsDialog`), `core::Preferences` et `tests/test_preferences.cpp` (suite `core_preferences`, donc `ctest` **17 → 16**), `ProductApp::ownsDesktopIcons()` / `setOwnsDesktopIcons()`, l'option `preferencesPath`, la branche de rachat au lancement (`else if (m_prefs.desktopIconsOwned())`) et les deux lignes de la ligne d'état.
+- **Reste** `TrayIcon::setRestoreIconsOffered()` (sortie de secours T-046), mais il ne suit plus qu'`--claim-desktop`, comme « Masquer les icônes du bureau » (ADR-13).
+- **Reste** `takeOverDesktopIcons()` / `giveBackDesktopIcons()`, derrière **`--claim-desktop`** seulement : c'est là qu'un futur modèle du bureau (option B de l'ADR-9 — les groupes dans la liste native, cf. le mécanisme réel de Fences) se mesurera. `syncNativeIcons()` n'a plus qu'un garde : `if (!m_options.claimDesktop) { giveBackDesktopIcons(); return; }`.
+- **Reste** le câblage de T-042 (1ʳᵉ tranche), intact — mais **aucune surface du produit ne l'atteint** : il n'y a plus de mode où c'est nous qui dessinons les icônes. T-042 est donc, de fait, suspendu à ce que le produit décide de faire du bureau (rien, aujourd'hui).
+- **Le prix, redit sans détour** : une icône rangée dans une zone s'affiche **deux fois** (sur le bureau, et comme tuile). C'est F-039, assumé depuis la session 36 — et c'était exactement ce que la case achetait. Le produit choisit « le bureau reste le tien », y compris quand ça se voit.
+
+### Vérification
+
+- Build MinGW **0 warning** ; `ctest` **16/16** ; `--product-probe` **37 → 33/33** : les **cinq** vérifications de la case s'en vont, **une** les remplace (« a later run has no desktop-icon switch to read back » : la fenêtre d'un second lancement ne contient **aucune** case) et celle de la fenêtre de réglages devient « ... one status line, a Close button and **no switch** » (`boxes.isEmpty()`, pas `boxes.size() == 1`).
+- `--backdrop-demo` **43/43** inchangée (le fond et la couche d'icônes n'ont pas bougé), `tools/i18n_check.py` **61/61** (5 chaînes de la case retirées, 0 restante), caps docs verts.
+- ⚠️ **Le câblage T-042 était imbriqué dans `if (switchBox)`** et lisait `backdrop->desktopItems()`, que la case remplissait par `refreshDesktopItems()` : sans la case, la liste est vide et la vérification tombait pour une raison **étrangère à son sujet**. Elle lit désormais le bureau elle-même (`DesktopScanner::scan`) — c'est la leçon de T-083 (une sonde qui lit ce qu'elle a sous la main au lieu de ce que sa question demande).
+- ⚠️ **`lupdate` a encore réintroduit `QPlatformTheme`/`Cancel`** (piège de la s55, §41) : retiré à la main, sinon CI rouge sur *stale* **et** *untranslated*.
+
+### Ce qui n'est pas fait (et ne l'est pas sans lui)
+
+Le `%APPDATA%/StarFish/preferences.json` écrit par les sessions 55-56 reste sur son disque, **inerte** : plus personne ne le lit. Le supprimer est une action sur **sa** machine — proposée, pas faite.
