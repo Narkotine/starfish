@@ -36,6 +36,7 @@
 | T-097 | **Design avancé des zones** (demande session 60, « pour l'avenir ») : une page de réglages pour les marges d'une zone - hauteur et retrait du titre, écart titre/icônes, marges, écart entre cases, hauteur des libellés. Déjà paramétré : `ui/fence_metrics.hpp` (`FenceMetrics`, valeurs par défaut = l'écran actuel) ; reste la page et la persistance. Va avec **T-093** | 5 (v0.2) | P2 | ⏳ |
 | T-098 | **Zone translucide, icônes nettes** : **fait session 63**. Sur le bureau dessiné, une zone = **une fenêtre opaque composée** (bureau dessous + couleur à sa transparence + titre/icônes opaques avec ombre du bureau) ; plus de fenêtre d'icônes. Bureau natif : ancien mode (ADR-15/17). Curseurs chiffrés : défaut (Réglages → Zones) + par zone (menu → Transparence...). | 5 (v0.2) | P1 | ✅ |
 | T-099 | **Flou derrière une zone translucide** (option, non faite s63) : flouter le morceau de bureau avant composition, désactivé par défaut ; coût à mesurer au déplacement. | 5 (v0.2) | P3 | ⏳ |
+| T-100 | **Superposition des zones** (s64) : fait - ordre fenêtres = ordre des zones, clic = au premier plan, réglage « Autoriser la superposition des zones » (oui par défaut), grille centrée. Reste à décider : défaut à terme (Non ?) et résolution douce des anciennes superpositions. | 5 (v0.2) | P2 | ✅ |
 
 ## Tâches ouvertes — détail
 

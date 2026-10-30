@@ -9,8 +9,9 @@
 - **Sessions 59-61 :** apps empaquetées au menu, icône, refonte Réglages + éditeur du menu ; redimensionnement, renommage sur le titre, superposition interdite ; `starfish --quit`.
 - **Session 62 :** « Démarrer avec Windows » (clé `Run` HKCU) ; image de glisser ; étude T-098.
 - **Session 63 :** rectangle de sélection fluide (redessin partiel : 60 images / 60 mouvements, ~2 ms, était 14 et ~140 ms) ; **T-098** zone translucide composée (une fenêtre opaque, icônes nettes) + curseurs de transparence (défaut + par zone). `ctest` 19/19, sondes 58/58, 37/37, 20/20, 43/43, 18/18.
-- **Dernière mise à jour :** 2026-10-30 (session 63)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; session 63 **locale**.
+- **Session 64 :** zones superposées cohérentes (l'ordre des fenêtres = l'ordre des zones ; un clic remonte une zone) ; réglage « Autoriser la superposition des zones » (oui par défaut) ; grille d'icônes centrée (marges gauche = droite). `ctest` 19/19, sondes 64/64, 37/37, 20/20, 43/43, 20/20.
+- **Dernière mise à jour :** 2026-10-31 (session 64)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-64 **locales**.
 
 ## 3 prochaines actions
 
