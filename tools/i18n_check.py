@@ -41,11 +41,20 @@ SOURCE_DIRS = ("src",)
 # A context that starts with "Q" is Qt's own ("QPlatformTheme", "QColorDialog"):
 # reading one of those is a *lookup* of the toolkit's translation (that is how the
 # probe checks it), not a string StarFish has to translate.
+# Adjacent literals ("a " "b") are one string to the compiler and to lupdate,
+# so they are one here too; QT_TR_NOOP marks a string tr() reads later (a table).
+LITERALS = r'"(?:[^"\\]|\\.)*"(?:\s*"(?:[^"\\]|\\.)*")*'
 CALL_PATTERNS = [
-    re.compile(r'\btr\(\s*"(?P<text>(?:[^"\\]|\\.)*)"'),
-    re.compile(r'\btr\(\s*QLatin1String\(\s*"(?P<text>(?:[^"\\]|\\.)*)"'),
-    re.compile(r'\btranslate\(\s*"(?P<context>[^"]*)"\s*,\s*"(?P<text>(?:[^"\\]|\\.)*)"'),
+    re.compile(r'\btr\(\s*(?P<text>' + LITERALS + ')'),
+    re.compile(r'\bQT_TR_NOOP\(\s*(?P<text>' + LITERALS + ')'),
+    re.compile(r'\btr\(\s*QLatin1String\(\s*(?P<text>' + LITERALS + ')'),
+    re.compile(r'\btranslate\(\s*"(?P<context>[^"]*)"\s*,\s*(?P<text>' + LITERALS + ')'),
 ]
+PIECE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def joined(literals: str) -> str:
+    return "".join(PIECE.findall(literals))
 
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 LINE_COMMENT = re.compile(r"//[^\n]*")
@@ -82,7 +91,7 @@ def translatable_strings(root: Path) -> tuple[set[str], list[str]]:
                     context = match.groupdict().get("context")
                     if context and context.startswith("Q"):
                         continue  # Qt's own string, looked up and not ours
-                    found.add(canonical(match.group("text")))
+                    found.add(canonical(joined(match.group("text"))))
     return found, unreadable
 
 

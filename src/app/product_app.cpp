@@ -40,6 +40,7 @@
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
 #include "platform/win/shell_operations.hpp"
+#include "ui/context_menu_editor.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
@@ -483,6 +484,22 @@ void ProductApp::wireSettings()
     // fence's own menu (T-076 / ADR-16). What the window carries is the status
     // line, and the rules screen (T-032) is assigned to it.
     m_settings = new ui::SettingsDialog(nullptr);
+    // Session 59: the window grew pages, and every control on them speaks for
+    // the whole desktop -- the tray's entries, wired to the same slots, so the
+    // two surfaces cannot disagree. Still no fence list (T-059): one fence is
+    // its own menu's.
+    connect(m_settings, &ui::SettingsDialog::newFenceRequested, this, &ProductApp::onNewFence);
+    connect(m_settings, &ui::SettingsDialog::fencesVisibilityToggled, this,
+            [this](bool visible) { m_container->setFencesVisible(visible); });
+    connect(m_settings, &ui::SettingsDialog::fenceMaterialRequested, this,
+            &ProductApp::applyMaterialToAllFences);
+    connect(m_settings, &ui::SettingsDialog::fenceShortcutArrowsToggled, this,
+            &ProductApp::setFenceShortcutArrows);
+    connect(m_settings, &ui::SettingsDialog::restoreIconsRequested, this,
+            &ProductApp::restoreDesktopIcons);
+    m_settings->setRestoreIconsOffered(m_options.claimDesktop);
+    loadSeenMenuKeys();
+    m_settings->menuEditor()->setSeenEntries(m_seenMenuKeys);
     refreshStatus();
 }
 
@@ -1422,8 +1439,14 @@ void ProductApp::showSettings()
 
 void ProductApp::refreshStatus()
 {
-    if (m_settings)
-        m_settings->setStatusText(statusText());
+    if (!m_settings)
+        return;
+    m_settings->setStatusText(statusText());
+    if (m_container) {
+        m_settings->setFencesVisible(m_container->fencesVisible());
+        m_settings->setFenceMaterial(sharedFenceMaterial());
+    }
+    m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
 }
 
 QString ProductApp::statusText() const
@@ -1682,6 +1705,8 @@ void ProductApp::setFenceShortcutArrows(bool shown)
         m_container->refreshFenceIcons();
     if (m_tray)
         m_tray->setFenceShortcutArrows(shown);
+    if (m_settings)
+        m_settings->setFenceShortcutArrows(shown);
     qCInfo(lc) << "shortcut arrows on fence tiles:" << (shown ? "shown" : "hidden");
 }
 
@@ -2266,8 +2291,11 @@ ProductApp::composeContextMenu(core::ContextMenuKind kind, const QStringList& pa
             grew = true;
         }
     }
-    if (grew)
+    if (grew) {
         writeSeenMenuKeys();
+        if (m_settings)
+            m_settings->menuEditor()->setSeenEntries(m_seenMenuKeys);
+    }
     return items;
 }
 
@@ -2368,8 +2396,39 @@ void ProductApp::writeSeenMenuKeys()
     file.commit();
 }
 
+void ProductApp::loadSeenMenuKeys()
+{
+    // What earlier runs' menus showed (writeSeenMenuKeys), so the editor lists
+    // this PC's entries before a menu was opened in this run.
+    QFile file(QFileInfo(core::ContextMenuConfig::defaultPath())
+                   .dir()
+                   .filePath(QStringLiteral("context-menu-keys.txt")));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    QTextStream in(&file);
+    in.setEncoding(QStringConverter::Utf8);
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        const int eq = line.indexOf(QLatin1String("    = "));
+        if (line.startsWith(QLatin1Char('#')) || eq <= 0)
+            continue;
+        const QString key = line.left(eq).trimmed();
+        if (!m_seenMenuKeys.contains(key))
+            m_seenMenuKeys.insert(key, line.mid(eq + 6));
+    }
+}
+
 void ProductApp::editContextMenu()
 {
+    // Session 59: the editor, in the settings window; the file by hand only
+    // when there is no window (a run without one).
+    if (m_settings) {
+        m_settings->menuEditor()->reload();
+        m_settings->menuEditor()->setSeenEntries(m_seenMenuKeys);
+        m_settings->showPage(ui::SettingsDialog::Menu);
+        showSettings();
+        return;
+    }
     const QString path = core::ContextMenuConfig::defaultPath();
     if (!QFileInfo::exists(path)) {
         core::ContextMenuConfig config; // the defaults, written out to be edited

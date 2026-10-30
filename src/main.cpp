@@ -30,6 +30,7 @@
 #include "app/drawn_desktop_probe.hpp"
 #include "ui/tray_icon.hpp"
 #include "app/context_menu_probe.hpp"
+#include "app/ui_probe.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
@@ -1148,6 +1149,11 @@ int main(int argc, char* argv[])
         QStringLiteral("T-092: compose, render and run the drawn right-click menu from the "
                        "desktop's real menus. Report: build/context-menu-probe.txt."));
     parser.addOption(contextMenuProbeOption);
+    const QCommandLineOption uiProbeOption(
+        QStringLiteral("ui-probe"),
+        QStringLiteral("Session 59: photograph and check StarFish's own windows (tray menu, settings, "
+                       "menu editor on a scratch file). Report: build/ui-probe.txt."));
+    parser.addOption(uiProbeOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -5437,12 +5443,33 @@ int main(int argc, char* argv[])
                                  [&contentChanges](const QString&) { ++contentChanges; });
 
                 auto* settings = product.settingsDialog();
+                // Session 59: the window has pages now (a navigation list and the
+                // menu editor's list), but still no list of *fences* and no combo:
+                // no list row may name a fence, and only those two lists exist.
                 const QList<QListWidget*> lists = settings->findChildren<QListWidget*>();
                 const QList<QComboBox*> combos = settings->findChildren<QComboBox*>();
+                const QStringList fenceTitles = [&] {
+                    QStringList titles;
+                    for (const QString& fid : product.container()->fenceIds())
+                        titles << product.container()->fenceTitle(fid);
+                    return titles;
+                }();
+                int foreignLists = 0;
+                int fenceRows = 0;
+                for (QListWidget* list : lists) {
+                    if (list->objectName() != QLatin1String("nav")
+                        && list->objectName() != QLatin1String("entries"))
+                        ++foreignLists;
+                    for (int r = 0; r < list->count(); ++r) {
+                        if (fenceTitles.contains(list->item(r)->text()))
+                            ++fenceRows;
+                    }
+                }
                 check(QLatin1String("the settings window no longer manages the fences"),
-                      lists.isEmpty() && combos.isEmpty(),
-                      QLatin1String("%1 list(s) and %2 combo(s) in the window")
-                          .arg(QString::number(lists.size()))
+                      foreignLists == 0 && fenceRows == 0 && combos.isEmpty(),
+                      QLatin1String("%1 other list(s), %2 row(s) naming a fence, %3 combo(s)")
+                          .arg(QString::number(foreignLists))
+                          .arg(QString::number(fenceRows))
                           .arg(QString::number(combos.size())));
 
                 // What is left is what no other surface says in words: one line and
@@ -5453,17 +5480,40 @@ int main(int argc, char* argv[])
                 // change something), and so is the absence of a list or a combo: a
                 // fence list or a material picker reappearing here is the second
                 // path to the document this check exists to catch.
-                const QList<QPushButton*> buttons = settings->findChildren<QPushButton*>();
+                // Session 59 (the revamp): four pages, the status line on the first,
+                // and only the three switches that speak for the whole desktop --
+                // ADR-20's lesson stays: no switch takes the desktop's icons.
                 const QList<QCheckBox*> boxes = settings->findChildren<QCheckBox*>();
+                const QStringList allowedSwitches{QStringLiteral("showFencesSwitch"),
+                                                  QStringLiteral("arrowsSwitch"),
+                                                  QStringLiteral("modernSwitch")};
+                int strangeSwitches = 0;
+                for (QCheckBox* box : boxes) {
+                    if (!allowedSwitches.contains(box->objectName()))
+                        ++strangeSwitches;
+                }
+                auto* nav = settings->findChild<QListWidget*>(QLatin1String("nav"));
                 auto* statusLabel = settings->findChild<QLabel*>(QLatin1String("statusText"));
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
-                check(QLatin1String("... and it holds one status line, a Close button and no switch"),
-                      buttons.size() == 1 && buttons.first()->text() == QLatin1String("Close")
-                          && boxes.isEmpty() && statusLabel != nullptr && !statusShown.isEmpty(),
-                      QLatin1String("%1 button(s), %2 check box(es), status line [%3]")
-                          .arg(QString::number(buttons.size()))
-                          .arg(QString::number(boxes.size()), statusShown));
+                check(QLatin1String("... it has its four pages, the status line and only the global switches"),
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 3
+                          && statusLabel != nullptr && !statusShown.isEmpty()
+                          && settings->menuEditor() != nullptr,
+                      QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
+                          .arg(QString::number(nav ? nav->count() : -1))
+                          .arg(QString::number(boxes.size()))
+                          .arg(QString::number(strangeSwitches), statusShown));
+
+                // The switches show the product's state, they do not invent one.
+                auto* arrowsSwitch = settings->findChild<QCheckBox*>(QLatin1String("arrowsSwitch"));
+                auto* fencesSwitch = settings->findChild<QCheckBox*>(QLatin1String("showFencesSwitch"));
+                check(QLatin1String("... and its switches read the product's state"),
+                      arrowsSwitch && fencesSwitch
+                          && fencesSwitch->isChecked() == product.container()->fencesVisible(),
+                      QLatin1String("fences shown: switch %1, product %2")
+                          .arg(fencesSwitch && fencesSwitch->isChecked() ? QLatin1String("on") : QLatin1String("off"))
+                          .arg(product.container()->fencesVisible() ? QLatin1String("on") : QLatin1String("off")));
 
                 // The half of the retired check that still has a subject: opening
                 // the window is not a way to change anything, and the line it shows
@@ -5583,11 +5633,19 @@ int main(int argc, char* argv[])
             // is exactly what would have read it from disk, and the settings window
             // it builds must still hold no check box at all.
             auto* secondSettings = second.settingsDialog();
-            const int secondBoxes =
-                secondSettings ? secondSettings->findChildren<QCheckBox*>().size() : -1;
+            int secondBoxes = -1;
+            if (secondSettings) {
+                secondBoxes = 0;
+                for (QCheckBox* box : secondSettings->findChildren<QCheckBox*>()) {
+                    if (box->objectName() != QLatin1String("showFencesSwitch")
+                        && box->objectName() != QLatin1String("arrowsSwitch")
+                        && box->objectName() != QLatin1String("modernSwitch"))
+                        ++secondBoxes;
+                }
+            }
             check(QLatin1String("a later run has no desktop-icon switch to read back"),
                   started && secondSettings != nullptr && secondBoxes == 0,
-                  started ? QLatin1String("the window holds %1 check box(es)")
+                  started ? QLatin1String("the window holds %1 other check box(es)")
                                 .arg(QString::number(secondBoxes))
                           : startError);
 
@@ -5628,14 +5686,13 @@ int main(int argc, char* argv[])
 
                 if (started) {
                     auto* settings = product.settingsDialog();
-                    const QList<QPushButton*> buttons =
-                        settings ? settings->findChildren<QPushButton*>() : QList<QPushButton*>();
+                    auto* nav = settings ? settings->findChild<QListWidget*>(QLatin1String("nav")) : nullptr;
                     const QString title = settings ? settings->windowTitle() : QString();
-                    const QString closeLabel = buttons.isEmpty() ? QString() : buttons.first()->text();
+                    const QString firstPage = nav && nav->count() > 0 ? nav->item(0)->text() : QString();
                     check(QLatin1String("the settings window speaks French"),
                           title == QStringLiteral("Réglages StarFish")
-                              && closeLabel == QStringLiteral("Fermer"),
-                          QLatin1String("title [%1], close [%2]").arg(title, closeLabel));
+                              && firstPage == QStringLiteral("Général"),
+                          QLatin1String("title [%1], first page [%2]").arg(title, firstPage));
 
                     // The status line is the product describing itself in words --
                     // and it is the *same* string the window shows, so this is also
@@ -7668,6 +7725,8 @@ int main(int argc, char* argv[])
         return starfish::app::runDrawnDesktopProbe(app);
     if (parser.isSet(contextMenuProbeOption))
         return starfish::app::runContextMenuProbe(app);
+    if (parser.isSet(uiProbeOption))
+        return starfish::app::runUiProbe(app);
 
     if (parser.isSet(crashVictimOption)) {
         // The child half of --crash-demo (T-046). It hides the native icons

@@ -339,6 +339,7 @@ private:
                               const std::vector<core::ContextMenuItem>& ours, bool* renameRequested,
                               const QStringList& hiddenShellEntries = {});
     void writeSeenMenuKeys();
+    void loadSeenMenuKeys();
     void dragDesktopItems(const QStringList& paths, const QPoint& origin);
     // A new item the shell is about to create (New > Folder...) opens for
     // renaming when it appears, as on the real desktop.

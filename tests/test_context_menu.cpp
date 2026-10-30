@@ -170,6 +170,32 @@ private slots:
         QVERIFY(keys(shown).join(QLatin1Char(' ')).contains(QStringLiteral("properties | app:Microsoft.WindowsNotepad/OpenInNotepad | more-options")));
     }
 
+    void orderedEntriesKeepWindowsGroups()
+    {
+        // The editor (session 59) writes `order`: entries from different groups of
+        // Windows 11 keep a separator between them.
+        ContextMenuConfig config;
+        config.background.order = QStringList{QStringLiteral("refresh"), QStringLiteral("new"),
+                                              QStringLiteral("view")};
+        const auto bg = composeWindows11Menu(background(), ContextMenuKind::Background, config, {}, QString());
+        QVERIFY2(keys(bg).join(QLatin1Char(' ')).contains(QStringLiteral("refresh | new | view")),
+                 qPrintable(keys(bg).join(QLatin1Char(' '))));
+    }
+
+    void whatShowsByDefault()
+    {
+        QVERIFY(shownByDefault(QStringLiteral("refresh"), ContextMenuKind::Background));
+        QVERIFY(shownByDefault(QStringLiteral("app:Microsoft.WindowsTerminal/OpenTerminalHere"),
+                               ContextMenuKind::Background));
+        QVERIFY(!shownByDefault(QStringLiteral("label:Open Git Bash here"), ContextMenuKind::Background));
+        QVERIFY(windows11Keys(ContextMenuKind::Selection).startsWith(QStringLiteral("cut")));
+        ContextMenuProfile profile;
+        profile.hidden << QStringLiteral("refresh");
+        profile.shown << QStringLiteral("label:Open Git Bash here");
+        QVERIFY(!isShown(QStringLiteral("refresh"), ContextMenuKind::Background, profile));
+        QVERIFY(isShown(QStringLiteral("label:Open Git Bash here"), ContextMenuKind::Background, profile));
+    }
+
     void configurationRoundTrips()
     {
         QTemporaryDir dir;

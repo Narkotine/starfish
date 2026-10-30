@@ -2,12 +2,16 @@
 
 #include <QAction>
 #include <QActionGroup>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QWidgetAction>
 #include <QMenu>
 #include <QPainter>
 #include <QRectF>
 #include <QSystemTrayIcon>
 
 #include "ui/fence_material.hpp"
+#include "ui/modern_menu.hpp"
 
 namespace starfish::ui {
 
@@ -49,33 +53,61 @@ bool TrayIcon::show()
         return false;
 
     if (!m_tray) {
+        // Session 59: Windows 11's look (the same as the drawn desktop menu),
+        // in sections -- what concerns the fences, what concerns the desktop,
+        // then the window and the exit.
         m_menu = new QMenu;
+        const auto glyphed = [this](QMenu* menu, const QString& text, ushort glyph) {
+            QAction* action = menu->addAction(text);
+            if (glyph)
+                m_glyphs.insert(action, QString(QChar(glyph)));
+            return action;
+        };
 
-        m_newFence = m_menu->addAction(tr("New fence"));
-        connect(m_newFence, &QAction::triggered, this, &TrayIcon::newFenceRequested);
-
+        // The header: the mark, the name, how many fences.
+        auto* header = new QWidget(m_menu);
+        auto* logo = new QLabel(header);
+        logo->setPixmap(buildIcon().pixmap(24, 24));
+        auto* name = new QLabel(QStringLiteral("StarFish"), header);
+        name->setObjectName(QStringLiteral("trayHeaderName"));
+        m_headerCount = new QLabel(header);
+        m_headerCount->setObjectName(QStringLiteral("trayHeaderCount"));
+        auto* headerLayout = new QHBoxLayout(header);
+        headerLayout->setContentsMargins(12, 8, 16, 6);
+        headerLayout->setSpacing(10);
+        headerLayout->addWidget(logo);
+        headerLayout->addWidget(name);
+        headerLayout->addStretch(1);
+        headerLayout->addWidget(m_headerCount);
+        auto* headerAction = new QWidgetAction(m_menu);
+        headerAction->setDefaultWidget(header); // enabled: a disabled one greys the mark
+        m_menu->addAction(headerAction);
         m_menu->addSeparator();
+
+        const ModernMenuStyle style = ModernMenuStyle::current();
+        addMenuSection(m_menu, tr("Fences"), style);
+        m_newFence = glyphed(m_menu, tr("New fence"), 0xE710);
+        connect(m_newFence, &QAction::triggered, this, &TrayIcon::newFenceRequested);
 
         // Checkable state == "what is true now", so the signal and the
         // container's own setters speak the same language.
-        m_showFences = m_menu->addAction(tr("Show fences"));
+        m_showFences = glyphed(m_menu, tr("Show fences"), 0);
         m_showFences->setCheckable(true);
         m_showFences->setChecked(true);
         connect(m_showFences, &QAction::triggered, this, [this](bool checked) {
             emit fencesVisibilityToggled(checked);
         });
 
-        m_peek = m_menu->addAction(tr("Peek (raise above the icons)"));
+        m_peek = glyphed(m_menu, tr("Peek (raise above the icons)"), 0);
         m_peek->setCheckable(true);
         connect(m_peek, &QAction::triggered, this, [this](bool checked) {
             emit peekToggled(checked);
         });
 
         // F-038 / T-057: the fence material, for every fence at once. The tray
-        // cannot point at one fence, and that is exactly what makes it useful
-        // here: "make them all translucent" is one click. The settings window is
-        // where a single fence is chosen.
+        // cannot point at one fence; a fence's own menu chooses for one.
         m_materialMenu = m_menu->addMenu(tr("Fence material"));
+        m_glyphs.insert(m_materialMenu->menuAction(), QString(QChar(0xE790)));
         // Exclusive, so clicking one entry unchecks the others even before the
         // product has reported the new state back (the menu closes first).
         auto* materialGroup = new QActionGroup(this);
@@ -91,48 +123,47 @@ bool TrayIcon::show()
             m_materials.insert(id, entry);
         }
 
+        m_menu->addSeparator();
+        addMenuSection(m_menu, tr("Desktop"), style);
         // Session 58: the shortcut arrow on fence tiles, a setting of its own.
-        m_fenceArrows = m_menu->addAction(tr("Shortcut arrows on fence icons"));
+        m_fenceArrows = glyphed(m_menu, tr("Shortcut arrows on fence icons"), 0);
         m_fenceArrows->setCheckable(true);
         m_fenceArrows->setChecked(true);
         connect(m_fenceArrows, &QAction::triggered, this,
                 [this](bool checked) { emit fenceShortcutArrowsToggled(checked); });
-        // T-092: the drawn right-click menu's configuration (hide, reorder, add).
-        connect(m_menu->addAction(tr("Customize the right-click menu...")), &QAction::triggered,
+        // T-092: the drawn right-click menu's editor (the settings window's page).
+        connect(glyphed(m_menu, tr("Customize the right-click menu..."), 0xE70F), &QAction::triggered,
                 this, [this] { emit contextMenuEditRequested(); });
 
         // ADR-13: the desktop's icons are never StarFish's to hide, so these
         // two entries do not exist unless a caller asks for them (the dev path
         // that still claims the desktop). They are built either way so the
         // actions are always valid pointers; visibility is what changes.
-        m_menu->addSeparator();
-
-        m_hideIcons = m_menu->addAction(tr("Hide desktop icons"));
+        m_hideIcons = glyphed(m_menu, tr("Hide desktop icons"), 0);
         m_hideIcons->setCheckable(true);
         connect(m_hideIcons, &QAction::triggered, this, [this](bool checked) {
             emit desktopIconsToggled(checked);
         });
         m_hideIcons->setVisible(m_offerIconHiding);
 
-        // The emergency exit (T-046), next to the toggle on purpose: it is a
-        // plain command, and it exists for the states the toggle cannot reach
-        // (the icons hidden by a run that never came back). T-088: it is offered
-        // on its own flag as well, because a user who switches the icons over to
-        // StarFish must keep a way back.
-        m_restoreIcons = m_menu->addAction(tr("Restore my icons"));
+        // The emergency exit (T-046): a plain command, offered on its own flag
+        // too (T-088) -- a user whose icons StarFish draws keeps a way back.
+        m_restoreIcons = glyphed(m_menu, tr("Restore my icons"), 0xE777);
         connect(m_restoreIcons, &QAction::triggered, this, &TrayIcon::restoreIconsRequested);
         m_restoreIcons->setVisible(m_offerRestoreIcons);
 
         m_menu->addSeparator();
 
-        m_settings = m_menu->addAction(tr("Settings..."));
+        m_settings = glyphed(m_menu, tr("Settings..."), 0xE713);
         connect(m_settings, &QAction::triggered, this, &TrayIcon::settingsRequested);
 
-        m_menu->addAction(tr("Quit StarFish"));
-        // The last action is the quit one; wire it by position so it cannot be
-        // confused with a member that means something else.
-        connect(m_menu->actions().constLast(), &QAction::triggered, this,
-                &TrayIcon::quitRequested);
+        QAction* quit = glyphed(m_menu, tr("Quit StarFish"), 0xE7E8);
+        connect(quit, &QAction::triggered, this, &TrayIcon::quitRequested);
+
+        restyle();
+        // The theme can change while StarFish runs: the menu follows it.
+        connect(m_menu, &QMenu::aboutToShow, this, [this] { restyle(); });
+        setFenceCount(m_fenceCount);
 
         m_tray = new QSystemTrayIcon(buildIcon(), this);
         m_tray->setToolTip(tr("StarFish"));
@@ -207,9 +238,39 @@ void TrayIcon::setRestoreIconsOffered(bool offered)
 
 void TrayIcon::setFenceCount(int count)
 {
+    m_fenceCount = count;
+    if (m_headerCount)
+        m_headerCount->setText(tr("%1 fence(s)").arg(count));
     if (!m_tray)
         return;
     m_tray->setToolTip(tr("StarFish -- %1 fence(s)").arg(count));
+}
+
+void TrayIcon::restyle()
+{
+    if (!m_menu)
+        return;
+    const ModernMenuStyle style = ModernMenuStyle::current();
+    if (m_styledDark == int(style.dark))
+        return;
+    m_styledDark = int(style.dark);
+    styleModernMenu(m_menu, style);
+    const QColor glyph = themeText(style);
+    for (auto it = m_glyphs.cbegin(); it != m_glyphs.cend(); ++it)
+        it.key()->setIcon(glyphIcon(it.value(), glyph));
+    // The section titles and the header carry their own colours.
+    for (QLabel* label : m_menu->findChildren<QLabel*>()) {
+        if (label->text() == label->text().toUpper() && !label->text().isEmpty() && label->pixmap().isNull())
+            label->setStyleSheet(QStringLiteral("QLabel { color: %1; font-size: 7.5pt; font-weight: 600; "
+                                                "padding: 8px 12px 2px 12px; background: transparent; }")
+                                     .arg(style.dark ? QStringLiteral("#9A9A9A") : QStringLiteral("#6B6B6B")));
+    }
+    if (auto* name = m_menu->findChild<QLabel*>(QStringLiteral("trayHeaderName")))
+        name->setStyleSheet(QStringLiteral("color: %1; font-weight: 600; font-size: 10pt; background: transparent;")
+                                .arg(themeText(style).name()));
+    if (m_headerCount)
+        m_headerCount->setStyleSheet(QStringLiteral("color: %1; background: transparent;")
+                                         .arg(style.dark ? QStringLiteral("#B0B0B0") : QStringLiteral("#5C5C5C")));
 }
 
 void TrayIcon::notify(const QString& title, const QString& message)

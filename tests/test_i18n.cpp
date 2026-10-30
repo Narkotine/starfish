@@ -138,15 +138,15 @@ private slots:
         // catalogue whose context says `SettingsDialog` translates nothing at all,
         // silently. `FenceMenu` is the other kind of context -- an explicit name
         // passed to QCoreApplication::translate by a static function.
-        QCOMPARE(QCoreApplication::translate("starfish::ui::SettingsDialog", "Close"),
-                 QStringLiteral("Fermer"));
+        QCOMPARE(QCoreApplication::translate("starfish::ui::SettingsDialog", "General"),
+                 QStringLiteral("G\u00e9n\u00e9ral"));
         QCOMPARE(QCoreApplication::translate("FenceMenu", "Roll up"), QStringLiteral("Enrouler"));
 
         // ... and uninstalling really goes back to the source language: that is
         // what makes "no catalogue" a working interface rather than a broken one.
         uninstall();
-        QCOMPARE(QCoreApplication::translate("starfish::ui::SettingsDialog", "Close"),
-                 QStringLiteral("Close"));
+        QCOMPARE(QCoreApplication::translate("starfish::ui::SettingsDialog", "General"),
+                 QStringLiteral("General"));
     }
 
     void aCatalogueThatIsNotThereIsReportedRatherThanGuessed()

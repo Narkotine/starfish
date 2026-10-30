@@ -95,6 +95,16 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
                                                   QStringList* omitted = nullptr,
                                                   const std::vector<ContextMenuItem>& packaged = {});
 
+// Windows 11's own entries for a menu, top bar first, in its order -- what the
+// editor lists even before a menu was opened.
+QStringList windows11Keys(ContextMenuKind kind);
+// Whether an entry shows when the configuration says nothing about it:
+// Windows 11's own, the packaged apps', StarFish's and the user's -- not the
+// classic extensions (they wait under "Show more options").
+bool shownByDefault(const QString& key, ContextMenuKind kind);
+// Whether an entry shows under `profile`.
+bool isShown(const QString& key, ContextMenuKind kind, const ContextMenuProfile& profile);
+
 // The program and arguments of a custom entry, placeholders expanded.
 QStringList expandCustomArguments(const ContextMenuCustomEntry& entry, const QStringList& paths,
                                   const QString& desktop);

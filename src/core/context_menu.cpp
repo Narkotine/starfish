@@ -197,6 +197,30 @@ QString contextMenuKey(const QString& label, bool hasChildren)
     return QStringLiteral("label:") + label.trimmed();
 }
 
+QStringList windows11Keys(ContextMenuKind kind)
+{
+    QStringList keys = windows11TopBar(kind);
+    for (const QString& key : windows11Order(kind)) {
+        if (!key.isEmpty())
+            keys << key;
+    }
+    return keys;
+}
+
+bool shownByDefault(const QString& key, ContextMenuKind kind)
+{
+    return windows11Keys(kind).contains(key) || key.startsWith(QLatin1String("app:"))
+           || key.startsWith(QLatin1String("starfish:")) || key.startsWith(QLatin1String("custom:"))
+           || key == QLatin1String("more-options");
+}
+
+bool isShown(const QString& key, ContextMenuKind kind, const ContextMenuProfile& profile)
+{
+    if (profile.hidden.contains(key, Qt::CaseInsensitive))
+        return false;
+    return shownByDefault(key, kind) || profile.shown.contains(key, Qt::CaseInsensitive);
+}
+
 QString contextMenuGlyph(const QString& key)
 {
     if (key == QLatin1String("undo"))
@@ -290,11 +314,47 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
         if (!byKey.contains(item.key))
             byKey.insert(item.key, &item);
     }
+    std::vector<ContextMenuItem> customs;
+    customs.reserve(static_cast<size_t>(profile.custom.size()));
+    for (int i = 0; i < profile.custom.size(); ++i) {
+        const ContextMenuCustomEntry& c = profile.custom.at(i);
+        ContextMenuItem item;
+        item.key = QStringLiteral("custom:") + c.label;
+        item.label = c.label;
+        item.glyph = c.glyph;
+        item.customIndex = i;
+        customs.push_back(item);
+    }
+    for (const ContextMenuItem& item : customs) {
+        if (!byKey.contains(item.key))
+            byKey.insert(item.key, &item);
+    }
+    for (const ContextMenuItem& item : oursIn) {
+        if (!item.separator && !byKey.contains(item.key))
+            byKey.insert(item.key, &item);
+    }
 
-    // The user's order first.
+    // The user's order first. Two neighbours from different groups of Windows
+    // 11 keep a separator between them, so a reordered menu still reads in groups.
+    const auto groupOf = [&](const QString& key) {
+        int group = 0;
+        for (const QString& k : windows11Order(kind)) {
+            if (k.isEmpty())
+                ++group;
+            else if (k == key)
+                return group;
+        }
+        return key.startsWith(QLatin1String("app:")) ? 100
+               : key.startsWith(QLatin1String("starfish:")) || key.startsWith(QLatin1String("custom:")) ? 101
+                                                                                                          : 99;
+    };
     bool orderedAny = false;
+    int lastGroup = -1;
     for (const QString& key : profile.order) {
         if (const ContextMenuItem* item = take(key)) {
+            if (orderedAny && groupOf(key) != lastGroup)
+                out.push_back(separator());
+            lastGroup = groupOf(key);
             out.push_back(*item);
             orderedAny = true;
         }
@@ -335,20 +395,14 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
     // StarFish's entries and the user's own.
     out.push_back(separator());
     for (const ContextMenuItem& item : oursIn) {
-        if (!item.separator && hidden(item.key))
+        if (item.separator)
             continue;
-        out.push_back(item);
+        if (const ContextMenuItem* taken = take(item.key))
+            out.push_back(*taken);
     }
-    for (int i = 0; i < profile.custom.size(); ++i) {
-        const ContextMenuCustomEntry& c = profile.custom.at(i);
-        ContextMenuItem item;
-        item.key = QStringLiteral("custom:") + c.label;
-        if (hidden(item.key))
-            continue;
-        item.label = c.label;
-        item.glyph = c.glyph;
-        item.customIndex = i;
-        out.push_back(item);
+    for (const ContextMenuItem& item : customs) {
+        if (const ContextMenuItem* taken = take(item.key))
+            out.push_back(*taken);
     }
 
     // "Show more options", always there and always last.

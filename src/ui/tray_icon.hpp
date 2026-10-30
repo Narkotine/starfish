@@ -6,6 +6,7 @@
 #include <QString>
 
 class QAction;
+class QLabel;
 class QMenu;
 class QSystemTrayIcon;
 
@@ -101,8 +102,13 @@ public:
     // StarFish's mark, every size (Qt resource from tools/make_icon.py): the
     // tray, and every window through QApplication::setWindowIcon.
     static QIcon buildIcon();
+    // The menu, for the probe that photographs it (it pops it in-process).
+    QMenu* menu() const { return m_menu; }
 
 private:
+    // Session 59: the menu in Windows 11's style, in the theme of the moment
+    // (re-read each time it opens), with glyphs on its entries.
+    void restyle();
 
     QSystemTrayIcon* m_tray = nullptr;
     QMenu* m_menu = nullptr;
@@ -121,6 +127,10 @@ private:
     // the developer toggle.
     bool m_offerRestoreIcons = false;
     QAction* m_settings = nullptr;
+    QLabel* m_headerCount = nullptr;
+    int m_fenceCount = 0;
+    int m_styledDark = -1; // the theme the menu was last styled for
+    QHash<QAction*, QString> m_glyphs;
     // F-038 / T-057: the "Fence material" submenu and one entry per preset, keyed
     // by FenceMaterial id so setFenceMaterial() cannot drift from the menu.
     QMenu* m_materialMenu = nullptr;
