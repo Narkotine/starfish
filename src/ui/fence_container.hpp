@@ -9,6 +9,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 #include "core/desktop_item.hpp"
 #include "core/jsonstore.hpp"
@@ -343,6 +344,11 @@ public:
     // Renders the fence's widget offscreen and pushes it to its surface.
     void renderFence(const QString& id);
 
+    // T-090: a fence's window died with the desktop (Explorer restarted). Every
+    // lost fence is hosted again once the desktop is back, on a 1 s timer for a
+    // minute at most. Public so a probe can count what came back.
+    int rehostedFenceCount() const { return m_rehosted; }
+
     // All rects except `excludeId`, for snapping.
     QList<QRect> otherRects(const QString& excludeId) const;
 
@@ -425,6 +431,12 @@ signals:
     void ruleApplied(const QString& path, const QString& fenceId);
 
 private:
+    void onFenceSurfaceLost();
+    void rehostLostFences();
+    QTimer m_rehostTimer;
+    int m_rehostTries = 0;
+    int m_rehosted = 0;
+
     FenceWindow* find(const QString& id);
     const FenceWindow* find(const QString& id) const;
 

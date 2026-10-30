@@ -66,6 +66,8 @@ QSize logicalSize(const QSize& physical, qreal dpr)
 FenceContainer::FenceContainer(QObject* parent)
     : QObject(parent)
 {
+    m_rehostTimer.setInterval(1000);
+    connect(&m_rehostTimer, &QTimer::timeout, this, &FenceContainer::rehostLostFences);
     // T-039: the backdrop exists from the start but is inert until enabled, so
     // every caller -- headless probes included -- can ask it what the desktop
     // would show without owning a window.
@@ -601,6 +603,47 @@ QVector<QRect> FenceContainer::iconOverlayTiles(const FenceWindow& fence, qreal 
     return tiles;
 }
 
+void FenceContainer::onFenceSurfaceLost()
+{
+    if (m_rehostTimer.isActive())
+        return;
+    qCWarning(lc) << "a fence's window went away with the desktop: hosting it again once the "
+                     "desktop is back";
+    m_rehostTries = 0;
+    m_rehostTimer.start();
+}
+
+void FenceContainer::rehostLostFences()
+{
+    if (++m_rehostTries > 60) {
+        m_rehostTimer.stop();
+        qCWarning(lc) << "the desktop did not come back in a minute: lost fences stay unhosted";
+        return;
+    }
+    if (!starfish::platform::win::DesktopSurface::isDesktopAvailable())
+        return; // Explorer still on its way back
+    int lost = 0;
+    int back = 0;
+    for (FenceWindow& fence : m_fences) {
+        if (!fence.surface || fence.surface->isAttached())
+            continue;
+        ++lost;
+        // The overlay died with the panel; it is rebuilt from scratch, above
+        // the new panel, by renderFence() -> syncIconOverlay().
+        destroyIconOverlay(fence);
+        if (!fence.surface->attach(FenceGeometry::visibleRect(fence.rect, fence.rolledUp)))
+            continue;
+        ++back;
+        ++m_rehosted;
+        if (!m_fencesVisible)
+            fence.surface->setVisible(false);
+        renderFence(fence.id);
+        qCInfo(lc).noquote() << QStringLiteral("fence %1 hosted again").arg(fence.id);
+    }
+    if (back == lost)
+        m_rehostTimer.stop();
+}
+
 bool FenceContainer::attachIconOverlay(FenceWindow& fence)
 {
     if (fence.iconOverlay || !fence.surface || !fence.view)
@@ -1049,7 +1092,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             if (m_peekActive)
                 surface->setRaisedAboveIcons(true);
             connect(surface, &starfish::platform::win::DesktopSurface::desktopLost, this,
-                    [this, id] { renderFence(id); });
+                    &FenceContainer::onFenceSurfaceLost);
         }
     }
 

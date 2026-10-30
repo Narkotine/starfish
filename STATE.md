@@ -5,7 +5,7 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 / T-089 : le bureau dessiné redevient le produit (lot 1)**. Sa demande : une icône rangée **quitte le bureau** sans que son fichier bouge, et tout revient si StarFish s'arrête. La vue du shell (`desktop_shell_view`, `IFolderView2` du bureau) fournit éléments, positions, **vrais menus** (fond + élément, sous-menus remplis) et verbes ; fond **opaque** avec le fond d'écran capturé ; filet T-046 intact ; `--native-desktop` = l'ancien bureau. `ctest` 16/16, `--drawn-desktop-probe` **17/17**, `--crash-demo`/`--backdrop-demo`/`--product-probe` verts. **§44**.
+- **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre (bureau et zones ré-hébergés), liste re-masquée, écrans/DPI. `ctest` 16/16, `--drawn-desktop-probe` **23/23**. **§44**.
 - **Livré juste avant :** 57 - ADR-20 (renversé par l'ADR-21) ; 56 - T-042 1ʳᵉ tranche ; 52 - i18n.
 - **Dernière mise à jour :** 2026-10-30 (session 58)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-19 (`bf33643`) - sessions 57-58 **locales**, CI non déclenchée.
@@ -13,7 +13,7 @@
 ## 3 prochaines actions
 
 1. **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
-2. **T-090 (lot 2)** : Explorer qui redémarre, multi-écran / DPI, nouvel élément sans position. Puis **T-091** (F2, clavier, rectangle, glisser OLE, `IFileOperation`) et **T-092** (menu Win11 configurable).
+2. **T-091 (lot 3)** : F2, clavier, rectangle, glisser OLE, `IFileOperation`. Puis **T-092** (menu Win11 configurable). Reste humain de T-090 : deux écrans, vrai redémarrage d'Explorer.
 3. ⛔ Questions ouvertes : `T-036`, `T-033`, `T-030` ; et le verbe registre du menu pointe vers `Documents\Workbuddy\StarFish\build` (autre copie ?).
 ## Où lire quoi (à la demande)
 

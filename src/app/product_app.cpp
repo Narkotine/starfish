@@ -129,6 +129,7 @@ void ProductApp::refreshScreens()
     // brings its fences back on a screen that exists -- and only the fences that
     // really moved emit fenceRectChanged(), so the document is written only then.
     m_container->setScreens(layout);
+    refreshDrawnDesktopForScreens();
 }
 
 bool ProductApp::start(const Options& options, QString* error)
@@ -238,7 +239,19 @@ bool ProductApp::start(const Options& options, QString* error)
     // unplugged, docked, re-arranged, or its scaling changes. Qt is the
     // authority on what exists; the fences are revalidated onto whatever is
     // really there (T-014 / F-032).
-    connect(qApp, &QGuiApplication::screenAdded, this, [this](QScreen*) { refreshScreens(); });
+    // T-090: and a screen that stays can change too -- its resolution, its
+    // place in the arrangement, its scaling.
+    const auto watchScreen = [this](QScreen* screen) {
+        connect(screen, &QScreen::geometryChanged, this, [this](const QRect&) { refreshScreens(); });
+        connect(screen, &QScreen::logicalDotsPerInchChanged, this,
+                [this](qreal) { refreshScreens(); });
+    };
+    for (QScreen* screen : QGuiApplication::screens())
+        watchScreen(screen);
+    connect(qApp, &QGuiApplication::screenAdded, this, [this, watchScreen](QScreen* screen) {
+        watchScreen(screen);
+        refreshScreens();
+    });
     connect(qApp, &QGuiApplication::screenRemoved, this, [this](QScreen*) { refreshScreens(); });
     connect(qApp, &QGuiApplication::primaryScreenChanged, this,
             [this](QScreen*) { refreshScreens(); });
@@ -684,8 +697,25 @@ void ProductApp::wireBackdrop()
             &ProductApp::onDesktopMenu);
     // ADR-21: the drawn desktop's item menu, and the view's re-reads.
     connect(backdrop, &ui::DesktopBackdrop::iconMenuRequested, this, &ProductApp::onIconMenu);
+    // T-090: the desktop window died under us (Explorer restarted).
+    connect(backdrop, &ui::DesktopBackdrop::desktopLost, this, &ProductApp::onDesktopLost);
+    m_reclaimTimer.setInterval(2000);
+    connect(&m_reclaimTimer, &QTimer::timeout, this, &ProductApp::tryReclaimDrawnDesktop);
     m_shellTimer.setInterval(1500);
-    connect(&m_shellTimer, &QTimer::timeout, this, [this] {
+    connect(&m_shellTimer, &QTimer::timeout, this, [this, backdrop] {
+        if (drawnDesktop() && !backdrop->isAttached()) {
+            onDesktopLost(); // whatever took our window, the desktop is not drawn any more
+            return;
+        }
+        // T-090: the shell can show its list again on its own (it rebuilt its
+        // view, a setting was applied): the icons would be drawn twice. Hidden
+        // again, marker first, exactly like the first time.
+        if (drawnDesktop() && m_iconsHidden && platform::win::nativeDesktopIconsVisible()) {
+            ++m_listReshown;
+            qCWarning(lc) << "the shell showed its icon list again: hidden again";
+            platform::win::DesktopSurface::setDesktopIconsHidden(true);
+            m_shellSignature.clear();
+        }
         syncShellView();
         // The wallpaper changes far less often (a slideshow, Spotlight, the user
         // picking a new one): checked every ~9 s, pushed only when it differs.
@@ -1418,6 +1448,7 @@ void ProductApp::shutdown()
     // backdrop goes. The other order would flash a desktop without icons.
     m_shellTimer.stop();
     m_shellResync.stop();
+    m_reclaimTimer.stop();
     if (drawnDesktop() && m_iconsHidden) {
         platform::win::DesktopSurface::setDesktopIconsHidden(false);
         m_iconsHidden = false;
@@ -1493,6 +1524,31 @@ quintptr ProductApp::backdropOwner() const
     return 0;
 }
 
+void ProductApp::refreshDrawnDesktopForScreens()
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop || !drawnDesktop())
+        return;
+    // The metrics depend on the primary monitor's scale and the boxes on where
+    // the monitors are: the next read rebuilds both, whatever its signature.
+    m_shellSignature.clear();
+    m_shellResync.start();
+    if (backdrop->wallpaper().size() == backdrop->area().size())
+        return;
+    // A wallpaper the size of the old virtual screen would be drawn at the
+    // wrong scale: captured again, the list being hidden (ADR-21).
+    const QImage wallpaper = settledWallpaper(backdrop->area());
+    if (wallpaper.isNull()) {
+        qCWarning(lc) << "the screens changed and the wallpaper could not be captured again";
+        return;
+    }
+    m_wallpaperSignature = imageSignature(wallpaper);
+    backdrop->setWallpaper(wallpaper);
+    qCInfo(lc).noquote() << QStringLiteral("the screens changed: the drawn desktop is now %1x%2")
+                                .arg(wallpaper.width())
+                                .arg(wallpaper.height());
+}
+
 bool ProductApp::claimDrawnDesktop()
 {
     if (drawnDesktop())
@@ -1554,8 +1610,48 @@ bool ProductApp::claimDrawnDesktop()
     return true;
 }
 
+void ProductApp::onDesktopLost()
+{
+    if (!drawnDesktop())
+        return;
+    ++m_desktopLosses;
+    qCWarning(lc) << "the desktop window went away (Explorer restarting?): the drawn desktop "
+                     "is dropped until the desktop is back";
+    releaseDrawnDesktop();
+    m_reclaimTries = 0;
+    m_reclaimSettled = 0;
+    m_reclaimTimer.start();
+}
+
+void ProductApp::tryReclaimDrawnDesktop()
+{
+    if (drawnDesktop()) {
+        m_reclaimTimer.stop();
+        return;
+    }
+    ++m_reclaimTries;
+    // Explorer comes back in stages -- Progman, the view, then its items: a
+    // desktop seen on two ticks in a row is one that has settled.
+    m_reclaimSettled =
+        platform::win::DesktopSurface::isDesktopAvailable() ? m_reclaimSettled + 1 : 0;
+    if (m_reclaimSettled >= 2 && claimDrawnDesktop()) {
+        m_reclaimTimer.stop();
+        qCInfo(lc) << "the desktop is back: drawn by StarFish again";
+        return;
+    }
+    if (m_reclaimTries >= 30) {
+        m_reclaimTimer.stop();
+        // A list hidden by a half-finished attempt is given back, marker last.
+        if (m_iconsHidden && platform::win::DesktopSurface::setDesktopIconsHidden(false))
+            m_iconsHidden = false;
+        qCWarning(lc) << "the desktop did not come back in a minute: it stays native";
+        refreshStatus();
+    }
+}
+
 void ProductApp::releaseDrawnDesktop()
 {
+    m_reclaimTimer.stop();
     m_shellTimer.stop();
     m_shellResync.stop();
     // The list first, under our opaque frame; then our frame goes (see shutdown).

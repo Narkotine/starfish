@@ -113,6 +113,13 @@ public:
     platform::win::DesktopShellView* shellView() const { return m_shellView.get(); }
     // The backdrop's window, which owns the shell menus (0 when not hosted).
     quintptr backdropOwner() const;
+    // T-090, for the probe: how many times the desktop window was lost, and how
+    // many times the shell showed its list again behind our back.
+    int desktopLosses() const { return m_desktopLosses; }
+    int listReshownCount() const { return m_listReshown; }
+    bool reclaimPending() const { return m_reclaimTimer.isActive(); }
+    // The same path a monitor change takes, callable without one.
+    void screensChangedForProbe() { refreshScreens(); }
     // The desktop's background menu at `point`, as a right-click opens it.
     void showDesktopMenu(const QPoint& point) { onDesktopMenu(QRect(), point); }
 
@@ -221,6 +228,16 @@ private:
     // nothing moved (a signature comparison).
     void syncShellView();
     void refreshWallpaper();
+    // ADR-21 lot 2 (T-090). The desktop window went away under us (Explorer
+    // restarted): a new shell shows its own list, so the drawn state is dropped
+    // at once -- nothing of ours is left claiming a desktop that is gone -- and
+    // claimed again once the desktop has settled (tryReclaimDrawnDesktop, on a
+    // timer, for a minute at most; after that the desktop stays native).
+    void onDesktopLost();
+    void tryReclaimDrawnDesktop();
+    // The screens changed (a monitor, a resolution, a scaling): the backdrop
+    // re-attached at the new size, so the wallpaper is captured again.
+    void refreshDrawnDesktopForScreens();
     void onIconMenu(const QStringList& paths, const QPoint& point);
     void openDesktopItem(const QString& path);
 
@@ -259,6 +276,11 @@ private:
     quint64 m_wallpaperSignature = 0;
     int m_shellTicks = 0;
     QHash<QString, core::DesktopItem> m_itemCache;
+    QTimer m_reclaimTimer; // T-090: claims the desktop again after Explorer came back
+    int m_reclaimTries = 0;
+    int m_reclaimSettled = 0;
+    int m_desktopLosses = 0;
+    int m_listReshown = 0;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

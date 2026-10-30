@@ -248,6 +248,10 @@ struct DesktopShellView::Impl {
     IShellView* view = nullptr;
     IFolderView2* folderView = nullptr;
     IShellFolder* folder = nullptr;
+    // The DefView the connection was made through. Explorer can rebuild the
+    // desktop's view without dying (and a restarted Explorer can hand back a
+    // proxy that still answers): a different window means a different view.
+    HWND defView = nullptr;
 
     ~Impl() { reset(); }
 
@@ -260,9 +264,13 @@ struct DesktopShellView::Impl {
 
     bool ensure()
     {
-        if (view && folderView && folder)
-            return true;
+        if (view && folderView && folder) {
+            if (desktopDefView() == defView)
+                return true;
+            qCInfo(lc) << "the desktop's view was rebuilt: reconnecting";
+        }
         reset();
+        defView = desktopDefView();
         ensureCom();
 
         IShellWindows* windows = nullptr;

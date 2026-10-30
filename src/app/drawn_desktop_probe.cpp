@@ -10,6 +10,8 @@
 #include <QTextStream>
 #include <QTimer>
 
+#include <functional>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -178,6 +180,22 @@ int runDrawnDesktopProbe(QApplication& app)
             }
             check(QStringLiteral("a new file on the Desktop appears on the drawn desktop"),
                   index >= 0, testNative);
+            if (index >= 0) {
+                // T-090: a new item has no position of its own; the shell gives it
+                // a free slot, and that is where it is drawn -- on no other icon.
+                const QRect mine = backdrop->cells().at(index).icon;
+                int overlaps = 0;
+                for (int i = 0; i < backdrop->cells().size(); ++i) {
+                    if (i != index && backdrop->cells().at(i).icon.intersects(mine))
+                        ++overlaps;
+                }
+                check(QStringLiteral("...in a free slot of its own, on the screen (T-090)"),
+                      overlaps == 0 && backdrop->area().contains(mine),
+                      QStringLiteral("at %1,%2, %3 overlap(s)")
+                          .arg(mine.x())
+                          .arg(mine.y())
+                          .arg(overlaps));
+            }
 
             if (index >= 0) {
                 const QRect cell = backdrop->cells().at(index).icon.united(
@@ -261,6 +279,80 @@ int runDrawnDesktopProbe(QApplication& app)
             }
             check(QStringLiteral("a deletion on disk leaves the drawn desktop"), gone,
                   renamedNative);
+
+            // ---- Lot 2 (T-090), simulated in this process: nothing is sent to
+            // Explorer, nothing is clicked. What Explorer would do is done to
+            // *our* windows and to the list the way StarFish itself shows it.
+            const auto waitFor = [](int ms, const std::function<bool()>& done) {
+                for (int waited = 0; waited < ms; waited += 250) {
+                    if (done())
+                        return true;
+                    waitMs(250);
+                }
+                return done();
+            };
+            const auto wholeDesktop = [&] {
+                const platform::win::ShellViewState now =
+                    product.shellView() ? product.shellView()->read()
+                                        : platform::win::ShellViewState{};
+                return product.drawnDesktop() && backdrop->drawsWholeDesktop()
+                       && backdrop->isAttached() && !listVisible() && marker.isPresent()
+                       && now.ok && backdrop->cells().size() == now.items.size();
+            };
+
+            // 1. The shell shows its list again on its own (a rebuilt view).
+            platform::win::DesktopSurface::setDesktopIconsHidden(false);
+            const bool rehidden =
+                waitFor(5000, [&] { return product.listReshownCount() >= 1 && wholeDesktop(); });
+            check(QStringLiteral("a list the shell shows again is hidden again (T-090)"), rehidden,
+                  QStringLiteral("re-hidden %1 time(s)").arg(product.listReshownCount()));
+
+            // 2. The screens change (same arrangement here: one monitor).
+            product.screensChangedForProbe();
+            waitMs(800);
+            check(QStringLiteral("after a screen change the desktop is drawn whole"),
+                  wholeDesktop() && backdrop->wallpaper().size() == backdrop->area().size(),
+                  QStringLiteral("wallpaper %1x%2, area %3x%4")
+                      .arg(backdrop->wallpaper().width())
+                      .arg(backdrop->wallpaper().height())
+                      .arg(backdrop->area().width())
+                      .arg(backdrop->area().height()));
+
+            // 3. Explorer restarts: its new list is visible, our windows -- the
+            //    desktop and a fence -- die with the old Progman. The list comes
+            //    first, so the user never sees a desktop without icons.
+            ui::FenceContainer* container = product.container();
+            const QString survivor = container->createFence(
+                QStringLiteral("Survivor"),
+                QRect(backdrop->area().center() - QPoint(150, 100), QSize(300, 200)));
+            waitMs(300);
+            const int rehostedBefore = container->rehostedFenceCount();
+            platform::win::DesktopSurface::setDesktopIconsHidden(false);
+            if (platform::win::DesktopSurface* fenceSurface = container->surface(survivor))
+                ::DestroyWindow(reinterpret_cast<HWND>(fenceSurface->hwnd()));
+            if (platform::win::DesktopSurface* surface = backdrop->surface())
+                ::DestroyWindow(reinterpret_cast<HWND>(surface->hwnd()));
+            const bool dropped = waitFor(4000, [&] {
+                return product.desktopLosses() >= 1 && !product.drawnDesktop() && listVisible();
+            });
+            check(QStringLiteral("a lost desktop window drops the drawn desktop, icons visible"),
+                  dropped,
+                  QStringLiteral("losses %1, icons visible %2")
+                      .arg(product.desktopLosses())
+                      .arg(listVisible() ? QLatin1String("yes") : QLatin1String("no")));
+            const bool back = waitFor(15000, wholeDesktop);
+            check(QStringLiteral("...and the desktop is drawn again once it is back"), back,
+                  QStringLiteral("%1 drawn").arg(backdrop->cells().size()));
+            const bool fenceBack = waitFor(5000, [&] {
+                platform::win::DesktopSurface* s = container->surface(survivor);
+                return s && s->isAttached() && container->rehostedFenceCount() > rehostedBefore;
+            });
+            check(QStringLiteral("...and a fence lost with it is hosted again"), fenceBack,
+                  QStringLiteral("%1 fence(s) hosted again")
+                      .arg(container->rehostedFenceCount() - rehostedBefore));
+            platform::win::DesktopShellView::captureDesktop(backdrop->area())
+                .save(captures + QStringLiteral("/lot2_after_simulated_restart.png"));
+            container->removeFence(survivor);
         }
 
         product.shutdown();

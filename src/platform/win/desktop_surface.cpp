@@ -1295,9 +1295,21 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         return true;
 
     case WM_DESTROY:
+        // ⚠️ T-090: not ours. detach() clears the user data before it destroys
+        // the window, so a WM_DESTROY that reaches the object is the desktop
+        // taking its children with it -- Explorer restarting. The watchdog used
+        // to be stopped here *silently*, so desktopLost() never fired and the
+        // owner never hosted the window again. It is said now, once the
+        // destruction is over.
+        if (m_dropTarget) {
+            ::RevokeDragDrop(toHwnd(m_hwnd));
+            m_dropTarget->Release();
+            m_dropTarget = nullptr;
+        }
         m_hwnd = 0;
         m_placed = false;
         m_watchdog.stop();
+        QMetaObject::invokeMethod(this, [this] { emit desktopLost(); }, Qt::QueuedConnection);
         *result = 0;
         return true;
 
