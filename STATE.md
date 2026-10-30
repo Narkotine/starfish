@@ -19,7 +19,7 @@
 
 | Besoin | Fichier |
 |---|---|
-| Décisions actées — **index** des 52, une ligne chacune | [`docs/state/decisions.md`](docs/state/decisions.md) |
+| Décisions actées — **index** des 56, une ligne chacune | [`docs/state/decisions.md`](docs/state/decisions.md) |
 | Détail d'une décision, par domaine (contraintes · windows · rendu · layout · navigation · règles · produit · outils) | `docs/state/decisions/*.md` |
 | Pièges déjà payés, à ne pas rejouer — **mêmes domaines** | `docs/state/guardrails.md` → `docs/state/guardrails/*.md` |
 | « Est-ce que X existe déjà ? » — inventaire composant par composant | [`docs/state/inventory.md`](docs/state/inventory.md) |
