@@ -46,6 +46,8 @@ public:
     void setFenceShortcutArrows(bool shown);
     // Session 60.
     void setSortOnAdd(bool sorted);
+    // Session 62: what the registry says (Run + Task Manager's StartupApproved).
+    void setStartWithWindows(bool on, bool disabledByUser);
     void setDesktopShortcutArrows(bool shown);
     void setDesktopOverlapAllowed(bool allowed);
     void setRestoreIconsOffered(bool offered);
@@ -60,6 +62,7 @@ signals:
     void fenceMaterialRequested(const QString& material);
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
+    void startWithWindowsToggled(bool on);
     void desktopShortcutArrowsToggled(bool shown);
     void desktopOverlapToggled(bool allowed);
     void restoreIconsRequested();
@@ -80,6 +83,8 @@ private:
     QCheckBox* m_showFences = nullptr;
     QCheckBox* m_arrows = nullptr;
     QCheckBox* m_sortOnAdd = nullptr;
+    QCheckBox* m_startWithWindows = nullptr;
+    QLabel* m_startHint = nullptr;
     QCheckBox* m_desktopArrows = nullptr;
     QCheckBox* m_overlap = nullptr;
     QHash<QString, QRadioButton*> m_materials;

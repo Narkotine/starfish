@@ -118,7 +118,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5770"/>
+        <location filename="../main.cpp" line="+5789"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -126,7 +126,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2461"/>
+        <location filename="../app/product_app.cpp" line="+2548"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -136,12 +136,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2280"/>
+        <location line="-2363"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+388"/>
+        <location line="+390"/>
         <location line="+124"/>
         <location line="+87"/>
         <source>StarFish</source>
@@ -169,7 +169,7 @@
         <translation>Créer une zone ici (%1 x %2)</translation>
     </message>
     <message>
-        <location filename="../app/drawn_desktop_probe.cpp" line="+652"/>
+        <location filename="../app/drawn_desktop_probe.cpp" line="+704"/>
         <location filename="../app/product_app.cpp" line="+3"/>
         <source>Create a fence here</source>
         <translation>Créer une zone ici</translation>
@@ -185,7 +185,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+418"/>
+        <location line="+422"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -512,7 +512,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+964"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+998"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -535,12 +535,12 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+277"/>
+        <location filename="../ui/fence_view.cpp" line="+279"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+391"/>
+        <location line="+396"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
@@ -560,29 +560,41 @@
     </message>
     <message>
         <location line="-23"/>
-        <location line="+76"/>
+        <location line="+91"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="-75"/>
-        <location line="+163"/>
+        <location line="-90"/>
+        <location line="+178"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-162"/>
-        <location line="+181"/>
+        <location line="-177"/>
+        <location line="+196"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-153"/>
+        <location line="-168"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+22"/>
+        <source>Start with Windows</source>
+        <translation>Démarrer avec Windows</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+2"/>
+        <location line="+213"/>
+        <source>StarFish opens when you sign in.</source>
+        <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
+    </message>
+    <message>
+        <location line="-207"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -715,6 +727,11 @@
         <location line="+2"/>
         <source>Fences to tidy the Windows desktop. Your files never move: a fence shows them, the desktop folder keeps them.</source>
         <translation>Des zones pour ranger le bureau de Windows. Vos fichiers ne bougent jamais : une zone les montre, le dossier du bureau les garde.</translation>
+    </message>
+    <message>
+        <location line="+60"/>
+        <source>Turned off in Task Manager; switching it on here turns it back on.</source>
+        <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
 </context>
 <context>

@@ -33,6 +33,7 @@
 #include "ui/tray_icon.hpp"
 #include "app/context_menu_probe.hpp"
 #include "app/ui_probe.hpp"
+#include "platform/win/autostart.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
@@ -5522,7 +5523,8 @@ int main(int argc, char* argv[])
                                                   QStringLiteral("modernSwitch"),
                                                   QStringLiteral("sortOnAddSwitch"),
                                                   QStringLiteral("desktopArrowsSwitch"),
-                                                  QStringLiteral("overlapSwitch")};
+                                                  QStringLiteral("overlapSwitch"),
+                                                  QStringLiteral("startWithWindowsSwitch")};
                 int strangeSwitches = 0;
                 for (QCheckBox* box : boxes) {
                     if (!allowedSwitches.contains(box->objectName()))
@@ -5533,7 +5535,7 @@ int main(int argc, char* argv[])
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
                 check(QLatin1String("... it has its four pages, the status line and only the global switches"),
-                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 6
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 7
                           && statusLabel != nullptr && !statusShown.isEmpty()
                           && settings->menuEditor() != nullptr,
                       QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
@@ -5553,6 +5555,16 @@ int main(int argc, char* argv[])
                 auto* sortSwitch = settings->findChild<QCheckBox*>(QLatin1String("sortOnAddSwitch"));
                 auto* deskArrows = settings->findChild<QCheckBox*>(QLatin1String("desktopArrowsSwitch"));
                 auto* overlapSwitch = settings->findChild<QCheckBox*>(QLatin1String("overlapSwitch"));
+                {
+                    // Session 62: read from the registry, never written by the probe.
+                    auto* startSwitch = settings->findChild<QCheckBox*>(QLatin1String("startWithWindowsSwitch"));
+                    const auto autostart = starfish::platform::win::Autostart().read();
+                    check(QLatin1String("... and \"start with Windows\" shows what the registry says"),
+                          startSwitch && startSwitch->isChecked() == autostart.enabled(),
+                          QLatin1String("Run value %1, Task Manager %2")
+                              .arg(autostart.registered ? QLatin1String("present") : QLatin1String("absent"))
+                              .arg(autostart.disabledByUser ? QLatin1String("disabled") : QLatin1String("not disabled")));
+                }
                 check(QLatin1String("... the session-60 switches too (sort, desktop arrows, overlap)"),
                       sortSwitch && deskArrows && overlapSwitch
                           && sortSwitch->isChecked() == product.sortOnAdd()
@@ -5690,7 +5702,8 @@ int main(int argc, char* argv[])
                         && box->objectName() != QLatin1String("modernSwitch")
                         && box->objectName() != QLatin1String("sortOnAddSwitch")
                         && box->objectName() != QLatin1String("desktopArrowsSwitch")
-                        && box->objectName() != QLatin1String("overlapSwitch"))
+                        && box->objectName() != QLatin1String("overlapSwitch")
+                        && box->objectName() != QLatin1String("startWithWindowsSwitch"))
                         ++secondBoxes;
                 }
             }
@@ -8176,6 +8189,7 @@ int main(int argc, char* argv[])
         options.claimDesktop = !parser.isSet(nativeDesktopOption);
         options.hotkeys = !parser.isSet(noHotkeysOption);
         options.watchDesktop = !parser.isSet(noWatchOption);
+        options.refreshAutostart = true;
 
         QString startError;
         if (!product.start(options, &startError)) {

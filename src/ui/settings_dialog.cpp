@@ -200,6 +200,22 @@ QWidget* SettingsDialog::buildGeneral()
     statusLayout->addLayout(text, 1);
     l->addWidget(status);
 
+    m_startWithWindows = new ToggleSwitch;
+    m_startWithWindows->setObjectName(QStringLiteral("startWithWindowsSwitch"));
+    connect(m_startWithWindows, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit startWithWindowsToggled(on);
+    });
+    QWidget* startRow = row(QString(QChar(0xE7E8)), tr("Start with Windows"),
+                            tr("StarFish opens when you sign in."), m_startWithWindows, p);
+    for (QLabel* label : startRow->findChildren<QLabel*>()) {
+        if (label->text() == tr("StarFish opens when you sign in.")) {
+            m_startHint = label;
+            m_startHint->setProperty("startWithWindowsHint", true); // its name styles it
+        }
+    }
+    l->addWidget(startRow);
+
     l->addWidget(sectionTitle(tr("Actions"), p));
     auto* create = new QPushButton(tr("Create"));
     create->setObjectName(QStringLiteral("accent"));
@@ -397,6 +413,17 @@ void SettingsDialog::setFenceShortcutArrows(bool shown)
     m_updating = true;
     m_arrows->setChecked(shown);
     m_updating = false;
+}
+
+void SettingsDialog::setStartWithWindows(bool on, bool disabledByUser)
+{
+    m_updating = true;
+    m_startWithWindows->setChecked(on && !disabledByUser);
+    m_updating = false;
+    if (m_startHint)
+        m_startHint->setText(on && disabledByUser
+                                 ? tr("Turned off in Task Manager; switching it on here turns it back on.")
+                                 : tr("StarFish opens when you sign in."));
 }
 
 void SettingsDialog::setSortOnAdd(bool sorted)

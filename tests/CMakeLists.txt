@@ -47,6 +47,12 @@ target_include_directories(test_starfish_overlap_planner PRIVATE ${CMAKE_SOURCE_
 target_link_libraries(test_starfish_overlap_planner PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME core_overlap_planner COMMAND test_starfish_overlap_planner)
 
+# "Démarrer avec Windows" (session 62), on scratch keys under HKCU\Software\StarFish.
+add_executable(test_starfish_autostart test_autostart.cpp ../src/platform/win/autostart.cpp)
+target_include_directories(test_starfish_autostart PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_autostart PRIVATE Qt6::Core Qt6::Test advapi32)
+add_test(NAME platform_autostart COMMAND test_starfish_autostart)
+
 # Icon grid geometry + selection + paint: the pure half of T-005, no Win32.
 add_executable(test_starfish_icon_grid
     test_icon_grid.cpp

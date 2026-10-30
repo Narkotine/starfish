@@ -88,6 +88,9 @@ public:
         // Off by default; a probe or a future option can still ask for the old
         // behaviour (and then the tray offers the entries that undo it).
         bool claimDesktop = false;
+        // Session 62: an existing "start with Windows" entry follows the exe
+        // if it moved -- the real launch only, never a probe.
+        bool refreshAutostart = false;
 
     };
 
@@ -143,6 +146,8 @@ public:
     static bool desktopShortcutArrowsSetting();
     static bool allowDesktopOverlapSetting();
     void setSortOnAdd(bool sorted);
+    // Session 62: "Démarrer avec Windows" -- HKCU Run\StarFish, read each time.
+    void setStartWithWindows(bool on);
     void setDesktopShortcutArrows(bool shown);
     void setAllowDesktopOverlap(bool allowed);
     bool sortOnAdd() const { return m_sortOnAdd; }

@@ -28,6 +28,7 @@
 #include <windows.h>
 
 #include "core/context_menu.hpp"
+#include "platform/win/autostart.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
@@ -170,6 +171,9 @@ bool ProductApp::start(const Options& options, QString* error)
         return true;
 
     m_options = options;
+    if (m_options.refreshAutostart
+        && platform::win::Autostart().refresh(QCoreApplication::applicationFilePath()))
+        qCInfo(lc) << "the start-with-Windows entry now points to" << QCoreApplication::applicationFilePath();
 
     // The safety net, first (T-046). If a previous run hid the native icon layer
     // and never came back -- crash, kill, power cut -- the desktop has been
@@ -539,6 +543,8 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::fenceShortcutArrowsToggled, this,
             &ProductApp::setFenceShortcutArrows);
     connect(m_settings, &ui::SettingsDialog::sortOnAddToggled, this, &ProductApp::setSortOnAdd);
+    connect(m_settings, &ui::SettingsDialog::startWithWindowsToggled, this,
+            &ProductApp::setStartWithWindows);
     connect(m_settings, &ui::SettingsDialog::desktopShortcutArrowsToggled, this,
             &ProductApp::setDesktopShortcutArrows);
     connect(m_settings, &ui::SettingsDialog::desktopOverlapToggled, this,
@@ -1489,6 +1495,10 @@ void ProductApp::refreshStatus()
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
     m_settings->setSortOnAdd(m_sortOnAdd);
+    {
+        const platform::win::AutostartState autostart = platform::win::Autostart().read();
+        m_settings->setStartWithWindows(autostart.registered, autostart.disabledByUser);
+    }
     m_settings->setDesktopShortcutArrows(m_desktopShortcutArrows);
     m_settings->setDesktopOverlapAllowed(m_allowDesktopOverlap);
 }
@@ -1750,6 +1760,18 @@ bool ProductApp::desktopShortcutArrowsSetting()
 bool ProductApp::allowDesktopOverlapSetting()
 {
     return QSettings(kSettingsKey, QSettings::NativeFormat).value(kDesktopOverlap, false).toBool();
+}
+
+void ProductApp::setStartWithWindows(bool on)
+{
+    platform::win::Autostart autostart;
+    const bool done = autostart.setEnabled(on, QCoreApplication::applicationFilePath());
+    const platform::win::AutostartState state = autostart.read();
+    if (m_settings)
+        m_settings->setStartWithWindows(state.registered, state.disabledByUser);
+    qCInfo(lc).noquote() << QStringLiteral("start with Windows: %1%2")
+                                .arg(state.enabled() ? QLatin1String("on") : QLatin1String("off"))
+                                .arg(done ? QString() : QStringLiteral(" (the registry refused)"));
 }
 
 void ProductApp::setSortOnAdd(bool sorted)
