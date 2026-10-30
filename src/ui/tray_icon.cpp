@@ -113,6 +113,13 @@ bool TrayIcon::show()
             m_materials.insert(id, entry);
         }
 
+        // Session 58: the shortcut arrow on fence tiles, a setting of its own.
+        m_fenceArrows = m_menu->addAction(tr("Shortcut arrows on fence icons"));
+        m_fenceArrows->setCheckable(true);
+        m_fenceArrows->setChecked(true);
+        connect(m_fenceArrows, &QAction::triggered, this,
+                [this](bool checked) { emit fenceShortcutArrowsToggled(checked); });
+
         // ADR-13: the desktop's icons are never StarFish's to hide, so these
         // two entries do not exist unless a caller asks for them (the dev path
         // that still claims the desktop). They are built either way so the
@@ -179,6 +186,12 @@ void TrayIcon::setDesktopIconsHidden(bool hidden)
 {
     if (m_hideIcons)
         m_hideIcons->setChecked(hidden);
+}
+
+void TrayIcon::setFenceShortcutArrows(bool shown)
+{
+    if (m_fenceArrows)
+        m_fenceArrows->setChecked(shown);
 }
 
 void TrayIcon::setFenceMaterial(const QString& material)

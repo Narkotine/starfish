@@ -112,6 +112,12 @@ public:
 
     // Icon source bound to every FenceView created afterwards.
     void setIconProvider(IconGrid::IconProvider provider);
+    // The desktop's own icons may be drawn differently from the fences' tiles
+    // (the shortcut arrow is a setting for tiles, never for the desktop).
+    // Unset, the backdrop uses the fences' provider.
+    void setBackdropIconProvider(IconGrid::IconProvider provider);
+    // Every fence draws its tiles again (an icon setting changed).
+    void refreshFenceIcons();
 
     // Resolves a path coming back from the persisted layout into a DesktopItem
     // (T-008). The default resolver uses core::itemFromPathOnly (no Shell, no
@@ -505,6 +511,7 @@ private:
 
     QList<FenceWindow> m_fences;
     IconGrid::IconProvider m_iconProvider;
+    IconGrid::IconProvider m_backdropIconProvider;
     ItemResolver m_itemResolver;
     // T-039: the layer the desktop's own icons are drawn on while the native one
     // is hidden. Owned here, and always present -- it is inert until enabled.

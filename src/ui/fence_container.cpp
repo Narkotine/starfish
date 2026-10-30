@@ -109,7 +109,26 @@ void FenceContainer::setIconProvider(IconGrid::IconProvider provider)
             fence.view->setIconProvider(m_iconProvider);
     }
     if (m_backdrop)
-        m_backdrop->setIconProvider(m_iconProvider);
+        m_backdrop->setIconProvider(m_backdropIconProvider ? m_backdropIconProvider
+                                                           : m_iconProvider);
+}
+
+void FenceContainer::setBackdropIconProvider(IconGrid::IconProvider provider)
+{
+    m_backdropIconProvider = std::move(provider);
+    if (m_backdrop)
+        m_backdrop->setIconProvider(m_backdropIconProvider ? m_backdropIconProvider
+                                                           : m_iconProvider);
+}
+
+void FenceContainer::refreshFenceIcons()
+{
+    for (FenceWindow& fence : m_fences) {
+        if (fence.view) {
+            fence.view->setIconProvider(m_iconProvider);
+            renderFence(fence.id);
+        }
+    }
 }
 
 void FenceContainer::setItemResolver(ItemResolver resolver)
@@ -305,7 +324,7 @@ bool FenceContainer::setBackdropEnabled(bool enabled)
 {
     if (!m_backdrop)
         return false;
-    m_backdrop->setIconProvider(m_iconProvider);
+    m_backdrop->setIconProvider(m_backdropIconProvider ? m_backdropIconProvider : m_iconProvider);
     m_backdrop->setScreens(m_screens);
     refreshBackdrop(); // so the first frame is drawn from a current free set
     m_backdrop->setEnabled(enabled);

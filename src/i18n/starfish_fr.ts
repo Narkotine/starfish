@@ -323,6 +323,10 @@
         <translation>Restaurer mes icônes</translation>
     </message>
     <message>
+        <source>Shortcut arrows on fence icons</source>
+        <translation>Flèches de raccourci sur les icônes des zones</translation>
+    </message>
+    <message>
         <location line="+6"/>
         <source>Settings...</source>
         <translation>Réglages...</translation>

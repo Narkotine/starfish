@@ -260,6 +260,74 @@ int runDrawnDesktopProbe(QApplication& app)
                       cellIndex(backdrop, testNative) >= 0, testNative);
             }
 
+            // A virtual item (This PC, the Recycle Bin) is filed like any icon
+            // (the user's decision, session 58), under the name the desktop gives it.
+            {
+                QString virtualName;
+                QString virtualLabel;
+                for (const platform::win::ShellViewItem& item : state.items) {
+                    if (item.parsingName.startsWith(QLatin1String("::"))) {
+                        virtualName = item.parsingName;
+                        virtualLabel = item.displayName;
+                        break;
+                    }
+                }
+                if (!virtualName.isEmpty()) {
+                    ui::FenceContainer* container = product.container();
+                    const QString fence = container->createFence(
+                        QStringLiteral("Virtual"),
+                        QRect(backdrop->area().center() - QPoint(160, 120), QSize(320, 240)));
+                    const core::DesktopItem item = container->itemForPath(virtualName);
+                    const int filed = fence.isEmpty() ? 0 : container->fileInto(fence, {item});
+                    waitMs(600);
+                    check(QStringLiteral("a virtual item is filed and leaves the desktop"),
+                          filed == 1 && cellIndex(backdrop, virtualName) < 0
+                              && item.name == virtualLabel,
+                          QStringLiteral("%1 \"%2\" (tile \"%3\")")
+                              .arg(virtualName, virtualLabel, item.name));
+                    platform::win::DesktopShellView::captureDesktop(
+                        QRect(backdrop->area().center() - QPoint(300, 200), QSize(600, 400))
+                            .intersected(backdrop->area()))
+                        .save(captures + QStringLiteral("/virtual_item_in_fence.png"));
+                    if (!fence.isEmpty())
+                        container->removeFence(fence);
+                    waitMs(600);
+                    check(QStringLiteral("...and comes back when its fence goes"),
+                          cellIndex(backdrop, virtualName) >= 0, virtualName);
+                }
+            }
+
+            // The shortcut arrow on fence tiles is a setting (session 58). A
+            // shortcut of our own, filed, drawn with and without it; the user's
+            // value is put back whatever happens.
+            {
+                const QString link = QDir(desktop).filePath(QStringLiteral("StarFish probe arrow.lnk"));
+                const QString linkNative = QDir::toNativeSeparators(link);
+                const bool userValue = ProductApp::fenceShortcutArrowsSetting();
+                if (!QFileInfo::exists(link) && QFile::link(testFile, link)) {
+                    waitMs(2000);
+                    ui::FenceContainer* container = product.container();
+                    const QRect where(backdrop->area().center() - QPoint(160, 120), QSize(320, 240));
+                    const QString fence = container->createFence(QStringLiteral("Arrows"), where);
+                    container->fileInto(fence, {container->itemForPath(linkNative)});
+                    product.setFenceShortcutArrows(true);
+                    waitMs(500);
+                    const QImage with = platform::win::DesktopShellView::captureDesktop(where);
+                    product.setFenceShortcutArrows(false);
+                    waitMs(500);
+                    const QImage without = platform::win::DesktopShellView::captureDesktop(where);
+                    with.save(captures + QStringLiteral("/fence_arrow_on.png"));
+                    without.save(captures + QStringLiteral("/fence_arrow_off.png"));
+                    check(QStringLiteral("the fence-tile shortcut arrow follows its setting"),
+                          !with.isNull() && with != without,
+                          QStringLiteral("default on; captures fence_arrow_on/off.png"));
+                    container->removeFence(fence);
+                }
+                product.setFenceShortcutArrows(userValue);
+                QFile::remove(link);
+                waitMs(1000);
+            }
+
             // ...is renamed...
             const bool renamed = QFile::rename(testFile, renamedFile);
             int renamedIndex = -1;

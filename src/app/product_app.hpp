@@ -120,6 +120,11 @@ public:
     bool reclaimPending() const { return m_reclaimTimer.isActive(); }
     // The same path a monitor change takes, callable without one.
     void screensChangedForProbe() { refreshScreens(); }
+    // Session 58 (the user's decision): the shortcut arrow on fence tiles is a
+    // setting, HKCU\Software\StarFish\fenceShortcutArrows, on by default.
+    static bool fenceShortcutArrowsSetting();
+    void setFenceShortcutArrows(bool shown);
+    bool fenceShortcutArrows() const { return m_fenceShortcutArrows; }
     // The desktop's background menu at `point`, as a right-click opens it.
     void showDesktopMenu(const QPoint& point) { onDesktopMenu(QRect(), point); }
 
@@ -281,6 +286,7 @@ private:
     int m_reclaimSettled = 0;
     int m_desktopLosses = 0;
     int m_listReshown = 0;
+    bool m_fenceShortcutArrows = true;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

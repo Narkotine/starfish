@@ -104,7 +104,7 @@ QPixmap fallbackIcon(const QString& nativePath)
 
 } // namespace
 
-QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx)
+QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx, bool overlays)
 {
     if (path.isEmpty())
         return {};
@@ -163,7 +163,7 @@ QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx)
     const int overlaySize = target >= 96 ? 32 : 16;
     HICON overlayIcon = nullptr;
     IImageList* overlayList = nullptr;
-    if (overlay > 0
+    if (overlays && overlay > 0
         && SUCCEEDED(::SHGetImageList(imageListFor(overlaySize), imageListIid(),
                                       reinterpret_cast<void**>(&overlayList)))
         && overlayList) {
@@ -195,16 +195,17 @@ QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx)
     return pixmap;
 }
 
-QPixmap ShellIconCache::iconFor(const QString& path, int sizePx)
+QPixmap ShellIconCache::iconFor(const QString& path, int sizePx, bool overlays)
 {
     // '\x1f' cannot appear in a path, so the key is unambiguous.
-    const QString key = path + QLatin1Char('\x1f') + QString::number(sizePx);
+    const QString key = path + QLatin1Char('\x1f') + QString::number(sizePx)
+                        + (overlays ? QLatin1String("") : QLatin1String("\x1fbare"));
 
     const auto it = m_cache.constFind(key);
     if (it != m_cache.constEnd())
         return it.value();
 
-    const QPixmap pixmap = loadIcon(path, sizePx);
+    const QPixmap pixmap = loadIcon(path, sizePx, overlays);
     m_cache.insert(key, pixmap);
     return pixmap;
 }

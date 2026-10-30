@@ -25,10 +25,12 @@ public:
     // `sizePx` is the requested edge length in logical pixels. The closest
     // system image list is used and the result is scaled smoothly, keeping the
     // aspect ratio. Returns a null pixmap when the Shell has no icon for it.
-    QPixmap iconFor(const QString& path, int sizePx);
+    // `overlays` false leaves out the shell's overlay -- the shortcut arrow
+    // above all: fence tiles show it or not by the user's setting.
+    QPixmap iconFor(const QString& path, int sizePx, bool overlays = true);
 
     // Same lookup, bypassing the cache.
-    static QPixmap loadIcon(const QString& path, int sizePx);
+    static QPixmap loadIcon(const QString& path, int sizePx, bool overlays = true);
 
     void clear();
     int cachedCount() const;

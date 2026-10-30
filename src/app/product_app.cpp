@@ -177,8 +177,15 @@ bool ProductApp::start(const Options& options, QString* error)
     // rather than like a mock-up.
     m_icons = std::make_unique<platform::win::ShellIconCache>();
     platform::win::ShellIconCache* icons = m_icons.get();
-    m_container->setIconProvider([icons](const core::DesktopItem& item, int sizePx) {
-        return icons->iconFor(item.path, sizePx);
+    // The shortcut arrow on a fence's tiles is the user's setting (session 58,
+    // default on: the tile then looks like the desktop icon it was); the
+    // desktop itself always shows it, like Windows.
+    m_fenceShortcutArrows = fenceShortcutArrowsSetting();
+    m_container->setIconProvider([this, icons](const core::DesktopItem& item, int sizePx) {
+        return icons->iconFor(item.path, sizePx, m_fenceShortcutArrows);
+    });
+    m_container->setBackdropIconProvider([icons](const core::DesktopItem& item, int sizePx) {
+        return icons->iconFor(item.path, sizePx, true);
     });
     // The Shell resolves a restored path exactly as it resolves a dropped one, so
     // a tile means the same thing wherever it came from (ADR-7).
@@ -439,9 +446,12 @@ void ProductApp::wireTray()
     // applies to every fence (a fence's own menu is the per-fence one).
     connect(m_tray, &ui::TrayIcon::fenceMaterialRequested, this,
             &ProductApp::applyMaterialToAllFences);
+    connect(m_tray, &ui::TrayIcon::fenceShortcutArrowsToggled, this,
+            &ProductApp::setFenceShortcutArrows);
 
     if (!m_tray->show())
         qCWarning(lc) << "the tray icon could not be shown";
+    m_tray->setFenceShortcutArrows(m_fenceShortcutArrows);
 
     m_tray->setFenceCount(m_container->fenceCount());
     m_tray->setFencesVisible(m_container->fencesVisible());
@@ -1608,6 +1618,29 @@ bool ProductApp::claimDrawnDesktop()
                                 .arg(backdrop->freeCount());
     refreshStatus();
     return true;
+}
+
+namespace {
+const QString kSettingsKey = QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish");
+const QString kFenceArrows = QStringLiteral("fenceShortcutArrows");
+} // namespace
+
+bool ProductApp::fenceShortcutArrowsSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(kFenceArrows, true).toBool();
+}
+
+void ProductApp::setFenceShortcutArrows(bool shown)
+{
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kFenceArrows, shown);
+    if (m_fenceShortcutArrows == shown)
+        return;
+    m_fenceShortcutArrows = shown;
+    if (m_container)
+        m_container->refreshFenceIcons();
+    if (m_tray)
+        m_tray->setFenceShortcutArrows(shown);
+    qCInfo(lc) << "shortcut arrows on fence tiles:" << (shown ? "shown" : "hidden");
 }
 
 void ProductApp::onDesktopLost()

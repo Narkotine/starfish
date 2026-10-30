@@ -56,6 +56,8 @@ public:
     // **all** fences -- it has no way to point at one -- and a fence's own menu
     // (T-076, ADR-16) is what chooses per fence.
     void setFenceMaterial(const QString& material);
+    // Whether fence tiles show the shortcut arrow (a checkable entry).
+    void setFenceShortcutArrows(bool shown);
 
     // ADR-13: StarFish never hides the desktop's icons, so the two entries that
     // exist for that ("Hide desktop icons" and the repair command beside it) are
@@ -87,6 +89,7 @@ signals:
     // F-038 / T-057: a material was picked for the whole desktop (see
     // setFenceMaterial -- the tray has no way to point at one fence).
     void fenceMaterialRequested(const QString& material);
+    void fenceShortcutArrowsToggled(bool shown);
     // The emergency exit (T-046): "give me my icons back", as a command rather
     // than a toggle. The product answers it by asking the desktop directly.
     void restoreIconsRequested();
@@ -105,6 +108,7 @@ private:
     QAction* m_peek = nullptr;
     QAction* m_hideIcons = nullptr;
     QAction* m_restoreIcons = nullptr;
+    QAction* m_fenceArrows = nullptr;
     // ADR-13: whether the two desktop-icon entries are offered at all. See
     // setIconHidingOffered -- off unless the caller asks, and no caller in the
     // product does.
