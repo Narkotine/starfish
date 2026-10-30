@@ -248,3 +248,19 @@ target_include_directories(test_starfish_i18n PRIVATE
 target_link_libraries(test_starfish_i18n PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_i18n COMMAND test_starfish_i18n)
+
+# The drawn right-click menu (T-092): the Windows 11 profile applied to the
+# desktop's real menus (shapes measured on this machine) and the user's
+# configuration -- hide, reorder, bring back, add -- as data, no window.
+add_executable(test_starfish_context_menu
+    test_context_menu.cpp
+    ../src/core/context_menu.cpp
+)
+
+target_include_directories(test_starfish_context_menu PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_context_menu PRIVATE Qt6::Core Qt6::Test)
+
+add_test(NAME core_context_menu COMMAND test_starfish_context_menu)

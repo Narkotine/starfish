@@ -28,6 +28,7 @@
 #include <QWindow>
 
 #include "app/drawn_desktop_probe.hpp"
+#include "app/context_menu_probe.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
@@ -1139,6 +1140,11 @@ int main(int argc, char* argv[])
         QStringLiteral("ADR-21: run the drawn desktop on the real desktop and check it (shell "
                        "view, menus, sync, restore). Report: build/drawn-desktop-probe.txt."));
     parser.addOption(drawnDesktopProbeOption);
+    const QCommandLineOption contextMenuProbeOption(
+        QStringLiteral("context-menu-probe"),
+        QStringLiteral("T-092: compose, render and run the drawn right-click menu from the "
+                       "desktop's real menus. Report: build/context-menu-probe.txt."));
+    parser.addOption(contextMenuProbeOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -7657,6 +7663,8 @@ int main(int argc, char* argv[])
 
     if (parser.isSet(drawnDesktopProbeOption))
         return starfish::app::runDrawnDesktopProbe(app);
+    if (parser.isSet(contextMenuProbeOption))
+        return starfish::app::runContextMenuProbe(app);
 
     if (parser.isSet(crashVictimOption)) {
         // The child half of --crash-demo (T-046). It hides the native icons

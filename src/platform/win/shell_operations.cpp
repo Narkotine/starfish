@@ -392,3 +392,12 @@ void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop)
 }
 
 } // namespace starfish::platform::win
+namespace starfish::platform::win {
+
+void bringToForeground(quintptr hwnd)
+{
+    if (hwnd)
+        ::SetForegroundWindow(reinterpret_cast<HWND>(hwnd));
+}
+
+} // namespace starfish::platform::win

@@ -118,6 +118,14 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
+        <source>Show more options</source>
+        <translation>Afficher plus d'options</translation>
+    </message>
+    <message>
+        <source>Shift+F10</source>
+        <translation>Maj+F10</translation>
+    </message>
+    <message>
         <location filename="../app/product_app.cpp" line="+147"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
@@ -325,6 +333,10 @@
     <message>
         <source>Shortcut arrows on fence icons</source>
         <translation>Flèches de raccourci sur les icônes des zones</translation>
+    </message>
+    <message>
+        <source>Customize the right-click menu...</source>
+        <translation>Personnaliser le menu clic droit...</translation>
     </message>
     <message>
         <location line="+6"/>

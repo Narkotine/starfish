@@ -16,12 +16,17 @@
 #include <QLineEdit>
 #include <QLoggingCategory>
 #include <QMenu>
+#include <QOperatingSystemVersion>
+#include <QProcess>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QRect>
 #include <QScreen>
 #include <QSettings>
 #include <QTimer>
 #include <QUrl>
 
+#include "core/context_menu.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
@@ -40,6 +45,7 @@
 #include "ui/fence_material.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/icon_grid.hpp"
+#include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 
@@ -451,6 +457,7 @@ void ProductApp::wireTray()
             &ProductApp::applyMaterialToAllFences);
     connect(m_tray, &ui::TrayIcon::fenceShortcutArrowsToggled, this,
             &ProductApp::setFenceShortcutArrows);
+    connect(m_tray, &ui::TrayIcon::contextMenuEditRequested, this, &ProductApp::editContextMenu);
 
     if (!m_tray->show())
         qCWarning(lc) << "the tray icon could not be shown";
@@ -663,13 +670,26 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
         if (!registered.isEmpty())
             hidden << registered;
         constexpr int kCreateFence = 1;
-        const int chosen = m_shellView->showBackgroundMenu(
-            point, backdropOwner(), {{kCreateFence, label, true, false, {}}}, hidden);
+        int chosen = -1;
+        if (modernContextMenuWanted()) {
+            // T-092: Windows 11's menu, drawn by StarFish from the real one.
+            core::ContextMenuItem create;
+            create.key = QStringLiteral("starfish:create-fence");
+            create.label = label;
+            create.glyph = QString(QChar(0xE80A));
+            create.ownId = kCreateFence;
+            chosen = showModernContextMenu(core::ContextMenuKind::Background, {}, point, {create},
+                                           nullptr, hidden);
+        } else {
+            chosen = m_shellView->showBackgroundMenu(
+                point, backdropOwner(), {{kCreateFence, label, true, false, {}}}, hidden);
+        }
         // Whatever the shell ran (a new folder, a paste, View > Small icons)
         // shows up on the next read; asked for now rather than in 1.5 s.
         const QString verb = m_shellView->lastChosenVerb();
-        if (verb.compare(QLatin1String("NewFolder"), Qt::CaseInsensitive) == 0
-            || verb.startsWith(QLatin1Char('.')) || verb.startsWith(QLatin1String("New"), Qt::CaseInsensitive))
+        // Through the proxy a verb arrives cut to its first letter (T-092):
+        // "N" for NewFolder / NewLink, "." for a new document.
+        if (verb.startsWith(QLatin1Char('N')) || verb.startsWith(QLatin1Char('.')))
             armNewItemRename();
         m_shellResync.start();
         if (chosen != kCreateFence)
@@ -1838,7 +1858,10 @@ void ProductApp::onIconMenu(const QStringList& paths, const QPoint& point)
     // ours, and its own menu (SVGIO_SELECTION) is shown: Open, Run as
     // administrator, Pin, Send to, Copy, Delete, Properties and every extension.
     bool rename = false;
-    m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, &rename);
+    if (modernContextMenuWanted())
+        showModernContextMenu(core::ContextMenuKind::Selection, paths, point, {}, &rename);
+    else
+        m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, &rename);
     if (rename && paths.size() >= 1)
         startRename(paths.first()); // the shell's edit would happen in the hidden list
     m_shellResync.start();
@@ -2079,6 +2102,205 @@ void ProductApp::onDesktopKey(int key, Qt::KeyboardModifiers modifiers)
         return;
     }
     m_shellResync.start();
+}
+
+} // namespace starfish::app
+
+// ---------------------------------------------------------------------------
+// T-092 (lot 4): the right-click menu drawn by StarFish.
+
+namespace starfish::app {
+
+namespace {
+
+std::vector<core::ContextMenuItem>
+toContextMenuItems(const std::vector<platform::win::DesktopShellView::ShellMenuItem>& shell)
+{
+    std::vector<core::ContextMenuItem> out;
+    out.reserve(shell.size());
+    for (const auto& s : shell) {
+        core::ContextMenuItem item;
+        item.separator = s.separator;
+        item.label = s.label;
+        item.shortcut = s.shortcut;
+        item.enabled = s.enabled;
+        item.checked = s.checked;
+        item.radio = s.radio;
+        item.isDefault = s.isDefault;
+        item.command = s.command;
+        item.children = toContextMenuItems(s.children);
+        out.push_back(std::move(item));
+    }
+    return out;
+}
+
+// A popup's position in Qt's coordinates from a physical screen point.
+QPoint logicalFromPhysical(const QPoint& physical)
+{
+    for (QScreen* screen : QGuiApplication::screens()) {
+        const QRect g = screen->geometry();
+        const qreal dpr = screen->devicePixelRatio();
+        const QRect native(g.topLeft(), g.size() * dpr);
+        if (native.contains(physical))
+            return g.topLeft() + (physical - g.topLeft()) / dpr;
+    }
+    return physical;
+}
+
+} // namespace
+
+bool ProductApp::modernContextMenuWanted()
+{
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows11)
+        return false; // Windows 10: its own menu is the classic one
+    if (QGuiApplication::queryKeyboardModifiers() & Qt::ShiftModifier)
+        return false; // Shift+right-click: the classic menu, as on Windows 11
+    return core::ContextMenuConfig::load(core::ContextMenuConfig::defaultPath()).modern;
+}
+
+std::vector<core::ContextMenuItem>
+ProductApp::composeContextMenu(core::ContextMenuKind kind, const QStringList& paths,
+                               const std::vector<core::ContextMenuItem>& ours,
+                               const QStringList& hiddenShellEntries)
+{
+    if (!m_shellView)
+        return {};
+    const auto shell = kind == core::ContextMenuKind::Background
+                           ? m_shellView->openBackgroundMenuModel(hiddenShellEntries)
+                           : m_shellView->openSelectionMenuModel(paths);
+    std::vector<core::ContextMenuItem> classic = toContextMenuItems(shell);
+    const core::ContextMenuConfig config =
+        core::ContextMenuConfig::load(core::ContextMenuConfig::defaultPath());
+    std::vector<core::ContextMenuItem> items =
+        core::composeWindows11Menu(classic, kind, config, ours, tr("Show more options"));
+    if (!items.empty() && items.back().ownId == core::kMoreOptionsId)
+        items.back().shortcut = tr("Shift+F10"); // what opens it from the keyboard
+    // The keys a user can name in the configuration, with what they say.
+    bool grew = false;
+    const QString prefix = kind == core::ContextMenuKind::Background ? QStringLiteral("background ")
+                                                                       : QStringLiteral("items ");
+    for (const core::ContextMenuItem& item : classic) {
+        if (item.separator)
+            continue;
+        const QString key = core::contextMenuKey(item.label, !item.children.empty());
+        if (!m_seenMenuKeys.contains(prefix + key)) {
+            m_seenMenuKeys.insert(prefix + key, item.label);
+            grew = true;
+        }
+    }
+    for (const core::ContextMenuItem& item : ours) {
+        if (!m_seenMenuKeys.contains(prefix + item.key)) {
+            m_seenMenuKeys.insert(prefix + item.key, item.label);
+            grew = true;
+        }
+    }
+    if (grew)
+        writeSeenMenuKeys();
+    return items;
+}
+
+int ProductApp::runContextMenuEntry(const core::ContextMenuItem& item, core::ContextMenuKind kind,
+                                    const QStringList& paths, const QPoint& point,
+                                    const std::vector<core::ContextMenuItem>& ours,
+                                    bool* renameRequested)
+{
+    int result = -1;
+    if (item.ownId == core::kMoreOptionsId) {
+        m_shellView->closeMenuModel();
+        // "Show more options": the classic menu, ours included, where it was asked.
+        if (kind == core::ContextMenuKind::Background) {
+            QList<platform::win::DesktopShellView::MenuEntry> extra;
+            for (const core::ContextMenuItem& o : ours)
+                extra.append({o.ownId, o.label, true, false, {}});
+            QStringList hidden{QStringLiteral("StarFish"), platform::win::desktopMenuLabel()};
+            result = m_shellView->showBackgroundMenu(point, backdropOwner(), extra, hidden);
+        } else {
+            m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, renameRequested);
+        }
+        return result;
+    }
+    if (item.command >= 0) {
+        if (renameRequested && item.key == QLatin1String("rename"))
+            *renameRequested = true; // the shell's edit would be in the hidden list
+        else
+            m_shellView->invokeMenuCommand(item.command, point, backdropOwner());
+        if (item.key.startsWith(QLatin1String("new/")))
+            armNewItemRename();
+    } else if (item.customIndex >= 0) {
+        const core::ContextMenuConfig config =
+            core::ContextMenuConfig::load(core::ContextMenuConfig::defaultPath());
+        const core::ContextMenuProfile& profile = config.profile(kind);
+        if (item.customIndex < profile.custom.size()) {
+            const core::ContextMenuCustomEntry& entry = profile.custom.at(item.customIndex);
+            const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+            const bool started = QProcess::startDetached(
+                entry.program, core::expandCustomArguments(entry, paths, desktop), desktop);
+            qCInfo(lc).noquote() << QStringLiteral("custom menu entry \"%1\": %2 %3")
+                                        .arg(entry.label, entry.program,
+                                             started ? QStringLiteral("started") : QStringLiteral("FAILED"));
+        }
+    } else {
+        result = item.ownId;
+    }
+    m_shellView->closeMenuModel();
+    return result;
+}
+
+int ProductApp::showModernContextMenu(core::ContextMenuKind kind, const QStringList& paths,
+                                      const QPoint& point, const std::vector<core::ContextMenuItem>& ours,
+                                      bool* renameRequested, const QStringList& hiddenShellEntries)
+{
+    const std::vector<core::ContextMenuItem> items =
+        composeContextMenu(kind, paths, ours, hiddenShellEntries);
+    core::ContextMenuItem picked;
+    bool any = false;
+    std::unique_ptr<QMenu> menu(ui::buildModernMenu(
+        items, ui::ModernMenuStyle::current(), [&](const core::ContextMenuItem& item) {
+            picked = item;
+            any = true;
+        }));
+    // A popup closes on an outside click only when its thread is in the
+    // foreground (as for TrackPopupMenu); keys go to it the same way.
+    if (const quintptr owner = backdropOwner())
+        platform::win::bringToForeground(owner);
+    menu->exec(logicalFromPhysical(point));
+    menu.reset();
+    if (!any) {
+        m_shellView->closeMenuModel();
+        return -1;
+    }
+    qCInfo(lc).noquote() << QStringLiteral("drawn menu: \"%1\" (%2)").arg(picked.label, picked.key);
+    return runContextMenuEntry(picked, kind, paths, point, ours, renameRequested);
+}
+
+void ProductApp::writeSeenMenuKeys()
+{
+    const QString path = QFileInfo(core::ContextMenuConfig::defaultPath())
+                             .dir()
+                             .filePath(QStringLiteral("context-menu-keys.txt"));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+        return;
+    QTextStream out(&file);
+    out << "# Les entrees vues dans les menus clic droit du bureau, par cle.\n"
+           "# A utiliser dans context-menu.json : \"hidden\" (masquer), \"shown\"\n"
+           "# (ramener une entree que Windows 11 laisse sous \"Afficher plus d'options\"),\n"
+           "# \"order\" (mettre en tete, dans cet ordre). \"background\" = le fond du\n"
+           "# bureau, \"items\" = une icone. Fichier reecrit par StarFish.\n\n";
+    for (auto it = m_seenMenuKeys.cbegin(); it != m_seenMenuKeys.cend(); ++it)
+        out << it.key() << "    = " << it.value() << '\n';
+    file.commit();
+}
+
+void ProductApp::editContextMenu()
+{
+    const QString path = core::ContextMenuConfig::defaultPath();
+    if (!QFileInfo::exists(path)) {
+        core::ContextMenuConfig config; // the defaults, written out to be edited
+        config.save(path);
+    }
+    writeSeenMenuKeys();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 } // namespace starfish::app

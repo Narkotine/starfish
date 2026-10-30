@@ -23,9 +23,13 @@
 
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
+#include <QToolButton>
 
 #include "app/product_app.hpp"
+#include "core/context_menu.hpp"
+#include "ui/modern_menu.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "platform/win/desktop_shell_view.hpp"
 #include "platform/win/desktop_surface.hpp"
@@ -281,6 +285,9 @@ int runDrawnDesktopProbe(QApplication& app)
                     grabScreen(bareShot.intersected(backdrop->area()))
                         .save(captures + QStringLiteral("/lot1_background_menu.png"));
                     ::EndMenu();
+                    // On Windows 11 the menu is StarFish's own (T-092), a Qt popup.
+                    if (QWidget* popup = QApplication::activePopupWidget())
+                        popup->close();
                 });
                 product.showDesktopMenu(bare);
                 backdrop->setSelection({});
@@ -591,6 +598,168 @@ int runDrawnDesktopProbe(QApplication& app)
                 check(QStringLiteral("...and deleting it (Shift+Delete path) removes it"),
                       created.isEmpty() || waitUntil(4000, [&] { return !QFileInfo::exists(created); }),
                       created);
+            }
+
+            // Lot 4 (T-092): the right-click menu drawn by StarFish. The user's
+            // configuration file is put aside and given back byte for byte.
+            if (index >= 0) {
+                const QString configPath = core::ContextMenuConfig::defaultPath();
+                const bool hadConfig = QFileInfo::exists(configPath);
+                QByteArray savedConfig;
+                if (hadConfig) {
+                    QFile f(configPath);
+                    if (f.open(QIODevice::ReadOnly))
+                        savedConfig = f.readAll();
+                    QFile::remove(configPath);
+                }
+                const QStringList known{
+                    QStringLiteral("view"), QStringLiteral("sort"), QStringLiteral("refresh"),
+                    QStringLiteral("undo"), QStringLiteral("redo"), QStringLiteral("new"),
+                    QStringLiteral("display-settings"), QStringLiteral("personalize"),
+                    QStringLiteral("terminal"), QStringLiteral("paste"), QStringLiteral("more-options"),
+                    QStringLiteral("starfish:create-fence")};
+                const auto keysOf = [](const std::vector<core::ContextMenuItem>& items) {
+                    QStringList keys;
+                    for (const core::ContextMenuItem& item : items) {
+                        if (!item.separator)
+                            keys << (item.topBar ? QStringLiteral("^") : QString()) + item.key;
+                    }
+                    return keys;
+                };
+                core::ContextMenuItem create;
+                create.key = QStringLiteral("starfish:create-fence");
+                create.label = QStringLiteral("Create a fence here");
+                create.ownId = 1;
+                const std::vector<core::ContextMenuItem> ours{create};
+
+                std::vector<core::ContextMenuItem> bg =
+                    product.composeContextMenu(core::ContextMenuKind::Background, {}, ours);
+                const QStringList bgKeys = keysOf(bg);
+                bool onlyWindows11 = !bgKeys.isEmpty();
+                for (const QString& key : bgKeys)
+                    onlyWindows11 = onlyWindows11 && known.contains(QString(key).remove(QLatin1Char('^')));
+                check(QStringLiteral("the drawn background menu has Windows 11's entries (T-092)"),
+                      bgKeys.contains(QStringLiteral("view")) && bgKeys.contains(QStringLiteral("sort"))
+                          && bgKeys.contains(QStringLiteral("refresh")) && bgKeys.contains(QStringLiteral("new"))
+                          && bgKeys.contains(QStringLiteral("starfish:create-fence"))
+                          && bgKeys.last() == QLatin1String("more-options"),
+                      bgKeys.join(QLatin1Char(' ')));
+                check(QStringLiteral("...and only them (extensions under Show more options)"),
+                      onlyWindows11, bgKeys.join(QLatin1Char(' ')));
+
+                // Rendered, captured, an entry run -- all without a click.
+                const QPoint bare(backdrop->area().center().x(), backdrop->area().center().y() - 300);
+                core::ContextMenuItem picked;
+                std::unique_ptr<QMenu> bgMenu(ui::buildModernMenu(
+                    bg, ui::ModernMenuStyle::current(),
+                    [&](const core::ContextMenuItem& item) { picked = item; }));
+                bgMenu->popup(bare);
+                waitMs(500);
+                grabScreen(QRect(bare - QPoint(30, 30), bgMenu->size() + QSize(60, 60)))
+                    .save(captures + QStringLiteral("/lot4_menu_background.png"));
+                QAction* refresh = bgMenu->findChild<QAction*>(QStringLiteral("refresh"));
+                if (refresh)
+                    refresh->trigger();
+                bgMenu->close();
+                const int ran = picked.key == QLatin1String("refresh")
+                                    ? product.runContextMenuEntry(picked, core::ContextMenuKind::Background,
+                                                                  {}, bare, ours, nullptr)
+                                    : -2;
+                check(QStringLiteral("...an entry picked runs the shell's own command"),
+                      ran == -1 && !product.shellView()->lastChosenVerb().isEmpty(),
+                      QStringLiteral("picked \"%1\", verb \"%2\"")
+                          .arg(picked.key, product.shellView()->lastChosenVerb()));
+
+                bg = product.composeContextMenu(core::ContextMenuKind::Background, {}, ours);
+                picked = {};
+                bgMenu.reset(ui::buildModernMenu(bg, ui::ModernMenuStyle::current(),
+                                                 [&](const core::ContextMenuItem& item) { picked = item; }));
+                if (QAction* a = bgMenu->findChild<QAction*>(QStringLiteral("starfish:create-fence")))
+                    a->trigger();
+                const int own = product.runContextMenuEntry(picked, core::ContextMenuKind::Background, {},
+                                                            bare, ours, nullptr);
+                check(QStringLiteral("...and StarFish's own entry comes back to StarFish"), own == 1,
+                      QString::number(own));
+                bgMenu.reset();
+
+                // The item's menu: the top bar and the list.
+                const std::vector<core::ContextMenuItem> sel =
+                    product.composeContextMenu(core::ContextMenuKind::Selection, {testNative}, {});
+                const QStringList selKeys = keysOf(sel);
+                check(QStringLiteral("the drawn item menu: top bar Cut, Copy, Rename, Delete"),
+                      selKeys.contains(QStringLiteral("^cut")) && selKeys.contains(QStringLiteral("^copy"))
+                          && selKeys.contains(QStringLiteral("^rename"))
+                          && selKeys.contains(QStringLiteral("^delete"))
+                          && selKeys.contains(QStringLiteral("open"))
+                          && selKeys.contains(QStringLiteral("properties"))
+                          && selKeys.last() == QLatin1String("more-options"),
+                      selKeys.join(QLatin1Char(' ')));
+                picked = {};
+                std::unique_ptr<QMenu> selMenu(ui::buildModernMenu(
+                    sel, ui::ModernMenuStyle::current(),
+                    [&](const core::ContextMenuItem& item) { picked = item; }));
+                const int selIndex = cellIndex(backdrop, testNative);
+                const QPoint at = selIndex >= 0 ? backdrop->cells().at(selIndex).icon.center() : bare;
+                selMenu->popup(at);
+                waitMs(500);
+                grabScreen(QRect(at - QPoint(30, 30), selMenu->size() + QSize(60, 60)))
+                    .save(captures + QStringLiteral("/lot4_menu_item.png"));
+                if (auto* button = selMenu->findChild<QToolButton*>(QStringLiteral("topbar:rename")))
+                    button->click();
+                selMenu->close();
+                bool renameAsked = false;
+                product.runContextMenuEntry(picked, core::ContextMenuKind::Selection, {testNative}, at, {},
+                                            &renameAsked);
+                check(QStringLiteral("...its Rename button asks for our edit"),
+                      picked.key == QLatin1String("rename") && renameAsked && QFileInfo::exists(testFile),
+                      picked.key);
+                selMenu.reset();
+
+                // The configuration: hide, reorder, bring back, add.
+                core::ContextMenuConfig config;
+                config.background.hidden << QStringLiteral("refresh");
+                config.background.order << QStringLiteral("personalize");
+                config.background.custom << core::ContextMenuCustomEntry{
+                    QStringLiteral("StarFish probe entry"), QStringLiteral("notepad.exe"), {QStringLiteral("%desktop%")}, {}};
+                config.save(configPath);
+                const QStringList cfgKeys =
+                    keysOf(product.composeContextMenu(core::ContextMenuKind::Background, {}, ours));
+                product.shellView()->closeMenuModel();
+                check(QStringLiteral("the configuration hides, reorders and adds entries"),
+                      !cfgKeys.contains(QStringLiteral("refresh")) && !cfgKeys.isEmpty()
+                          && cfgKeys.first() == QLatin1String("personalize")
+                          && cfgKeys.contains(QStringLiteral("custom:StarFish probe entry"))
+                          && cfgKeys.last() == QLatin1String("more-options"),
+                      cfgKeys.join(QLatin1Char(' ')));
+
+                // "Show more options": the classic menu, closed by the probe.
+                QFile::remove(configPath);
+                bg = product.composeContextMenu(core::ContextMenuKind::Background, {}, ours);
+                core::ContextMenuItem more;
+                for (const core::ContextMenuItem& item : bg) {
+                    if (item.ownId == core::kMoreOptionsId)
+                        more = item;
+                }
+                bool classicShown = false;
+                QTimer::singleShot(1000, [&] {
+                    grabScreen(QRect(bare - QPoint(30, 30), QSize(640, 760)).intersected(backdrop->area()))
+                        .save(captures + QStringLiteral("/lot4_more_options.png"));
+                    classicShown = true;
+                    ::EndMenu();
+                });
+                product.runContextMenuEntry(more, core::ContextMenuKind::Background, {}, bare, ours, nullptr);
+                check(QStringLiteral("Show more options opens the classic menu"),
+                      more.ownId == core::kMoreOptionsId && classicShown, more.label);
+
+                QFile::remove(configPath);
+                if (hadConfig) {
+                    QFile f(configPath);
+                    if (f.open(QIODevice::WriteOnly))
+                        f.write(savedConfig);
+                }
+                check(QStringLiteral("...the user's menu configuration is given back"),
+                      hadConfig ? QFileInfo::exists(configPath) : !QFileInfo::exists(configPath),
+                      configPath);
             }
 
             // ...is renamed...

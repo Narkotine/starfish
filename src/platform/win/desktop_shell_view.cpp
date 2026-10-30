@@ -99,11 +99,27 @@ QString displayNameOf(IShellFolder* folder, PCUITEMID_CHILD child, SHGDNF flags)
 
 QString verbOf(IContextMenu* menu, UINT offset)
 {
+    // Two things measured through the proxy (T-092): pReserved is a [ref]
+    // pointer in the IDL, so a null one is refused before the call
+    // (RPC_X_NULL_REF_POINTER, 0x800706F4 -- every verb read cross-process came
+    // back empty until then); and the buffer is marshalled as a *narrow* string,
+    // so GCS_VERBW comes back cut at its first zero byte ("o" for "open"). The
+    // ANSI verb first, then.
+    UINT reserved = 0;
+    char narrow[128]{};
+    const HRESULT hrA = menu->GetCommandString(offset, GCS_VERBA, &reserved, narrow, 127);
+    if (SUCCEEDED(hrA) && narrow[0])
+        return QString::fromLocal8Bit(narrow);
     wchar_t buffer[128]{};
-    if (FAILED(menu->GetCommandString(offset, GCS_VERBW, nullptr,
-                                      reinterpret_cast<LPSTR>(buffer), 127)))
-        return {};
-    return QString::fromWCharArray(buffer);
+    const HRESULT hr = menu->GetCommandString(offset, GCS_VERBW, &reserved,
+                                              reinterpret_cast<LPSTR>(buffer), 127);
+    if (SUCCEEDED(hr))
+        return QString::fromWCharArray(buffer);
+    qCDebug(lc).noquote() << QStringLiteral("no verb for %1: 0x%2 / 0x%3")
+                                 .arg(offset)
+                                 .arg(static_cast<quint32>(hr), 8, 16, QLatin1Char('0'))
+                                 .arg(static_cast<quint32>(hrA), 8, 16, QLatin1Char('0'));
+    return {};
 }
 
 QString labelOf(HMENU menu, int position)
@@ -254,11 +270,114 @@ struct DesktopShellView::Impl {
     HWND defView = nullptr;
     // The shell verb the last menu ran ("NewFolder", "paste"...), or empty.
     QString lastVerb;
+    // The menu read as data (T-092), alive until closeModel().
+    IContextMenu* modelMenu = nullptr;
+    HMENU modelPopup = nullptr;
 
     ~Impl() { reset(); }
 
+    void closeModel()
+    {
+        if (modelPopup)
+            ::DestroyMenu(modelPopup);
+        modelPopup = nullptr;
+        release(modelMenu);
+    }
+
+    std::vector<ShellMenuItem> readModel(HMENU popup, IContextMenu3* menu3, int depth)
+    {
+        std::vector<ShellMenuItem> items;
+        for (int i = 0; i < ::GetMenuItemCount(popup); ++i) {
+            ShellMenuItem item;
+            MENUITEMINFOW info{};
+            info.cbSize = sizeof(info);
+            info.fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU;
+            if (!::GetMenuItemInfoW(popup, i, TRUE, &info))
+                continue;
+            if (info.fType & MFT_SEPARATOR) {
+                item.separator = true;
+                items.push_back(item);
+                continue;
+            }
+            QString text = labelOf(popup, i);
+            const int tab = text.indexOf(QLatin1Char('\t'));
+            if (tab >= 0) {
+                item.shortcut = text.mid(tab + 1).trimmed();
+                text = text.left(tab);
+            }
+            text.replace(QLatin1String("&&"), QStringLiteral("\x01"));
+            text.remove(QLatin1Char('&'));
+            text.replace(QStringLiteral("\x01"), QStringLiteral("&"));
+            item.label = text.trimmed();
+            item.enabled = !(info.fState & (MFS_DISABLED | MFS_GRAYED));
+            item.checked = (info.fState & MFS_CHECKED) != 0;
+            item.radio = (info.fType & MFT_RADIOCHECK) != 0;
+            item.isDefault = (info.fState & MFS_DEFAULT) != 0;
+            if (info.hSubMenu) {
+                if (depth < 2) {
+                    if (menu3) {
+                        LRESULT ignored = 0;
+                        menu3->HandleMenuMsg2(WM_INITMENUPOPUP, reinterpret_cast<WPARAM>(info.hSubMenu),
+                                              i, &ignored);
+                    }
+                    item.children = readModel(info.hSubMenu, menu3, depth + 1);
+                }
+                if (item.children.empty())
+                    continue; // a submenu with nothing in it says nothing
+            } else if (info.wID >= kShellIdFirst && info.wID <= kShellIdLast) {
+                item.command = static_cast<int>(info.wID - kShellIdFirst);
+                item.verb = verbOf(modelMenu, info.wID - kShellIdFirst);
+            } else {
+                continue; // not the shell's (cannot happen: nothing else is in it)
+            }
+            if (item.label.isEmpty())
+                continue; // an owner-drawn entry nobody can draw (T-071)
+            items.push_back(item);
+        }
+        return items;
+    }
+
+    std::vector<ShellMenuItem> openModel(IContextMenu* menu, UINT flags, const QStringList& hidden)
+    {
+        closeModel();
+        lastVerb.clear();
+        if (!menu)
+            return {};
+        modelMenu = menu;
+        modelPopup = ::CreatePopupMenu();
+        if (!modelPopup)
+            return {};
+        // Judged by what it put in the menu (see runMenu); a vanished Explorer ends it.
+        const HRESULT hr = menu->QueryContextMenu(modelPopup, 0, kShellIdFirst, kShellIdLast, flags);
+        if (isDisconnected(hr)) {
+            ok(hr); // drops the connection, and the model with it
+            return {};
+        }
+        IContextMenu3* menu3 = nullptr;
+        menu->QueryInterface(IID_PPV_ARGS(&menu3));
+        std::vector<ShellMenuItem> items = readModel(modelPopup, menu3, 0);
+        if (menu3)
+            menu3->Release();
+        if (!hidden.isEmpty()) {
+            items.erase(std::remove_if(items.begin(), items.end(),
+                                       [&](const ShellMenuItem& item) {
+                                           for (const QString& h : hidden) {
+                                               if ((!item.verb.isEmpty()
+                                                    && item.verb.compare(h, Qt::CaseInsensitive) == 0)
+                                                   || item.label.compare(QString(h).remove(QLatin1Char('&')),
+                                                                         Qt::CaseInsensitive) == 0)
+                                                   return true;
+                                           }
+                                           return false;
+                                       }),
+                        items.end());
+        }
+        return items;
+    }
+
     void reset()
     {
+        closeModel();
         release(folder);
         release(folderView);
         release(view);
@@ -442,6 +561,42 @@ DesktopShellView::DesktopShellView() : d(new Impl) {}
 QString DesktopShellView::lastChosenVerb() const
 {
     return d->lastVerb;
+}
+
+std::vector<DesktopShellView::ShellMenuItem>
+DesktopShellView::openBackgroundMenuModel(const QStringList& hiddenVerbs)
+{
+    IContextMenu* menu = nullptr;
+    if (d->ensure() && !d->ok(d->view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&menu))))
+        menu = nullptr;
+    return d->openModel(menu, CMF_NORMAL, hiddenVerbs);
+}
+
+std::vector<DesktopShellView::ShellMenuItem>
+DesktopShellView::openSelectionMenuModel(const QStringList& parsingNames, bool extended)
+{
+    d->closeModel();
+    if (!select(parsingNames))
+        return {};
+    IContextMenu* menu = nullptr;
+    if (!d->ok(d->view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&menu))) || !menu)
+        return {};
+    return d->openModel(menu, CMF_NORMAL | CMF_CANRENAME | (extended ? CMF_EXTENDEDVERBS : 0), {});
+}
+
+bool DesktopShellView::invokeMenuCommand(int command, const QPoint& screen, quintptr owner)
+{
+    if (!d->modelMenu || command < 0)
+        return false;
+    d->lastVerb = verbOf(d->modelMenu, static_cast<UINT>(command));
+    qCInfo(lc).noquote() << QStringLiteral("shell verb chosen (drawn menu): \"%1\"").arg(d->lastVerb);
+    return invokeOffset(d->modelMenu, static_cast<UINT>(command), QString(), screen,
+                        reinterpret_cast<HWND>(owner));
+}
+
+void DesktopShellView::closeMenuModel()
+{
+    d->closeModel();
 }
 
 DesktopShellView::~DesktopShellView()

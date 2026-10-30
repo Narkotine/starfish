@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QMap>
 #include <QPoint>
 #include <QSet>
 #include <QObject>
@@ -13,6 +14,7 @@
 #include <functional>
 #include <memory>
 
+#include "core/context_menu.hpp"
 #include "core/desktop_item.hpp"
 #include "platform/win/desktop_menu.hpp"
 #include "ui/fence_menu.hpp"
@@ -129,6 +131,24 @@ public:
     static bool fenceShortcutArrowsSetting();
     void setFenceShortcutArrows(bool shown);
     bool fenceShortcutArrows() const { return m_fenceShortcutArrows; }
+
+    // T-092 (lot 4) -- the right-click menu drawn by StarFish, Windows 11's
+    // look, filled from the desktop's real menus and configurable
+    // (%LOCALAPPDATA%/StarFish/context-menu.json). Windows 10, the "modern": false
+    // setting and Shift+right-click keep the classic native menu.
+    static bool modernContextMenuWanted();
+    // The composed menu, the shell's menu left open for runContextMenuEntry().
+    std::vector<core::ContextMenuItem> composeContextMenu(core::ContextMenuKind kind,
+                                                          const QStringList& paths,
+                                                          const std::vector<core::ContextMenuItem>& ours,
+                                                          const QStringList& hiddenShellEntries = {});
+    // Runs what was picked: a shell entry (by the menu that offered it), a user
+    // entry, or "Show more options" (the classic menu). Returns the ownId of a
+    // StarFish entry to act on, -1 otherwise.
+    int runContextMenuEntry(const core::ContextMenuItem& item, core::ContextMenuKind kind,
+                            const QStringList& paths, const QPoint& point,
+                            const std::vector<core::ContextMenuItem>& ours, bool* renameRequested);
+    void editContextMenu();
 
     // ADR-21 lot 3 (T-091) -- the drawn desktop's gestures, handed to the shell.
     // Public so the probe drives them in this process (no input is injected).
@@ -310,6 +330,12 @@ private:
     int m_desktopLosses = 0;
     int m_listReshown = 0;
     bool m_fenceShortcutArrows = true;
+    // T-092: the classic entries' keys seen so far, for context-menu-keys.txt.
+    QMap<QString, QString> m_seenMenuKeys;
+    int showModernContextMenu(core::ContextMenuKind kind, const QStringList& paths, const QPoint& point,
+                              const std::vector<core::ContextMenuItem>& ours, bool* renameRequested,
+                              const QStringList& hiddenShellEntries = {});
+    void writeSeenMenuKeys();
     void dragDesktopItems(const QStringList& paths, const QPoint& origin);
     // A new item the shell is about to create (New > Folder...) opens for
     // renaming when it appears, as on the real desktop.

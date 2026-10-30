@@ -33,6 +33,10 @@ enum class DeleteMode {
 };
 bool deleteShellItems(const QStringList& parsingNames, DeleteMode mode, quintptr owner);
 
+// SetForegroundWindow on one of our windows, before a popup (T-092): a popup
+// closes on an outside click, and gets the keys, only when its thread is in front.
+void bringToForeground(quintptr hwnd);
+
 // The items as one shell data object (IShellItemArray -> BHID_DataObject):
 // CF_HDROP for files, the shell's ID list for every item, virtual ones
 // included. Returned as an IDataObject* (AddRef'd), or null.

@@ -6,6 +6,7 @@ qt_add_executable(starfish WIN32
     starfish.rc
     app/product_app.cpp
     app/drawn_desktop_probe.cpp
+    app/context_menu_probe.cpp
     core/desktop_item.cpp
     core/desktop_watcher.cpp
     core/icon_hiding_marker.cpp
@@ -13,6 +14,7 @@ qt_add_executable(starfish WIN32
     core/portal.cpp
     core/rules.cpp
     core/jsonstore.cpp
+    core/context_menu.cpp
     core/layout_store.cpp
     core/snapshot.cpp
     core/zorder.cpp
@@ -28,6 +30,7 @@ qt_add_executable(starfish WIN32
     platform/win/shell_operations.cpp
     platform/win/hotkey_manager.cpp
     ui/fence_container.cpp
+    ui/modern_menu.cpp
     ui/desktop_backdrop.cpp
     ui/settings_dialog.cpp
     ui/tray_icon.cpp

@@ -119,6 +119,9 @@ bool TrayIcon::show()
         m_fenceArrows->setChecked(true);
         connect(m_fenceArrows, &QAction::triggered, this,
                 [this](bool checked) { emit fenceShortcutArrowsToggled(checked); });
+        // T-092: the drawn right-click menu's configuration (hide, reorder, add).
+        connect(m_menu->addAction(tr("Customize the right-click menu...")), &QAction::triggered,
+                this, [this] { emit contextMenuEditRequested(); });
 
         // ADR-13: the desktop's icons are never StarFish's to hide, so these
         // two entries do not exist unless a caller asks for them (the dev path

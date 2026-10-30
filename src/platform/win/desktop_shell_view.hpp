@@ -117,6 +117,31 @@ public:
     bool setIconSize(int px);
     bool setViewFlag(ViewFlag flag, bool on);
 
+    // T-092 -- the same menus read as data, for the menu StarFish draws itself.
+    // The shell's IContextMenu stays alive until closeMenuModel() (or the next
+    // open), so an entry chosen later is run by the very object that offered it.
+    // Submenus are filled the way a popup fills them (WM_INITMENUPOPUP through
+    // IContextMenu3, plain values only -- T-071).
+    struct ShellMenuItem {
+        QString verb;     // canonical verb ("open", "properties"...), may be empty
+        QString label;    // the text, accelerator '&' removed
+        QString shortcut; // what followed a tab ("Ctrl+Z"), may be empty
+        bool separator = false;
+        bool enabled = true;
+        bool checked = false;
+        bool radio = false;
+        bool isDefault = false;
+        int command = -1; // offset to invoke, -1 for a separator or a submenu
+        std::vector<ShellMenuItem> children;
+    };
+    std::vector<ShellMenuItem> openBackgroundMenuModel(const QStringList& hiddenVerbs = {});
+    std::vector<ShellMenuItem> openSelectionMenuModel(const QStringList& parsingNames,
+                                                      bool extended = false);
+    // Runs an entry of the open model (at `screen`, owned by `owner`); remembers
+    // its verb for lastChosenVerb(). False when no model is open or it failed.
+    bool invokeMenuCommand(int command, const QPoint& screen, quintptr owner);
+    void closeMenuModel();
+
     // Diagnostics for the probes: a menu's labels, built and destroyed without a
     // popup. Submenu entries follow their parent as "Parent > Entry", filled the
     // way a popup fills them (WM_INITMENUPOPUP through IContextMenu3).

@@ -90,6 +90,7 @@ signals:
     // setFenceMaterial -- the tray has no way to point at one fence).
     void fenceMaterialRequested(const QString& material);
     void fenceShortcutArrowsToggled(bool shown);
+    void contextMenuEditRequested();
     // The emergency exit (T-046): "give me my icons back", as a command rather
     // than a toggle. The product answers it by asking the desktop directly.
     void restoreIconsRequested();
