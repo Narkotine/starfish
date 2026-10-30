@@ -97,10 +97,12 @@ signals:
     void settingsRequested();
     void quitRequested();
 
-private:
-    // Drawn in code rather than shipped as a resource: StarFish has no resource
-    // bundle yet, and an icon that cannot go missing cannot break the tray.
+public:
+    // StarFish's mark, every size (Qt resource from tools/make_icon.py): the
+    // tray, and every window through QApplication::setWindowIcon.
     static QIcon buildIcon();
+
+private:
 
     QSystemTrayIcon* m_tray = nullptr;
     QMenu* m_menu = nullptr;

@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""Generate src/starfish.ico -- the application icon embedded in starfish.exe.
+"""StarFish's icon -- one geometry, every artifact (session 59).
 
-Drawn rather than hand-painted, so the mark can be adjusted (arm shape, colours,
-padding) and regenerated deterministically:
+    python tools/make_icon.py            # writes the files below
+    python tools/make_icon.py --preview build/captures
 
-    python tools/make_icon.py                    # writes src/starfish.ico
-    python tools/make_icon.py --variant panel     # the fence palette instead
-    python tools/make_icon.py --shape star        # a plain star, for comparison
-    python tools/make_icon.py --preview build/    # also write preview PNGs
+Writes:
+  src/resources/starfish.svg           the mark, scalable
+  src/resources/starfish-<N>.png       16..256 px, the tray and the windows (Qt resource)
+  src/starfish.ico                     the same sizes, the executable's icon
 
-The mark is a starfish: the name is the product, and a glyph of the thing named
-reads at 16 px in Explorer and in the taskbar, where a miniature fence does not.
-Two details keep it from reading as a rating star -- the arms are long and taper
-to a rounded point rather than meeting in sharp notches, and they sweep together
-in one rotational direction the way a real starfish's arms do.
+The mark is ours from end to end: a coral starfish, five round-tipped arms
+turning slightly in one direction, a cream pattern on the back, a dark coral
+rim so it reads on a light *and* a dark taskbar. No panel, no title bar, no
+tiles: nothing of the "fence in a box" glyph the previous tray icon was, which
+looked like another product's.
 
-Everything is rendered on a supersampled canvas (1024 px) and downsampled per
-size with Lanczos, so one drawing serves 16 px and 256 px. Each arm is a spine
-sampled along an arc, offset left and right by an interpolated half-width, with a
-circle capping the tip; five arms and a central disc are unioned, then the mask is
-blurred and re-thresholded, which rounds the concave joins instead of leaving
-five hard wedge cuts.
+The silhouette is a polar curve, r(theta) = body + (tip - body) * lobe(theta),
+whose lobes are rounded, with a twist that grows with the radius (the sweep).
+The PNGs are rendered at 16x their size and reduced with Lanczos; under 32 px
+the pattern is left out and the rim is kept at least one pixel wide, so the
+five arms stay readable at 16 px.
 """
 
 from __future__ import annotations
@@ -29,171 +28,136 @@ import argparse
 import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
-S = 1024  # supersampled canvas; the source of every size below
+ROOT = Path(__file__).resolve().parents[1]
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 
-# The fence palette (src/ui/tray_icon.cpp), so the icon belongs to the product.
-PANEL = (0x1F, 0x29, 0x37)
-TITLE_BAR = (0x60, 0xA5, 0xFA)
-TILE_TOP = (0x7D, 0xB4, 0xFC)
-TILE_BOTTOM = (0x1D, 0x4E, 0xD8)
-INK = (0xF8, 0xFA, 0xFC)
+FILL_IN = (0xFF, 0xA0, 0x6E)   # centre, warm
+FILL_OUT = (0xF0, 0x4E, 0x2A)  # tips, coral
+RIM = (0x8E, 0x23, 0x10)
+DOTS = (0xFF, 0xE6, 0xC8)
 
-# Arm geometry, in fractions of the starfish's radius. The arms are the whole
-# shape: long, thick where they leave the body, rounded at the tip, swept.
-# `starfish` is tuned by measuring legibility, not by taste: the first version
-# (a fatter body, 0.26) turned into a white blob at 24 px and below, because the
-# arms had no room between them. A small body is what keeps five arms visible at
-# 16 px -- the joins have to be deep, not merely rounded.
-SHAPES = {
-    "starfish": dict(body=0.13, start=0.04, tip=0.86, width=0.30, tip_width=0.13, cap=0.13, sweep=0.16),
-    "bold": dict(body=0.19, start=0.04, tip=0.84, width=0.34, tip_width=0.17, cap=0.17, sweep=0.16),
-    "star": dict(body=0.12, start=0.04, tip=0.86, width=0.26, tip_width=0.08, cap=0.06, sweep=0.0),
-}
+BODY, TIP, SHARP, TWIST = 0.20, 0.47, 1.9, 0.20
 
 
-def starfish_mask(size: int, shape: dict, radius: float) -> Image.Image:
-    """The starfish silhouette -- five swept arms and a body, white on black."""
-    mask = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(mask)
-    cx = cy = size / 2.0
-    r = radius * size
-    steps = 48
-
-    for arm in range(5):
-        base_angle = math.radians(-90.0 + 72.0 * arm)  # first arm straight up
-        left, right = [], []
-        for step in range(steps + 1):
-            t = step / steps
-            # The sweep grows towards the tip, so the arm bends instead of kinking.
-            angle = base_angle + shape["sweep"] * t**1.5
-            distance = (shape["start"] + (shape["tip"] - shape["start"]) * t) * r
-            half = (shape["width"] + (shape["tip_width"] - shape["width"]) * t) * r
-            u = (math.cos(angle), math.sin(angle))
-            v = (-u[1], u[0])
-            px, py = cx + distance * u[0], cy + distance * u[1]
-            left.append((px + half * v[0], py + half * v[1]))
-            right.append((px - half * v[0], py - half * v[1]))
-        draw.polygon(left + right[::-1], fill=255)
-
-        # Cap the tip with a circle whose far edge lands exactly on `radius`.
-        tipx = (left[-1][0] + right[-1][0]) / 2.0
-        tipy = (left[-1][1] + right[-1][1]) / 2.0
-        cap = shape["cap"] * r
-        draw.ellipse([tipx - cap, tipy - cap, tipx + cap, tipy + cap], fill=255)
-
-    body = shape["body"] * r
-    draw.ellipse([cx - body, cy - body, cx + body, cy + body], fill=255)
-
-    # Blur then re-threshold: the concave joins between arms become rounded.
-    mask = mask.filter(ImageFilter.GaussianBlur(0.010 * size))
-    return mask.point(lambda value: 255 if value >= 110 else 0)
+def outline(n: int = 720) -> list[tuple[float, float]]:
+    """The silhouette in unit coordinates (0..1), first arm pointing up."""
+    pts = []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        lobe = abs(math.cos(2.5 * a)) ** SHARP          # 5 rounded lobes
+        r = BODY + (TIP - BODY) * lobe
+        twist = TWIST * ((r - BODY) / (TIP - BODY)) ** 2  # arms turn towards their tip
+        ang = a - math.pi / 2 + twist
+        pts.append((0.5 + r * math.cos(ang), 0.52 + r * math.sin(ang)))
+    return pts
 
 
-def gradient(size: int, top: tuple, bottom: tuple) -> Image.Image:
-    image = Image.new("RGB", (size, size))
-    draw = ImageDraw.Draw(image)
-    for y in range(size):
-        t = y / max(size - 1, 1)
-        draw.line([(0, y), (size, y)], fill=tuple(round(top[c] + (bottom[c] - top[c]) * t) for c in range(3)))
-    return image
+def dots() -> list[tuple[float, float, float]]:
+    """The back's pattern: a ring in the middle, a row down each arm."""
+    out = []
+    for k in range(5):
+        a = 2 * math.pi * k / 5
+        out.append((0.5 + 0.075 * math.cos(a - math.pi / 2 + 0.6), 0.52 + 0.075 * math.sin(a - math.pi / 2 + 0.6), 0.016))
+        for j, (d, rad) in enumerate([(0.20, 0.022), (0.28, 0.019), (0.355, 0.015)]):
+            lobe_r = d
+            twist = TWIST * ((lobe_r - BODY) / (TIP - BODY)) ** 2 if lobe_r > BODY else 0.0
+            ang = a - math.pi / 2 + twist
+            out.append((0.5 + d * math.cos(ang), 0.52 + d * math.sin(ang), rad))
+    return out
 
 
-def rounded_mask(size: int, radius_fraction: float) -> Image.Image:
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, size - 1, size - 1], radius=round(radius_fraction * size), fill=255)
-    return mask
+def svg() -> str:
+    path = " ".join(("M" if i == 0 else "L") + f"{x * 256:.2f},{y * 256:.2f}" for i, (x, y) in enumerate(outline(360))) + " Z"
+    circles = "\n    ".join(f'<circle cx="{x * 256:.2f}" cy="{y * 256:.2f}" r="{r * 256:.2f}"/>' for x, y, r in dots())
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>StarFish</title>
+  <defs>
+    <radialGradient id="body" cx="50%" cy="52%" r="48%">
+      <stop offset="0" stop-color="#{FILL_IN[0]:02X}{FILL_IN[1]:02X}{FILL_IN[2]:02X}"/>
+      <stop offset="1" stop-color="#{FILL_OUT[0]:02X}{FILL_OUT[1]:02X}{FILL_OUT[2]:02X}"/>
+    </radialGradient>
+  </defs>
+  <path d="{path}" fill="url(#body)" stroke="#{RIM[0]:02X}{RIM[1]:02X}{RIM[2]:02X}" stroke-width="7" stroke-linejoin="round"/>
+  <g fill="#{DOTS[0]:02X}{DOTS[1]:02X}{DOTS[2]:02X}">
+    {circles}
+  </g>
+</svg>
+'''
 
 
-def build(variant: str, shape: dict) -> tuple[Image.Image, Image.Image]:
-    """Return (background RGBA, foreground mask) at the supersampled size."""
-    if variant == "tile":
-        bg = gradient(S, TILE_TOP, TILE_BOTTOM).convert("RGBA")
-        # A soft sheen across the top, so the tile is not a flat swatch.
-        sheen = Image.new("L", (S, S), 0)
-        ImageDraw.Draw(sheen).ellipse([-0.35 * S, -0.75 * S, 1.35 * S, 0.42 * S], fill=48)
-        bg = Image.composite(Image.new("RGBA", (S, S), (255, 255, 255, 255)), bg, sheen)
-        bg.putalpha(rounded_mask(S, 0.22))
-        return bg, starfish_mask(S, shape, radius=0.44)
+def render(size: int) -> Image.Image:
+    k = 16
+    s = size * k
+    pts = [(x * s, y * s) for x, y in outline()]
+    # The rim: 7/256 of the mark, never under one pixel of the final size.
+    rim = max(7 / 256 * s, 1.0 * k if size <= 24 else 0.0)
+    mask_out = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask_out).polygon(pts, fill=255)
+    rim_draw = ImageDraw.Draw(mask_out)
+    rim_draw.line(pts + [pts[0]], fill=255, width=int(rim), joint="curve")
+    mask_in = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask_in).polygon(pts, fill=255)
+    ImageDraw.Draw(mask_in).line(pts + [pts[0]], fill=0, width=int(rim), joint="curve")
 
-    if variant == "panel":
-        # The fence itself: the dark panel, a lighter band where a fence's title
-        # bar sits, and the starfish in the accent colour.
-        bg = Image.new("RGBA", (S, S), PANEL + (255,))
-        band = Image.new("L", (S, S), 0)
-        ImageDraw.Draw(band).rectangle([0, 0, S, round(0.34 * S)], fill=70)
-        bg = Image.composite(
-            Image.new("RGBA", (S, S), TITLE_BAR + (255,)), bg, band.filter(ImageFilter.GaussianBlur(0.02 * S))
-        )
-        bg.putalpha(rounded_mask(S, 0.20))
-        return bg, starfish_mask(S, shape, radius=0.44)
+    # Radial gradient for the body.
+    grad = Image.new("RGB", (s, s))
+    gp = grad.load()
+    step = max(1, s // 256)
+    cx, cy, rmax = 0.5 * s, 0.52 * s, 0.48 * s
+    for y in range(0, s, step):
+        for x in range(0, s, step):
+            t = min(1.0, math.hypot(x - cx, y - cy) / rmax)
+            c = tuple(int(FILL_IN[i] + (FILL_OUT[i] - FILL_IN[i]) * t) for i in range(3))
+            for yy in range(y, min(y + step, s)):
+                for xx in range(x, min(x + step, s)):
+                    gp[xx, yy] = c
 
-    raise SystemExit(f"unknown variant: {variant}")
-
-
-def render(variant: str, shape: dict, size: int) -> Image.Image:
-    bg, mask = build(variant, shape)
-    bg = bg.resize((size, size), Image.Resampling.LANCZOS)
-    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
-    ink = INK if variant == "tile" else TITLE_BAR
-    return Image.composite(Image.new("RGBA", (size, size), ink + (255,)), bg, mask)
-
-
-def _frames(path: Path) -> list[tuple[int, int]]:
-    """Read the ICO back so the printed frame list is measured, not assumed."""
-    with Image.open(path) as ico:
-        # Pillow exposes an ICO's directory as `.ico.sizes()`, not through the
-        # multi-frame API: `n_frames` is None and `seek()` cannot see them.
-        return sorted(ico.ico.sizes())
+    img = Image.new("RGBA", (s, s), RIM + (0,))
+    img.putalpha(mask_out)
+    body = grad.convert("RGBA")
+    body.putalpha(mask_in)
+    img = Image.alpha_composite(img, body)
+    if size >= 32:
+        d = ImageDraw.Draw(img)
+        for x, y, r in dots():
+            d.ellipse([(x - r) * s, (y - r) * s, (x + r) * s, (y + r) * s], fill=DOTS + (255,))
+    return img.resize((size, size), Image.LANCZOS)
 
 
-def preview(path: Path, variant: str, shape: dict) -> None:
-    """A sheet with every size the ICO carries, on a dark and on a light band."""
-    sheet = Image.new("RGBA", (1000, 340), (0x20, 0x20, 0x20, 255))
-    # The taskbar and Explorer do not share a background, and an icon judged on
-    # one of them is judged by half.
-    ImageDraw.Draw(sheet).rectangle([0, 170, sheet.width, 340], fill=(0xF3, 0xF4, 0xF6, 255))
-    for x, size in ((30, 256), (320, 128), (470, 64), (560, 48), (630, 32), (682, 24), (720, 16)):
-        image = render(variant, shape, size)
-        sheet.alpha_composite(image, (x, 170 + (160 - size) // 2))
-        sheet.alpha_composite(image, (x, (170 - size) // 2))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(path)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", default="tile", choices=["tile", "panel"])
-    parser.add_argument("--shape", default="starfish", choices=sorted(SHAPES))
-    parser.add_argument("--out", default="src/starfish.ico")
-    parser.add_argument("--preview", default=None, help="directory for preview PNGs")
-    args = parser.parse_args()
-
-    shape = SHAPES[args.shape]
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    # Each frame is rendered from the supersample rather than sliced out of the
-    # base image, so the 16 px frame is a reduction of the drawing itself.
-    render(args.variant, shape, 256).save(
-        out,
-        format="ICO",
-        sizes=[(size, size) for size in SIZES],
-        append_images=[render(args.variant, shape, size) for size in SIZES if size != 256],
-    )
-    print(f"wrote {out} ({out.stat().st_size} bytes), frames: {_frames(out)}")
-
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--preview", type=Path)
+    args = ap.parse_args()
+    res = ROOT / "src" / "resources"
+    res.mkdir(parents=True, exist_ok=True)
+    (res / "starfish.svg").write_text(svg(), encoding="utf-8", newline="\n")
+    images = {size: render(size) for size in SIZES}
+    for size in [16, 20, 24, 32, 48, 64, 128, 256]:
+        images[size].save(res / f"starfish-{size}.png")
+    images[256].save(ROOT / "src" / "starfish.ico", sizes=[(s, s) for s in SIZES],
+                     append_images=[images[s] for s in SIZES if s != 256])
     if args.preview:
-        directory = Path(args.preview)
-        directory.mkdir(parents=True, exist_ok=True)
-        for size in (16, 24, 32, 48, 64, 128, 256):
-            render(args.variant, shape, size).save(directory / f"icon_{size}.png")
-        preview(directory / f"preview_{args.variant}_{args.shape}.png", args.variant, shape)
-        print(f"wrote previews to {directory}")
-
-    return 0
+        args.preview.mkdir(parents=True, exist_ok=True)
+        # The sheet: every size at 1x on a light and a dark strip, then 256 px.
+        w = sum(SIZES) + 12 * len(SIZES) + 12
+        sheet = Image.new("RGBA", (max(w, 560), 300 + 2 * 280), (255, 255, 255, 255))
+        dark = Image.new("RGBA", (sheet.width, 280), (0x20, 0x20, 0x20, 255))
+        light = Image.new("RGBA", (sheet.width, 280), (0xF3, 0xF3, 0xF3, 255))
+        sheet.paste(light, (0, 0))
+        sheet.paste(dark, (0, 280))
+        for row, top in ((0, 10), (1, 290)):
+            x = 12
+            for size in SIZES:
+                sheet.alpha_composite(images[size], (x, top))
+                x += size + 12
+        sheet.alpha_composite(images[256], (12, 300 + 280 - 10))
+        big = images[16].resize((128, 128), Image.NEAREST)
+        sheet.alpha_composite(big, (300, 300 + 280 + 40))
+        sheet.save(args.preview / "icon_sheet.png")
+    print("ok")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

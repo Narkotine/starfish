@@ -11,16 +11,6 @@
 
 namespace starfish::ui {
 
-namespace {
-
-// The fence panel colours, so the icon reads as "a StarFish fence" rather than
-// as a generic glyph.
-const QColor kPanel(0x1f, 0x29, 0x37);
-const QColor kTitleBar(0x60, 0xa5, 0xfa);
-const QColor kTile(0xe5, 0xe7, 0xeb);
-
-} // namespace
-
 TrayIcon::TrayIcon(QObject* parent)
     : QObject(parent)
 {
@@ -43,26 +33,14 @@ bool TrayIcon::isAvailable()
 
 QIcon TrayIcon::buildIcon()
 {
-    // A miniature fence: rounded panel, title bar, three tiles. Drawn rather
-    // than loaded so the build has no resource bundle to get wrong.
-    QPixmap pm(64, 64);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(Qt::NoPen);
-
-    p.setBrush(kPanel);
-    p.drawRoundedRect(QRectF(4, 5, 56, 54), 10, 10);
-    p.setBrush(kTitleBar);
-    p.drawRoundedRect(QRectF(4, 5, 56, 13), 6, 6);
-
-    p.setBrush(kTile);
-    p.drawRoundedRect(QRectF(11, 26, 13, 13), 3, 3);
-    p.drawRoundedRect(QRectF(28, 26, 13, 13), 3, 3);
-    p.drawRoundedRect(QRectF(11, 43, 13, 13), 3, 3);
-    p.end();
-
-    return QIcon(pm);
+    // Session 59: StarFish's own mark -- a coral starfish (tools/make_icon.py,
+    // src/resources/starfish.svg), every size drawn for itself so the tray's
+    // 16-24 px and a window's 32-48 px are each sharp. It replaces a miniature
+    // fence in a dark box, which looked like another product's icon.
+    QIcon icon;
+    for (int size : {16, 20, 24, 32, 48, 64, 128, 256})
+        icon.addFile(QStringLiteral(":/icons/starfish-%1.png").arg(size), QSize(size, size));
+    return icon;
 }
 
 bool TrayIcon::show()

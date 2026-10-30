@@ -39,6 +39,22 @@ qt_add_executable(starfish WIN32
     ui/icon_grid.cpp
 )
 
+# StarFish's icon for the tray and the windows (session 59): the PNGs written by
+# tools/make_icon.py next to the SVG they come from.
+qt_add_resources(starfish "starfish_icons"
+    PREFIX "/icons"
+    BASE resources
+    FILES
+        resources/starfish-16.png
+        resources/starfish-20.png
+        resources/starfish-24.png
+        resources/starfish-32.png
+        resources/starfish-48.png
+        resources/starfish-64.png
+        resources/starfish-128.png
+        resources/starfish-256.png
+)
+
 target_include_directories(starfish PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}

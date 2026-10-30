@@ -28,6 +28,7 @@
 #include <QWindow>
 
 #include "app/drawn_desktop_probe.hpp"
+#include "ui/tray_icon.hpp"
 #include "app/context_menu_probe.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
@@ -844,6 +845,8 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("StarFish"));
+    // Every window (settings, dialogs) carries StarFish's own mark (session 59).
+    QApplication::setWindowIcon(starfish::ui::TrayIcon::buildIcon());
     QApplication::setApplicationVersion(QStringLiteral(STARFISH_VERSION));
 
     // qCInfo is not guaranteed to be on by default for custom categories.
