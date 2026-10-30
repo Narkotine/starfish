@@ -1934,6 +1934,9 @@ void ProductApp::finishFenceTitleEdit(bool commit)
     m_titleEdit = nullptr; // editingFinished fires again on hide
     const QString id = m_titleEditId;
     const QString name = edit->text().trimmed();
+    // Session 62: a late editingFinished of this edit (focus lost while it
+    // waits for deleteLater) must not close the next one with its old text.
+    edit->disconnect(this);
     edit->hide();
     edit->deleteLater();
     // An empty or unchanged name changes nothing; stored trimmed (a title of
