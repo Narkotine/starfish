@@ -36,4 +36,10 @@ public:
     static core::DesktopItem itemForPath(const QString& path);
 };
 
+// Opens a desktop entry the way its double-click does. A virtual item (This
+// PC, the Recycle Bin, the user's folder -- a parsing name starting with
+// "::") is no file: it is opened through its item id list (ShellExecuteEx,
+// SEE_MASK_IDLIST), which is what lets a fence hold one (ADR-21). True when
+// the shell accepted it.
+bool openShellItem(const QString& path);
 } // namespace starfish::platform::win

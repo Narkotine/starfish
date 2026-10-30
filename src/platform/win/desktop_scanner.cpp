@@ -233,6 +233,28 @@ core::DesktopItem DesktopScanner::itemForPath(const QString& path)
     const ComScope com;
     if (!com.usable())
         return {};
+    // ADR-21: a virtual item (This PC, the Recycle Bin) is named by its shell
+    // item, not by a file: the tile shows what the desktop shows.
+    if (path.startsWith(QLatin1String("::"))) {
+        core::DesktopItem item;
+        item.path = path;
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(::SHParseDisplayName(reinterpret_cast<LPCWSTR>(path.utf16()), nullptr,
+                                           &pidl, 0, nullptr))
+            && pidl) {
+            PWSTR name = nullptr;
+            if (SUCCEEDED(::SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &name)) && name) {
+                item.name = QString::fromWCharArray(name);
+                ::CoTaskMemFree(name);
+            }
+            ::CoTaskMemFree(pidl);
+        }
+        if (item.name.isEmpty())
+            item.name = path;
+        item.fileName = item.name;
+        item.isDir = true;
+        return item;
+    }
     // Even a path that does not (yet) exist becomes a valid tile: the Shell
     // display name then falls back to the file name, and the tile is still
     // useful once the file appears (a drop can race with a copy completing).
@@ -240,4 +262,30 @@ core::DesktopItem DesktopScanner::itemForPath(const QString& path)
     return itemFromFileInfo(info, false);
 }
 
+bool openShellItem(const QString& path)
+{
+    if (path.isEmpty())
+        return false;
+    const ComScope com;
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    const QString native = QDir::toNativeSeparators(path);
+    if (FAILED(::SHParseDisplayName(reinterpret_cast<LPCWSTR>(native.utf16()), nullptr, &pidl, 0,
+                                    nullptr))
+        || !pidl) {
+        qCWarning(lc).noquote() << QStringLiteral("\"%1\": no shell item to open").arg(path);
+        return false;
+    }
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_IDLIST | SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI;
+    info.lpIDList = pidl;
+    info.nShow = SW_SHOWNORMAL;
+    const bool ok = ::ShellExecuteExW(&info) != FALSE;
+    ::CoTaskMemFree(pidl);
+    if (!ok)
+        qCWarning(lc).noquote() << QStringLiteral("\"%1\" could not be opened (error %2)")
+                                       .arg(path)
+                                       .arg(::GetLastError());
+    return ok;
+}
 } // namespace starfish::platform::win

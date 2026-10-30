@@ -452,7 +452,9 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         return;
     }
     const QString target = IconGrid::launchPath(m_grid.items().at(index));
-    if (!target.isEmpty())
+    if (target.startsWith(QLatin1String("::")))
+        starfish::platform::win::openShellItem(target); // This PC, the Recycle Bin (ADR-21)
+    else if (!target.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(target));
     emit itemActivated(index);
 }

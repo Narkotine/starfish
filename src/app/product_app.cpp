@@ -743,13 +743,9 @@ void ProductApp::wireBackdrop()
             [this](const QString& path, const QPoint& point) {
                 if (!m_container)
                     return;
-                // ADR-21: This PC, the Recycle Bin, the user's folder are not files:
-                // a tile is a path (ADR-7), so they stay on the desktop.
-                if (path.startsWith(QLatin1String("::"))) {
-                    qCInfo(lc).noquote()
-                        << QStringLiteral("\"%1\" is not a file: it cannot be filed").arg(path);
-                    return;
-                }
+                // ADR-21 (user's decision, session 58): This PC, the Recycle Bin and
+                // the other virtual items are filed like any icon -- the tile keeps
+                // the parsing name ("::{CLSID}") and opens through the shell.
                 // What the button came up *on* decides: a fence takes it. Letting
                 // go on the bare desktop is how a drag is called off -- the entry
                 // stays where it is, because an icon is never moved and never
@@ -784,6 +780,10 @@ void ProductApp::wireBackdrop()
                 const QString target = ui::IconGrid::launchPath(m_container->itemForPath(path));
                 if (target.isEmpty())
                     return;
+                if (target.startsWith(QLatin1String("::"))) {
+                    platform::win::openShellItem(target);
+                    return;
+                }
                 qCInfo(lc).noquote() << QStringLiteral("opening \"%1\"").arg(target);
                 QDesktopServices::openUrl(QUrl::fromLocalFile(target));
             });
@@ -1782,6 +1782,10 @@ void ProductApp::openDesktopItem(const QString& path)
     // document opens with its own application.
     if (m_shellView && m_shellView->invokeSelectionVerb({path}, QString())) {
         qCInfo(lc).noquote() << QStringLiteral("opened \"%1\" (its default verb)").arg(path);
+        return;
+    }
+    if (path.startsWith(QLatin1String("::"))) {
+        platform::win::openShellItem(path);
         return;
     }
     qCInfo(lc).noquote() << QStringLiteral("opening \"%1\" through the URL handler").arg(path);
