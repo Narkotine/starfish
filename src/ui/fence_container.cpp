@@ -131,6 +131,61 @@ void FenceContainer::refreshFenceIcons()
     }
 }
 
+void FenceContainer::refreshBackdropIcons()
+{
+    if (!m_backdrop)
+        return;
+    m_backdrop->setIconProvider(m_backdropIconProvider ? m_backdropIconProvider : m_iconProvider);
+    m_backdrop->refresh();
+}
+
+void FenceContainer::setSortOnAdd(bool sort)
+{
+    m_sortOnAdd = sort;
+    for (FenceWindow& fence : m_fences) {
+        if (fence.view)
+            fence.view->setSortOnAdd(sort);
+    }
+}
+
+QRect FenceContainer::fenceTitleScreenRect(const QString& id) const
+{
+    for (const FenceWindow& fence : m_fences) {
+        if (fence.id != id || !fence.view)
+            continue;
+        const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+        const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+        const QRect local = fence.view->titleTextRect();
+        const QPoint origin(qRound(visible.x() / dpr), qRound(visible.y() / dpr));
+        return local.translated(origin);
+    }
+    return {};
+}
+
+int FenceContainer::fileIntoAt(const QString& fenceId, const QList<core::DesktopItem>& items,
+                               const QPoint& screenPoint)
+{
+    FenceWindow* fence = find(fenceId);
+    if (!fence || !fence->view)
+        return 0;
+    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
+    const QPoint local((screenPoint.x() - visible.x()) / dpr, (screenPoint.y() - visible.y()) / dpr);
+    QList<core::DesktopItem> fresh;
+    for (const core::DesktopItem& item : items) {
+        bool alreadyThere = false;
+        for (const core::DesktopItem& existing : fence->view->items())
+            alreadyThere = alreadyThere || existing.path.compare(item.path, Qt::CaseInsensitive) == 0;
+        if (!item.path.isEmpty() && !alreadyThere)
+            fresh.append(item);
+    }
+    const int filed = fresh.isEmpty() ? 0 : fence->view->insertItems(fresh, fence->view->itemAt(local));
+    if (filed > 0)
+        qCInfo(lc).noquote() << QStringLiteral("filed %1 item(s) into %2 at %3,%4")
+                                    .arg(filed).arg(fence->id).arg(local.x()).arg(local.y());
+    return filed;
+}
+
 void FenceContainer::setItemResolver(ItemResolver resolver)
 {
     m_itemResolver = std::move(resolver);
@@ -843,7 +898,9 @@ QString FenceContainer::createFence(const QString& title, const QRect& rect,
                                     const QList<core::DesktopItem>& items)
 {
     const core::FenceStyle style; // schema v1 defaults (docs/technique.md §5)
-    return addFence(QString(), title, rect, style, QStringLiteral("name"), true, false, items);
+    // Session 60: a new fence's order is the user's unless he asked for the alphabet.
+    return addFence(QString(), title, rect, style,
+                    m_sortOnAdd ? QStringLiteral("name") : QStringLiteral("manual"), true, false, items);
 }
 
 // --- folder portals (T-011, F-024) -----------------------------------------
@@ -1019,6 +1076,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         m_nextId = qMax(m_nextId, match.captured(1).toInt() + 1);
 
     fence.view = new FenceView;
+    fence.view->setSortOnAdd(m_sortOnAdd);
     fence.view->setTitle(title);
     fence.view->setIconProvider(m_iconProvider);
     fence.view->setPanelColor(QColor(style.background));
@@ -1064,6 +1122,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
+    connect(view, &FenceView::titleEditRequested, this, [this, id] { emit fenceTitleEditRequested(id); });
     // T-076: the fence's own menu, reported with the fence it belongs to. Nothing
     // is built here -- the container has no interface (it renders an image) and
     // the actions are the product's, exactly like the tray's entries.
@@ -1077,10 +1136,14 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         // The hosted surface is an image on screen, so Qt's own drag-and-drop
         // never runs there: files dropped by the Explorer arrive through the
         // OLE IDropTarget of the surface (T-006-3) and are appended here.
-        surface->setDropHandler([this, id](const QPoint&, const QStringList& paths) {
+        surface->setDropHandler([this, id](const QPoint& client, const QStringList& paths) {
             FenceWindow* target = find(id);
             if (!target || !target->view)
                 return;
+            // Session 60: inserted where it was let go (the client point is
+            // physical, the grid logical).
+            const qreal dpr = m_screens.devicePixelRatioFor(target->rect);
+            const int at = target->view->itemAt(QPoint(qRound(client.x() / dpr), qRound(client.y() / dpr)));
             QList<core::DesktopItem> dropped;
             dropped.reserve(paths.size());
             for (const QString& path : paths) {
@@ -1089,7 +1152,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
                     dropped.append(item);
             }
             if (!dropped.isEmpty())
-                target->view->addDroppedItems(dropped);
+                target->view->insertItems(dropped, at);
         });
 #endif
         // ⚠️ T-079 / ADR-15: the window is born with the material as its uniform

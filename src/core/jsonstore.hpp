@@ -69,7 +69,7 @@ struct Fence {
     QString monitor;      // device name, e.g. "\\\\.\\DISPLAY1"
     QRect rect;           // desktop coordinates
     FenceStyle style;
-    QString sortBy = "name"; // name | type | size | date
+    QString sortBy = "name"; // name | type | size | date | manual (session 60: the user's order)
     bool sortAscending = true;
     bool rolledUp = false;   // F-020
     QList<FenceItem> items;

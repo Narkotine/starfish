@@ -65,9 +65,9 @@ FenceView::FenceView(QWidget* parent)
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAutoFillBackground(false);
     m_grid.setIconSize(48);
-    m_grid.setGap(8);
-    m_grid.setPadding(12);
-    m_grid.setLabelHeight(34);
+    m_grid.setGap(m_metrics.cellGap);
+    m_grid.setPadding(m_metrics.gridPadding);
+    m_grid.setLabelHeight(m_metrics.labelHeight);
     // The grid derives its cell width from the captions it holds (T-078), and it
     // must measure them with the font it paints them with -- so it is handed the
     // widget's font here rather than reading it off the painter later, which
@@ -171,7 +171,39 @@ QRect FenceView::contentRect() const
     // to hit-test or paint into.
     if (m_rolledUp)
         return QRect();
-    return rect().adjusted(kPadding, kTitleBarHeight + kPadding, -kPadding, -kPadding);
+    const FenceMetrics& m = m_metrics;
+    return rect().adjusted(m.inset, m.titleBarHeight + m.titleGap, -m.inset, -m.inset);
+}
+
+void FenceView::setMetrics(const FenceMetrics& metrics)
+{
+    m_metrics = metrics;
+    m_grid.setPadding(metrics.gridPadding);
+    m_grid.setGap(metrics.cellGap);
+    m_grid.setLabelHeight(metrics.labelHeight);
+    update();
+}
+
+QRect FenceView::titleTextRect() const
+{
+    QFont titleFont = font();
+    titleFont.setBold(true);
+    const QFontMetrics fm(titleFont);
+    const QString text = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
+    const int available = qMax(0, width() - 2 * m_metrics.titleInset);
+    const int w = qMin(available, fm.horizontalAdvance(text) + 2);
+    const int h = fm.height();
+    return QRect(m_metrics.titleInset, (m_metrics.titleBarHeight - h) / 2, w, h);
+}
+
+int FenceView::insertItems(const QList<core::DesktopItem>& items, int index)
+{
+    const int added = m_grid.insertItems(items, index, m_sortOnAdd);
+    if (added > 0) {
+        update();
+        emit contentChanged();
+    }
+    return added;
 }
 
 int FenceView::itemAt(const QPoint& localPoint) const
@@ -226,7 +258,8 @@ void FenceView::paintEvent(QPaintEvent* event)
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(titleText);
-    painter.drawText(QRect(12, 0, qMax(0, width() - 24), kTitleBarHeight),
+    painter.drawText(QRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
+                           m_metrics.titleBarHeight),
                      Qt::AlignVCenter | Qt::AlignLeft,
                      m_title.isEmpty() ? QStringLiteral("Fence") : m_title);
 
@@ -442,6 +475,12 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     // before the grid so a double-click on an icon still launches it.
     if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight)
         == FenceHandle::TitleBar) {
+        // Session 60: on the title's text, a double-click renames in place (as a
+        // file's name in Explorer); anywhere else on the band it still rolls up.
+        if (titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
+            emit titleEditRequested();
+            return;
+        }
         emit rollUpRequested(!m_rolledUp);
         return;
     }
@@ -484,7 +523,9 @@ void FenceView::wheelEvent(QWheelEvent* event)
 
 void FenceView::addDroppedItems(const QList<core::DesktopItem>& items)
 {
-    appendItems(items);
+    // Session 60: a drop is an addition -- at the end, sorted only when the user
+    // asked for it (the switch); appendItems() stays the portals' listing.
+    insertItems(items, -1);
 }
 
 int FenceView::appendItems(const QList<core::DesktopItem>& items)
@@ -576,7 +617,7 @@ void FenceView::dropEvent(QDropEvent* event)
 #endif
 
     if (!items.isEmpty())
-        addDroppedItems(items);
+        insertItems(items, itemAt(event->position().toPoint())); // where it was let go
     event->acceptProposedAction();
 }
 

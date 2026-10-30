@@ -237,6 +237,9 @@ int IconGrid::moveItem(int from, int to)
     core::DesktopItem item = m_items.takeAt(from);
     m_items.insert(to, item);
 
+    // Session 60: the user put it there -- the order is now his, and a restart
+    // (setItems sorts by m_sortBy) must not put the alphabet back.
+    m_sortBy = QStringLiteral("manual");
     // The moved item is the only thing selected, and the anchor follows it.
     m_anchor = to;
     m_selected.clear();
@@ -249,6 +252,39 @@ int IconGrid::dropTargetIndex(const QPoint& contentLocalPoint, const QSize& cont
     if (m_items.isEmpty())
         return -1;
     return hitTest(contentLocalPoint, contentSize);
+}
+
+int IconGrid::insertItems(const QList<core::DesktopItem>& items, int index, bool sortByName)
+{
+    int at = index < 0 || index > m_items.size() ? m_items.size() : index;
+    int added = 0;
+    for (const core::DesktopItem& item : items) {
+        if (item.path.isEmpty())
+            continue;
+        bool duplicate = false;
+        for (const core::DesktopItem& existing : m_items) {
+            if (existing.path.compare(item.path, Qt::CaseInsensitive) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate)
+            continue;
+        m_items.insert(at++, item);
+        ++added;
+    }
+    if (added == 0)
+        return 0;
+    if (sortByName) {
+        m_sortBy = QStringLiteral("name");
+        m_ascending = true;
+        core::sortForDisplay(m_items, m_sortBy, m_ascending);
+    } else {
+        m_sortBy = QStringLiteral("manual");
+    }
+    m_selected.clear();
+    m_anchor = 0;
+    return added;
 }
 
 int IconGrid::appendItems(const QList<core::DesktopItem>& items)

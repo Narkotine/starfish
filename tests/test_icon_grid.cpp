@@ -30,6 +30,8 @@ class TestIconGrid : public QObject
     Q_OBJECT
 
 private slots:
+    void aDropGoesWhereItFellAndTheOrderStaysManual();
+    void aDropIsSortedOnlyWhenTheUserAskedForIt();
     void columnsFitTheWidth();
     void computePositionsFirstTwoCells();
     void aCellIsWiderThanItsIcon();
@@ -585,6 +587,43 @@ void TestIconGrid::cellRectsAreTheTilesAndNothingElse()
     // the whole window" is exactly what an empty list would mean.
     QCOMPARE(grid.cellRects(QSize(480, 100)).size(), 5);
     QCOMPARE(grid.cellRects(QSize(40, 40)).size(), 1); // narrower than a cell: one column
+}
+
+// Session 60: no alphabetical re-sort unless the setting asks for it.
+void TestIconGrid::aDropGoesWhereItFellAndTheOrderStaysManual()
+{
+    IconGrid grid;
+    grid.setSort(QStringLiteral("manual"), true);
+    grid.setItems({makeItem(QStringLiteral("c.txt")), makeItem(QStringLiteral("a.txt"))});
+    QCOMPARE(grid.items().at(0).name, QStringLiteral("c.txt")); // manual: not re-sorted
+    QCOMPARE(grid.insertItems({makeItem(QStringLiteral("b.txt"))}, 1, false), 1);
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({"c.txt", "b.txt", "a.txt"}));
+    QCOMPARE(grid.sortBy(), QStringLiteral("manual"));
+    // -1: at the end. A duplicate is skipped.
+    QCOMPARE(grid.insertItems({makeItem(QStringLiteral("d.txt")), makeItem(QStringLiteral("A.TXT"))}, -1, false), 1);
+    QCOMPARE(grid.items().last().name, QStringLiteral("d.txt"));
+    // What the document restores comes back in the same order.
+    IconGrid restored;
+    restored.setSort(grid.sortBy(), true);
+    restored.setItems(grid.items());
+    for (int i = 0; i < grid.items().size(); ++i)
+        QCOMPARE(restored.items().at(i).name, grid.items().at(i).name);
+}
+
+void TestIconGrid::aDropIsSortedOnlyWhenTheUserAskedForIt()
+{
+    IconGrid grid;
+    grid.setSort(QStringLiteral("manual"), true);
+    grid.setItems({makeItem(QStringLiteral("c.txt")), makeItem(QStringLiteral("a.txt"))});
+    QCOMPARE(grid.insertItems({makeItem(QStringLiteral("b.txt"))}, 0, true), 1);
+    QStringList names;
+    for (const DesktopItem& it : grid.items())
+        names.append(it.name);
+    QCOMPARE(names, QStringList({"a.txt", "b.txt", "c.txt"}));
+    QCOMPARE(grid.sortBy(), QStringLiteral("name"));
 }
 
 QTEST_MAIN(TestIconGrid)

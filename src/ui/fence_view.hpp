@@ -12,6 +12,7 @@ class QWheelEvent;
 
 #include "core/desktop_item.hpp"
 #include "ui/fence_geometry.hpp"
+#include "ui/fence_metrics.hpp"
 #include "ui/icon_grid.hpp"
 
 namespace starfish::ui {
@@ -69,6 +70,20 @@ public:
 
     // Where icons come from. Bound by the application to a ShellIconCache.
     void setIconProvider(IconGrid::IconProvider provider) { m_iconProvider = std::move(provider); }
+
+    // Session 60: the fence's spacing (title, insets, gaps), named.
+    void setMetrics(const FenceMetrics& metrics);
+    const FenceMetrics& metrics() const { return m_metrics; }
+    // Where the title text is drawn, widget-local: the inline rename's edit goes
+    // exactly there, and a double-click on it renames instead of rolling up.
+    QRect titleTextRect() const;
+
+    // Session 60: where dropped tiles are inserted, and whether an addition is
+    // sorted by name (the user's switch, off by default: the order is his).
+    void setSortOnAdd(bool sort) { m_sortOnAdd = sort; }
+    bool sortOnAdd() const { return m_sortOnAdd; }
+    // Adds tiles before the one at `index` (-1 or past the end: at the end).
+    int insertItems(const QList<core::DesktopItem>& items, int index);
 
     // Content area in widget-local coordinates (excludes the title bar and the
     // fence's outer padding). The grid is drawn here.
@@ -144,6 +159,11 @@ signals:
     // FenceContainer owns the state and the resulting size.
     void rollUpRequested(bool rolledUp);
 
+    // Session 60: a double-click on the title *text* (or the menu's Rename) asks
+    // to edit it in place. The view is an image on the desktop, so the edit is
+    // the product's own window, laid over titleTextRect().
+    void titleEditRequested();
+
     // T-076: a right-click that did **not** land on a tile -- the title bar, the
     // empty part of the panel, or the whole bar of a rolled-up fence. The item
     // under the cursor keeps the Shell's own menu (T-006); everything else is
@@ -187,7 +207,8 @@ private:
 
     static constexpr int kTitleBarHeight = FenceGeometry::kTitleBarHeight;
     static constexpr int kCornerRadius = 10;
-    static constexpr int kPadding = 12;
+    FenceMetrics m_metrics;
+    bool m_sortOnAdd = false;
     // Inward width of the resize grips along each edge (T-007).
     static constexpr int kResizeBorder = FenceGeometry::kResizeBorder;
 

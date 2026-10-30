@@ -118,6 +118,23 @@ public:
     void setBackdropIconProvider(IconGrid::IconProvider provider);
     // Every fence draws its tiles again (an icon setting changed).
     void refreshFenceIcons();
+    // Session 60: the desktop's icons again (the desktop's arrow setting).
+    void refreshBackdropIcons();
+    // What the desktop must keep clear of (session 60, overlap off): the
+    // visible rects of the fences on screen, physical px -- none while hidden.
+    QList<QRect> fenceObstacleRects() const;
+    // BackdropLayout::pathKey of every item a fence holds.
+    QSet<QString> filedPathKeys() const;
+
+    // Session 60: whether an addition to a fence (a drop, a filing) sorts the
+    // fence by name. Off by default -- the user's order is kept, and a fence
+    // created while it is off starts in "manual" order.
+    void setSortOnAdd(bool sort);
+    bool sortOnAdd() const { return m_sortOnAdd; }
+
+    // Session 60: where a fence's title text is on screen, in *logical* pixels
+    // (a Qt window's frame) -- where the inline rename's edit is laid.
+    QRect fenceTitleScreenRect(const QString& id) const;
 
     // Resolves a path coming back from the persisted layout into a DesktopItem
     // (T-008). The default resolver uses core::itemFromPathOnly (no Shell, no
@@ -253,6 +270,10 @@ public:
     // fence that is gone files nothing. **No file is moved** (the golden rule):
     // what changes is which fence *shows* the entry.
     int fileInto(const QString& fenceId, const QList<core::DesktopItem>& items);
+    // Session 60: the same, inserted where `screenPoint` (virtual-screen, physical
+    // pixels, like fenceAt) falls in the grid -- before the tile under it, or at
+    // the end on empty space.
+    int fileIntoAt(const QString& fenceId, const QList<core::DesktopItem>& items, const QPoint& screenPoint);
 
     // Quick hide (F-022): hide every fence at once, reversibly. The zones are
     // only taken off screen -- nothing is destroyed and no file is touched.
@@ -429,6 +450,8 @@ signals:
     // stays the Shell's menu). The container only says *which* fence and *where*:
     // the content is ui::FenceMenu's, the actions are the product's.
     void fenceMenuRequested(const QString& id, const QPoint& globalPos);
+    // Session 60: a double-click on a fence's title text (inline rename).
+    void fenceTitleEditRequested(const QString& id);
     // T-010. The rule list is persisted, so the product wires this to the same
     // auto-save as the other document-level signals. It is deliberately NOT
     // emitted by applyLayout: restoring the document is not changing it.
@@ -512,6 +535,7 @@ private:
     QList<FenceWindow> m_fences;
     IconGrid::IconProvider m_iconProvider;
     IconGrid::IconProvider m_backdropIconProvider;
+    bool m_sortOnAdd = false;
     ItemResolver m_itemResolver;
     // T-039: the layer the desktop's own icons are drawn on while the native one
     // is hidden. Owned here, and always present -- it is inert until enabled.

@@ -119,6 +119,8 @@ bool lessThanForDisplay(const DesktopItem& a, const DesktopItem& b,
 
 void sortForDisplay(QList<DesktopItem>& items, const QString& by, bool ascending)
 {
+    if (by == QLatin1String("manual"))
+        return; // session 60: the user's own order, kept as it is
     std::stable_sort(items.begin(), items.end(), [&by, ascending](const DesktopItem& a,
                                                                  const DesktopItem& b) {
         return lessThanForDisplay(a, b, by, ascending);

@@ -112,6 +112,12 @@ public:
     // of items actually added (0 when all were duplicates or the list empty).
     int appendItems(const QList<core::DesktopItem>& items);
 
+    // Session 60: an addition by the user (a drop, a filing). Inserted before
+    // `index` (-1: at the end) and **not** sorted, and the grid's order becomes
+    // "manual" so it survives a restart -- unless `sortByName`, the user's
+    // switch, which files the new tiles alphabetically. Duplicates are skipped.
+    int insertItems(const QList<core::DesktopItem>& items, int index, bool sortByName);
+
     // --- folder portals (T-011) ---------------------------------------------
     // Removes every tile whose path is in `paths`, compared case-insensitively
     // (Windows paths are, and a portal listing can come back with a different
