@@ -1,7 +1,7 @@
 # TODO — Suivi des tâches
 
 > Légende statut : ⬜ à faire · 🔄 en cours · ✅ fait · ⛔ bloquée. IDs liés aux phases de `docs/plan.md`. Toute tâche terminée doit être consignée dans `devlog/`.
-> **Ce fichier ne liste que ce qui reste** : **20 tâches ouvertes**. Le plan en cours est celui de l'**ADR-21** (le bureau dessiné, lots T-089 → T-092). Les tâches terminées, abandonnées ou rendues caduques ont leur ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
+> **Ce fichier ne liste que ce qui reste** : **19 tâches ouvertes**. Le plan en cours est celui de l'**ADR-21** (le bureau dessiné, lots T-089 → T-092). Les tâches terminées, abandonnées ou rendues caduques ont leur ligne et leur détail dans [`docs/todo-archive.md`](docs/todo-archive.md).
 > Une tâche ✅ ne garde ici **qu'une ligne de tableau** ; son paragraphe part à l'archive. Cap **50 Ko**, vérifié par `python tools/docs_size.py` (étape CI).
 
 ## Tâches ouvertes
@@ -28,7 +28,7 @@
 | T-087 | **Aperçu pendant le geste** (F-001 / F-011 — idée utilisateur session 54) : (a) un **fantôme** de la tuile qu'on tient pendant un glisser (le **repère d'insertion** dit où ça tombera, mais rien ne suit le curseur) ; (b) une **proposition graphique** de la zone **avant** le lâcher, quand on trace le rectangle au bouton droit (aujourd'hui le menu n'apparaît qu'au relâcher). À trancher : fantôme = capture de la tuile, ou simple contour ? | 5 (v0.2) | P2 | ⬜ |
 | T-089 | **Le bureau dessiné, lot 1** (ADR-21) : la vue du shell (`desktop_shell_view`), le fond **opaque** avec le fond d'écran, la sélection (clic, Ctrl), les **vrais menus** de fond et d'élément, le double-clic par le verbe par défaut, le produit dessine le bureau par défaut (`--native-desktop` pour l'ancien) | 5 | P0 | ✅ |
 | T-090 | **Lot 2 — synchronisation** : Explorer qui redémarre (le bureau et les zones perdus sont **ré-hébergés**, la liste re-visible est re-masquée), écran / DPI qui change (fond recapturé, métriques relues), **nouvel** élément placé par le shell dans une case libre. Reste humain : **deux écrans** et DPI mixte (une seule machine à un écran), et un vrai redémarrage d'Explorer (simulé dans la sonde) | 5 | P0 | ✅ |
-| T-091 | **Lot 3 — gestes délégués au shell** : F2 et « Renommer » (édition à nous, `IFileOperation`), clavier (Suppr, Entrée, Ctrl+C/X/V/A/Z, F5), rectangle de sélection, glisser **OLE** vers/depuis l'Explorateur (`DoDragDrop`/`IDropTarget`), déplacer une icône sur le bureau (`SelectAndPositionItems`), « Nouveau dossier » qui ouvre le renommage | 5 | P0 | ⬜ |
+| T-091 | **Lot 3 — gestes délégués au shell** : F2 et « Renommer » (édition à nous, `IFileOperation`), clavier (Suppr, Entrée, Ctrl+C/X/V/A/Z, F5), rectangle de sélection, glisser **OLE** vers/depuis l'Explorateur (`DoDragDrop`/`IDropTarget`), déplacer une icône sur le bureau (`SelectAndPositionItems`), « Nouveau dossier » qui ouvre le renommage. Gestes vérifiés par simulation dans le processus. Reste humain : vrai glisser à la souris vers / depuis l'Explorateur, focus clavier après un vrai clic ; un dépôt étranger atterrit où le shell le place | 5 | P0 | ✅ |
 | T-092 | **Lot 4 — le menu de clic droit façon Windows 11, configurable** : menu dessiné par StarFish (entrées masquables / réordonnables / ajout d'entrées StarFish), rempli par les commandes **réelles** (`IContextMenu` + `IExplorerCommand` des apps empaquetées si possible), « Afficher plus d'options » → le menu classique ; Win10 = menu classique | 5 | P1 | ⬜ |
 
 ## Tâches ouvertes — détail

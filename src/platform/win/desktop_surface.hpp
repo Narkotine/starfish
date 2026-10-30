@@ -143,7 +143,18 @@ public:
     // icon on screen is ours. Nothing is under this window to step aside for, so
     // the backdrop answers HTCLIENT everywhere, left button included (the
     // ADR-13 step-asides below are the shared-desktop mode, and stay for it).
+    // ADR-21: the drawn desktop owns all input -- its clicks take the keyboard
+    // focus, and its keys (F2, Delete, Ctrl+C...) are posted to the input target
+    // as QKeyEvents.
     void setOwnsAllInput(bool owns) { m_ownsAllInput = owns; }
+    // ADR-21 lot 3: a drop target of the caller's own (an IDropTarget*, the
+    // surface takes the reference it is given), built once the window exists.
+    // Takes precedence over the drop handler.
+    void setDropTargetFactory(std::function<void*(quintptr hwnd)> factory)
+    {
+        m_dropTargetFactory = std::move(factory);
+    }
+    void* customDropTarget() const { return m_customDropTarget; }
     bool ownsAllInput() const { return m_ownsAllInput; }
 
     // The rectangles the *native* desktop icons occupy, in this window's own
@@ -372,6 +383,10 @@ private:
     // against a single init on this thread.
     std::function<void(const QPoint&, const QStringList&)> m_dropHandler;
     ShellDropTarget* m_dropTarget = nullptr;
+    std::function<void*(quintptr)> m_dropTargetFactory;
+    void* m_customDropTarget = nullptr;
+    void releaseCustomDropTarget();
+    bool forwardKey(quintptr wParam);
     bool m_oleInit = false;
 
     // Builds a QMouseEvent from a surface mouse message and posts it to the

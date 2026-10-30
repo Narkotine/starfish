@@ -10,7 +10,9 @@
 #include <QFileInfo>
 #include <QThread>
 #include <QGuiApplication>
+#include <QDateTime>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLoggingCategory>
 #include <QMenu>
@@ -31,6 +33,7 @@
 #include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
+#include "platform/win/shell_operations.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
@@ -664,6 +667,10 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
             point, backdropOwner(), {{kCreateFence, label, true, false, {}}}, hidden);
         // Whatever the shell ran (a new folder, a paste, View > Small icons)
         // shows up on the next read; asked for now rather than in 1.5 s.
+        const QString verb = m_shellView->lastChosenVerb();
+        if (verb.compare(QLatin1String("NewFolder"), Qt::CaseInsensitive) == 0
+            || verb.startsWith(QLatin1Char('.')) || verb.startsWith(QLatin1String("New"), Qt::CaseInsensitive))
+            armNewItemRename();
         m_shellResync.start();
         if (chosen != kCreateFence)
             return;
@@ -707,6 +714,17 @@ void ProductApp::wireBackdrop()
             &ProductApp::onDesktopMenu);
     // ADR-21: the drawn desktop's item menu, and the view's re-reads.
     connect(backdrop, &ui::DesktopBackdrop::iconMenuRequested, this, &ProductApp::onIconMenu);
+    // ADR-21 lot 3 (T-091): the keyboard, the shell's drag loop, and the drop
+    // target that moves our icons or hands a foreign drop to the desktop folder.
+    connect(backdrop, &ui::DesktopBackdrop::keyCommand, this, &ProductApp::onDesktopKey);
+    connect(backdrop, &ui::DesktopBackdrop::iconDragRequested, this,
+            &ProductApp::dragDesktopItems);
+    backdrop->setDropTargetFactory([this](quintptr hwnd) {
+        return platform::win::createDesktopDropTarget(
+            hwnd, [this](const QPoint& point, const QStringList& paths, const QPoint& origin) {
+                onInternalDrop(point, paths, origin);
+            });
+    });
     // T-090: the desktop window died under us (Explorer restarted).
     connect(backdrop, &ui::DesktopBackdrop::desktopLost, this, &ProductApp::onDesktopLost);
     m_reclaimTimer.setInterval(2000);
@@ -1456,6 +1474,7 @@ void ProductApp::shutdown()
     // ADR-21: under the drawn desktop the list comes back *first* -- it appears
     // under our opaque backdrop, invisible, and is what shows the moment the
     // backdrop goes. The other order would flash a desktop without icons.
+    finishRename(false);
     m_shellTimer.stop();
     m_shellResync.stop();
     m_reclaimTimer.stop();
@@ -1727,6 +1746,25 @@ void ProductApp::syncShellView()
     if (signature == m_shellSignature)
         return;
     m_shellSignature = signature;
+    m_itemPositions.clear();
+    for (const platform::win::ShellViewItem& item : state.items)
+        m_itemPositions.insert(item.parsingName, item.position);
+    if (m_renameNewUntil > 0) {
+        if (QDateTime::currentMSecsSinceEpoch() > m_renameNewUntil) {
+            m_renameNewUntil = 0;
+        } else {
+            for (const platform::win::ShellViewItem& item : state.items) {
+                if (!m_namesBeforeNew.contains(item.parsingName)) {
+                    m_renameNewUntil = 0;
+                    const QString created = item.parsingName;
+                    // Once the backdrop has laid it out (its caption is where
+                    // the edit goes).
+                    QTimer::singleShot(200, this, [this, created] { startRename(created); });
+                    break;
+                }
+            }
+        }
+    }
 
     // The metrics the user chose (View > Large / Medium / Small icons), in the
     // backdrop's logical units: it scales them back by the primary monitor's ratio.
@@ -1801,10 +1839,8 @@ void ProductApp::onIconMenu(const QStringList& paths, const QPoint& point)
     // administrator, Pin, Send to, Copy, Delete, Properties and every extension.
     bool rename = false;
     m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, &rename);
-    if (rename) {
-        // The shell's in-place edit happens in the hidden list: ours is lot 3.
-        qCInfo(lc) << "rename asked from the item menu: not handled yet (ADR-21, lot 3)";
-    }
+    if (rename && paths.size() >= 1)
+        startRename(paths.first()); // the shell's edit would happen in the hidden list
     m_shellResync.start();
 }
 
@@ -1823,6 +1859,226 @@ void ProductApp::openDesktopItem(const QString& path)
     }
     qCInfo(lc).noquote() << QStringLiteral("opening \"%1\" through the URL handler").arg(path);
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+namespace {
+
+// F2's edit: Escape cancels, Return and leaving it commit (as Explorer's own).
+class RenameEdit : public QLineEdit
+{
+public:
+    std::function<void()> onCancel;
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event->key() == Qt::Key_Escape) {
+            if (onCancel)
+                onCancel();
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+};
+
+} // namespace
+
+void ProductApp::startRename(const QString& path)
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop || !drawnDesktop())
+        return;
+    const QRect label = backdrop->labelRectOf(path);
+    const QString name = platform::win::editingNameOf(path);
+    if (label.isNull() || name.isEmpty()) {
+        qCInfo(lc).noquote() << QStringLiteral("\"%1\" cannot be renamed here").arg(path);
+        return;
+    }
+    finishRename(false);
+
+    auto* edit = new RenameEdit;
+    edit->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    edit->setAlignment(Qt::AlignHCenter);
+    edit->setFont(QFont(QStringLiteral("Segoe UI"), 9));
+    // Explorer's own edit, whatever the application theme: white, blue frame.
+    edit->setStyleSheet(QStringLiteral("QLineEdit { background: #FFFFFF; color: #000000; "
+                                       "border: 1px solid #0078D7; selection-background-color: "
+                                       "#0078D7; selection-color: #FFFFFF; padding: 0 2px; }"));
+    edit->setText(name);
+    // As Explorer does: the name without its extension is what is selected.
+    const int dot = name.lastIndexOf(QLatin1Char('.'));
+    if (!path.startsWith(QLatin1String("::")) && !QFileInfo(path).isDir() && dot > 0)
+        edit->setSelection(0, dot);
+    else
+        edit->selectAll();
+    // The caption is in physical pixels; a Qt window is placed in logical ones.
+    const ui::ScreenInfo* primary = backdrop->screens().primary();
+    const qreal dpr = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
+    const int width = qMax(qRound(label.width() / dpr) + 24, 140);
+    const QPoint centre(qRound(label.center().x() / dpr), qRound(label.top() / dpr));
+    edit->setGeometry(centre.x() - width / 2, centre.y(), width, 24);
+    edit->onCancel = [this] { finishRename(false); };
+    connect(edit, &QLineEdit::editingFinished, this, [this] { finishRename(true); });
+    m_renameEdit = edit;
+    m_renamePath = path;
+    edit->show();
+    edit->raise();
+    edit->activateWindow();
+    edit->setFocus();
+    qCInfo(lc).noquote() << QStringLiteral("renaming \"%1\"").arg(path);
+}
+
+void ProductApp::finishRename(bool commit)
+{
+    if (!m_renameEdit)
+        return;
+    QLineEdit* edit = m_renameEdit;
+    m_renameEdit = nullptr; // editingFinished fires again on hide: once is enough
+    const QString path = m_renamePath;
+    const QString text = edit->text().trimmed();
+    edit->hide();
+    edit->deleteLater();
+    if (commit && !text.isEmpty() && text != platform::win::editingNameOf(path))
+        renameDesktopItem(path, text);
+}
+
+bool ProductApp::renameDesktopItem(const QString& path, const QString& newName, QString* newPath)
+{
+    const bool done = platform::win::renameShellItem(path, newName, backdropOwner(), newPath);
+    m_itemCache.remove(path);
+    m_shellResync.start();
+    return done;
+}
+
+bool ProductApp::deleteDesktopItems(const QStringList& paths, bool permanent, bool silent)
+{
+    using platform::win::DeleteMode;
+    const DeleteMode mode = !permanent ? DeleteMode::RecycleBin
+                            : silent   ? DeleteMode::PermanentSilent
+                                       : DeleteMode::Permanent;
+    const bool done = platform::win::deleteShellItems(paths, mode, backdropOwner());
+    m_shellResync.start();
+    return done;
+}
+
+bool ProductApp::moveDesktopItems(const QStringList& paths, const QPoint& delta)
+{
+    if (!m_shellView)
+        return false;
+    int moved = 0;
+    for (const QString& path : paths) {
+        const auto it = m_itemPositions.constFind(path);
+        if (it == m_itemPositions.constEnd())
+            continue;
+        if (m_shellView->positionItem(path, it.value() + delta))
+            ++moved;
+    }
+    m_shellSignature.clear();
+    m_shellResync.start();
+    return moved == paths.size();
+}
+
+void ProductApp::armNewItemRename()
+{
+    m_namesBeforeNew.clear();
+    for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it)
+        m_namesBeforeNew.insert(it.key());
+    m_renameNewUntil = QDateTime::currentMSecsSinceEpoch() + 5000;
+}
+
+void ProductApp::newDesktopFolder()
+{
+    if (!m_shellView)
+        return;
+    armNewItemRename();
+    if (!m_shellView->invokeBackgroundVerb(QStringLiteral("NewFolder")))
+        m_renameNewUntil = 0;
+    m_shellResync.start();
+}
+
+void ProductApp::onInternalDrop(const QPoint& point, const QStringList& paths, const QPoint& origin)
+{
+    const QPoint delta = point - origin;
+    if (qAbs(delta.x()) + qAbs(delta.y()) < 4)
+        return; // let go where it was picked up
+    moveDesktopItems(paths, delta);
+    qCInfo(lc).noquote() << QStringLiteral("moved %1 icon(s) by %2,%3")
+                                .arg(paths.size())
+                                .arg(delta.x())
+                                .arg(delta.y());
+}
+
+void ProductApp::dragDesktopItems(const QStringList& paths, const QPoint& origin)
+{
+    if (!drawnDesktop() || paths.isEmpty())
+        return;
+    platform::win::dragShellItems(paths, origin, backdropOwner());
+    m_shellSignature.clear();
+    m_shellResync.start();
+}
+
+void ProductApp::onDesktopKey(int key, Qt::KeyboardModifiers modifiers)
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop || !drawnDesktop())
+        return;
+    const QStringList selection = backdrop->selection();
+    const bool ctrl = modifiers.testFlag(Qt::ControlModifier);
+    const bool shift = modifiers.testFlag(Qt::ShiftModifier);
+    switch (key) {
+    case Qt::Key_F2:
+        if (selection.size() == 1)
+            startRename(selection.first());
+        break;
+    case Qt::Key_Delete:
+        if (!selection.isEmpty())
+            deleteDesktopItems(selection, shift);
+        break;
+    case Qt::Key_Return:
+        if (!selection.isEmpty())
+            m_shellView->invokeSelectionVerb(selection, QString());
+        break;
+    case Qt::Key_F5:
+        m_shellSignature.clear();
+        m_wallpaperSignature = 0;
+        syncShellView();
+        refreshWallpaper();
+        break;
+    case Qt::Key_Menu:
+    case Qt::Key_F10:
+        if (key == Qt::Key_F10 && !shift)
+            break;
+        if (!selection.isEmpty())
+            onIconMenu(selection, backdrop->iconRectOf(selection.first()).center());
+        else
+            showDesktopMenu(backdrop->area().center());
+        break;
+    case Qt::Key_C:
+    case Qt::Key_X:
+        if (ctrl && !selection.isEmpty())
+            m_shellView->invokeSelectionVerb(selection, key == Qt::Key_C ? QStringLiteral("copy")
+                                                                         : QStringLiteral("cut"));
+        break;
+    case Qt::Key_V:
+        if (ctrl)
+            m_shellView->invokeBackgroundVerb(QStringLiteral("paste"));
+        break;
+    case Qt::Key_Z:
+        if (ctrl)
+            m_shellView->invokeBackgroundUndo(false);
+        break;
+    case Qt::Key_Y:
+        if (ctrl)
+            m_shellView->invokeBackgroundUndo(true);
+        break;
+    case Qt::Key_N:
+        if (ctrl && shift)
+            newDesktopFolder();
+        break;
+    default:
+        return;
+    }
+    m_shellResync.start();
 }
 
 } // namespace starfish::app

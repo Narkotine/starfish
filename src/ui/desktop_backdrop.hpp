@@ -18,6 +18,7 @@
 #include "ui/icon_grid.hpp"
 #include "ui/screen_layout.hpp"
 
+class QKeyEvent;
 class QMouseEvent;
 
 namespace starfish::ui {
@@ -169,6 +170,19 @@ public:
     // The rubber band currently being drawn, or a null rect. Exposed for the
     // probes: what is on screen is otherwise only observable as pixels.
     QRect rubberBand() const { return m_rubberBand; }
+    // ADR-21 lot 3: the selection rectangle being drawn, or a null rect.
+    QRect marquee() const { return m_marquee; }
+    // Ends whatever the mouse was doing (the shell's drag loop took over).
+    void cancelGesture();
+    // ADR-21 lot 3: the drawn desktop's drop target (see DesktopSurface::
+    // setDropTargetFactory), used whenever the opaque surface is hosted.
+    void setDropTargetFactory(std::function<void*(quintptr)> factory)
+    {
+        m_dropFactory = std::move(factory);
+    }
+    // The caption rectangle of an icon (screen pixels) -- where F2 edits.
+    QRect labelRectOf(const QString& path) const;
+    QRect iconRectOf(const QString& path) const;
 
     // Creates the window and pushes the first frame. Returns false when there is
     // no desktop to host it on, or -- and this is the interesting case -- when
@@ -230,6 +244,13 @@ signals:
     // desktop); `point` is where the button came up, in screen pixels.
     void iconMenuRequested(const QStringList& paths, const QPoint& point);
     void selectionChanged(const QStringList& paths);
+    // ADR-21 lot 3 (T-091). A key the drawn desktop does not answer itself
+    // (F2, Delete, Return, Ctrl+C/X/V/Z/Y, F5, the menu key): the product maps
+    // it to the shell. Ctrl+A, Escape and the arrows are answered here.
+    void keyCommand(int key, Qt::KeyboardModifiers modifiers);
+    // An icon drag left its threshold: the product runs the shell's drag loop
+    // (SHDoDragDrop) with `paths`, picked up at `origin` (screen pixels).
+    void iconDragRequested(const QStringList& paths, const QPoint& origin);
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -247,6 +268,9 @@ private:
     void paintRubberBand(QImage& frame, const QRect& box) const;
 
     bool handleMouse(QMouseEvent* mouse);
+    bool handleKey(QKeyEvent* key);
+    // The cell whose path is `path`, or -1.
+    int cellOf(const QString& path) const;
     // True when `screen` (virtual-screen pixels) is inside a native icon.
     bool overNativeIcon(const QPoint& screen) const;
     bool applyGesture(const BackdropGesture::Result& result);
@@ -290,6 +314,13 @@ private:
     QString m_narrowOnRelease;
     // The right button went down on an icon: its release opens the item menu.
     bool m_rightOnIcon = false;
+    // ADR-21 lot 3: the left-button selection rectangle on the bare desktop.
+    bool m_marqueeArmed = false;
+    QPoint m_marqueeOrigin;
+    QRect m_marquee;
+    QStringList m_marqueeBase;
+    QPoint m_iconPressPoint;
+    std::function<void*(quintptr)> m_dropFactory;
     void setSelectionInternal(const QStringList& paths);
     // Re-hosts the window when the surface mode (transparent layer / opaque
     // desktop) has to change.

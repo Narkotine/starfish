@@ -97,6 +97,12 @@ public:
     // default verb (what a double-click does) is `QString()`.
     bool invokeSelectionVerb(const QStringList& parsingNames, const QString& verb);
     bool invokeBackgroundVerb(const QString& verb);
+    // The shell verb the last menu shown ran ("NewFolder", "paste", ...), or
+    // empty when one of our entries -- or nothing -- was chosen.
+    QString lastChosenVerb() const;
+    // Ctrl+Z / Ctrl+Y: the shell's own "Undo ..." / "Redo ..." entry of the
+    // background menu, when it offers one.
+    bool invokeBackgroundUndo(bool redo);
 
     // Moves an item in the native view (IFolderView::SelectAndPositionItems) --
     // the view applies its own grid and keeps the position, as if the user had

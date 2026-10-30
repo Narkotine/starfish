@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QHash>
+#include <QPoint>
+#include <QSet>
 #include <QObject>
 #include <QRect>
 #include <QTimer>
@@ -15,6 +17,8 @@
 #include "platform/win/desktop_menu.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/screen_layout.hpp"
+
+class QLineEdit;
 
 namespace starfish::core {
 class DesktopWatcher;
@@ -125,6 +129,25 @@ public:
     static bool fenceShortcutArrowsSetting();
     void setFenceShortcutArrows(bool shown);
     bool fenceShortcutArrows() const { return m_fenceShortcutArrows; }
+
+    // ADR-21 lot 3 (T-091) -- the drawn desktop's gestures, handed to the shell.
+    // Public so the probe drives them in this process (no input is injected).
+    // F2: our own edit over the caption; the rename itself is IFileOperation.
+    void startRename(const QString& path);
+    void finishRename(bool commit);
+    QLineEdit* renameEditor() const { return m_renameEdit; }
+    QString renamePath() const { return m_renameEdit ? m_renamePath : QString(); }
+    bool renameDesktopItem(const QString& path, const QString& newName, QString* newPath = nullptr);
+    // A key the backdrop passed on (F2, Delete, Return, Ctrl+C/X/V/Z/Y, F5...).
+    void onDesktopKey(int key, Qt::KeyboardModifiers modifiers);
+    bool deleteDesktopItems(const QStringList& paths, bool permanent, bool silent = false);
+    // Moves icons on the desktop by `delta` (the view keeps the new place).
+    bool moveDesktopItems(const QStringList& paths, const QPoint& delta);
+    // "New folder" where the shell puts it, its name open for editing.
+    void newDesktopFolder();
+    // The drop of our own icons back onto the desktop (the drop target's half).
+    void onInternalDrop(const QPoint& point, const QStringList& paths, const QPoint& origin);
+    QPoint desktopItemPosition(const QString& path) const { return m_itemPositions.value(path); }
     // The desktop's background menu at `point`, as a right-click opens it.
     void showDesktopMenu(const QPoint& point) { onDesktopMenu(QRect(), point); }
 
@@ -287,6 +310,15 @@ private:
     int m_desktopLosses = 0;
     int m_listReshown = 0;
     bool m_fenceShortcutArrows = true;
+    void dragDesktopItems(const QStringList& paths, const QPoint& origin);
+    // A new item the shell is about to create (New > Folder...) opens for
+    // renaming when it appears, as on the real desktop.
+    void armNewItemRename();
+    QLineEdit* m_renameEdit = nullptr;
+    QString m_renamePath;
+    QHash<QString, QPoint> m_itemPositions;
+    qint64 m_renameNewUntil = 0;
+    QSet<QString> m_namesBeforeNew;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

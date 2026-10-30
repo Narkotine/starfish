@@ -1,4 +1,5 @@
 #include "platform/win/shell_drop_target.hpp"
+#include "platform/win/shell_operations.hpp"
 
 #include <objbase.h>
 #include <shlobj.h> // CF_HDROP, DROPEFFECT_*
@@ -86,7 +87,9 @@ QStringList ShellDropTarget::pathsFromHdrop(IDataObject* data)
 HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWORD /*grfKeyState*/,
                                                     POINTL pt, DWORD* pdwEffect)
 {
-    m_canDrop = dataHasHdrop(pDataObj);
+    // ADR-21 lot 3: a drag of the drawn desktop's own icons may carry virtual
+    // items (This PC) that no CF_HDROP can name: what is carried is known here.
+    m_canDrop = internalDragActive() || dataHasHdrop(pDataObj);
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
     (void)pt;
@@ -111,7 +114,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
 HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*grfKeyState*/,
                                                 POINTL pt, DWORD* pdwEffect)
 {
-    const QStringList paths = pathsFromHdrop(pDataObj);
+    const QStringList paths =
+        internalDragActive() ? internalDragPaths() : pathsFromHdrop(pDataObj);
     if (pdwEffect)
         *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
     m_canDrop = false;

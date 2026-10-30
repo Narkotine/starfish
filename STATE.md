@@ -5,7 +5,7 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre (bureau et zones ré-hébergés), liste re-masquée, écrans/DPI. `ctest` 16/16, `--drawn-desktop-probe` **23/23**. **§44**.
+- **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre, liste re-masquée, écrans/DPI ; décisions : entrée de menu repointée, éléments virtuels rangeables, flèche des zones = réglage (oui par défaut) ; **lot 3 (T-091)** F2, clavier, rectangle, glisser OLE, `IFileOperation` + annuler. `ctest` 16/16, `--drawn-desktop-probe` **37/37**. **§44**.
 - **Livré juste avant :** 57 - ADR-20 (renversé par l'ADR-21) ; 56 - T-042 1ʳᵉ tranche ; 52 - i18n.
 - **Dernière mise à jour :** 2026-10-30 (session 58)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-19 (`bf33643`) - sessions 57-58 **locales**, CI non déclenchée.
@@ -13,8 +13,8 @@
 ## 3 prochaines actions
 
 1. **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
-2. **T-091 (lot 3)** : F2, clavier, rectangle, glisser OLE, `IFileOperation`. Puis **T-092** (menu Win11 configurable). Reste humain de T-090 : deux écrans, vrai redémarrage d'Explorer.
-3. ⛔ Questions ouvertes : `T-036`, `T-033`, `T-030` ; et le verbe registre du menu pointe vers `Documents\Workbuddy\StarFish\build` (autre copie ?).
+2. **T-092 (lot 4)** : menu Win11 dessiné, configurable. Reste humain : deux écrans, vrai redémarrage d'Explorer (T-090) ; vrai glisser souris, focus clavier (T-091).
+3. ⛔ Questions ouvertes : `T-036`, `T-033`, `T-030`.
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |

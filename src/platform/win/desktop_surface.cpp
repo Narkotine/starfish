@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPointF>
 
@@ -331,7 +332,7 @@ bool DesktopSurface::attach(const QRect& rect)
     //    drop it cannot honour -- the silent regression T-052 is about. A
     //    surface with no handler registers nothing, and the drag reaches
     //    whatever is underneath.
-    if (!m_oleInit && m_dropHandler) {
+    if (!m_oleInit && (m_dropHandler || m_dropTargetFactory)) {
         const HRESULT hr = ::OleInitialize(nullptr);
         if (SUCCEEDED(hr)) {
             m_oleInit = true;
@@ -340,7 +341,20 @@ bool DesktopSurface::attach(const QRect& rect)
                           << "-- Explorer drop disabled on this surface";
         }
     }
-    if (m_oleInit && !m_dropTarget) {
+    if (m_oleInit && m_dropTargetFactory && !m_customDropTarget) {
+        m_customDropTarget = m_dropTargetFactory(m_hwnd);
+        const HRESULT hr = m_customDropTarget
+                               ? ::RegisterDragDrop(toHwnd(m_hwnd),
+                                                    static_cast<IDropTarget*>(m_customDropTarget))
+                               : E_FAIL;
+        if (FAILED(hr)) {
+            qCWarning(lc) << "RegisterDragDrop (custom target) failed, error" << hr;
+            if (m_customDropTarget)
+                static_cast<IUnknown*>(m_customDropTarget)->Release();
+            m_customDropTarget = nullptr;
+        }
+    }
+    if (m_oleInit && !m_dropTarget && !m_dropTargetFactory) {
         m_dropTarget = new starfish::platform::win::ShellDropTarget(
             toHwnd(m_hwnd), [this](const QPoint& client, const QStringList& paths) {
                 if (m_dropHandler)
@@ -380,6 +394,7 @@ void DesktopSurface::detach()
             m_dropTarget->Release();
             m_dropTarget = nullptr;
         }
+        releaseCustomDropTarget();
         // Drop the user data first: WM_DESTROY must not call back into a
         // half-destroyed object.
         ::SetWindowLongPtrW(toHwnd(m_hwnd), GWLP_USERDATA, 0);
@@ -756,6 +771,54 @@ void DesktopSurface::setDropHandler(
 const std::function<void(const QPoint&, const QStringList&)>& DesktopSurface::dropHandler() const
 {
     return m_dropHandler;
+}
+
+void DesktopSurface::releaseCustomDropTarget()
+{
+    if (!m_customDropTarget)
+        return;
+    if (m_hwnd)
+        ::RevokeDragDrop(toHwnd(m_hwnd));
+    static_cast<IUnknown*>(m_customDropTarget)->Release();
+    m_customDropTarget = nullptr;
+}
+
+bool DesktopSurface::forwardKey(quintptr wParam)
+{
+    if (!m_inputTarget)
+        return false;
+    const auto vk = static_cast<unsigned>(wParam);
+    int key = 0;
+    switch (vk) {
+    case VK_F2: key = Qt::Key_F2; break;
+    case VK_F5: key = Qt::Key_F5; break;
+    case VK_F10: key = Qt::Key_F10; break;
+    case VK_DELETE: key = Qt::Key_Delete; break;
+    case VK_RETURN: key = Qt::Key_Return; break;
+    case VK_ESCAPE: key = Qt::Key_Escape; break;
+    case VK_LEFT: key = Qt::Key_Left; break;
+    case VK_RIGHT: key = Qt::Key_Right; break;
+    case VK_UP: key = Qt::Key_Up; break;
+    case VK_DOWN: key = Qt::Key_Down; break;
+    case VK_HOME: key = Qt::Key_Home; break;
+    case VK_END: key = Qt::Key_End; break;
+    case VK_APPS: key = Qt::Key_Menu; break;
+    default:
+        if (vk >= 'A' && vk <= 'Z')
+            key = Qt::Key_A + static_cast<int>(vk - 'A');
+        break;
+    }
+    if (key == 0)
+        return false;
+    Qt::KeyboardModifiers mods;
+    if (::GetKeyState(VK_CONTROL) < 0)
+        mods |= Qt::ControlModifier;
+    if (::GetKeyState(VK_SHIFT) < 0)
+        mods |= Qt::ShiftModifier;
+    if (::GetKeyState(VK_MENU) < 0)
+        mods |= Qt::AltModifier;
+    QCoreApplication::postEvent(m_inputTarget, new QKeyEvent(QEvent::KeyPress, key, mods));
+    return true;
 }
 
 void DesktopSurface::forwardMouse(unsigned message, quintptr lParam)
@@ -1254,8 +1317,20 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         return true;
     }
 
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+        if (m_ownsAllInput && forwardKey(wParam)) {
+            *result = 0;
+            return true;
+        }
+        return false;
+
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:
+        // ADR-21 lot 3: a click on the drawn desktop gives it the keyboard, as
+        // a click on the real one does (F2, Delete, Ctrl+A).
+        if (m_ownsAllInput && ::GetFocus() != toHwnd(m_hwnd))
+            ::SetFocus(toHwnd(m_hwnd));
         // Take the mouse capture. Without it Windows stops delivering
         // WM_MOUSEMOVE to this window the moment the cursor steps outside its
         // rectangle, so a title-bar drag dies at the first pixel past the edge
@@ -1306,6 +1381,7 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
             m_dropTarget->Release();
             m_dropTarget = nullptr;
         }
+        releaseCustomDropTarget();
         m_hwnd = 0;
         m_placed = false;
         m_watchdog.stop();

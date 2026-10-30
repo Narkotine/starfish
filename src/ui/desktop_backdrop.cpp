@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QFont>
 #include <QFontMetrics>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
@@ -299,6 +300,14 @@ void DesktopBackdrop::paintRubberBand(QImage& frame, const QRect& box) const
 {
     // The fence being drawn (T-041). The rubber band carries virtual-screen
     // pixels like the cells do, so the painter is translated once.
+    if (!m_marquee.isEmpty()) {
+        // The desktop's own selection rectangle (Windows 11 colours).
+        QPainter marquee(&frame);
+        marquee.translate(-box.topLeft());
+        marquee.setPen(QPen(QColor(0x00, 0x78, 0xD7), 1));
+        marquee.setBrush(QColor(0x00, 0x78, 0xD7, 0x40));
+        marquee.drawRect(m_marquee.adjusted(0, 0, -1, -1));
+    }
     if (m_rubberBand.isEmpty())
         return;
     QPainter painter(&frame);
@@ -464,9 +473,104 @@ bool DesktopBackdrop::event(QEvent* event)
     case QEvent::MouseButtonDblClick:
     case QEvent::MouseMove:
         return handleMouse(static_cast<QMouseEvent*>(event));
+    case QEvent::KeyPress:
+        return handleKey(static_cast<QKeyEvent*>(event));
     default:
         return QObject::event(event);
     }
+}
+
+int DesktopBackdrop::cellOf(const QString& path) const
+{
+    const QString key = BackdropLayout::pathKey(path);
+    for (int i = 0; i < m_cells.size(); ++i) {
+        if (BackdropLayout::pathKey(m_cells.at(i).item.path) == key)
+            return i;
+    }
+    return -1;
+}
+
+QRect DesktopBackdrop::labelRectOf(const QString& path) const
+{
+    const int i = cellOf(path);
+    return i < 0 ? QRect() : m_cells.at(i).label;
+}
+
+QRect DesktopBackdrop::iconRectOf(const QString& path) const
+{
+    const int i = cellOf(path);
+    return i < 0 ? QRect() : m_cells.at(i).icon;
+}
+
+void DesktopBackdrop::cancelGesture()
+{
+    m_gesture.cancel();
+    m_pressedIcon.clear();
+    m_narrowOnRelease.clear();
+    m_marqueeArmed = false;
+    m_marquee = {};
+    m_rubberBand = {};
+    refresh();
+}
+
+bool DesktopBackdrop::handleKey(QKeyEvent* key)
+{
+    if (!drawsWholeDesktop())
+        return false;
+    const Qt::KeyboardModifiers mods = key->modifiers();
+    const bool ctrl = mods.testFlag(Qt::ControlModifier);
+    if (ctrl && key->key() == Qt::Key_A) {
+        QStringList all;
+        for (const BackdropCell& cell : m_cells)
+            all << cell.item.path;
+        setSelectionInternal(all);
+        return true;
+    }
+    if (key->key() == Qt::Key_Escape) {
+        setSelectionInternal({});
+        return true;
+    }
+    const bool arrow = key->key() == Qt::Key_Left || key->key() == Qt::Key_Right
+                       || key->key() == Qt::Key_Up || key->key() == Qt::Key_Down;
+    if (arrow) {
+        // The nearest icon in that direction from the last selected one (the
+        // first icon when nothing is selected), as the desktop's own list does.
+        if (m_cells.isEmpty())
+            return true;
+        const int from = m_selection.isEmpty() ? -1 : cellOf(m_selection.constLast());
+        if (from < 0) {
+            setSelectionInternal({m_cells.first().item.path});
+            return true;
+        }
+        const QPoint c = m_cells.at(from).icon.center();
+        int best = -1;
+        qint64 bestScore = 0;
+        for (int i = 0; i < m_cells.size(); ++i) {
+            if (i == from)
+                continue;
+            const QPoint d = m_cells.at(i).icon.center() - c;
+            int along = 0;
+            int across = 0;
+            switch (key->key()) {
+            case Qt::Key_Left: along = -d.x(); across = d.y(); break;
+            case Qt::Key_Right: along = d.x(); across = d.y(); break;
+            case Qt::Key_Up: along = -d.y(); across = d.x(); break;
+            default: along = d.y(); across = d.x(); break;
+            }
+            if (along <= 0 || qAbs(across) > along * 2)
+                continue;
+            const qint64 score = qint64(along) * along + qint64(across) * across * 4;
+            if (best < 0 || score < bestScore) {
+                best = i;
+                bestScore = score;
+            }
+        }
+        if (best >= 0)
+            setSelectionInternal({m_cells.at(best).item.path});
+        return true;
+    }
+    emit keyCommand(key->key(), mods);
+    return true;
 }
 
 bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
@@ -559,6 +663,44 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
         }
     }
 
+    // ADR-21 lot 3: the selection rectangle -- a left press on the bare desktop
+    // that travels. Ctrl adds to what was selected.
+    if (whole) {
+        if (mouse->type() == QEvent::MouseButtonPress && mouse->button() == Qt::LeftButton) {
+            m_marqueeArmed = hit.isEmpty();
+            m_marqueeOrigin = screen;
+            m_marqueeBase = ctrl ? m_selection : QStringList();
+            m_marquee = {};
+            if (!hit.isEmpty())
+                m_iconPressPoint = screen;
+        } else if (mouse->type() == QEvent::MouseMove && m_marqueeArmed
+                   && mouse->buttons().testFlag(Qt::LeftButton)) {
+            const QPoint d = screen - m_marqueeOrigin;
+            if (!m_marquee.isNull()
+                || qAbs(d.x()) + qAbs(d.y()) >= m_gesture.metrics().dragThreshold) {
+                m_marquee = QRect(m_marqueeOrigin, screen).normalized();
+                QStringList next = m_marqueeBase;
+                for (const BackdropCell& cell : m_cells) {
+                    if (cell.icon.united(cell.label).intersects(m_marquee)
+                        && !next.contains(cell.item.path))
+                        next << cell.item.path;
+                }
+                setSelectionInternal(next);
+                refresh();
+                return true;
+            }
+        } else if (mouse->type() == QEvent::MouseButtonRelease
+                   && mouse->button() == Qt::LeftButton && m_marqueeArmed) {
+            m_marqueeArmed = false;
+            if (!m_marquee.isNull()) {
+                m_marquee = {};
+                m_gesture.cancel();
+                refresh();
+                return true;
+            }
+        }
+    }
+
     BackdropGesture::Result result;
     switch (mouse->type()) {
     case QEvent::MouseButtonPress:
@@ -611,6 +753,26 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
         return true;
 
     case BackdropGesture::Action::IconDrag:
+        // ADR-21 lot 3: on the drawn desktop the carry is the shell's own drag
+        // loop -- to a fence, to an Explorer window, to another application, or
+        // back onto the desktop to move the icon. What is carried is the
+        // selection when the icon is part of it.
+        if (drawsWholeDesktop() && !m_pressedIcon.isEmpty()) {
+            const QString pressed = m_pressedIcon;
+            QStringList carried;
+            for (const QString& s : m_selection) {
+                if (BackdropLayout::pathKey(s) == BackdropLayout::pathKey(pressed)) {
+                    carried = m_selection;
+                    break;
+                }
+            }
+            if (carried.isEmpty())
+                carried = {pressed};
+            const QPoint origin = m_iconPressPoint;
+            cancelGesture();
+            emit iconDragRequested(carried, origin);
+            return true;
+        }
         // T-042: the carry is under way. What the user *sees* while carrying is
         // T-087 (a ghost of the tile, and the fence under the cursor); the
         // gesture is complete without it, so nothing is painted yet -- and the
@@ -699,6 +861,8 @@ bool DesktopBackdrop::attach()
     const bool opaque = drawsWholeDesktop();
     surface->setNativeIconRects(opaque ? QVector<QRect>() : m_nativeRects);
     surface->setOwnsAllInput(opaque);
+    if (opaque && m_dropFactory)
+        surface->setDropTargetFactory(m_dropFactory);
     surface->setFrame(m_frame);
     if (!opaque && !surface->setPerPixelAlpha(true)) {
         qCWarning(lcBackdrop) << "the per-pixel path was refused; no backdrop";

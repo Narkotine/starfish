@@ -25,6 +25,7 @@ qt_add_executable(starfish WIN32
     platform/win/shell_icon_cache.cpp
     platform/win/shell_context_menu.cpp
     platform/win/shell_drop_target.cpp
+    platform/win/shell_operations.cpp
     platform/win/hotkey_manager.cpp
     ui/fence_container.cpp
     ui/desktop_backdrop.cpp

@@ -19,11 +19,18 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <ole2.h>
+
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QMouseEvent>
 
 #include "app/product_app.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "platform/win/desktop_shell_view.hpp"
 #include "platform/win/desktop_surface.hpp"
+#include "platform/win/shell_operations.hpp"
+#include "ui/backdrop_gesture.hpp"
 #include "ui/backdrop_layout.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
@@ -56,6 +63,52 @@ QImage grabScreen(const QRect& rect)
     ::DeleteDC(memory);
     ::ReleaseDC(nullptr, screen);
     return image;
+}
+
+bool waitUntil(int ms, const std::function<bool()>& done)
+{
+    for (int waited = 0; waited < ms; waited += 100) {
+        if (done())
+            return true;
+        waitMs(100);
+    }
+    return done();
+}
+
+void sendMouse(QObject* target, QEvent::Type type, const QPoint& screen, Qt::MouseButtons buttons)
+{
+    QMouseEvent event(type, QPointF(screen), QPointF(screen),
+                      type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons,
+                      Qt::NoModifier);
+    QCoreApplication::sendEvent(target, &event);
+}
+
+void sendKey(QObject* target, int key, Qt::KeyboardModifiers mods = Qt::NoModifier)
+{
+    QKeyEvent event(QEvent::KeyPress, key, mods);
+    QCoreApplication::sendEvent(target, &event);
+}
+
+// Plays a drag onto `target` the way OLE would, without a mouse: enter, over,
+// drop at `point`. `copy` holds Ctrl (copy rather than move).
+DWORD playDrop(void* target, void* data, const QPoint& point, bool copy)
+{
+    auto* drop = static_cast<IDropTarget*>(target);
+    auto* object = static_cast<IDataObject*>(data);
+    if (!drop || !object)
+        return DROPEFFECT_NONE;
+    const DWORD keys = MK_LBUTTON | (copy ? MK_CONTROL : 0);
+    const POINTL pt{point.x(), point.y()};
+    DWORD effect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+    drop->DragEnter(object, keys, pt, &effect);
+    effect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+    drop->DragOver(keys, pt, &effect);
+    if (effect == DROPEFFECT_NONE) {
+        drop->DragLeave();
+        return DROPEFFECT_NONE;
+    }
+    drop->Drop(object, 0, pt, &effect);
+    return effect;
 }
 
 int cellIndex(const ui::DesktopBackdrop* backdrop, const QString& path)
@@ -328,6 +381,218 @@ int runDrawnDesktopProbe(QApplication& app)
                 waitMs(1000);
             }
 
+            // ---- Lot 3 (T-091), driven in this process: nothing is clicked or
+            // typed on the user's desktop. Keys go to our own window or straight
+            // to our objects; drops are played on our own drop target.
+            {
+                const QString lot3Name = QStringLiteral("StarFish probe (lot 3)");
+                const QString lot3File = QDir(desktop).filePath(lot3Name + QStringLiteral(".txt"));
+
+                // (a) F2 through the window's own keyboard path.
+                backdrop->setSelection({testNative});
+                backdrop->renderNow();
+                ::PostMessageW(reinterpret_cast<HWND>(backdrop->surface()->hwnd()), WM_KEYDOWN,
+                               VK_F2, 0);
+                const bool editorOpen = waitUntil(2000, [&] {
+                    return product.renameEditor() && product.renameEditor()->isVisible();
+                });
+                const QString shown = editorOpen ? product.renameEditor()->text() : QString();
+                check(QStringLiteral("F2 opens an edit over the caption (T-091)"),
+                      editorOpen && shown == platform::win::editingNameOf(testNative),
+                      QStringLiteral("\"%1\"").arg(shown));
+                if (editorOpen) {
+                    waitMs(300);
+                    const QRect label = backdrop->labelRectOf(testNative);
+                    grabScreen(label.adjusted(-150, -110, 150, 40).intersected(backdrop->area()))
+                        .save(captures + QStringLiteral("/lot3_rename_edit.png"));
+                    sendKey(product.renameEditor(), Qt::Key_Escape);
+                }
+                check(QStringLiteral("...Escape cancels it, nothing renamed"),
+                      !product.renameEditor() && QFileInfo::exists(testFile), testNative);
+
+                // (b) Return commits, through IFileOperation; Explorer's undo
+                //     takes it back -- only if its undo entry is ours.
+                product.startRename(testNative);
+                if (QLineEdit* edit = product.renameEditor()) {
+                    edit->setText(lot3Name);
+                    sendKey(edit, Qt::Key_Return);
+                }
+                const bool renamedByShell =
+                    waitUntil(3000, [&] { return QFileInfo::exists(lot3File) && !QFileInfo::exists(testFile); });
+                check(QStringLiteral("...Return renames it (IFileOperation, extension kept)"),
+                      renamedByShell, lot3File);
+                QString undoLabel;
+                for (const QString& label : product.shellView()->backgroundMenuLabels()) {
+                    if ((label.startsWith(QLatin1String("Annuler")) && label.contains(QLatin1String("Renommer")))
+                        || label.startsWith(QLatin1String("Undo Rename")))
+                        undoLabel = label;
+                }
+                bool undone = false;
+                if (renamedByShell && !undoLabel.isEmpty()) {
+                    waitUntil(3000, [&] { return cellIndex(backdrop, QDir::toNativeSeparators(lot3File)) >= 0; });
+                    product.onDesktopKey(Qt::Key_Z, Qt::ControlModifier);
+                    undone = waitUntil(4000, [&] { return QFileInfo::exists(testFile); });
+                }
+                check(QStringLiteral("...and Ctrl+Z (Explorer's undo) takes it back"), undone,
+                      undoLabel.isEmpty() ? QStringLiteral("no undo entry of ours in the menu")
+                                          : undoLabel);
+                if (!QFileInfo::exists(testFile) && QFileInfo::exists(lot3File))
+                    QFile::rename(lot3File, testFile);
+                waitUntil(4000, [&] { return cellIndex(backdrop, testNative) >= 0; });
+
+                // (c) Ctrl+A, Escape.
+                sendKey(backdrop, Qt::Key_A, Qt::ControlModifier);
+                const int all = backdrop->selection().size();
+                sendKey(backdrop, Qt::Key_Escape);
+                check(QStringLiteral("Ctrl+A selects every icon, Escape none"),
+                      all == backdrop->cells().size() && backdrop->selection().isEmpty(),
+                      QStringLiteral("%1 of %2").arg(all).arg(backdrop->cells().size()));
+
+                // (d) The selection rectangle, from a bare spot to our icon.
+                const QRect icon = backdrop->iconRectOf(testNative);
+                // The nearest bare point around the icon (its neighbours' captions
+                // are wide): a ring search, closest first.
+                QPoint from;
+                for (int r = 8; r <= 120 && from.isNull(); r += 4) {
+                    for (int dx = -r; dx <= r && from.isNull(); dx += 4) {
+                        for (int dy : {-r, r}) {
+                            const QPoint candidate = icon.center() + QPoint(dx, dy);
+                            if (backdrop->area().contains(candidate)
+                                && ui::BackdropGesture::iconAt(backdrop->cells(), candidate) < 0) {
+                                from = candidate;
+                                break;
+                            }
+                        }
+                    }
+                }
+                bool marqueeSeen = false;
+                if (!from.isNull()) {
+                    sendMouse(backdrop, QEvent::MouseButtonPress, from, Qt::LeftButton);
+                    sendMouse(backdrop, QEvent::MouseMove, (from + icon.center()) / 2, Qt::LeftButton);
+                    sendMouse(backdrop, QEvent::MouseMove, icon.center(), Qt::LeftButton);
+                    marqueeSeen = !backdrop->marquee().isNull();
+                    backdrop->renderNow();
+                    waitMs(150);
+                    platform::win::DesktopShellView::captureDesktop(
+                        icon.adjusted(-140, -100, 140, 100).intersected(backdrop->area()))
+                        .save(captures + QStringLiteral("/lot3_marquee.png"));
+                    sendMouse(backdrop, QEvent::MouseButtonRelease, icon.center(), Qt::NoButton);
+                }
+                check(QStringLiteral("a selection rectangle selects the icons it touches"),
+                      marqueeSeen
+                          && std::any_of(backdrop->selection().begin(), backdrop->selection().end(),
+                                         [&](const QString& s) {
+                                             return ui::BackdropLayout::pathKey(s)
+                                                    == ui::BackdropLayout::pathKey(testNative);
+                                         })
+                          && backdrop->marquee().isNull(),
+                      QStringLiteral("from %1,%2: %3 selected")
+                          .arg(from.x())
+                          .arg(from.y())
+                          .arg(backdrop->selection().size()));
+                backdrop->setSelection({});
+
+                // (e) The data object a drag carries.
+                QStringList carried{testNative};
+                for (const platform::win::ShellViewItem& item : state.items) {
+                    if (item.parsingName.startsWith(QLatin1String("::"))) {
+                        carried << item.parsingName;
+                        break;
+                    }
+                }
+                // Files alone travel as CF_HDROP too; with a virtual item in the
+                // lot only the shell's ID list can name everything.
+                void* filesOnly = platform::win::createShellDataObject({testNative});
+                bool hdrop = false;
+                bool idList = false;
+                platform::win::shellDataObjectFormats(filesOnly, &hdrop, nullptr);
+                platform::win::releaseComObject(filesOnly);
+                void* data = platform::win::createShellDataObject(carried);
+                platform::win::shellDataObjectFormats(data, nullptr, &idList);
+                check(QStringLiteral("a drag carries the shell's own data object"),
+                      data && hdrop && idList,
+                      QStringLiteral("files: CF_HDROP %2; %1 item(s) with a virtual one: ID list %3")
+                          .arg(carried.size())
+                          .arg(hdrop ? QLatin1String("yes") : QLatin1String("no"))
+                          .arg(idList ? QLatin1String("yes") : QLatin1String("no")));
+
+                // (f) Our icon dropped back on the desktop moves (the file does not).
+                const QPoint before = product.desktopItemPosition(testNative);
+                void* desktopTarget = backdrop->surface() ? backdrop->surface()->customDropTarget() : nullptr;
+                const QPoint origin = icon.center();
+                const QPoint target = origin + QPoint(0, 2 * backdrop->physicalMetrics().cellWidth);
+                platform::win::beginInternalDrag({testNative}, origin);
+                const DWORD moveEffect = playDrop(desktopTarget, data, target, false);
+                platform::win::endInternalDrag();
+                const bool moved = waitUntil(3000, [&] {
+                    return product.desktopItemPosition(testNative) != before;
+                });
+                check(QStringLiteral("our icon dropped on the desktop moves there"),
+                      desktopTarget && moved && QFileInfo::exists(testFile)
+                          && moveEffect == DROPEFFECT_NONE,
+                      QStringLiteral("%1,%2 -> %3,%4")
+                          .arg(before.x())
+                          .arg(before.y())
+                          .arg(product.desktopItemPosition(testNative).x())
+                          .arg(product.desktopItemPosition(testNative).y()));
+                product.shellView()->positionItem(testNative, before);
+                platform::win::releaseComObject(data);
+
+                // (g) A file from elsewhere dropped on the desktop is copied
+                //     there by the desktop folder's own drop target.
+                const QString outside = QDir::temp().filePath(QStringLiteral("starfish-probe-drop"));
+                QDir().mkpath(outside);
+                const QString source = QDir(outside).filePath(QStringLiteral("StarFish probe drop.txt"));
+                const QString landed = QDir(desktop).filePath(QStringLiteral("StarFish probe drop.txt"));
+                bool copiedIn = false;
+                if (!QFileInfo::exists(landed)) {
+                    {
+                        QFile file(source);
+                        file.open(QIODevice::WriteOnly);
+                        file.write("dropped by the StarFish probe\n");
+                    }
+                    void* foreign = platform::win::createShellDataObject({QDir::toNativeSeparators(source)});
+                    playDrop(desktopTarget, foreign, backdrop->area().center(), true);
+                    copiedIn = waitUntil(8000, [&] {
+                        return QFileInfo::exists(landed)
+                               && cellIndex(backdrop, QDir::toNativeSeparators(landed)) >= 0;
+                    });
+                    platform::win::releaseComObject(foreign);
+                }
+                check(QStringLiteral("a file dropped from outside lands on the Desktop"), copiedIn,
+                      landed);
+                QFile::remove(landed);
+                QDir(outside).removeRecursively();
+
+                // (h) New folder: it appears, its name open for editing.
+                QSet<QString> existing;
+                for (const platform::win::ShellViewItem& item : product.shellView()->read().items)
+                    existing.insert(item.parsingName);
+                product.newDesktopFolder();
+                const bool newEdit = waitUntil(6000, [&] {
+                    return product.renameEditor() && product.renameEditor()->isVisible();
+                });
+                const QString created = product.renamePath();
+                check(QStringLiteral("New folder opens its name for editing"),
+                      newEdit && !created.isEmpty() && !existing.contains(created)
+                          && QFileInfo(created).isDir(),
+                      created);
+                if (newEdit) {
+                    waitMs(300);
+                    const QRect where = backdrop->labelRectOf(created);
+                    grabScreen(where.adjusted(-150, -110, 150, 40).intersected(backdrop->area()))
+                        .save(captures + QStringLiteral("/lot3_new_folder.png"));
+                    sendKey(product.renameEditor(), Qt::Key_Escape);
+                }
+                // Ours, new and empty: the only folder the probe may delete.
+                if (!created.isEmpty() && !existing.contains(created) && QFileInfo(created).isDir()
+                    && QDir(created).isEmpty())
+                    product.deleteDesktopItems({created}, true, true);
+                check(QStringLiteral("...and deleting it (Shift+Delete path) removes it"),
+                      created.isEmpty() || waitUntil(4000, [&] { return !QFileInfo::exists(created); }),
+                      created);
+            }
+
             // ...is renamed...
             const bool renamed = QFile::rename(testFile, renamedFile);
             int renamedIndex = -1;
@@ -432,6 +697,9 @@ int runDrawnDesktopProbe(QApplication& app)
     // Whatever happened: our file goes, and the desktop is given back.
     QFile::remove(testFile);
     QFile::remove(renamedFile);
+    // Lot 3 names (ours only): the rename target and the dropped copy.
+    QFile::remove(QDir(desktop).filePath(QStringLiteral("StarFish probe (lot 3).txt")));
+    QFile::remove(QDir(desktop).filePath(QStringLiteral("StarFish probe drop.txt")));
     if (!listVisible() && marker.isPresent())
         platform::win::DesktopSurface::setDesktopIconsHidden(false);
     QDir(probeDir).removeRecursively();

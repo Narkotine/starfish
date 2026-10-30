@@ -252,6 +252,8 @@ struct DesktopShellView::Impl {
     // desktop's view without dying (and a restarted Explorer can hand back a
     // proxy that still answers): a different window means a different view.
     HWND defView = nullptr;
+    // The shell verb the last menu ran ("NewFolder", "paste"...), or empty.
+    QString lastVerb;
 
     ~Impl() { reset(); }
 
@@ -356,6 +358,7 @@ struct DesktopShellView::Impl {
     int runMenu(IContextMenu* menu, UINT flags, const QPoint& screen, HWND owner,
                 const QList<MenuEntry>& extra, const QStringList& hidden, bool* rename)
     {
+        lastVerb.clear();
         HMENU popup = ::CreatePopupMenu();
         if (!popup)
             return -1;
@@ -422,6 +425,7 @@ struct DesktopShellView::Impl {
             const UINT offset = static_cast<UINT>(chosen) - kShellIdFirst;
             const QString verb = verbOf(menu, offset);
             qCInfo(lc).noquote() << QStringLiteral("shell verb chosen: \"%1\"").arg(verb);
+            lastVerb = verb;
             if (rename && verb.compare(QLatin1String("rename"), Qt::CaseInsensitive) == 0)
                 *rename = true;
             else
@@ -434,6 +438,11 @@ struct DesktopShellView::Impl {
 };
 
 DesktopShellView::DesktopShellView() : d(new Impl) {}
+
+QString DesktopShellView::lastChosenVerb() const
+{
+    return d->lastVerb;
+}
 
 DesktopShellView::~DesktopShellView()
 {
@@ -572,6 +581,47 @@ bool DesktopShellView::invokeSelectionVerb(const QStringList& parsingNames, cons
     }
     if (popup)
         ::DestroyMenu(popup);
+    release(menu);
+    return done;
+}
+
+bool DesktopShellView::invokeBackgroundUndo(bool redo)
+{
+    // "Undo Rename" has no canonical verb through the proxy (InvokeCommand("undo")
+    // answers ERROR_NO_ASSOCIATION, measured): the entry is found in the menu the
+    // shell builds -- by its verb when it has one, by its label otherwise -- and
+    // invoked by its own id.
+    if (!d->ensure())
+        return false;
+    IContextMenu* menu = nullptr;
+    if (!d->ok(d->view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&menu))) || !menu)
+        return false;
+    bool done = false;
+    HMENU popup = ::CreatePopupMenu();
+    if (popup) {
+        menu->QueryContextMenu(popup, 0, kShellIdFirst, kShellIdLast, CMF_NORMAL);
+        const QStringList prefixes = redo ? QStringList{QStringLiteral("Rétablir"), QStringLiteral("Redo")}
+                                          : QStringList{QStringLiteral("Annuler"), QStringLiteral("Undo")};
+        for (int i = 0; i < ::GetMenuItemCount(popup) && !done; ++i) {
+            const UINT id = ::GetMenuItemID(popup, i);
+            if (id == static_cast<UINT>(-1) || id < kShellIdFirst || id > kShellIdLast)
+                continue;
+            const QString verb = verbOf(menu, id - kShellIdFirst);
+            const QString label = labelOf(popup, i).remove(QLatin1Char('&'));
+            const bool byVerb = verb.compare(redo ? QLatin1String("redo") : QLatin1String("undo"),
+                                             Qt::CaseInsensitive) == 0;
+            bool byLabel = false;
+            for (const QString& prefix : prefixes)
+                byLabel = byLabel || label.startsWith(prefix, Qt::CaseInsensitive);
+            if (byVerb || byLabel) {
+                qCInfo(lc).noquote() << QStringLiteral("%1: \"%2\" (verb \"%3\")")
+                                            .arg(redo ? QLatin1String("redo") : QLatin1String("undo"),
+                                                 label, verb);
+                done = invokeOffset(menu, id - kShellIdFirst, QString(), QPoint(), nullptr);
+            }
+        }
+        ::DestroyMenu(popup);
+    }
     release(menu);
     return done;
 }
