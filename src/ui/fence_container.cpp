@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSignalBlocker>
 
 #include "platform/win/desktop_surface.hpp"
 #include "ui/desktop_backdrop.hpp"
@@ -1696,6 +1697,10 @@ void FenceContainer::renderFence(const QString& id)
         content.fill(Qt::transparent);
         const QColor panel = fence->view->panelColor();
         const QColor band = fence->view->titleBarColor();
+        // The swap below must not be heard: setPanelColor emits contentChanged,
+        // which renders the fence -- here, again, forever (a stack overflow
+        // found on a real layout, session 63).
+        const QSignalBlocker quiet(fence->view);
         if (fence->style.fadeIcons) {
             // Faded as one, like a window alpha: drawn opaque, faded on compose.
             fence->view->setPanelColor(QColor(panel.red(), panel.green(), panel.blue()));

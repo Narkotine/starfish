@@ -1049,6 +1049,25 @@ int runDrawnDesktopProbe(QApplication& app)
                     picture.save(captures + QStringLiteral("/t098_translucent_fences.png"));
                 }
 
+                // "Material on the icons too": the whole fence faded as one. Its
+                // render swaps the view's colours -- unheard, or it renders forever
+                // (a stack overflow on a real layout, session 63).
+                {
+                    const int composes = fences->composeCount();
+                    fences->setFenceIconsFollowMaterial(lower, true);
+                    waitMs(200);
+                    const QImage faded = fences->frame(lower);
+                    const QColor fadedPixel = faded.pixelColor(faded.width() / 4, faded.height() * 3 / 4);
+                    const QColor fadedUnder = backdrop->frame().pixelColor(fences->fenceRect(lower).topLeft()
+                                                                           + QPoint(faded.width() / 4, faded.height() * 3 / 4)
+                                                                           - box.topLeft());
+                    check(QStringLiteral("...a fence with its icons faded too is composed the same way"),
+                          fences->composeCount() > composes && !faded.isNull()
+                              && blendOk(fadedPixel, fadedUnder, panelRgb, 128) && !fences->iconOverlay(lower),
+                          QStringLiteral("pixel %1, desktop %2").arg(fadedPixel.name(), fadedUnder.name()));
+                    fences->setFenceIconsFollowMaterial(lower, false);
+                }
+
                 // The default: a fence that follows it changes with it.
                 const int productDefault = fences->defaultFenceAlpha();
                 fences->setFenceOpacity(lower, -1);
