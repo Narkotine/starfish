@@ -1,5 +1,7 @@
 #pragma once
 
+#include <climits>
+
 #include <QList>
 #include <QPoint>
 #include <QRect>
@@ -427,6 +429,104 @@ public:
         // Nothing even fits (the fence is larger than the area): the caller clamps
         // it, exactly as it does for a rect that came from the document.
         return QRect(bounds.topLeft(), size);
+    }
+
+    // Session 64 ("Autoriser la superposition des zones" off): where a fence
+    // going from `from` to `to` may go without covering another one. A fence it
+    // did not cover before is a wall: the rect is pushed back, along the side
+    // where `from` was clear of it, by the least amount -- the gesture stops
+    // against the edge. A fence it already covered is left alone (an old
+    // overlap neither blocks nor is resolved behind the user's back). When no
+    // such place exists, `from`. `resizing` moves the dragged edge instead of
+    // the whole rect.
+    static QRect avoidOverlap(const QRect& from, const QRect& to, const QList<QRect>& others, bool resizing)
+    {
+        QRect r = to;
+        for (int pass = 0; pass < 8; ++pass) {
+            bool changed = false;
+            for (const QRect& o : others) {
+                if (!r.intersects(o) || from.intersects(o))
+                    continue;
+                QRect best;
+                int bestCost = INT_MAX;
+                const auto consider = [&](const QRect& candidate, int cost) {
+                    if (candidate.isValid() && cost < bestCost) {
+                        best = candidate;
+                        bestCost = cost;
+                    }
+                };
+                if (from.right() < o.left()) {
+                    QRect c = r;
+                    if (resizing) c.setRight(o.left() - 1); else c.moveRight(o.left() - 1);
+                    consider(c, qAbs(r.right() - c.right()));
+                }
+                if (from.left() > o.right()) {
+                    QRect c = r;
+                    if (resizing) c.setLeft(o.right() + 1); else c.moveLeft(o.right() + 1);
+                    consider(c, qAbs(r.left() - c.left()));
+                }
+                if (from.bottom() < o.top()) {
+                    QRect c = r;
+                    if (resizing) c.setBottom(o.top() - 1); else c.moveBottom(o.top() - 1);
+                    consider(c, qAbs(r.bottom() - c.bottom()));
+                }
+                if (from.top() > o.bottom()) {
+                    QRect c = r;
+                    if (resizing) c.setTop(o.bottom() + 1); else c.moveTop(o.bottom() + 1);
+                    consider(c, qAbs(r.top() - c.top()));
+                }
+                if (bestCost == INT_MAX)
+                    return from;
+                r = best;
+                changed = true;
+            }
+            if (!changed)
+                break;
+        }
+        for (const QRect& o : others) {
+            if (r.intersects(o) && !from.intersects(o))
+                return from;
+        }
+        return r;
+    }
+
+    // Session 64: the free place nearest to `rect` (same size) inside `bounds`
+    // -- a fence drawn over another one when overlaps are off. Rings of 16 px
+    // around the request; `rect` itself when nothing is free.
+    static QRect nearestFree(const QRect& rect, const QList<QRect>& others, const QRect& bounds)
+    {
+        const auto free = [&](const QRect& c) {
+            if (!bounds.contains(c))
+                return false;
+            for (const QRect& o : others) {
+                if (c.intersects(o))
+                    return false;
+            }
+            return true;
+        };
+        if (free(rect))
+            return rect;
+        const int step = 16;
+        const int reach = qMax(bounds.width(), bounds.height());
+        for (int ring = step; ring <= reach; ring += step) {
+            QRect best;
+            qint64 bestDistance = -1;
+            for (int d = -ring; d <= ring; d += step) {
+                for (const QPoint& offset : {QPoint(d, -ring), QPoint(d, ring), QPoint(-ring, d), QPoint(ring, d)}) {
+                    const QRect c = rect.translated(offset);
+                    if (!free(c))
+                        continue;
+                    const qint64 distance = qint64(offset.x()) * offset.x() + qint64(offset.y()) * offset.y();
+                    if (bestDistance < 0 || distance < bestDistance) {
+                        best = c;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            if (bestDistance >= 0)
+                return best;
+        }
+        return rect;
     }
 
 private:

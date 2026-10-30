@@ -90,11 +90,18 @@ public:
         const int cellW = qMax(icon, cellWidth);
         const int columns = columnsForWidth(viewport.width(), cellW, gap, padding);
         const int cellH = icon + labelHeight;
+        // Session 64: the columns are centred. Left-aligned, everything the
+        // last column could not use (up to a whole cell) piled up on the right:
+        // the fence looked as if it needed far more room on the right than on
+        // the left before an icon fitted. Same margin on both sides now -- the
+        // padding, plus half of what is left over.
+        const int used = columns * cellW + (columns - 1) * gap;
+        const int offset = qMax(0, (viewport.width() - 2 * padding - used) / 2);
 
         for (int i = 0; i < itemCount; ++i) {
             const int col = i % columns;
             const int row = i / columns;
-            const int x = padding + col * (cellW + gap);
+            const int x = padding + offset + col * (cellW + gap);
             const int y = padding + row * (cellH + gap);
 
             IconCell cell;

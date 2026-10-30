@@ -297,6 +297,7 @@ void FenceView::paintEvent(QPaintEvent* event)
 
 void FenceView::mousePressEvent(QMouseEvent* event)
 {
+    emit pressed();
     if (event->button() == Qt::RightButton) {
         // Right-click selects the item under the cursor and shows the Windows
         // shell context menu for it. The single path (mousePressEvent) covers

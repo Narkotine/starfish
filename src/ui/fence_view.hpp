@@ -184,6 +184,8 @@ signals:
     // Nothing is built here: FenceMenu owns the content, the product owns the
     // actions (the same split as every other gesture in this widget).
     void fenceMenuRequested(const QPoint& globalPos);
+    // Session 64: any press on the fence -- it comes to the front.
+    void pressed();
 
 protected:
     void paintEvent(QPaintEvent* event) override;

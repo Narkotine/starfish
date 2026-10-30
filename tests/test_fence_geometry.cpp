@@ -17,6 +17,11 @@ class TestFenceGeometry : public QObject
     Q_OBJECT
 
 private slots:
+    // Session 64: overlaps off.
+    void aMoveStopsAgainstAnotherFence();
+    void aResizeStopsAgainstAnotherFence();
+    void anOldOverlapNeitherBlocksNorMoves();
+    void aDrawnFenceGoesToTheNearestFreePlace();
     void hitTestClassifiesRegions();
     void hitTestCornersWinOverEdges();
     void resizeGrowsFromEastAndSouth();
@@ -408,6 +413,52 @@ void TestFenceGeometry::freeSpotStillAnswersWhenNothingFits()
     // *not* fit here -- the check is honest about which case it covers.)
     const QRect small(0, 0, 100, 100);
     QCOMPARE(FenceGeometry::freeSpot({}, kFence, small), QRect(0, 0, 320, 240));
+}
+
+void TestFenceGeometry::aMoveStopsAgainstAnotherFence()
+{
+    const QRect wall(400, 0, 200, 200);
+    const QRect from(100, 50, 200, 100);
+    // Dragged right into the wall: it stops with its right edge against it.
+    const QRect stopped = FenceGeometry::avoidOverlap(from, from.translated(180, 10), {wall}, false);
+    QCOMPARE(stopped.right(), wall.left() - 1);
+    QCOMPARE(stopped.top(), 60); // the other axis follows the mouse
+    QCOMPARE(stopped.size(), from.size());
+    // Free movement is untouched.
+    QCOMPARE(FenceGeometry::avoidOverlap(from, from.translated(50, 300), {wall}, false), from.translated(50, 300));
+    // Past it entirely in one step: allowed (nothing covered).
+    QCOMPARE(FenceGeometry::avoidOverlap(from, from.translated(500, 0), {wall}, false), from.translated(500, 0));
+}
+
+void TestFenceGeometry::aResizeStopsAgainstAnotherFence()
+{
+    const QRect wall(400, 0, 200, 200);
+    const QRect from(100, 50, 200, 100);
+    QRect wider = from;
+    wider.setRight(500);
+    const QRect stopped = FenceGeometry::avoidOverlap(from, wider, {wall}, true);
+    QCOMPARE(stopped.left(), from.left());
+    QCOMPARE(stopped.right(), wall.left() - 1);
+}
+
+void TestFenceGeometry::anOldOverlapNeitherBlocksNorMoves()
+{
+    const QRect other(150, 80, 200, 200);
+    const QRect from(100, 50, 200, 100); // already over `other`
+    QCOMPARE(FenceGeometry::avoidOverlap(from, from.translated(30, 30), {other}, false), from.translated(30, 30));
+}
+
+void TestFenceGeometry::aDrawnFenceGoesToTheNearestFreePlace()
+{
+    const QRect bounds(0, 0, 1920, 1080);
+    const QRect other(500, 300, 300, 200);
+    const QRect drawn(700, 350, 200, 150); // over the right part of `other`
+    const QRect placed = FenceGeometry::nearestFree(drawn, {other}, bounds);
+    QVERIFY(!placed.intersects(other));
+    QVERIFY(bounds.contains(placed));
+    QCOMPARE(placed.size(), drawn.size());
+    QVERIFY((placed.center() - drawn.center()).manhattanLength() <= 160);
+    QCOMPARE(FenceGeometry::nearestFree(QRect(0, 0, 100, 100), {other}, bounds), QRect(0, 0, 100, 100));
 }
 
 QTEST_MAIN(TestFenceGeometry)

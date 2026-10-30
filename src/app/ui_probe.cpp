@@ -311,6 +311,12 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("setting a switch from the product sends nothing back"), echoes == 0,
               QString::number(echoes));
 
+        // Session 64: fences may overlap -- on by default, as before.
+        auto* fenceOverlap = settings.findChild<QCheckBox*>(QStringLiteral("fenceOverlapSwitch"));
+        check(QStringLiteral("Fences: \"allow fences to overlap\", on by default (session 64)"),
+              fenceOverlap && fenceOverlap->isVisibleTo(&settings) && fenceOverlap->isChecked(),
+              fenceOverlap ? QStringLiteral("present") : QStringLiteral("absent"));
+
         // T-098: the default transparency, a slider with its number.
         auto* slider = settings.findChild<QSlider*>(QStringLiteral("transparencySlider"));
         auto* value = settings.findChild<QLabel*>(QStringLiteral("transparencyValue"));
@@ -332,6 +338,43 @@ int runUiProbe(QApplication& app)
         wait(100);
         settings.grab().save(captures + QStringLiteral("/ui_settings_transparency_%1.png").arg(theme));
         settings.setDefaultTransparency(0);
+    }
+
+    // --- session 64: the grid's margins, left and right -----------------------
+    {
+        ui::FenceView view;
+        view.setAttribute(Qt::WA_DontShowOnScreen);
+        view.setTitle(QStringLiteral("Harnesses"));
+        QList<core::DesktopItem> items;
+        for (const char* name : {"App A", "App B", "App C", "App D", "App E", "App F",
+                                 "App G", "App H"}) {
+            core::DesktopItem item;
+            item.name = QString::fromUtf8(name);
+            item.fileName = item.name;
+            item.path = QStringLiteral("C:/probe/") + item.name;
+            items.append(item);
+        }
+        view.setItems(items);
+        view.resize(735, 140);
+        view.show();
+        wait(50);
+        view.grab().save(captures + QStringLiteral("/s64_grid_margins_%1.png").arg(theme));
+        const QVector<QRect> tiles = view.tileRects();
+        int left = -1;
+        int right = -1;
+        if (!tiles.isEmpty()) {
+            int minX = INT_MAX;
+            int maxX = INT_MIN;
+            for (const QRect& t : tiles) {
+                minX = qMin(minX, t.left());
+                maxX = qMax(maxX, t.right());
+            }
+            left = minX;
+            right = view.width() - 1 - maxX;
+        }
+        check(QStringLiteral("a fence's grid has the same margin left and right (session 64)"),
+              left >= 0 && qAbs(left - right) <= 1,
+              QStringLiteral("left %1 px, right %2 px (735 px wide, 8 icons)").arg(left).arg(right));
     }
 
     // --- T-098: a fence's own transparency -----------------------------------

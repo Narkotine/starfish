@@ -287,6 +287,19 @@ QWidget* SettingsDialog::buildFences()
                      tr("Off: an icon goes where it is dropped and the order stays yours."),
                      m_sortOnAdd, p));
 
+    // Session 64.
+    m_fenceOverlap = new ToggleSwitch;
+    m_fenceOverlap->setObjectName(QStringLiteral("fenceOverlapSwitch"));
+    m_fenceOverlap->setChecked(true);
+    connect(m_fenceOverlap, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit fenceOverlapToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE8A9)), tr("Allow fences to overlap"),
+                     tr("Off: a fence you move or resize stops against the others. Fences that already "
+                        "overlap stay as they are."),
+                     m_fenceOverlap, p));
+
     l->addWidget(sectionTitle(tr("Desktop"), p));
     m_desktopArrows = new ToggleSwitch;
     m_desktopArrows->setObjectName(QStringLiteral("desktopArrowsSwitch"));
@@ -402,6 +415,13 @@ void SettingsDialog::setFencesVisible(bool visible)
 void SettingsDialog::setFenceMaterial(const QString& material)
 {
     Q_UNUSED(material); // T-098: shown as the transparency slider now
+}
+
+void SettingsDialog::setFenceOverlapAllowed(bool allowed)
+{
+    m_updating = true;
+    m_fenceOverlap->setChecked(allowed);
+    m_updating = false;
 }
 
 void SettingsDialog::setDefaultTransparency(int percent)

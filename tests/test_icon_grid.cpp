@@ -34,6 +34,8 @@ private slots:
     void aDropIsSortedOnlyWhenTheUserAskedForIt();
     void columnsFitTheWidth();
     void computePositionsFirstTwoCells();
+    // Session 64: the same margin on the left and on the right.
+    void theColumnsAreCentred();
     void aCellIsWiderThanItsIcon();
     void hitTestFindsCellAndGap();
     void aLongCaptionWrapsInsteadOfBeingCut();
@@ -73,7 +75,7 @@ void TestIconGrid::computePositionsFirstTwoCells()
 {
     const int cellW = IconLayout::cellWidthFor(48); // 72
     const QVector<IconCell> cells =
-        IconLayout::compute(QSize(480, 320), 48, cellW, 34, 8, 12, 10);
+        IconLayout::compute(QSize(416, 320), 48, cellW, 34, 8, 12, 10); // 5 columns, nothing left over
     QCOMPARE(cells.size(), 10);
 
     // First cell: the icon is centred in a 72-wide cell, the caption below it.
@@ -110,7 +112,7 @@ void TestIconGrid::aCellIsWiderThanItsIcon()
 void TestIconGrid::hitTestFindsCellAndGap()
 {
     const QVector<IconCell> cells =
-        IconLayout::compute(QSize(480, 320), 48, IconLayout::cellWidthFor(48), 34, 8, 12, 10);
+        IconLayout::compute(QSize(416, 320), 48, IconLayout::cellWidthFor(48), 34, 8, 12, 10);
 
     // Inside the first icon -> index 0.
     QCOMPARE(IconLayout::hitTest(cells, QPoint(30, 30)), 0);
@@ -624,6 +626,30 @@ void TestIconGrid::aDropIsSortedOnlyWhenTheUserAskedForIt()
         names.append(it.name);
     QCOMPARE(names, QStringList({"a.txt", "b.txt", "c.txt"}));
     QCOMPARE(grid.sortBy(), QStringLiteral("name"));
+}
+
+void TestIconGrid::theColumnsAreCentred()
+{
+    const int cellW = IconLayout::cellWidthFor(48); // 72, a column step of 80
+    for (int width = 120; width <= 900; width += 7) {
+        const QVector<IconCell> cells = IconLayout::compute(QSize(width, 300), 48, cellW, 34, 8, 12, 40);
+        const int columns = IconLayout::columnsForWidth(width, cellW, 8, 12);
+        int right = 0;
+        for (int i = 0; i < columns; ++i)
+            right = qMax(right, cells.at(i).label.right());
+        const int leftMargin = cells.at(0).label.left();
+        const int rightMargin = width - 1 - right;
+        QVERIFY2(qAbs(leftMargin - rightMargin) <= 1,
+                 qPrintable(QStringLiteral("width %1: left %2, right %3").arg(width).arg(leftMargin).arg(rightMargin)));
+        QVERIFY(leftMargin >= 12);
+    }
+    // A column more as soon as it fits with the same padding on both sides:
+    // 2 x 12 + 5 x 72 + 4 x 8 = 416.
+    QCOMPARE(IconLayout::columnsForWidth(416, cellW, 8, 12), 5);
+    QCOMPARE(IconLayout::columnsForWidth(415, cellW, 8, 12), 4);
+    // The narrowest fence (160 px, 12 px inset each side -> 136 of content) holds
+    // one cell of the widest kind (2 x 48) with its padding.
+    QVERIFY(2 * 12 + IconLayout::maxCellWidthFor(48) <= 160 - 2 * 12);
 }
 
 QTEST_MAIN(TestIconGrid)

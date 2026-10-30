@@ -248,6 +248,19 @@ public:
     // pixels). Public for the probes.
     void recompose(const QRect& dirty);
     int composeCount() const { return m_composeCount; }
+
+    // Session 64: stacking. The fence list is the order, bottom to top (what
+    // fenceAt, the composition and the document follow); the windows are kept
+    // in that order. A fence the user presses comes to the top.
+    void raiseFence(const QString& id);
+    // Session 64: "Autoriser la superposition des zones". Off, a fence moved or
+    // resized by the user stops against the others (FenceGeometry::avoidOverlap).
+    void setAllowFenceOverlap(bool allowed) { m_allowOverlap = allowed; }
+    bool allowFenceOverlap() const { return m_allowOverlap; }
+    // The ids as the *windows* are stacked, bottom to top (Win32's own order),
+    // and whether that is the list's order. For the probes.
+    QStringList windowStackOrder() const;
+    bool stackingMatchesWindows() const;
     qint64 composeMicros() const { return m_composeUs; }
 
     // ⚠️ T-082 -- where the material applies. F-038 says the *panel* is
@@ -464,6 +477,8 @@ public:
     bool applyLayout(const core::Layout& layout, QString* error = nullptr);
 
 signals:
+    // Session 64: the stacking order changed (the document keeps it).
+    void fenceStackChanged(const QString& id);
     void fenceCreated(const QString& id);
     void fenceRemoved(const QString& id);
     void fenceRectChanged(const QString& id, const QRect& rect);
@@ -594,6 +609,7 @@ private:
     // about the render, and the surface no longer pushes anything to count.
     int m_frameRenders = 0;
     int m_defaultAlpha = 255;
+    bool m_allowOverlap = true;
     bool m_composed = false;
     int m_composeCount = 0;
     qint64 m_composeUs = 0;

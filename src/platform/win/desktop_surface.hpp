@@ -180,6 +180,11 @@ public:
     // T-098: paints what is invalid now (UpdateWindow), so a moved window shows
     // its new pixels with its new place.
     void repaintNow();
+    // Session 64: the fences' stacking is the container's. `raiseToTop` puts
+    // this window above its siblings (a fence that is clicked); `isAbove` reads
+    // the real Win32 order, for the container and the probes.
+    void raiseToTop();
+    bool isAbove(const DesktopSurface* other) const;
     QImage frame() const;
 
     // ⚠️ ADR-15 -- the uniform alpha, which is the path every fence takes.

@@ -42,6 +42,7 @@
 #include "ui/backdrop_layout.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/fence_geometry.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/percent_slider.hpp"
 
@@ -1080,6 +1081,156 @@ int runDrawnDesktopProbe(QApplication& app)
                       QStringLiteral("following %1, own %2").arg(followed).arg(own));
                 fences->removeFence(upper);
                 fences->removeFence(lower);
+                waitMs(300);
+            }
+
+            // ---- Session 64: two translucent fences that overlap. The window on
+            // top must be the fence composed on top -- whatever was moved or
+            // pressed last -- and show the other one, icons included.
+            {
+                ui::FenceContainer* fences = product.container();
+                const QRect box = backdrop->area();
+                const QRect aRect(box.center() - QPoint(260, 170), QSize(340, 260));
+                const QRect bRect(box.center() - QPoint(60, 60), QSize(340, 260));
+                const QString a = fences->createFence(QStringLiteral("A (dessous)"), aRect);
+                const QString b = fences->createFence(QStringLiteral("B (dessus)"), bRect);
+                fences->setFenceOpacity(a, ui::PercentSlider::alphaFromPercent(45));
+                fences->setFenceOpacity(b, ui::PercentSlider::alphaFromPercent(45));
+                fences->addPortal(a, QStringLiteral("C:/Windows/Web"));
+                fences->addPortal(b, QStringLiteral("C:/Windows/Web/Wallpaper"));
+                waitMs(300);
+                const int alpha = ui::PercentSlider::alphaFromPercent(45);
+                const auto blendOk = [](const QColor& got, const QColor& under, const QColor& over, int al) {
+                    const auto ch = [&](int u, int o) { return (u * (255 - al) + o * al) / 255; };
+                    return qAbs(got.red() - ch(under.red(), over.red())) <= 8
+                           && qAbs(got.green() - ch(under.green(), over.green())) <= 8
+                           && qAbs(got.blue() - ch(under.blue(), over.blue())) <= 8;
+                };
+                // The fence whose *window* is on top shows the other one through it.
+                const auto seeThrough = [&](QString* detail) {
+                    const QStringList order = fences->windowStackOrder();
+                    const int ia = order.indexOf(a);
+                    const int ib = order.indexOf(b);
+                    if (ia < 0 || ib < 0) {
+                        *detail = QStringLiteral("not hosted");
+                        return false;
+                    }
+                    const QString top = ia > ib ? a : b;
+                    const QString under = ia > ib ? b : a;
+                    const QRect topRect = fences->fenceRect(top);
+                    const QRect underRect = fences->fenceRect(under);
+                    const QRect overlap = topRect & underRect;
+                    // A point of the overlap where the top fence shows only its
+                    // panel: off its tiles, its title, its border and corners.
+                    const qreal dpr = fences->frame(top).devicePixelRatio();
+                    const QVector<QRect> tiles = fences->view(top)->tileRects();
+                    QPoint at(-1, -1);
+                    const QRect inner = overlap & topRect.adjusted(14, 48, -14, -14);
+                    for (int y = inner.bottom(); y >= inner.top() && at.x() < 0; y -= 5) {
+                        for (int x = inner.right(); x >= inner.left(); x -= 5) {
+                            const QPoint local = (QPointF(QPoint(x, y) - topRect.topLeft()) / dpr).toPoint();
+                            bool onTile = false;
+                            for (const QRect& t : tiles)
+                                onTile = onTile || t.adjusted(-4, -4, 4, 4).contains(local);
+                            if (!onTile) {
+                                at = QPoint(x, y);
+                                break;
+                            }
+                        }
+                    }
+                    if (at.x() < 0) {
+                        *detail = QStringLiteral("no bare panel in the overlap");
+                        return false;
+                    }
+                    const QColor got = fences->frame(top).pixelColor(at - topRect.topLeft());
+                    const QColor below = fences->frame(under).pixelColor(at - underRect.topLeft());
+                    const bool ok = blendOk(got, below, QColor(fences->fenceStyle(top).background), alpha);
+                    platform::win::DesktopSurface* sa = fences->surface(a);
+                    platform::win::DesktopSurface* sb = fences->surface(b);
+                    *detail = QStringLiteral("[a>b %6 b>a %7 hwnd %8/%9 matches %10] ")
+                                  .arg(sa && sa->isAbove(sb) ? 1 : 0)
+                                  .arg(sb && sb->isAbove(sa) ? 1 : 0)
+                                  .arg(sa ? sa->hwnd() : 0, 0, 16)
+                                  .arg(sb ? sb->hwnd() : 0, 0, 16)
+                                  .arg(fences->stackingMatchesWindows() ? 1 : 0);
+                    *detail += QStringLiteral("windows %1 / list %2; on top %3: pixel %4, under it %5")
+                                  .arg(order.join(QLatin1String(" < ")), fences->fenceIds().join(QLatin1String(" < ")),
+                                       fences->fenceStyle(top).background.isEmpty() ? top : top, got.name(), below.name());
+                    return ok;
+                };
+                const auto picture = [&](const QString& name) {
+                    const QRect around = (fences->fenceRect(a) | fences->fenceRect(b)).adjusted(-60, -50, 60, 50)
+                                             .intersected(box);
+                    QImage shot = backdrop->frame().copy(around.translated(-box.topLeft()));
+                    QPainter painter(&shot);
+                    painter.setRenderHint(QPainter::Antialiasing, true);
+                    // In the order the *windows* are stacked: what the screen shows.
+                    for (const QString& id : fences->windowStackOrder()) {
+                        const QRect target = fences->fenceRect(id).translated(-around.topLeft());
+                        const QImage f = fences->frame(id);
+                        const qreal radius = fences->view(id)->cornerRadius() * f.devicePixelRatio();
+                        QPainterPath shape;
+                        shape.addRoundedRect(QRectF(target), radius, radius);
+                        painter.save();
+                        painter.setClipPath(shape);
+                        painter.drawImage(target, f);
+                        painter.restore();
+                    }
+                    painter.end();
+                    shot.save(captures + QStringLiteral("/%1.png").arg(name));
+                };
+                QString detail;
+                bool seen = seeThrough(&detail);
+                bool ok = fences->stackingMatchesWindows() && seen;
+                check(QStringLiteral("two overlapping fences: the one on top shows the other (session 64)"), ok, detail);
+                // What the user did: the lower fence moved. Its window must not
+                // jump above the other while it is still composed below it.
+                fences->setFenceRect(a, aRect.translated(6, 4), false);
+                waitMs(200);
+                seen = seeThrough(&detail);
+                ok = fences->stackingMatchesWindows() && seen;
+                picture(QStringLiteral("s64_overlap_after_move"));
+                check(QStringLiteral("...still after the lower one moved"), ok, detail);
+                fences->raiseFence(a);
+                waitMs(200);
+                seen = seeThrough(&detail);
+                ok = fences->fenceIds().last() == a && fences->stackingMatchesWindows() && seen;
+                picture(QStringLiteral("s64_overlap_a_raised"));
+                check(QStringLiteral("...the lower one raised: now it shows the other"), ok, detail);
+                fences->raiseFence(b);
+                waitMs(200);
+                seen = seeThrough(&detail);
+                ok = fences->fenceIds().last() == b && fences->stackingMatchesWindows() && seen;
+                picture(QStringLiteral("s64_overlap_b_raised"));
+                check(QStringLiteral("...and raised back"), ok, detail);
+
+                // A press on a fence (any button) brings it to the front.
+                emit fences->view(a)->pressed();
+                waitMs(150);
+                seen = seeThrough(&detail);
+                check(QStringLiteral("...a press on the lower one raises it"),
+                      fences->fenceIds().last() == a && fences->stackingMatchesWindows() && seen, detail);
+
+                // Overlaps off: a fence dragged into another stops at its edge.
+                fences->setAllowFenceOverlap(false);
+                const QRect cRect(box.center() + QPoint(380, -170), QSize(200, 150));
+                const QString c = fences->createFence(QStringLiteral("C"), cRect);
+                waitMs(150);
+                ui::FenceView* cView = fences->view(c);
+                emit cView->geometryDragStarted();
+                for (int step = 1; step <= 20; ++step)
+                    emit cView->geometryDragDelta(ui::FenceHandle::TitleBar, QPoint(-15 * step, 0));
+                emit cView->geometryDragFinished();
+                const QRect cNow = fences->fenceRect(c);
+                const QRect bNow = fences->fenceRect(b);
+                check(QStringLiteral("overlaps off: a fence dragged into another stops against it"),
+                      !cNow.intersects(bNow) && cNow.left() < cRect.left() && qAbs(cNow.left() - (bNow.right() + 1)) <= 1,
+                      QStringLiteral("C %1,%2 (from %3), B right edge %4")
+                          .arg(cNow.left()).arg(cNow.top()).arg(cRect.left()).arg(bNow.right()));
+                fences->setAllowFenceOverlap(true);
+                fences->removeFence(c);
+                fences->removeFence(b);
+                fences->removeFence(a);
                 waitMs(300);
             }
 

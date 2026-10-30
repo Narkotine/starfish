@@ -244,6 +244,9 @@ public:
     // T-098 (session 63): the default transparency (percent, HKCU), and a
     // fence's own one through its dialog.
     static int defaultTransparencySetting();
+    // Session 64: fences may overlap (default on, as before).
+    static bool allowFenceOverlapSetting();
+    void setAllowFenceOverlap(bool allowed);
     void setDefaultFenceTransparency(int percent);
     void editFenceTransparency(const QString& id);
 

@@ -229,6 +229,7 @@ bool ProductApp::start(const Options& options, QString* error)
     m_sortOnAdd = sortOnAddSetting();
     m_container->setSortOnAdd(m_sortOnAdd);
     m_container->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(defaultTransparencySetting()));
+    m_container->setAllowFenceOverlap(allowFenceOverlapSetting());
     m_allowDesktopOverlap = allowDesktopOverlapSetting();
     // The Shell resolves a restored path exactly as it resolves a dropped one, so
     // a tile means the same thing wherever it came from (ADR-7).
@@ -403,6 +404,8 @@ void ProductApp::connectLifecycle(const std::function<void()>& onChange)
             [onChange](bool) { onChange(); });
     connect(c, &ui::FenceContainer::peekChanged, this, [onChange](bool) { onChange(); });
     connect(c, &ui::FenceContainer::rulesChanged, this, onChange);
+    // Session 64: the stacking is the fences' order in the document.
+    connect(c, &ui::FenceContainer::fenceStackChanged, this, [onChange](const QString&) { onChange(); });
 }
 
 void ProductApp::wirePersistence()
@@ -545,6 +548,7 @@ void ProductApp::wireSettings()
             &ProductApp::applyMaterialToAllFences);
     connect(m_settings, &ui::SettingsDialog::defaultTransparencyChanged, this,
             &ProductApp::setDefaultFenceTransparency);
+    connect(m_settings, &ui::SettingsDialog::fenceOverlapToggled, this, &ProductApp::setAllowFenceOverlap);
     connect(m_settings, &ui::SettingsDialog::allFencesToDefaultRequested, this, [this] {
         m_container->resetFencesToDefaultOpacity();
         qCInfo(lc) << "every fence follows the default transparency";
@@ -785,7 +789,18 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
         return;
     }
 
-    const QString id = m_container->createFence(nextFenceTitle(), target);
+    // Session 64: overlaps off, a fence drawn over another one goes to the
+    // nearest free place (the log says so).
+    QRect placed = target;
+    if (!m_container->allowFenceOverlap()) {
+        QList<QRect> others;
+        for (const QString& other : m_container->fenceIds())
+            others.append(m_container->fenceRect(other));
+        placed = ui::FenceGeometry::nearestFree(target, others, m_container->screens().clampRectFor(target));
+        if (placed != target)
+            qCInfo(lc).noquote() << QStringLiteral("overlaps are off: the new fence moved to a free place");
+    }
+    const QString id = m_container->createFence(nextFenceTitle(), placed);
     if (id.isEmpty())
         return;
     qCInfo(lc).noquote() << QStringLiteral("created %1 at %2,%3 %4x%5 from the desktop menu")
@@ -1505,6 +1520,7 @@ void ProductApp::refreshStatus()
         m_settings->setFenceMaterial(sharedFenceMaterial());
     }
     m_settings->setDefaultTransparency(defaultTransparencySetting());
+    m_settings->setFenceOverlapAllowed(allowFenceOverlapSetting());
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
     m_settings->setSortOnAdd(m_sortOnAdd);
     {
@@ -1758,7 +1774,23 @@ const QString kSortOnAdd = QStringLiteral("sortIconsOnAdd");
 const QString kDesktopArrows = QStringLiteral("desktopShortcutArrows");
 const QString kDesktopOverlap = QStringLiteral("allowDesktopOverlap");
 const QString kFenceTransparency = QStringLiteral("fenceDefaultTransparency");
+const QString kFenceOverlap = QStringLiteral("allowFenceOverlap");
 } // namespace
+
+bool ProductApp::allowFenceOverlapSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(kFenceOverlap, true).toBool();
+}
+
+void ProductApp::setAllowFenceOverlap(bool allowed)
+{
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kFenceOverlap, allowed);
+    if (m_container)
+        m_container->setAllowFenceOverlap(allowed);
+    if (m_settings)
+        m_settings->setFenceOverlapAllowed(allowed);
+    qCInfo(lc) << "fences may overlap:" << allowed;
+}
 
 int ProductApp::defaultTransparencySetting()
 {

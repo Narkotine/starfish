@@ -47,6 +47,7 @@ public:
     // slider; kept as a no-op so callers need not know.
     void setFenceMaterial(const QString& material);
     void setDefaultTransparency(int percent);
+    void setFenceOverlapAllowed(bool allowed);
     void setFenceShortcutArrows(bool shown);
     // Session 60.
     void setSortOnAdd(bool sorted);
@@ -67,6 +68,7 @@ signals:
     // Live, while the slider moves.
     void defaultTransparencyChanged(int percent);
     void allFencesToDefaultRequested();
+    void fenceOverlapToggled(bool allowed);
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
     void startWithWindowsToggled(bool on);
@@ -94,6 +96,7 @@ private:
     QLabel* m_startHint = nullptr;
     QCheckBox* m_desktopArrows = nullptr;
     QCheckBox* m_overlap = nullptr;
+    QCheckBox* m_fenceOverlap = nullptr;
     QHash<QString, QRadioButton*> m_materials;
     QSlider* m_transparency = nullptr;
     QWidget* m_restoreRow = nullptr;

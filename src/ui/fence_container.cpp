@@ -1,5 +1,7 @@
 #include "ui/fence_container.hpp"
 
+#include <algorithm>
+
 #include <QColor>
 #include <QDebug>
 #include <QDir>
@@ -692,6 +694,55 @@ void FenceContainer::resetFencesToDefaultOpacity()
         setFenceOpacity(id, -1);
 }
 
+void FenceContainer::raiseFence(const QString& id)
+{
+    const int index = indexOf(id);
+    if (index < 0)
+        return;
+    const bool moved = index != m_fences.size() - 1;
+    if (moved)
+        m_fences.move(index, m_fences.size() - 1);
+    FenceWindow& fence = m_fences.last();
+    // The overlay first: the panel follows it, directly below (T-082).
+    if (fence.iconOverlay)
+        fence.iconOverlay->raiseToTop();
+    if (fence.surface)
+        fence.surface->raiseToTop();
+    if (!moved)
+        return;
+    recompose(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
+    emit fenceStackChanged(id);
+}
+
+QStringList FenceContainer::windowStackOrder() const
+{
+    QList<const FenceWindow*> hosted;
+    for (const FenceWindow& fence : m_fences) {
+        if (fence.surface && fence.surface->hwnd())
+            hosted.append(&fence);
+    }
+    std::stable_sort(hosted.begin(), hosted.end(), [](const FenceWindow* a, const FenceWindow* b) {
+        return b->surface->isAbove(a->surface);
+    });
+    QStringList ids;
+    for (const FenceWindow* fence : hosted)
+        ids.append(fence->id);
+    return ids;
+}
+
+bool FenceContainer::stackingMatchesWindows() const
+{
+    const FenceWindow* below = nullptr;
+    for (const FenceWindow& fence : m_fences) {
+        if (!fence.surface || !fence.surface->hwnd())
+            continue;
+        if (below && !fence.surface->isAbove(below->surface))
+            return false;
+        below = &fence;
+    }
+    return true;
+}
+
 int FenceContainer::indexOf(const QString& id) const
 {
     for (int i = 0; i < m_fences.size(); ++i) {
@@ -922,6 +973,17 @@ void FenceContainer::rehostLostFences()
             fence.surface->setVisible(false);
         renderFence(fence.id);
         qCInfo(lc).noquote() << QStringLiteral("fence %1 hosted again").arg(fence.id);
+    }
+    if (back > 0) {
+        // Session 64: hosted again in whatever order Explorer let them in --
+        // put the windows back in the fences' order.
+        for (FenceWindow& fence : m_fences) {
+            if (fence.iconOverlay)
+                fence.iconOverlay->raiseToTop();
+            if (fence.surface)
+                fence.surface->raiseToTop();
+        }
+        recompose(m_backdrop ? m_backdrop->area() : QRect());
     }
     if (back == lost)
         m_rehostTimer.stop();
@@ -1311,6 +1373,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     m_fences.append(fence);
 
     FenceView* view = m_fences.last().view;
+    connect(view, &FenceView::pressed, this, [this, id] { raiseFence(id); });
     connect(view, &FenceView::geometryDragStarted, this,
             [this, id] { beginGeometryDrag(id); });
     connect(view, &FenceView::geometryDragDelta, this,
@@ -1803,10 +1866,38 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
         fence->dragging = true;
     }
 
+    // Session 64: overlaps off, the others are walls. Computed on the visible
+    // rects (a rolled-up fence is its title bar) from where the fence is now.
+    const auto keepClear = [&](const QRect& target, bool resizing) {
+        if (m_allowOverlap)
+            return target;
+        const QRect from = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+        const QRect to = FenceGeometry::visibleRect(target, fence->rolledUp);
+        const QRect clear = FenceGeometry::avoidOverlap(from, to, otherRects(id), resizing);
+        if (clear == from)
+            return fence->rect;
+        if (resizing && !fence->rolledUp)
+            return clear;
+        return target.translated(clear.topLeft() - to.topLeft());
+    };
+
     if (handle == FenceHandle::TitleBar) {
         QRect moved = fence->dragStartRect;
         moved.moveTopLeft(moved.topLeft() + delta);
-        setFenceRect(id, moved, /*snap=*/true);
+        if (m_allowOverlap) {
+            setFenceRect(id, moved, /*snap=*/true);
+            return;
+        }
+        const QRect snapped = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, moved, otherRects(id),
+                                                          m_screens.frames(), m_screens.clampRectFor(moved), m_minSize,
+                                                          m_snapThreshold, true);
+        const QRect target = keepClear(snapped, false);
+        if (target == fence->rect)
+            return;
+        fence->rect = target;
+        fence->monitor = m_screens.nameFor(target);
+        applyVisibleGeometry(*fence);
+        emit fenceRectChanged(id, target);
         return;
     }
     // T-086: a resize moves the grabbed edges only (applyResize), never the
@@ -1816,10 +1907,13 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
                                                     otherRects(id), m_screens.frames(),
                                                     m_screens.clampRectFor(fence->dragStartRect), m_minSize,
                                                     m_snapThreshold, true);
-    fence->rect = target;
-    fence->monitor = m_screens.nameFor(target);
+    const QRect kept = keepClear(target, true);
+    if (kept == fence->rect)
+        return;
+    fence->rect = kept;
+    fence->monitor = m_screens.nameFor(kept);
     applyVisibleGeometry(*fence);
-    emit fenceRectChanged(id, target);
+    emit fenceRectChanged(id, kept);
 }
 
 void FenceContainer::endGeometryDrag(const QString& id)

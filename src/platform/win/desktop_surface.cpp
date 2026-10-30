@@ -451,6 +451,27 @@ void DesktopSurface::updateFrame(const QImage& frame, const QRect& dirty)
     ::InvalidateRect(toHwnd(m_hwnd), &rc, FALSE);
 }
 
+void DesktopSurface::raiseToTop()
+{
+    if (!m_hwnd || !::IsWindow(toHwnd(m_hwnd)))
+        return;
+    // WM_WINDOWPOSCHANGING keeps the rules: a panel paired with an overlay
+    // still lands directly below it.
+    ::SetWindowPos(toHwnd(m_hwnd), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+bool DesktopSurface::isAbove(const DesktopSurface* other) const
+{
+    if (!other || !m_hwnd || !other->m_hwnd)
+        return false;
+    const HWND target = toHwnd(other->m_hwnd);
+    for (HWND window = ::GetWindow(toHwnd(m_hwnd), GW_HWNDNEXT); window; window = ::GetWindow(window, GW_HWNDNEXT)) {
+        if (window == target)
+            return true;
+    }
+    return false;
+}
+
 void DesktopSurface::repaintNow()
 {
     if (m_hwnd && ::IsWindow(toHwnd(m_hwnd)) && !m_perPixelAlpha)
@@ -1135,6 +1156,12 @@ bool DesktopSurface::place()
     UINT flags = SWP_NOACTIVATE;
     if (m_visible)
         flags |= SWP_SHOWWINDOW;
+    // Session 64: a fence already above the wallpaper keeps its place among the
+    // other fences. The stacking is the container's (raiseFence): a move used to
+    // send the window to the top while it was still composed *under* the
+    // others -- the fence on top showed the wallpaper instead of them.
+    if (!m_stackedBelow && m_layer != Layer::Backdrop && wallpaperIsBelow())
+        flags |= SWP_NOZORDER;
     const BOOL ok = ::SetWindowPos(self, anchor, m_rect.x(), m_rect.y(),
                                    m_rect.width(), m_rect.height(), flags);
     if (!ok)

@@ -141,7 +141,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5789"/>
+        <location filename="../main.cpp" line="+5791"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -149,7 +149,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2588"/>
+        <location filename="../app/product_app.cpp" line="+2620"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -159,19 +159,19 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2401"/>
+        <location line="-2433"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+401"/>
         <location line="+124"/>
-        <location line="+87"/>
+        <location line="+98"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="-211"/>
+        <location line="-222"/>
         <source>%1 item(s) filed by the rules</source>
         <translation>%1 élément(s) rangé(s) par les règles</translation>
     </message>
@@ -182,23 +182,23 @@
     </message>
     <message>
         <location line="+9"/>
-        <location line="+87"/>
+        <location line="+98"/>
         <source>Created &quot;%1&quot;</source>
         <translation>« %1 » créée</translation>
     </message>
     <message>
-        <location line="-73"/>
+        <location line="-84"/>
         <source>Create a fence here (%1 x %2)</source>
         <translation>Créer une zone ici (%1 x %2)</translation>
     </message>
     <message>
-        <location filename="../app/drawn_desktop_probe.cpp" line="+709"/>
+        <location filename="../app/drawn_desktop_probe.cpp" line="+710"/>
         <location filename="../app/product_app.cpp" line="+3"/>
         <source>Create a fence here</source>
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+347"/>
+        <location filename="../app/product_app.cpp" line="+358"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -208,7 +208,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+426"/>
+        <location line="+427"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -563,7 +563,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+396"/>
+        <location line="+397"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
@@ -589,18 +589,18 @@
     </message>
     <message>
         <location line="-91"/>
-        <location line="+181"/>
+        <location line="+194"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-180"/>
-        <location line="+199"/>
+        <location line="-193"/>
+        <location line="+212"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-171"/>
+        <location line="-184"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -612,12 +612,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+216"/>
+        <location line="+236"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-209"/>
+        <location line="-229"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -702,7 +702,17 @@
         <translation>Désactivé : une icône va là où vous la déposez et l&apos;ordre reste le vôtre.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+11"/>
+        <source>Allow fences to overlap</source>
+        <translation>Autoriser la superposition des zones</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Off: a fence you move or resize stops against the others. Fences that already overlap stay as they are.</source>
+        <translation>Désactivé : une zone déplacée ou redimensionnée s&apos;arrête contre les autres. Les zones déjà superposées restent telles quelles.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Desktop</source>
         <translation>Bureau</translation>
     </message>
@@ -762,7 +772,7 @@
         <translation>Des zones pour ranger le bureau de Windows. Vos fichiers ne bougent jamais : une zone les montre, le dossier du bureau les garde.</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+67"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
