@@ -54,6 +54,10 @@ public:
     // follow the panel's rounding rather than getting a rounding of their own.
     void setTitleBarColor(const QColor& color);
     QColor titleBarColor() const { return m_titleBarColor; }
+    // T-098: the title and the captions with the desktop's drop shadow, for a
+    // translucent fence (the wallpaper shows behind the text).
+    void setTextShadow(bool on);
+    bool textShadow() const { return m_grid.textShadow(); }
     // The radius as the fence **draws** it: the stored value, bounded so it can
     // never exceed half the shorter side (a larger radius describes no shape at
     // all, and a region built from it would erase the panel). The document keeps

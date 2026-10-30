@@ -80,6 +80,14 @@ struct FenceWindow {
     // Last frame produced by renderFence(). Kept even without a surface, so the
     // lifecycle can be exercised headless (tests, CI, --fence-demo).
     QImage frame;
+    // T-098 (session 63): on the drawn desktop, the fence's own pixels -- the
+    // panel at its transparency, the title and the icons opaque -- over a
+    // transparent background. `frame` is then this over the desktop under the
+    // fence (and the fences below it): an opaque image, so the window needs
+    // no alpha and the icons no second window. Rebuilt when the content
+    // changes; a move or a change underneath only re-composes.
+    QImage content;
+    QRect composedAt; // the visible rect `frame` was last composed for
 
     // Geometry drag bookkeeping: `dragStartRect` is captured when a gesture
     // begins, so every delta is applied to the same reference and rounding
@@ -221,6 +229,26 @@ public:
     // The preset a fence's colour is shown in, or an empty string when its alpha
     // is a value of its own (see FenceMaterial::materialOf).
     QString fenceMaterial(const QString& id) const;
+
+    // T-098 (session 63): transparency. A fence either follows the general
+    // default (`defaultOpacity`, the default) or has its own alpha (that of its
+    // `background`). Alphas are 0-255; the interface speaks percent.
+    void setDefaultFenceAlpha(int alpha);
+    int defaultFenceAlpha() const { return m_defaultAlpha; }
+    // `alpha` < 0: follow the default again.
+    void setFenceOpacity(const QString& id, int alpha);
+    bool fenceFollowsDefaultOpacity(const QString& id) const;
+    int fenceEffectiveAlpha(const QString& id) const;
+    // Every fence back to the default.
+    void resetFencesToDefaultOpacity();
+    // True when fences are composed over the drawn desktop (one opaque window,
+    // no icon overlay); false on the native desktop (ADR-15/17's windows).
+    bool composedFences() const { return m_composed; }
+    // Re-composes the fences over what changed underneath (virtual-screen
+    // pixels). Public for the probes.
+    void recompose(const QRect& dirty);
+    int composeCount() const { return m_composeCount; }
+    qint64 composeMicros() const { return m_composeUs; }
 
     // ⚠️ T-082 -- where the material applies. F-038 says the *panel* is
     // translucent, and until now a material faded everything the fence drew,
@@ -510,6 +538,14 @@ private:
     // either way, because a fence whose alpha is wrong is still a fence, while a
     // fence whose window failed to come back is not.
     bool applyMaterialToSurface(FenceWindow& fence);
+    // T-098: the alpha the fence shows, and the view's colours from it.
+    int effectiveAlpha(const core::FenceStyle& style) const;
+    void applyStyleToView(FenceWindow& fence);
+    // Whether the fences should be composed now; switches every fence over
+    // when the answer changed.
+    void syncCompositionMode();
+    void composeFence(FenceWindow& fence);
+    int indexOf(const QString& id) const;
 
     // --- the icon overlay (T-082) -------------------------------------------
     // Whether this fence wants its icons kept out of the material: hosted, a
@@ -557,6 +593,10 @@ private:
     // claim being measured ("one image per changed size, none for a move") is
     // about the render, and the surface no longer pushes anything to count.
     int m_frameRenders = 0;
+    int m_defaultAlpha = 255;
+    bool m_composed = false;
+    int m_composeCount = 0;
+    qint64 m_composeUs = 0;
 };
 
 } // namespace starfish::ui

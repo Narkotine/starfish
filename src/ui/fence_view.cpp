@@ -259,11 +259,15 @@ void FenceView::paintEvent(QPaintEvent* event)
     QFont titleFont = font();
     titleFont.setBold(true);
     painter.setFont(titleFont);
+    const QRect titleRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
+                          m_metrics.titleBarHeight);
+    const QString titleShown = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
+    if (m_grid.textShadow()) {
+        painter.setPen(QColor(0, 0, 0, 0xA0));
+        painter.drawText(titleRect.translated(1, 1), Qt::AlignVCenter | Qt::AlignLeft, titleShown);
+    }
     painter.setPen(titleText);
-    painter.drawText(QRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
-                           m_metrics.titleBarHeight),
-                     Qt::AlignVCenter | Qt::AlignLeft,
-                     m_title.isEmpty() ? QStringLiteral("Fence") : m_title);
+    painter.drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft, titleShown);
 
     const QRect content = contentRect();
     // Rolled up (F-020): the widget is the title bar, nothing else is drawn.
@@ -749,6 +753,18 @@ void FenceView::updateDragGhost(bool dragging)
         connect(this, &QObject::destroyed, m_ghost, &QObject::deleteLater);
     }
     m_ghost->follow(QCursor::pos());
+}
+
+} // namespace starfish::ui
+
+namespace starfish::ui {
+
+void FenceView::setTextShadow(bool on)
+{
+    if (m_grid.textShadow() == on)
+        return;
+    m_grid.setTextShadow(on);
+    update();
 }
 
 } // namespace starfish::ui

@@ -46,6 +46,10 @@ public:
     void setGap(int px) { m_gap = qMax(0, px); }
     void setPadding(int px) { m_padding = qMax(0, px); }
     void setLabelHeight(int px) { m_labelHeight = qMax(0, px); }
+    // T-098: captions get the desktop's drop shadow (a translucent fence shows
+    // the wallpaper behind them).
+    void setTextShadow(bool on) { m_textShadow = on; }
+    bool textShadow() const { return m_textShadow; }
 
     // The font the captions are drawn with -- and the one the cell width is
     // derived from (T-078). The view hands over its own font, so the room a
@@ -147,6 +151,7 @@ private:
     int m_gap = 8;
     int m_padding = 12;
     int m_labelHeight = 34;
+    bool m_textShadow = false;
 
     // The caption font, one point below the view's own (T-049). Only meaningful
     // once setBaseFont() has been called: m_hasBaseFont tells the two apart, so a

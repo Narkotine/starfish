@@ -55,6 +55,12 @@ struct FenceStyle {
     // its panel, whatever alpha is written here. This colour is therefore about
     // **which** colour the band is, never about how much shows through.
     QString titleBarColor;
+    // T-098 (session 63): whether the fence's transparency is the general
+    // default (Réglages -> Zones) rather than its own. Its own is the alpha of
+    // `background`, as it has always been. Absent from a document written
+    // before this key: a fence that was never made translucent (alpha 255)
+    // follows the default, one whose material was chosen keeps it.
+    bool defaultOpacity = true;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

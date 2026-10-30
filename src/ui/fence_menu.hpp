@@ -57,6 +57,8 @@ enum class Action {
     // trying the opposite. This entry, on a fence whose panel is translucent,
     // asks for the other behaviour: the material on the icons too.
     FadeIcons,
+    // T-098: the fence's transparency, as a number (a dialog with a slider).
+    Transparency,
     // T-080: the fence's own appearance. `Colours` is a submenu (its children come
     // from colourEntries()), `Radius` a submenu whose children carry the value in
     // `Entry::value`, and the other two are the colour pickers themselves.
@@ -222,6 +224,13 @@ inline QList<Entry> entries(const State& state)
         icons.checked = state.fadeIcons;
         out.append(icons);
     }
+
+    // T-098: the exact value -- the presets above are three points on it.
+    Entry transparency;
+    transparency.kind = Kind::Action;
+    transparency.action = Action::Transparency;
+    transparency.label = QCoreApplication::translate("FenceMenu", "Transparency...");
+    out.append(transparency);
 
     Entry separator;
     separator.kind = Kind::Separator;

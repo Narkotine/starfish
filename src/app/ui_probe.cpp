@@ -2,6 +2,9 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QDialog>
+#include <QScrollArea>
+#include <QSlider>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -23,6 +26,9 @@
 #include "core/context_menu.hpp"
 #include "ui/context_menu_editor.hpp"
 #include "ui/drag_image.hpp"
+#include "ui/fence_container.hpp"
+#include "ui/fence_transparency_dialog.hpp"
+#include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
@@ -304,6 +310,60 @@ int runUiProbe(QApplication& app)
         settings.setSortOnAdd(false);
         check(QStringLiteral("setting a switch from the product sends nothing back"), echoes == 0,
               QString::number(echoes));
+
+        // T-098: the default transparency, a slider with its number.
+        auto* slider = settings.findChild<QSlider*>(QStringLiteral("transparencySlider"));
+        auto* value = settings.findChild<QLabel*>(QStringLiteral("transparencyValue"));
+        QList<int> asked;
+        QObject::connect(&settings, &ui::SettingsDialog::defaultTransparencyChanged, &settings,
+                         [&](int percent) { asked << percent; });
+        settings.setDefaultTransparency(20);
+        const QString fromProduct = value ? value->text() : QString();
+        if (slider)
+            slider->setValue(35); // what a drag does, step by step
+        check(QStringLiteral("Fences: the default transparency is a slider with its value (T-098)"),
+              slider && value && slider->isVisibleTo(&settings) && fromProduct == QStringLiteral("20 %")
+                  && value->text() == QStringLiteral("35 %") && asked == QList<int>{35},
+              QStringLiteral("shown %1 then %2, asked %3")
+                  .arg(fromProduct, value ? value->text() : QStringLiteral("-"))
+                  .arg(asked.size()));
+        if (auto* scroll = settings.findChild<QScrollArea*>())
+            scroll->ensureWidgetVisible(slider);
+        wait(100);
+        settings.grab().save(captures + QStringLiteral("/ui_settings_transparency_%1.png").arg(theme));
+        settings.setDefaultTransparency(0);
+    }
+
+    // --- T-098: a fence's own transparency -----------------------------------
+    {
+        ui::FenceContainer container;
+        container.setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(20));
+        const QString id = container.createFence(QStringLiteral("Jeux"), QRect(0, 0, 320, 240));
+        QDialog* dialog = ui::createFenceTransparencyDialog(&container, id);
+        dialog->setAttribute(Qt::WA_DontShowOnScreen);
+        dialog->show();
+        wait(100);
+        auto* useDefault = dialog->findChild<QCheckBox*>(QStringLiteral("useDefault"));
+        auto* slider = dialog->findChild<QSlider*>(QStringLiteral("transparencySlider"));
+        auto* value = dialog->findChild<QLabel*>(QStringLiteral("transparencyValue"));
+        const bool startsOnDefault = useDefault && useDefault->isChecked() && slider && !slider->isEnabled()
+                                     && value && value->text() == QStringLiteral("20 %");
+        if (useDefault)
+            useDefault->setChecked(false);
+        if (slider)
+            slider->setValue(60);
+        const int live = container.fenceEffectiveAlpha(id);
+        const bool own = !container.fenceFollowsDefaultOpacity(id);
+        dialog->grab().save(captures + QStringLiteral("/ui_fence_transparency_dialog_%1.png").arg(theme));
+        dialog->reject();
+        check(QStringLiteral("a fence's Transparency...: default, then its own value live; Cancel restores"),
+              startsOnDefault && own && live == ui::PercentSlider::alphaFromPercent(60)
+                  && container.fenceFollowsDefaultOpacity(id) && container.fenceEffectiveAlpha(id) == 204,
+              QStringLiteral("started on default %1, live alpha %2, after cancel %3")
+                  .arg(startsOnDefault ? QLatin1String("yes") : QLatin1String("no"))
+                  .arg(live)
+                  .arg(container.fenceEffectiveAlpha(id)));
+        delete dialog;
     }
 
     // --- session 60: the fence's title, edited in place ----------------------

@@ -59,6 +59,8 @@ private slots:
         QCOMPARE(countOf(entries, FenceMenu::Action::ToggleRoll), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Rename), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Remove), 1);
+        // T-098: the exact transparency, on every fence (opaque is 0 %).
+        QCOMPARE(countOf(entries, FenceMenu::Action::Transparency), 1);
         // T-082: and *not* the icons entry -- the state here is a fence whose panel
         // is fully opaque, where the material has nothing else to cover.
         QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 0);

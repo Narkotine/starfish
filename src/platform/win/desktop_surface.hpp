@@ -177,6 +177,9 @@ public:
     // Same size and blit path required -- otherwise this is setFrame().
     void updateFrame(const QImage& frame, const QRect& dirty);
     void setFrame(const QImage& frame);
+    // T-098: paints what is invalid now (UpdateWindow), so a moved window shows
+    // its new pixels with its new place.
+    void repaintNow();
     QImage frame() const;
 
     // ⚠️ ADR-15 -- the uniform alpha, which is the path every fence takes.

@@ -241,6 +241,11 @@ public:
     // The material every fence shares, or an empty string when they disagree --
     // what the tray's check mark is allowed to claim.
     QString sharedFenceMaterial() const;
+    // T-098 (session 63): the default transparency (percent, HKCU), and a
+    // fence's own one through its dialog.
+    static int defaultTransparencySetting();
+    void setDefaultFenceTransparency(int percent);
+    void editFenceTransparency(const QString& id);
 
     // The default title of the next fence ("Fence 3"), the single naming policy
     // shared by the tray, a fence's own menu and a fence drawn on the desktop

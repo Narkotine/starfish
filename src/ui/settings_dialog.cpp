@@ -1,5 +1,7 @@
 #include "ui/settings_dialog.hpp"
 
+#include "ui/percent_slider.hpp"
+
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -8,6 +10,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSlider>
 #include <QListWidget>
 #include <QPushButton>
 #include <QRadioButton>
@@ -304,28 +307,30 @@ QWidget* SettingsDialog::buildFences()
                      tr("Off: an icon under a fence moves to the nearest free place."),
                      m_overlap, p));
 
-    l->addWidget(sectionTitle(tr("Material of all fences"), p));
-    QFrame* materials = card(p);
-    auto* materialLayout = new QVBoxLayout(materials);
-    materialLayout->setContentsMargins(18, 12, 18, 12);
-    auto* group = new QButtonGroup(materials);
-    for (const FenceMaterial::Preset& preset : FenceMaterial::presets()) {
-        const QString id = QString::fromLatin1(preset.id);
-        auto* radio = new QRadioButton(FenceMaterial::presetLabel(id), materials);
-        group->addButton(radio);
-        materialLayout->addWidget(radio);
-        m_materials.insert(id, radio);
-        connect(radio, &QRadioButton::toggled, this, [this, id](bool on) {
-            if (on && !m_updating)
-                emit fenceMaterialRequested(id);
-        });
-    }
-    auto* materialHint = new QLabel(tr("Applies to every fence at once; a fence's menu picks one for it alone."),
-                                    materials);
-    materialHint->setObjectName(QStringLiteral("hint"));
-    materialHint->setWordWrap(true);
-    materialLayout->addWidget(materialHint);
-    l->addWidget(materials);
+    // T-098 (session 63): one number for every fence that has none of its own.
+    l->addWidget(sectionTitle(tr("Fence transparency"), p));
+    QFrame* transparency = card(p);
+    auto* transparencyLayout = new QVBoxLayout(transparency);
+    transparencyLayout->setContentsMargins(18, 12, 18, 12);
+    transparencyLayout->addWidget(new QLabel(tr("Default for all fences"), transparency));
+    QWidget* sliderRow = PercentSlider::make(0, transparency, &m_transparency, nullptr);
+    connect(m_transparency, &QSlider::valueChanged, this, [this](int percent) {
+        if (!m_updating)
+            emit defaultTransparencyChanged(percent);
+    });
+    transparencyLayout->addWidget(sliderRow);
+    auto* transparencyHint = new QLabel(
+        tr("Background and title bar. Icons and their names stay opaque. 0 % = opaque. "
+           "A fence's menu (Transparency...) can set its own value."),
+        transparency);
+    transparencyHint->setObjectName(QStringLiteral("hint"));
+    transparencyHint->setWordWrap(true);
+    transparencyLayout->addWidget(transparencyHint);
+    auto* allToDefault = new QPushButton(tr("Every fence follows this value"), transparency);
+    allToDefault->setObjectName(QStringLiteral("allFencesToDefault"));
+    connect(allToDefault, &QPushButton::clicked, this, &SettingsDialog::allFencesToDefaultRequested);
+    transparencyLayout->addWidget(allToDefault, 0, Qt::AlignLeft);
+    l->addWidget(transparency);
     l->addStretch(1);
     return p;
 }
@@ -396,15 +401,15 @@ void SettingsDialog::setFencesVisible(bool visible)
 
 void SettingsDialog::setFenceMaterial(const QString& material)
 {
+    Q_UNUSED(material); // T-098: shown as the transparency slider now
+}
+
+void SettingsDialog::setDefaultTransparency(int percent)
+{
+    if (!m_transparency)
+        return;
     m_updating = true;
-    // A mixed desktop checks none: the group must let all go first.
-    QButtonGroup* group = m_materials.isEmpty() ? nullptr : m_materials.cbegin().value()->group();
-    if (group)
-        group->setExclusive(false);
-    for (auto it = m_materials.cbegin(); it != m_materials.cend(); ++it)
-        it.value()->setChecked(it.key() == material);
-    if (group)
-        group->setExclusive(true);
+    m_transparency->setValue(percent);
     m_updating = false;
 }
 

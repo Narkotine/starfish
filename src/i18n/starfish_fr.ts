@@ -45,7 +45,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+147"/>
+        <location filename="../ui/fence_menu.hpp" line="+149"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -85,7 +85,12 @@
         <translation>Matériau sur les icônes aussi</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+10"/>
+        <source>Transparency...</source>
+        <translation>Transparence...</translation>
+    </message>
+    <message>
+        <location line="+13"/>
         <source>Colours</source>
         <translation>Couleurs</translation>
     </message>
@@ -116,6 +121,24 @@
     </message>
 </context>
 <context>
+    <name>FenceTransparencyDialog</name>
+    <message>
+        <location filename="../ui/fence_transparency_dialog.hpp" line="+31"/>
+        <source>Fence transparency</source>
+        <translation>Transparence des zones</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Use the default setting (%1)</source>
+        <translation>Utiliser le réglage par défaut (%1)</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Background and title bar. Icons and their names stay opaque.</source>
+        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques.</translation>
+    </message>
+</context>
+<context>
     <name>QPlatformTheme</name>
     <message>
         <location filename="../main.cpp" line="+5789"/>
@@ -126,7 +149,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2548"/>
+        <location filename="../app/product_app.cpp" line="+2588"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -136,12 +159,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2363"/>
+        <location line="-2401"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+390"/>
+        <location line="+397"/>
         <location line="+124"/>
         <location line="+87"/>
         <source>StarFish</source>
@@ -169,13 +192,13 @@
         <translation>Créer une zone ici (%1 x %2)</translation>
     </message>
     <message>
-        <location filename="../app/drawn_desktop_probe.cpp" line="+704"/>
+        <location filename="../app/drawn_desktop_probe.cpp" line="+709"/>
         <location filename="../app/product_app.cpp" line="+3"/>
         <source>Create a fence here</source>
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+348"/>
+        <location filename="../app/product_app.cpp" line="+347"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -185,7 +208,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+422"/>
+        <location line="+426"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -512,7 +535,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+998"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1143"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -535,7 +558,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+279"/>
+        <location filename="../ui/fence_view.cpp" line="+283"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -548,7 +571,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+102"/>
+        <location filename="../ui/settings_dialog.cpp" line="+105"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -560,24 +583,24 @@
     </message>
     <message>
         <location line="-23"/>
-        <location line="+91"/>
+        <location line="+92"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="-90"/>
-        <location line="+178"/>
+        <location line="-91"/>
+        <location line="+181"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-177"/>
-        <location line="+196"/>
+        <location line="-180"/>
+        <location line="+199"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-168"/>
+        <location line="-171"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -589,12 +612,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+213"/>
+        <location line="+216"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-207"/>
+        <location line="-209"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -704,17 +727,27 @@
         <translation>Désactivé : une icône sous une zone va à la place libre la plus proche.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Material of all fences</source>
-        <translation>Matériau de toutes les zones</translation>
+        <location line="+4"/>
+        <source>Fence transparency</source>
+        <translation>Transparence des zones</translation>
     </message>
     <message>
-        <location line="+16"/>
-        <source>Applies to every fence at once; a fence&apos;s menu picks one for it alone.</source>
-        <translation>S&apos;applique à toutes les zones d&apos;un coup ; le menu d&apos;une zone en choisit un pour elle seule.</translation>
+        <location line="+4"/>
+        <source>Default for all fences</source>
+        <translation>Par défaut pour toutes les zones</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+8"/>
+        <source>Background and title bar. Icons and their names stay opaque. 0 % = opaque. A fence&apos;s menu (Transparency...) can set its own value.</source>
+        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques. 0 % = opaque. Le menu d&apos;une zone (Transparence...) lui donne sa propre valeur.</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Every fence follows this value</source>
+        <translation>Toutes les zones suivent ce réglage</translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>The menu StarFish draws when you right-click the desktop or an icon.</source>
         <translation>Le menu que StarFish dessine quand vous faites un clic droit sur le bureau ou sur une icône.</translation>
     </message>

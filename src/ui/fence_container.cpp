@@ -3,6 +3,9 @@
 #include <QColor>
 #include <QDebug>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QPainterPath>
+#include <QRegion>
 #include <QLoggingCategory>
 #include <QPainter>
 #include <QRegularExpression>
@@ -86,6 +89,12 @@ FenceContainer::FenceContainer(QObject* parent)
             [this](const QString&) { refreshBackdrop(); });
     connect(this, &FenceContainer::fenceRolledUpChanged, this,
             [this](const QString&, bool) { refreshBackdrop(); });
+    // T-098: what is under a composed fence changed -- the wallpaper, an icon, a
+    // selection, the rubber band -- so the fences over those pixels re-read it.
+    connect(m_backdrop, &DesktopBackdrop::frameChanged, this, [this](const QRect& dirty) {
+        syncCompositionMode();
+        recompose(dirty);
+    });
 }
 
 FenceContainer::~FenceContainer()
@@ -383,6 +392,7 @@ bool FenceContainer::setBackdropEnabled(bool enabled)
     m_backdrop->setScreens(m_screens);
     refreshBackdrop(); // so the first frame is drawn from a current free set
     m_backdrop->setEnabled(enabled);
+    syncCompositionMode(); // T-098: off, the fences go back to window alpha
     return !enabled || m_backdrop->isAttached();
 }
 
@@ -560,13 +570,7 @@ void FenceContainer::setFenceStyle(const QString& id, const core::FenceStyle& st
     if (!fence)
         return;
     fence->style = style;
-    if (fence->view) {
-        fence->view->setPanelColor(QColor(style.background));
-        fence->view->setCornerRadius(style.radius);
-        // T-080: an empty string is "no band of its own" -- QColor() is invalid,
-        // which is exactly what FenceView means by it.
-        fence->view->setTitleBarColor(QColor(style.titleBarColor));
-    }
+    applyStyleToView(*fence);
     // F-038 / T-057: the panel's alpha is a *mode* of the hosted window, not a
     // paint detail, so a style change can switch it -- and this is the only place
     // that has to know, because every appearance change comes through here.
@@ -593,9 +597,10 @@ void FenceContainer::setFenceMaterial(const QString& id, const QString& material
 
     core::FenceStyle style = fence->style;
     const QString updated = FenceMaterial::withAlpha(style.background, alpha);
-    if (updated == style.background)
+    if (updated == style.background && !style.defaultOpacity)
         return; // already shown in that material -- no document write
     style.background = updated;
+    style.defaultOpacity = false; // T-098: a preset is the fence's own choice
     qCInfo(lc).noquote() << QStringLiteral("fence %1: material %2 (background %3)")
                                 .arg(id, material, updated);
     setFenceStyle(id, style);
@@ -605,7 +610,185 @@ QString FenceContainer::fenceMaterial(const QString& id) const
 {
     if (!find(id))
         return QString();
-    return FenceMaterial::materialOf(fenceStyle(id).background);
+    // T-098: what the fence *shows* -- its own alpha or the default's.
+    return FenceMaterial::presetFor(effectiveAlpha(fenceStyle(id)));
+}
+
+int FenceContainer::effectiveAlpha(const core::FenceStyle& style) const
+{
+    return style.defaultOpacity ? m_defaultAlpha : FenceMaterial::alphaOf(style.background);
+}
+
+void FenceContainer::applyStyleToView(FenceWindow& fence)
+{
+    if (!fence.view)
+        return;
+    const int alpha = effectiveAlpha(fence.style);
+    QColor panel(fence.style.background);
+    if (!panel.isValid())
+        panel = QColor(0x1F, 0x29, 0x37);
+    panel.setAlpha(alpha);
+    fence.view->setPanelColor(panel);
+    fence.view->setCornerRadius(fence.style.radius);
+    // T-080: an empty string is "no band of its own" -- QColor() is invalid,
+    // which is exactly what FenceView means by it. T-098: composed, the band is
+    // chrome too and takes the fence's transparency.
+    QColor band(fence.style.titleBarColor);
+    if (band.isValid() && m_composed)
+        band.setAlpha(band.alpha() * alpha / 255);
+    fence.view->setTitleBarColor(band);
+    // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
+    fence.view->setTextShadow(m_composed && alpha < 255);
+}
+
+void FenceContainer::setDefaultFenceAlpha(int alpha)
+{
+    alpha = qBound(0, alpha, 255);
+    if (alpha == m_defaultAlpha)
+        return;
+    m_defaultAlpha = alpha;
+    for (FenceWindow& fence : m_fences) {
+        if (!fence.style.defaultOpacity)
+            continue;
+        applyStyleToView(fence);
+        applyMaterialToSurface(fence);
+        renderFence(fence.id);
+    }
+}
+
+void FenceContainer::setFenceOpacity(const QString& id, int alpha)
+{
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return;
+    core::FenceStyle style = fence->style;
+    if (alpha < 0) {
+        style.defaultOpacity = true;
+    } else {
+        style.defaultOpacity = false;
+        style.background = FenceMaterial::withAlpha(style.background, qBound(0, alpha, 255));
+    }
+    if (style.defaultOpacity == fence->style.defaultOpacity && style.background == fence->style.background)
+        return;
+    setFenceStyle(id, style);
+}
+
+bool FenceContainer::fenceFollowsDefaultOpacity(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->style.defaultOpacity;
+}
+
+int FenceContainer::fenceEffectiveAlpha(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence ? effectiveAlpha(fence->style) : 255;
+}
+
+void FenceContainer::resetFencesToDefaultOpacity()
+{
+    for (const QString& id : fenceIds())
+        setFenceOpacity(id, -1);
+}
+
+int FenceContainer::indexOf(const QString& id) const
+{
+    for (int i = 0; i < m_fences.size(); ++i) {
+        if (m_fences.at(i).id == id)
+            return i;
+    }
+    return -1;
+}
+
+void FenceContainer::syncCompositionMode()
+{
+    // ADR-21: only a desktop StarFish draws itself is known pixel for pixel.
+    // On the native desktop the fences keep the window alpha and the icon
+    // overlay (ADR-15/17).
+    const bool want = m_host && m_backdrop && m_backdrop->isAttached() && m_backdrop->drawsWholeDesktop();
+    if (want == m_composed)
+        return;
+    m_composed = want;
+    qCInfo(lc).noquote() << QStringLiteral("fences %1").arg(want ? QStringLiteral("composed over the drawn desktop")
+                                                                 : QStringLiteral("on window alpha (native desktop)"));
+    for (FenceWindow& fence : m_fences) {
+        applyStyleToView(fence);
+        applyMaterialToSurface(fence);
+    }
+    for (FenceWindow& fence : m_fences)
+        renderFence(fence.id);
+}
+
+void FenceContainer::recompose(const QRect& dirty)
+{
+    if (!m_composed || dirty.isEmpty())
+        return;
+    // Bottom to top (creation order is the stacking order, see fenceAt): a fence
+    // re-composed changes the pixels the fences above it are composed from.
+    QRegion changed(dirty);
+    for (FenceWindow& fence : m_fences) {
+        if (!fence.surface || fence.content.isNull())
+            continue;
+        const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+        if (!changed.intersects(visible))
+            continue;
+        composeFence(fence);
+        changed += visible;
+    }
+}
+
+void FenceContainer::composeFence(FenceWindow& fence)
+{
+    if (!m_backdrop || fence.content.isNull())
+        return;
+    QElapsedTimer timer;
+    timer.start();
+    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+    // Physical pixels throughout: the desktop's frame is the virtual screen 1:1,
+    // the fence's window is its visible rect 1:1, on any monitor (T-014).
+    QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
+    frame.fill(Qt::black);
+    {
+        QPainter painter(&frame);
+        const QImage desk = m_backdrop->frame();
+        const QRect area = m_backdrop->area();
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.drawImage(QPoint(0, 0), desk, visible.translated(-area.topLeft()));
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        // The fences below, as they are on screen (their window's rounded region).
+        const int self = indexOf(fence.id);
+        for (int i = 0; m_fencesVisible && i < self; ++i) {
+            const FenceWindow& other = m_fences.at(i);
+            if (!other.surface || other.frame.isNull())
+                continue;
+            const QRect ov = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            if (!ov.intersects(visible))
+                continue;
+            const QRect target = ov.translated(-visible.topLeft());
+            const qreal radius = other.view ? other.view->cornerRadius() * m_screens.devicePixelRatioFor(other.rect) : 0;
+            QPainterPath shape;
+            shape.addRoundedRect(QRectF(target), radius, radius);
+            painter.save();
+            painter.setClipPath(shape);
+            painter.drawImage(target, other.frame);
+            painter.restore();
+        }
+        // The fence itself: panel at its transparency, title and icons opaque --
+        // or all of it at the panel's transparency when the fence asks
+        // (`fadeIcons`, rendered with an opaque panel for that).
+        if (fence.style.fadeIcons)
+            painter.setOpacity(effectiveAlpha(fence.style) / 255.0);
+        painter.drawImage(QRect(QPoint(0, 0), visible.size()), fence.content);
+    }
+    frame.setDevicePixelRatio(dpr);
+    fence.frame = frame;
+    fence.composedAt = visible;
+    if (fence.surface)
+        fence.surface->setFrame(frame);
+    ++m_composeCount;
+    m_composeUs += timer.nsecsElapsed() / 1000;
 }
 
 bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
@@ -627,7 +810,17 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
     // what removes the pixels outside the panel -- so the blit path, the one that
     // has always reached the screen, serves every material. The gain beside the
     // fix: a material change is two calls instead of a window recreation.
-    const int alpha = fence.view->panelColor().alpha();
+    if (m_composed) {
+        // T-098: the transparency is in the pixels (composed over the drawn
+        // desktop), so the window is opaque and the icons need no window of
+        // their own.
+        fence.surface->setUniformAlpha(255);
+        fence.surface->setCornerRadius(fence.view->cornerRadius());
+        syncIconOverlay(fence);
+        return true;
+    }
+    // A window at alpha 0 would vanish, title bar included: never fully clear.
+    const int alpha = qMax(13, fence.view->panelColor().alpha());
     if (!fence.surface->setUniformAlpha(alpha)) {
         qCWarning(lc).noquote()
             << QStringLiteral("fence %1: the window refused the material's alpha (%2)")
@@ -670,11 +863,11 @@ bool FenceContainer::wantsIconOverlay(const FenceWindow& fence) const
     // `fadeIcons` is the whole option: the one case where the user asked for the
     // material to apply to the icons as well -- and therefore the one case with
     // exactly the behaviour of before T-082, which is one window and nothing else.
-    if (fence.style.fadeIcons)
+    if (fence.style.fadeIcons || m_composed)
         return false;
     if (!m_host || !fence.surface)
         return false;
-    return FenceMaterial::isTranslucent(QColor(fence.style.background).alpha());
+    return FenceMaterial::isTranslucent(effectiveAlpha(fence.style));
 }
 
 QVector<QRect> FenceContainer::iconOverlayTiles(const FenceWindow& fence, qreal dpr) const
@@ -1094,9 +1287,8 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     fence.view->setSortOnAdd(m_sortOnAdd);
     fence.view->setTitle(title);
     fence.view->setIconProvider(m_iconProvider);
-    fence.view->setPanelColor(QColor(style.background));
-    fence.view->setCornerRadius(style.radius);
-    fence.view->setTitleBarColor(QColor(style.titleBarColor));
+    syncCompositionMode();
+    applyStyleToView(fence);
     fence.view->setRolledUp(rolledUp);
     // The widget is sized to what is visible: a restored rolled-up fence comes
     // back as a title bar, not as a full panel. Logical pixels -- the stored
@@ -1174,7 +1366,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         // alpha and the rounded panel as its region, *before* attach() so the
         // window is created right. It used to be born per-pixel (T-057/T-075) --
         // the path that does not reach the screen on a child of Progman.
-        surface->setUniformAlpha(QColor(style.background).alpha());
+        surface->setUniformAlpha(m_composed ? 255 : qMax(13, effectiveAlpha(style)));
         surface->setCornerRadius(style.radius);
         if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
             qCWarning(lc).noquote()
@@ -1302,10 +1494,12 @@ bool FenceContainer::removeFence(const QString& id)
             continue;
         // Deleting a zone removes the zone, never the files it showed
         // (AGENTS.md golden rule).
+        const QRect was = m_fences.at(i).composedAt;
         delete m_fences.at(i).iconOverlay; // T-082: above the panel, so first
         delete m_fences.at(i).surface;
         delete m_fences.at(i).view;
         m_fences.removeAt(i);
+        recompose(was); // T-098: the fences that were composed over it
         qCInfo(lc).noquote() << QStringLiteral("removed fence %1").arg(id);
         emit fenceRemoved(id);
         return true;
@@ -1380,8 +1574,26 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
     // its device pixel ratio -- so the comparison needs no second source of truth.
     const bool needsRender = fence.frame.isNull() || fence.frame.size() != visible.size()
         || !qFuzzyCompare(fence.frame.devicePixelRatio(), dpr);
-    if (needsRender)
+    if (needsRender) {
         renderFence(fence.id);
+    } else if (m_composed && !fence.content.isNull() && fence.composedAt != visible) {
+        // T-098: moved -- the same content over other pixels. Only a compose
+        // (a crop and one blend), and the fences above the old and new places.
+        const QRect before = fence.composedAt;
+        QRegion changed(visible);
+        changed += before;
+        for (FenceWindow& other : m_fences) {
+            if (!other.surface || other.content.isNull())
+                continue;
+            const QRect v = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            if (!changed.intersects(v))
+                continue;
+            composeFence(other);
+            changed += v;
+        }
+    }
+    if (m_composed && fence.surface)
+        fence.surface->repaintNow(); // the new pixels with the new place, not a frame later
 }
 
 QRect FenceContainer::fenceVisibleRect(const QString& id) const
@@ -1422,6 +1634,8 @@ bool FenceContainer::setFencesVisible(bool visible)
     if (m_fencesVisible == visible)
         return true;
     m_fencesVisible = visible;
+    if (visible && m_backdrop)
+        recompose(m_backdrop->area()); // T-098: composed while the others were hidden
 
     for (FenceWindow& fence : m_fences) {
         if (fence.surface) {
@@ -1475,6 +1689,47 @@ void FenceContainer::renderFence(const QString& id)
     // widget into those physical pixels, so a fence keeps the same apparent size
     // (and the same icon density) on a 150 % monitor as on a 100 % one.
     const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    if (m_composed && fence->surface) {
+        // T-098: the fence's own pixels over transparency, then composed.
+        QImage content(visible.size(), QImage::Format_ARGB32_Premultiplied);
+        content.setDevicePixelRatio(dpr);
+        content.fill(Qt::transparent);
+        const QColor panel = fence->view->panelColor();
+        const QColor band = fence->view->titleBarColor();
+        if (fence->style.fadeIcons) {
+            // Faded as one, like a window alpha: drawn opaque, faded on compose.
+            fence->view->setPanelColor(QColor(panel.red(), panel.green(), panel.blue()));
+            if (band.isValid())
+                fence->view->setTitleBarColor(QColor(band.red(), band.green(), band.blue()));
+        }
+        {
+            QPainter painter(&content);
+            fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+        }
+        if (fence->style.fadeIcons) {
+            fence->view->setPanelColor(panel);
+            fence->view->setTitleBarColor(band);
+        }
+        ++m_frameRenders;
+        const QRect before = fence->composedAt;
+        fence->content = content;
+        QRegion region(visible);
+        if (!before.isNull())
+            region += before;
+        // This fence, and every fence above it over the old or new pixels.
+        QRegion changed = region;
+        for (FenceWindow& other : m_fences) {
+            if (!other.surface || other.content.isNull())
+                continue;
+            const QRect v = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            if (!changed.intersects(v))
+                continue;
+            composeFence(other);
+            changed += v;
+        }
+        return;
+    }
+    fence->content = QImage();
     QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
     frame.setDevicePixelRatio(dpr);
 

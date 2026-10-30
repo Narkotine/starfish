@@ -92,6 +92,8 @@ private slots:
     // T-010 -- the `rules` array.
     void jsonRoundTripsRules();
     void jsonAcceptsADocumentWithoutRules();
+    // T-098 -- a fence's own transparency, or the default.
+    void defaultOpacityRoundTripsAndMigrates();
 };
 
 void TestLayoutStore::jsonRoundTripsEveryField()
@@ -419,6 +421,37 @@ void TestLayoutStore::jsonAcceptsADocumentWithoutRules()
     QCOMPARE(parsed->fences.size(), 1);
     QCOMPARE(parsed->fences.at(0).title, QStringLiteral("Travail"));
     QCOMPARE(parsed->rules.size(), 0);
+}
+
+void TestLayoutStore::defaultOpacityRoundTripsAndMigrates()
+{
+    Layout layout = makeLayout();
+    layout.fences[0].style.defaultOpacity = false;
+    layout.fences[1].style.defaultOpacity = true;
+    auto parsed = JsonStore::fromJson(JsonStore::toJson(layout));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->fences.at(0).style.defaultOpacity, false);
+    QCOMPARE(parsed->fences.at(1).style.defaultOpacity, true);
+
+    // A document from before T-098: a fence made translucent keeps its own
+    // value; an opaque one follows the default (0 % unless changed).
+    QJsonObject root = QJsonDocument::fromJson(JsonStore::toJson(layout)).object();
+    QJsonArray fences = root[QStringLiteral("fences")].toArray();
+    const QStringList backgrounds = {QStringLiteral("#CC1F2937"), QStringLiteral("#FF1F2937")};
+    for (int i = 0; i < fences.size(); ++i) {
+        QJsonObject one = fences.at(i).toObject();
+        QJsonObject style = one[QStringLiteral("style")].toObject();
+        style.remove(QStringLiteral("defaultOpacity"));
+        style[QStringLiteral("background")] = backgrounds.at(i);
+        one[QStringLiteral("style")] = style;
+        fences[i] = one;
+    }
+    root[QStringLiteral("fences")] = fences;
+    parsed = JsonStore::fromJson(QJsonDocument(root).toJson());
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->fences.at(0).style.defaultOpacity, false);
+    QCOMPARE(parsed->fences.at(1).style.defaultOpacity, true);
+    QCOMPARE(FenceStyle().defaultOpacity, true);
 }
 
 QTEST_MAIN(TestLayoutStore)

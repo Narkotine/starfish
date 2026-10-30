@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QSlider>
 #include <QString>
 
 class QCheckBox;
@@ -42,7 +43,10 @@ public:
     // Free-form line describing what is running, written by the product.
     void setStatusText(const QString& text);
     void setFencesVisible(bool visible);
+    // Session 63 (T-098): the material radios became the default transparency
+    // slider; kept as a no-op so callers need not know.
     void setFenceMaterial(const QString& material);
+    void setDefaultTransparency(int percent);
     void setFenceShortcutArrows(bool shown);
     // Session 60.
     void setSortOnAdd(bool sorted);
@@ -60,6 +64,9 @@ signals:
     void newFenceRequested();
     void fencesVisibilityToggled(bool visible);
     void fenceMaterialRequested(const QString& material);
+    // Live, while the slider moves.
+    void defaultTransparencyChanged(int percent);
+    void allFencesToDefaultRequested();
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
     void startWithWindowsToggled(bool on);
@@ -88,6 +95,7 @@ private:
     QCheckBox* m_desktopArrows = nullptr;
     QCheckBox* m_overlap = nullptr;
     QHash<QString, QRadioButton*> m_materials;
+    QSlider* m_transparency = nullptr;
     QWidget* m_restoreRow = nullptr;
     ContextMenuEditor* m_menuEditor = nullptr;
     bool m_updating = false;

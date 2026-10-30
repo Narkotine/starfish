@@ -140,15 +140,21 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
         // in the middle turned "Epic Games Launcher" into "Epi...her", which is
         // what the user reported. The lines are wrapped here rather than by
         // drawText so that the limit is two and the elision is on the right.
-        painter.setPen(selected ? kLabelTextSelected : kLabelText);
+        const QPen textPen(selected ? kLabelTextSelected : kLabelText);
+        painter.setPen(textPen);
         const QStringList captionLines = IconLayout::wrapToLines(
             item.name, kCaptionLines, cell.label.width(),
             [&metrics](const QString& candidate) { return metrics.horizontalAdvance(candidate); });
         int lineTop = cell.label.top();
         for (const QString& captionLine : captionLines) {
-            painter.drawText(QRect(cell.label.x(), lineTop, cell.label.width(),
-                                   metrics.lineSpacing()),
-                             Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine, captionLine);
+            const QRect line(cell.label.x(), lineTop, cell.label.width(), metrics.lineSpacing());
+            if (m_textShadow) {
+                painter.setPen(QColor(0, 0, 0, 0xA0));
+                painter.drawText(line.translated(1, 1), Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine,
+                                 captionLine);
+                painter.setPen(textPen);
+            }
+            painter.drawText(line, Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine, captionLine);
             lineTop += metrics.lineSpacing();
         }
     }

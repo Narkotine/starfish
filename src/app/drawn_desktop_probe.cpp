@@ -26,6 +26,8 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
 #include <QToolButton>
 
 #include "app/product_app.hpp"
@@ -40,6 +42,8 @@
 #include "ui/backdrop_layout.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/fence_view.hpp"
+#include "ui/percent_slider.hpp"
 
 namespace starfish::app {
 
@@ -936,6 +940,128 @@ int runDrawnDesktopProbe(QApplication& app)
                     check(QStringLiteral("a fence drawn on the desktop follows the mouse"), false,
                           QStringLiteral("no free spot to draw on"));
                 }
+            }
+
+            // ---- Session 63 (T-098): a translucent fence is composed over the
+            // drawn desktop -- one opaque window, the desktop's own pixels under
+            // the fence colour, no second window for the icons.
+            {
+                ui::FenceContainer* fences = product.container();
+                const QRect box = backdrop->area();
+                const QRect lowerRect(box.center() - QPoint(260, 170), QSize(340, 260));
+                const QRect upperRect(box.center() - QPoint(60, 60), QSize(340, 260));
+                const QString lower = fences->createFence(QStringLiteral("Translucide"), lowerRect);
+                const QString upper = fences->createFence(QStringLiteral("Dessus"), upperRect);
+                fences->setFenceOpacity(lower, ui::PercentSlider::alphaFromPercent(50));
+                fences->setFenceOpacity(upper, ui::PercentSlider::alphaFromPercent(40));
+                // Icons to show (opaque, with the desktop's shadow): a portal on a
+                // Windows folder -- read only, nothing on disk is touched.
+                fences->addPortal(lower, QStringLiteral("C:/Windows/Web"));
+                waitMs(400);
+                platform::win::DesktopSurface* surface = fences->surface(lower);
+                check(QStringLiteral("a translucent fence is one opaque window over the drawn desktop (T-098)"),
+                      fences->composedFences() && surface && surface->uniformAlpha() == 255
+                          && !fences->iconOverlay(lower) && fences->view(lower)->textShadow(),
+                      QStringLiteral("composed %1, window alpha %2, icon window %3")
+                          .arg(fences->composedFences() ? QLatin1String("yes") : QLatin1String("no"))
+                          .arg(surface ? surface->uniformAlpha() : -1)
+                          .arg(fences->iconOverlay(lower) ? QLatin1String("yes") : QLatin1String("no")));
+
+                // The panel's pixel is the desktop's under it, blended with the
+                // fence colour at 50 % -- read from StarFish's own images.
+                const auto blendOk = [](const QColor& got, const QColor& under, const QColor& over, int alpha) {
+                    const auto ch = [&](int u, int o) { return (u * (255 - alpha) + o * alpha) / 255; };
+                    return qAbs(got.red() - ch(under.red(), over.red())) <= 8
+                           && qAbs(got.green() - ch(under.green(), over.green())) <= 8
+                           && qAbs(got.blue() - ch(under.blue(), over.blue())) <= 8;
+                };
+                const QRect lowerShown = fences->fenceRect(lower);
+                const QImage lowerFrame = fences->frame(lower);
+                const QImage desk = backdrop->frame();
+                const QPoint inPanel(lowerFrame.width() / 4, lowerFrame.height() * 3 / 4);
+                const QColor panelRgb(fences->fenceStyle(lower).background);
+                const QColor got = lowerFrame.pixelColor(inPanel);
+                const QColor under = desk.pixelColor(lowerShown.topLeft() + inPanel - box.topLeft());
+                check(QStringLiteral("...its panel is the desktop under it at 50 %"),
+                      !lowerFrame.isNull() && blendOk(got, under, panelRgb, 128),
+                      QStringLiteral("pixel %1, desktop %2, panel %3")
+                          .arg(got.name(), under.name(), panelRgb.name()));
+
+                // Over another fence: the pixels under the upper fence are the
+                // lower fence's, as composed.
+                const QRect upperShown = fences->fenceRect(upper);
+                const QImage upperFrame = fences->frame(upper);
+                const QPoint overlapAt = (lowerShown & upperShown).center();
+                const QPoint inUpper = overlapAt - upperShown.topLeft();
+                const QColor upperGot = upperFrame.pixelColor(inUpper);
+                const QColor lowerUnder = lowerFrame.pixelColor(overlapAt - lowerShown.topLeft());
+                check(QStringLiteral("...and a fence over it shows that fence through it"),
+                      !upperFrame.isNull() && blendOk(upperGot, lowerUnder, QColor(fences->fenceStyle(upper).background), 153),
+                      QStringLiteral("pixel %1, fence under %2").arg(upperGot.name(), lowerUnder.name()));
+
+                // Moving: no new render, one compose per fence touched.
+                const int rendersBefore = fences->frameRenderCount();
+                const int composesBefore = fences->composeCount();
+                const qint64 usBefore = fences->composeMicros();
+                QElapsedTimer wall;
+                wall.start();
+                const int moves = 40;
+                for (int i = 1; i <= moves; ++i) {
+                    fences->setFenceRect(lower, lowerRect.translated(i * 3, i * 2), false);
+                    QCoreApplication::processEvents();
+                }
+                const qint64 moveMs = wall.elapsed();
+                const int composes = fences->composeCount() - composesBefore;
+                const double perCompose = (fences->composeMicros() - usBefore) / 1000.0 / qMax(1, composes);
+                check(QStringLiteral("...a move re-composes, it does not re-render"),
+                      fences->frameRenderCount() == rendersBefore && composes >= moves
+                          && moveMs / double(moves) < 16.0,
+                      QStringLiteral("%1 moves in %2 ms (%3 ms each); %4 compose(s), %5 ms avg; renders +%6")
+                          .arg(moves)
+                          .arg(moveMs)
+                          .arg(moveMs / double(moves), 0, 'f', 1)
+                          .arg(composes)
+                          .arg(perCompose, 0, 'f', 2)
+                          .arg(fences->frameRenderCount() - rendersBefore));
+                fences->setFenceRect(lower, lowerRect, false);
+                waitMs(200);
+
+                // The picture: the drawn desktop around the fences with the
+                // fences' own frames on it (StarFish's images, not the screen).
+                {
+                    const QRect around = (fences->fenceRect(lower) | fences->fenceRect(upper)).adjusted(-80, -60, 80, 60)
+                                             .intersected(box);
+                    QImage picture = backdrop->frame().copy(around.translated(-box.topLeft()));
+                    QPainter painter(&picture);
+                    painter.setRenderHint(QPainter::Antialiasing, true);
+                    for (const QString& id : {lower, upper}) {
+                        const QRect target = fences->fenceRect(id).translated(-around.topLeft());
+                        const QImage f = fences->frame(id);
+                        const qreal radius = fences->view(id)->cornerRadius() * f.devicePixelRatio();
+                        QPainterPath shape;
+                        shape.addRoundedRect(QRectF(target), radius, radius);
+                        painter.save();
+                        painter.setClipPath(shape);
+                        painter.drawImage(target, f);
+                        painter.restore();
+                    }
+                    painter.end();
+                    picture.save(captures + QStringLiteral("/t098_translucent_fences.png"));
+                }
+
+                // The default: a fence that follows it changes with it.
+                const int productDefault = fences->defaultFenceAlpha();
+                fences->setFenceOpacity(lower, -1);
+                fences->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(30));
+                const int followed = fences->fenceEffectiveAlpha(lower);
+                const int own = fences->fenceEffectiveAlpha(upper);
+                fences->setDefaultFenceAlpha(productDefault);
+                check(QStringLiteral("...the default moves the fences that follow it, not the others"),
+                      fences->fenceFollowsDefaultOpacity(lower) && followed == 179 && own == 153,
+                      QStringLiteral("following %1, own %2").arg(followed).arg(own));
+                fences->removeFence(upper);
+                fences->removeFence(lower);
+                waitMs(300);
             }
 
             // ---- Lot 2 (T-090), simulated in this process: nothing is sent to

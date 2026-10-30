@@ -48,6 +48,8 @@
 #include "ui/fence_container.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
+#include "ui/fence_transparency_dialog.hpp"
+#include "ui/percent_slider.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/icon_grid.hpp"
 #include "ui/modern_menu.hpp"
@@ -226,6 +228,7 @@ bool ProductApp::start(const Options& options, QString* error)
     });
     m_sortOnAdd = sortOnAddSetting();
     m_container->setSortOnAdd(m_sortOnAdd);
+    m_container->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(defaultTransparencySetting()));
     m_allowDesktopOverlap = allowDesktopOverlapSetting();
     // The Shell resolves a restored path exactly as it resolves a dropped one, so
     // a tile means the same thing wherever it came from (ADR-7).
@@ -540,6 +543,12 @@ void ProductApp::wireSettings()
             [this](bool visible) { m_container->setFencesVisible(visible); });
     connect(m_settings, &ui::SettingsDialog::fenceMaterialRequested, this,
             &ProductApp::applyMaterialToAllFences);
+    connect(m_settings, &ui::SettingsDialog::defaultTransparencyChanged, this,
+            &ProductApp::setDefaultFenceTransparency);
+    connect(m_settings, &ui::SettingsDialog::allFencesToDefaultRequested, this, [this] {
+        m_container->resetFencesToDefaultOpacity();
+        qCInfo(lc) << "every fence follows the default transparency";
+    });
     connect(m_settings, &ui::SettingsDialog::fenceShortcutArrowsToggled, this,
             &ProductApp::setFenceShortcutArrows);
     connect(m_settings, &ui::SettingsDialog::sortOnAddToggled, this, &ProductApp::setSortOnAdd);
@@ -949,8 +958,7 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     state.material = m_container->fenceMaterial(id);
     // T-082: what the material covers. Both come from the document -- the material
     // *is* the fence's alpha -- so the menu cannot drift from what is on screen.
-    state.materialIsTranslucent =
-        ui::FenceMaterial::isTranslucent(ui::FenceMaterial::alphaOf(m_container->fenceStyle(id).background));
+    state.materialIsTranslucent = ui::FenceMaterial::isTranslucent(m_container->fenceEffectiveAlpha(id));
     state.fadeIcons = m_container->fenceIconsFollowMaterial(id);
     // T-080: the fence's own look, read from the document each time the menu
     // opens -- the radius entry marked is the one the fence *is*, and the way back
@@ -1116,6 +1124,9 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         m_container->setFenceStyle(id, style);
         break;
     }
+    case ui::FenceMenu::Action::Transparency:
+        editFenceTransparency(id);
+        break;
     case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Colours:  // ... and so are the colours
     case ui::FenceMenu::Action::None:
@@ -1493,6 +1504,7 @@ void ProductApp::refreshStatus()
         m_settings->setFencesVisible(m_container->fencesVisible());
         m_settings->setFenceMaterial(sharedFenceMaterial());
     }
+    m_settings->setDefaultTransparency(defaultTransparencySetting());
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
     m_settings->setSortOnAdd(m_sortOnAdd);
     {
@@ -1745,7 +1757,32 @@ const QString kFenceArrows = QStringLiteral("fenceShortcutArrows");
 const QString kSortOnAdd = QStringLiteral("sortIconsOnAdd");
 const QString kDesktopArrows = QStringLiteral("desktopShortcutArrows");
 const QString kDesktopOverlap = QStringLiteral("allowDesktopOverlap");
+const QString kFenceTransparency = QStringLiteral("fenceDefaultTransparency");
 } // namespace
+
+int ProductApp::defaultTransparencySetting()
+{
+    // 0 % when never set: the fences look as they always did.
+    return qBound(0, QSettings(kSettingsKey, QSettings::NativeFormat).value(kFenceTransparency, 0).toInt(), 100);
+}
+
+void ProductApp::setDefaultFenceTransparency(int percent)
+{
+    percent = qBound(0, percent, 100);
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kFenceTransparency, percent);
+    if (m_container)
+        m_container->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(percent));
+    qCInfo(lc).noquote() << QStringLiteral("default fence transparency %1 %").arg(percent);
+}
+
+void ProductApp::editFenceTransparency(const QString& id)
+{
+    if (!m_container || !m_container->fenceIds().contains(id))
+        return;
+    QDialog* dialog = ui::createFenceTransparencyDialog(m_container, id, nullptr);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->exec();
+}
 
 bool ProductApp::sortOnAddSetting()
 {

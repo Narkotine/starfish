@@ -451,6 +451,12 @@ void DesktopSurface::updateFrame(const QImage& frame, const QRect& dirty)
     ::InvalidateRect(toHwnd(m_hwnd), &rc, FALSE);
 }
 
+void DesktopSurface::repaintNow()
+{
+    if (m_hwnd && ::IsWindow(toHwnd(m_hwnd)) && !m_perPixelAlpha)
+        ::UpdateWindow(toHwnd(m_hwnd));
+}
+
 void DesktopSurface::setFrame(const QImage& frame)
 {
     m_frame = frame.convertToFormat(m_perPixelAlpha ? QImage::Format_ARGB32_Premultiplied
