@@ -1,10 +1,12 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QImage>
 #include <QList>
 #include <QObject>
 #include <QRect>
+#include <QRegion>
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -216,9 +218,28 @@ public:
     // One line for the settings window and the probes.
     QString statusText() const;
 
+    // Session 63: what drawing a gesture costs. `updates` frames reached the
+    // window while a rubber band or a selection rectangle moved; `costUs` is the
+    // time spent building and pushing them, `latencyUs` the time from the first
+    // move a frame answers to that frame (the lag the user sees).
+    struct RenderStats {
+        int updates = 0;
+        qint64 costUs = 0;
+        qint64 maxCostUs = 0;
+        qint64 latencyUs = 0;
+        qint64 maxLatencyUs = 0;
+    };
+    RenderStats renderStats() const { return m_stats; }
+    void resetRenderStats() { m_stats = {}; }
+
 signals:
     // A frame was produced: how many icons the desktop shows now.
     void rendered(int freeCount);
+    // Session 63: these pixels of the frame changed (virtual-screen pixels) --
+    // the whole area after a full render, the band's old and new rects while a
+    // gesture is drawn. What sits on top of the desktop (a translucent fence,
+    // composed from the frame) re-reads what is under it from this.
+    void frameChanged(const QRect& dirty);
     // The hosted window went away (Explorer restarted). The owner re-attaches on
     // the next refresh.
     void desktopLost();
@@ -269,7 +290,21 @@ private:
     // the logical metrics and the caption font are scaled by this.
     qreal scale() const;
     QImage buildFrame() const;
-    void paintRubberBand(QImage& frame, const QRect& box) const;
+    // Session 63: repaints `dirty` (virtual-screen pixels) of `frame` from
+    // scratch -- wallpaper, the icons that touch it, the selection, the
+    // gesture's rectangle -- clipped to it. The whole frame is this, over the
+    // whole area.
+    void paintArea(QImage& frame, const QRect& dirty) const;
+    void paintOverlays(QPainter& painter, const QRect& box) const;
+    // The pixels the rubber band / selection rectangle cover, pen included.
+    QRect overlayBounds(const QRect& rect) const;
+    // Repaint these pixels soon (the next turn of the event loop), only them.
+    void invalidate(const QRect& dirty);
+    void onPartialTimer();
+    void setBand(const QRect& band);
+    void setMarqueeRect(const QRect& marquee);
+    // The highlight of the icons whose selection differs between the two lists.
+    QRegion selectionDelta(const QStringList& before, const QStringList& after) const;
 
     bool handleMouse(QMouseEvent* mouse);
     bool handleKey(QKeyEvent* key);
@@ -297,6 +332,8 @@ private:
 
     platform::win::DesktopSurface* m_surface = nullptr;
     QTimer m_renderTimer;
+    QTimer m_partialTimer;
+    QRegion m_dirty;
     bool m_enabled = false;
 
     // T-041. The gesture machine is pure (BackdropGesture); this class only feeds
@@ -325,6 +362,10 @@ private:
     QStringList m_marqueeBase;
     QPoint m_iconPressPoint;
     std::function<void*(quintptr)> m_dropFactory;
+    RenderStats m_stats;
+    QElapsedTimer m_pendingSince; // a gesture move not yet on screen
+    void noteGestureMove();
+    void noteFrameShown(qint64 costUs);
     void setSelectionInternal(const QStringList& paths);
     // Re-hosts the window when the surface mode (transparent layer / opaque
     // desktop) has to change.

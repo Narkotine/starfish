@@ -172,6 +172,10 @@ public:
 
     // Frame to display. The image is copied, so the caller may release it.
     // A null image clears the surface.
+    // Session 63: `frame` differs from the last one only inside `dirty`
+    // (frame pixels): those rows are copied and only that rectangle repainted.
+    // Same size and blit path required -- otherwise this is setFrame().
+    void updateFrame(const QImage& frame, const QRect& dirty);
     void setFrame(const QImage& frame);
     QImage frame() const;
 
@@ -406,6 +410,7 @@ private:
     int m_eraseCount = 0;
     int m_lastClipBox = -1;
     int m_lastBlitLines = -1;
+    QRect m_paintRect; // session 63: the WM_PAINT update rectangle being served
     QRect m_lastUpdateRegion;
 
     // Layered-push / placement counters, for paintReport() and the probes

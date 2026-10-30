@@ -8,6 +8,9 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QElapsedTimer>
+#include <QRegion>
+#include <QtMath>
 #include <QLoggingCategory>
 
 #include "platform/win/desktop_surface.hpp"
@@ -184,6 +187,12 @@ DesktopBackdrop::DesktopBackdrop(QObject* parent) : QObject(parent)
     m_renderTimer.setSingleShot(true);
     m_renderTimer.setInterval(kRenderCoalesceMs);
     connect(&m_renderTimer, &QTimer::timeout, this, &DesktopBackdrop::onRenderTimer);
+    // Session 63: a gesture's rectangle is repainted on the next turn of the
+    // event loop -- every move that arrived meanwhile is one frame -- and only
+    // where it was and where it is.
+    m_partialTimer.setSingleShot(true);
+    m_partialTimer.setInterval(0);
+    connect(&m_partialTimer, &QTimer::timeout, this, &DesktopBackdrop::onPartialTimer);
 }
 
 DesktopBackdrop::~DesktopBackdrop()
@@ -244,18 +253,7 @@ QImage DesktopBackdrop::buildFrame() const
         // keeps them, then the selection. No input floor, no holes: nothing of
         // the desktop is under this window any more.
         frame.fill(Qt::black);
-        {
-            QPainter painter(&frame);
-            painter.drawImage(QRect(QPoint(0, 0), box.size()), m_wallpaper);
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            painter.setRenderHint(QPainter::TextAntialiasing, true);
-            QSet<QString> selected;
-            for (const QString& path : m_selection)
-                selected.insert(BackdropLayout::pathKey(path));
-            paintDesktop(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(),
-                         scale(), selected);
-        }
-        paintRubberBand(frame, box);
+        paintArea(frame, box);
         return frame;
     }
     // NOT fully transparent: see DesktopBackdrop::kInputAlphaFloor. The one alpha
@@ -292,33 +290,154 @@ QImage DesktopBackdrop::buildFrame() const
     if (m_drawFreeIcons)
         paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
 
+    paintOverlays(painter, box);
     painter.end();
-    paintRubberBand(frame, box);
     return frame;
 }
 
-void DesktopBackdrop::paintRubberBand(QImage& frame, const QRect& box) const
+void DesktopBackdrop::paintArea(QImage& frame, const QRect& dirty) const
 {
-    // The fence being drawn (T-041). The rubber band carries virtual-screen
-    // pixels like the cells do, so the painter is translated once.
-    if (!m_marquee.isEmpty()) {
-        // The desktop's own selection rectangle (Windows 11 colours).
-        QPainter marquee(&frame);
-        marquee.translate(-box.topLeft());
-        marquee.setPen(QPen(QColor(0x00, 0x78, 0xD7), 1));
-        marquee.setBrush(QColor(0x00, 0x78, 0xD7, 0x40));
-        marquee.drawRect(m_marquee.adjusted(0, 0, -1, -1));
-    }
-    if (m_rubberBand.isEmpty())
+    const QRect box = area();
+    const QRect local = dirty.intersected(box).translated(-box.topLeft()).intersected(frame.rect());
+    if (local.isEmpty())
         return;
     QPainter painter(&frame);
+    painter.setClipRect(local);
+    if (m_wallpaper.size() == box.size()) {
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.drawImage(local.topLeft(), m_wallpaper, local);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    } else {
+        painter.fillRect(local, Qt::black);
+        painter.drawImage(QRect(QPoint(0, 0), box.size()), m_wallpaper);
+    }
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    QSet<QString> selected;
+    for (const QString& path : m_selection)
+        selected.insert(BackdropLayout::pathKey(path));
+    // Only the icons that touch the dirty pixels (their caption may run two
+    // lines and its shadow one pixel further than the cell says).
+    const int margin = qRound(8 * scale());
+    const int caption = qRound(16 * scale());
+    QVector<BackdropCell> touched;
+    if (dirty.contains(box)) {
+        touched = m_cells;
+    } else {
+        for (const BackdropCell& cell : m_cells) {
+            if (cell.icon.united(cell.label).adjusted(-margin, -margin, margin, margin + caption).intersects(dirty))
+                touched.append(cell);
+        }
+    }
+    paintDesktop(painter, box.topLeft(), touched, m_iconProvider, physicalMetrics(), scale(), selected);
+    paintOverlays(painter, box);
+}
+
+void DesktopBackdrop::paintOverlays(QPainter& painter, const QRect& box) const
+{
+    // The rubber band carries virtual-screen pixels like the cells do, so the
+    // painter is translated once.
+    painter.save();
     painter.translate(-box.topLeft());
-    QPen pen(kRubberBandPen, qMax(1.0, scale()));
-    pen.setStyle(Qt::DashLine);
-    painter.setPen(pen);
-    painter.setBrush(kRubberBandFill);
-    painter.drawRect(m_rubberBand);
+    if (!m_marquee.isEmpty()) {
+        // The desktop's own selection rectangle (Windows 11 colours).
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setPen(QPen(QColor(0x00, 0x78, 0xD7), 1));
+        painter.setBrush(QColor(0x00, 0x78, 0xD7, 0x40));
+        painter.drawRect(m_marquee.adjusted(0, 0, -1, -1));
+    }
+    if (!m_rubberBand.isEmpty()) {
+        // The fence being drawn (T-041).
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(kRubberBandPen, qMax(1.0, scale()));
+        pen.setStyle(Qt::DashLine);
+        painter.setPen(pen);
+        painter.setBrush(kRubberBandFill);
+        painter.drawRect(m_rubberBand);
+    }
+    painter.restore();
+}
+
+QRect DesktopBackdrop::overlayBounds(const QRect& rect) const
+{
+    if (rect.isNull())
+        return {};
+    const int pen = qCeil(qMax(1.0, scale())) + 2;
+    return rect.normalized().adjusted(-pen, -pen, pen, pen);
+}
+
+void DesktopBackdrop::invalidate(const QRect& dirty)
+{
+    if (dirty.isEmpty())
+        return;
+    // The transparent layer (not the drawn desktop) keeps its full render: it
+    // is pushed per pixel, whole, anyway.
+    if (!drawsWholeDesktop() || !isAttached() || m_frame.isNull() || m_frame.size() != area().size()) {
+        refresh();
+        return;
+    }
+    m_dirty += dirty;
+    if (!m_partialTimer.isActive())
+        m_partialTimer.start();
+}
+
+void DesktopBackdrop::onPartialTimer()
+{
+    if (m_dirty.isEmpty())
+        return;
+    if (m_renderTimer.isActive() || m_frame.isNull() || m_frame.size() != area().size()) {
+        m_dirty = QRegion(); // a full render is on its way and covers it
+        return;
+    }
+    QElapsedTimer cost;
+    cost.start();
+    const QRect box = area();
+    for (const QRect& rect : m_dirty)
+        paintArea(m_frame, rect);
+    const QRect bounds = m_dirty.boundingRect().intersected(box);
+    m_dirty = QRegion();
+    if (m_surface)
+        m_surface->updateFrame(m_frame, bounds.translated(-box.topLeft()));
+    noteFrameShown(cost.nsecsElapsed() / 1000);
+    emit frameChanged(bounds);
+}
+
+void DesktopBackdrop::setBand(const QRect& band)
+{
+    if (band == m_rubberBand)
+        return;
+    const QRect before = overlayBounds(m_rubberBand);
+    m_rubberBand = band;
+    invalidate(before);
+    invalidate(overlayBounds(m_rubberBand));
+}
+
+void DesktopBackdrop::setMarqueeRect(const QRect& marquee)
+{
+    if (marquee == m_marquee)
+        return;
+    const QRect before = overlayBounds(m_marquee);
+    m_marquee = marquee;
+    invalidate(before);
+    invalidate(overlayBounds(m_marquee));
+}
+
+QRegion DesktopBackdrop::selectionDelta(const QStringList& before, const QStringList& after) const
+{
+    QSet<QString> a, b;
+    for (const QString& p : before)
+        a.insert(BackdropLayout::pathKey(p));
+    for (const QString& p : after)
+        b.insert(BackdropLayout::pathKey(p));
+    QRegion region;
+    const int margin = qRound(8 * scale());
+    const int caption = qRound(16 * scale());
+    for (const BackdropCell& cell : m_cells) {
+        const QString key = BackdropLayout::pathKey(cell.item.path);
+        if (a.contains(key) != b.contains(key))
+            region += cell.icon.united(cell.label).adjusted(-margin, -margin, margin, margin + caption);
+    }
+    return region;
 }
 
 void DesktopBackdrop::setNativeIconRects(const QVector<QRect>& rects)
@@ -380,17 +499,22 @@ void DesktopBackdrop::setSelection(const QStringList& paths)
 {
     if (m_selection == paths)
         return;
+    const QRegion changed = selectionDelta(m_selection, paths);
     m_selection = paths;
-    refresh();
+    // Session 63: only the icons whose highlight changed are repainted.
+    for (const QRect& rect : changed)
+        invalidate(rect);
 }
 
 void DesktopBackdrop::setSelectionInternal(const QStringList& paths)
 {
     if (m_selection == paths)
         return;
+    const QRegion changed = selectionDelta(m_selection, paths);
     m_selection = paths;
     emit selectionChanged(m_selection);
-    refresh();
+    for (const QRect& rect : changed)
+        invalidate(rect);
 }
 
 bool DesktopBackdrop::overNativeIcon(const QPoint& screen) const
@@ -542,9 +666,8 @@ void DesktopBackdrop::cancelGesture()
     m_pressedIcon.clear();
     m_narrowOnRelease.clear();
     m_marqueeArmed = false;
-    m_marquee = {};
-    m_rubberBand = {};
-    refresh();
+    setMarqueeRect({});
+    setBand({});
 }
 
 bool DesktopBackdrop::handleKey(QKeyEvent* key)
@@ -712,24 +835,23 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
             const QPoint d = screen - m_marqueeOrigin;
             if (!m_marquee.isNull()
                 || qAbs(d.x()) + qAbs(d.y()) >= m_gesture.metrics().dragThreshold) {
-                m_marquee = QRect(m_marqueeOrigin, screen).normalized();
+                setMarqueeRect(QRect(m_marqueeOrigin, screen).normalized());
                 QStringList next = m_marqueeBase;
                 for (const BackdropCell& cell : m_cells) {
                     if (cell.icon.united(cell.label).intersects(m_marquee)
                         && !next.contains(cell.item.path))
                         next << cell.item.path;
                 }
+                noteGestureMove();
                 setSelectionInternal(next);
-                refresh();
                 return true;
             }
         } else if (mouse->type() == QEvent::MouseButtonRelease
                    && mouse->button() == Qt::LeftButton && m_marqueeArmed) {
             m_marqueeArmed = false;
             if (!m_marquee.isNull()) {
-                m_marquee = {};
+                setMarqueeRect({});
                 m_gesture.cancel();
-                refresh();
                 return true;
             }
         }
@@ -782,8 +904,8 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
         // holding is forgotten with the band.
         if (result.action == BackdropGesture::Action::Cancelled)
             m_pressedIcon.clear();
-        m_rubberBand = m_gesture.rubberBand();
-        refresh();
+        noteGestureMove();
+        setBand(m_gesture.rubberBand());
         return true;
 
     case BackdropGesture::Action::IconDrag:
@@ -843,15 +965,14 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
     }
 
     case BackdropGesture::Action::DesktopMenu:
-        m_rubberBand = {};
-        refresh();
+        setBand({});
         // The backdrop says what happened; the product decides what to make of
         // it, exactly like every other gesture in this project.
         emit desktopMenuRequested(result.rect, result.point);
         return true;
 
     case BackdropGesture::Action::ToggleVisibility:
-        m_rubberBand = {};
+        setBand({});
         emit quickHideRequested();
         return true;
     }
@@ -981,15 +1102,39 @@ void DesktopBackdrop::onRenderTimer()
     renderNow();
 }
 
+void DesktopBackdrop::noteGestureMove()
+{
+    if (!m_pendingSince.isValid())
+        m_pendingSince.start();
+}
+
+void DesktopBackdrop::noteFrameShown(qint64 costUs)
+{
+    if (!m_pendingSince.isValid())
+        return;
+    const qint64 latency = m_pendingSince.nsecsElapsed() / 1000;
+    m_pendingSince.invalidate();
+    ++m_stats.updates;
+    m_stats.costUs += costUs;
+    m_stats.maxCostUs = qMax(m_stats.maxCostUs, costUs);
+    m_stats.latencyUs += latency;
+    m_stats.maxLatencyUs = qMax(m_stats.maxLatencyUs, latency);
+}
+
 void DesktopBackdrop::renderNow()
 {
+    QElapsedTimer cost;
+    cost.start();
     recompute();
     m_frame = buildFrame();
     if (m_frame.isNull())
         return;
     if (m_surface)
         m_surface->setFrame(m_frame);
+    m_dirty = QRegion();
+    noteFrameShown(cost.nsecsElapsed() / 1000);
     emit rendered(m_free.size());
+    emit frameChanged(area());
 }
 
 QString DesktopBackdrop::statusText() const

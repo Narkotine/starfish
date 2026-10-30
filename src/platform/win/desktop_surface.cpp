@@ -108,22 +108,29 @@ DesktopHandles discoverDesktop()
 // which is what we want here: the surface is uniformly opaque (LWA_ALPHA at
 // 255), so per-pixel transparency would need UpdateLayeredWindow -- and that
 // call is refused on a child window of another process (T-017).
-int blitFrame(HDC dc, const QImage& frame)
+int blitFrame(HDC dc, const QImage& frame, const QRect& area = QRect())
 {
     if (frame.isNull() || frame.bytesPerLine() != frame.width() * 4)
         return -1;
+    // Session 63: only the rows of the update rectangle. The DIB handed over
+    // starts at its first row and is exactly as tall, so the source rectangle
+    // is unambiguous whichever way GDI counts a top-down DIB's rows.
+    const QRect rect = area.isNull() ? frame.rect() : area.intersected(frame.rect());
+    if (rect.isEmpty())
+        return 0;
 
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     info.bmiHeader.biWidth = frame.width();
-    info.bmiHeader.biHeight = -frame.height(); // negative: top-down rows
+    info.bmiHeader.biHeight = -rect.height(); // negative: top-down rows
     info.bmiHeader.biPlanes = 1;
     info.bmiHeader.biBitCount = 32;
     info.bmiHeader.biCompression = BI_RGB;
 
     ::SetStretchBltMode(dc, COLORONCOLOR);
-    return ::StretchDIBits(dc, 0, 0, frame.width(), frame.height(), 0, 0, frame.width(),
-                           frame.height(), frame.constBits(), &info, DIB_RGB_COLORS, SRCCOPY);
+    return ::StretchDIBits(dc, rect.left(), rect.top(), rect.width(), rect.height(), rect.left(), 0,
+                           rect.width(), rect.height(), frame.constScanLine(rect.top()), &info,
+                           DIB_RGB_COLORS, SRCCOPY);
 }
 
 } // namespace
@@ -421,6 +428,27 @@ quintptr DesktopSurface::hwnd() const
 QRect DesktopSurface::geometry() const
 {
     return m_rect;
+}
+
+void DesktopSurface::updateFrame(const QImage& frame, const QRect& dirty)
+{
+    const QRect rect = dirty.intersected(frame.rect());
+    if (m_perPixelAlpha || m_frame.isNull() || m_frame.size() != frame.size()
+        || m_frame.format() != QImage::Format_ARGB32 || frame.depth() != 32) {
+        setFrame(frame);
+        return;
+    }
+    if (rect.isEmpty())
+        return;
+    // Opaque frames: premultiplied and straight ARGB are the same bytes.
+    const qsizetype bytes = qsizetype(rect.width()) * 4;
+    for (int y = rect.top(); y <= rect.bottom(); ++y)
+        memcpy(m_frame.scanLine(y) + qsizetype(rect.left()) * 4, frame.constScanLine(y) + qsizetype(rect.left()) * 4,
+               bytes);
+    if (!m_hwnd || !::IsWindow(toHwnd(m_hwnd)))
+        return;
+    const RECT rc{rect.left(), rect.top(), rect.right() + 1, rect.bottom() + 1};
+    ::InvalidateRect(toHwnd(m_hwnd), &rc, FALSE);
 }
 
 void DesktopSurface::setFrame(const QImage& frame)
@@ -1168,7 +1196,7 @@ void DesktopSurface::paintInto(quintptr dc)
         m_lastBlitLines = -2; // background fill, not a frame blit
         return;
     }
-    m_lastBlitLines = blitFrame(reinterpret_cast<HDC>(dc), m_frame);
+    m_lastBlitLines = blitFrame(reinterpret_cast<HDC>(dc), m_frame, m_paintRect);
 }
 
 QString DesktopSurface::paintReport() const
@@ -1213,10 +1241,12 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
                                    ps.rcPaint.right - ps.rcPaint.left,
                                    ps.rcPaint.bottom - ps.rcPaint.top);
         m_lastClipBox = ::GetClipBox(dc, nullptr);
+        m_paintRect = m_lastUpdateRegion;
         // In per-pixel mode the content comes from UpdateLayeredWindow; a GDI
         // blit would be ignored by DWM anyway. Just validate the region.
         if (!m_perPixelAlpha)
             paintInto(reinterpret_cast<quintptr>(dc));
+        m_paintRect = QRect(); // WM_PRINTCLIENT and the rest paint it all
         ::EndPaint(toHwnd(hwnd), &ps);
         *result = 0;
         return true;

@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QLoggingCategory>
@@ -862,6 +863,80 @@ int runDrawnDesktopProbe(QApplication& app)
             }
             check(QStringLiteral("a deletion on disk leaves the drawn desktop"), gone,
                   renamedNative);
+
+            // ---- Session 63: drawing on the desktop must follow the mouse. Moves
+            // are sent to the backdrop in this process (no real input), one every
+            // 16 ms like a 60 Hz mouse; the backdrop reports how many frames
+            // reached its window and how long after the move each one came.
+            {
+                ui::FenceContainer* fences = product.container();
+                const QRect box = backdrop->area();
+                const QSize travel(360, 240);
+                QPoint start;
+                for (int y = box.top() + box.height() / 4; y < box.bottom() - travel.height() && start.isNull(); y += 40) {
+                    for (int x = box.left() + box.width() / 3; x < box.right() - travel.width(); x += 40) {
+                        const QPoint p(x, y);
+                        if (ui::BackdropGesture::iconAt(backdrop->cells(), p) < 0 && fences->fenceAt(p).isEmpty()) {
+                            start = p;
+                            break;
+                        }
+                    }
+                }
+                const auto send = [&](QEvent::Type type, const QPoint& at, Qt::MouseButton button,
+                                      Qt::MouseButtons buttons) {
+                    QMouseEvent e(type, QPointF(at), QPointF(at), button, buttons, Qt::NoModifier);
+                    QCoreApplication::sendEvent(backdrop, &e);
+                };
+                const auto drag = [&](Qt::MouseButton button) {
+                    backdrop->resetRenderStats();
+                    QElapsedTimer wall;
+                    wall.start();
+                    send(QEvent::MouseButtonPress, start, button, button);
+                    const int steps = 60;
+                    for (int i = 1; i <= steps; ++i) {
+                        const QPoint at = start + QPoint(travel.width() * i / steps, travel.height() * i / steps);
+                        send(QEvent::MouseMove, at, Qt::NoButton, button);
+                        waitMs(16);
+                    }
+                    waitMs(250); // whatever is still pending lands
+                    if (button == Qt::LeftButton)
+                        send(QEvent::MouseButtonRelease, start + QPoint(travel.width(), travel.height()),
+                             button, Qt::NoButton);
+                    else
+                        backdrop->cancelGesture(); // no menu: the release would open one
+                    const ui::DesktopBackdrop::RenderStats st = backdrop->renderStats();
+                    const qint64 ms = wall.elapsed();
+                    return std::make_pair(st, ms);
+                };
+                const auto describe = [](const ui::DesktopBackdrop::RenderStats& st, qint64 ms) {
+                    const int n = qMax(1, st.updates);
+                    return QStringLiteral("%1 frame(s) for 60 moves in %2 ms; build+push %3 ms avg (max %4); "
+                                          "move-to-screen %5 ms avg (max %6)")
+                        .arg(st.updates)
+                        .arg(ms)
+                        .arg(st.costUs / n / 1000.0, 0, 'f', 1)
+                        .arg(st.maxCostUs / 1000.0, 0, 'f', 1)
+                        .arg(st.latencyUs / n / 1000.0, 0, 'f', 1)
+                        .arg(st.maxLatencyUs / 1000.0, 0, 'f', 1);
+                };
+                if (!start.isNull()) {
+                    const auto [band, bandMs] = drag(Qt::RightButton);
+                    const auto [marquee, marqueeMs] = drag(Qt::LeftButton);
+                    backdrop->setSelection({});
+                    waitMs(200);
+                    const auto fluid = [](const ui::DesktopBackdrop::RenderStats& st) {
+                        const int n = qMax(1, st.updates);
+                        return st.updates >= 40 && st.latencyUs / n < 20000;
+                    };
+                    check(QStringLiteral("a fence drawn on the desktop follows the mouse"), fluid(band),
+                          describe(band, bandMs));
+                    check(QStringLiteral("...and so does the selection rectangle"), fluid(marquee),
+                          describe(marquee, marqueeMs));
+                } else {
+                    check(QStringLiteral("a fence drawn on the desktop follows the mouse"), false,
+                          QStringLiteral("no free spot to draw on"));
+                }
+            }
 
             // ---- Lot 2 (T-090), simulated in this process: nothing is sent to
             // Explorer, nothing is clicked. What Explorer would do is done to
