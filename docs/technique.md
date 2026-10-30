@@ -2093,3 +2093,24 @@ Reste de **T-042** : le **menu au clic droit** sur une icône libre (avec un « 
 ### Ce qui n'est pas fait (et ne l'est pas sans lui)
 
 Le `%APPDATA%/StarFish/preferences.json` écrit par les sessions 55-56 reste sur son disque, **inerte** : plus personne ne le lit. Le supprimer est une action sur **sa** machine — proposée, pas faite.
+
+## 44. ADR-21 — le bureau dessiné redevient le produit, piloté par la vue du shell (session 58, renverse l'ADR-20)
+
+**Le besoin, dans ses mots (s58)** : « glisser une icône dans une fence, et qu'elle ne soit plus sur le bureau » — *sans* la supprimer ni la déplacer — et « si le programme s'arrête je retrouve toutes mes icônes ». Après le mini-rapport d'options, il **écarte** l'option recommandée (placer l'icône native sous sa zone) : « StarFish dessine tout le bureau », avec un clic droit « assez proche de l'original de Windows 11 », **modifiable**, et sans injection dans Explorer.
+
+**Pourquoi l'ADR-20 ne tient plus** : elle retirait le mode parce que, mal construit, il *imitait* le bureau — un fond per-pixel **invisible** sur un enfant de Progman (ADR-15), un menu de fond reconstruit (`CreateViewObject`, sous-menus vides), des icônes sans clic. Rien de cela n'est inhérent au mode. ADR-21 garde le mode et change sa source : **la vue du bureau elle-même** (`SHELLDLL_DefView`, joignable par la voie documentée `IShellWindows::FindWindowSW(SWC_DESKTOP)` → `SID_STopLevelBrowser` → `QueryActiveShellView`, proxies COM système, **aucun pointeur dans un autre processus** — T-071 intact).
+
+**Ce qui est livré (lot 1)**
+
+| Pièce | Rôle |
+|---|---|
+| `platform/win/desktop_shell_view` | `IFolderView2` du bureau : éléments (Bureau public et « Ce PC » compris), positions, espacement, taille d'icône, drapeaux ; menus **réels** de fond (`SVGIO_BACKGROUND`) et de sélection (`SVGIO_SELECTION`), `InvokeCommand` avec `ptInvoke` ; capture du **fond d'écran** (`PrintWindow(PW_RENDERFULLCONTENT)` sur la DefView, liste masquée) |
+| `DesktopBackdrop` « bureau entier » | surface **opaque** (chemin blit, ADR-15), fond d'écran + icônes **aux positions du shell** + sélection Win11 ; `DesktopSurface::setOwnsAllInput` : plus de trous, plus de pas-de-côté |
+| `ProductApp::claimDrawnDesktop` | lit la vue → **marqueur puis** masquage de `SysListView32` (ADR-12 : jamais la DefView) → capture du fond stabilisée → hébergement ; **tout échec rend la liste**. Relecture 1,5 s (signature), fond d'écran ~9 s, relecture à 300 ms après un menu ou le watcher |
+| `--native-desktop` | l'ancien bureau (ADR-20) ; `claimDesktop` est vrai par défaut **dans `main` seulement** (les sondes gardent leurs options) |
+
+**Mesures (s58)** : `--drawn-desktop-probe` **17/17** (dont : une icône rangée dans une zone **quitte** le bureau dessiné, son fichier reste sur le Bureau, et elle revient quand la zone part) ; 87/87 éléments dessinés à l'**x exact** de la vue ; menu de fond 29 entrées dont 17 en sous-menus (Affichage, Trier par, Nouveau) ; menu d'élément 38 entrées ; ajout / renommage / suppression d'un fichier suivis en < 2 s ; arrêt propre ⇒ liste visible, marqueur absent. `--crash-demo`, `--backdrop-demo`, `--product-probe` verts, `ctest` 16/16.
+
+⚠️ **Pièges payés** : (1) `GetMenuState()` **n'est pas** un test de séparateur pour une entrée à sous-menu (le mot renvoyé porte le nombre d'éléments) — « Affichage » disparaissait, avalé par `tidySeparators` ; on lit `MIIM_FTYPE`. (2) Via le proxy, `QueryContextMenu(CMF_CANRENAME)` répond `E_INVALIDARG` **et** remplit le menu : on juge au contenu. (3) Ne transmettre au menu du shell **que** `WM_INITMENUPOPUP` / `WM_MENUCHAR` (valeurs) — jamais `WM_DRAWITEM`/`WM_MEASUREITEM` (pointeur, T-071) — et jamais pour nos propres menus. (4) La flèche de raccourci : `SHGFI_OVERLAYINDEX` exige `SHGFI_ICON`, et l'overlay se prend dans la **petite** liste (celle à 48 px est deux fois trop grande).
+
+**Reste (lots 2-4, TODO T-090..T-092)** : redémarrage d'Explorer et multi-écran ; renommage F2, clavier, rectangle de sélection, glisser OLE vers/depuis l'Explorateur, `IFileOperation` + annuler, déplacer une icône (`SelectAndPositionItems`) ; le menu Win11 **configurable** (« Afficher plus d'options » → le menu classique ci-dessus, entrées `IExplorerCommand`), Win10 = menu classique.

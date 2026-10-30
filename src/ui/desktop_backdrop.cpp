@@ -81,6 +81,89 @@ void paintCells(QPainter& painter, const QPoint& origin, const QVector<BackdropC
     painter.restore();
 }
 
+// ADR-21 -- the desktop's own look, for the drawn desktop. Measured on the
+// user's Windows 11 (build\captures\crop_icons.png): white Segoe UI captions,
+// centred, up to two lines with a soft dark shadow, and a light-blue
+// translucent rectangle with a lighter border around a selected icon.
+const QColor kDesktopText(0xFF, 0xFF, 0xFF);
+const QColor kDesktopShadow(0x00, 0x00, 0x00, 0xA0);
+const QColor kSelectionFill(0x99, 0xD1, 0xFF, 0x59);
+const QColor kSelectionBorder(0xCC, 0xE8, 0xFF, 0xA6);
+
+// Up to two lines, broken at the last space that fits, the second one elided --
+// what the desktop does with a caption that is not selected.
+QStringList captionLines(const QString& text, const QFontMetrics& fm, int width)
+{
+    if (text.isEmpty() || fm.horizontalAdvance(text) <= width)
+        return {text};
+    int cut = -1;
+    for (int i = text.size() - 1; i > 0; --i) {
+        if (text.at(i) == QLatin1Char(' ') && fm.horizontalAdvance(text.left(i)) <= width) {
+            cut = i;
+            break;
+        }
+    }
+    if (cut < 0) {
+        // One long word: broken where it stops fitting.
+        cut = 1;
+        while (cut < text.size() && fm.horizontalAdvance(text.left(cut + 1)) <= width)
+            ++cut;
+        return {text.left(cut), fm.elidedText(text.mid(cut), Qt::ElideRight, width)};
+    }
+    return {text.left(cut), fm.elidedText(text.mid(cut + 1), Qt::ElideRight, width)};
+}
+
+void paintDesktop(QPainter& painter, const QPoint& origin, const QVector<BackdropCell>& cells,
+                  const IconGrid::IconProvider& iconFor, const BackdropLayout::Metrics& metrics,
+                  qreal scale, const QSet<QString>& selected)
+{
+    painter.save();
+    painter.translate(-origin);
+    QFont font(QStringLiteral("Segoe UI"));
+    font.setPixelSize(qMax(9, qRound(12.0 * scale)));
+    painter.setFont(font);
+    const QFontMetrics fm(font);
+    const int pad = qRound(2 * scale);
+    const int inset = qRound(4 * scale);
+    const int lineHeight = fm.height();
+
+    for (const BackdropCell& cell : cells) {
+        const QStringList lines = captionLines(cell.item.name, fm, cell.label.width() - 2 * inset);
+        const int textTop = cell.label.y() + pad;
+
+        if (selected.contains(BackdropLayout::pathKey(cell.item.path))) {
+            const int top = cell.icon.y() - pad;
+            const QRect highlight(cell.label.x() + inset, top, cell.label.width() - 2 * inset,
+                                  textTop + lines.size() * lineHeight + pad - top);
+            painter.setPen(QPen(kSelectionBorder, 1));
+            painter.setBrush(kSelectionFill);
+            painter.drawRect(highlight.adjusted(0, 0, -1, -1));
+        }
+
+        const QPixmap icon = iconFor ? iconFor(cell.item, metrics.iconSize) : QPixmap();
+        if (!icon.isNull()) {
+            const QPixmap scaled =
+                icon.size() == cell.icon.size()
+                    ? icon
+                    : icon.scaled(cell.icon.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            painter.drawPixmap(cell.icon.x() + (cell.icon.width() - scaled.width()) / 2,
+                               cell.icon.y() + (cell.icon.height() - scaled.height()) / 2, scaled);
+        }
+
+        for (int i = 0; i < lines.size(); ++i) {
+            const QRect line(cell.label.x(), textTop + i * lineHeight, cell.label.width(),
+                             lineHeight);
+            const int flags = Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine;
+            painter.setPen(kDesktopShadow);
+            painter.drawText(line.translated(1, 1), flags, lines.at(i));
+            painter.drawText(line.translated(0, 1), flags, lines.at(i));
+            painter.setPen(kDesktopText);
+            painter.drawText(line, flags, lines.at(i));
+        }
+    }
+    painter.restore();
+}
+
 // The two halves of the same decision (T-041): a surface that answers the empty
 // desktop's gestures has to receive the mouse to answer them, and one that
 // answers nothing stays out of the way. The drop target is deliberately not part
@@ -153,6 +236,26 @@ QImage DesktopBackdrop::buildFrame() const
     if (box.isEmpty())
         return {};
     QImage frame(box.size(), QImage::Format_ARGB32_Premultiplied);
+    if (drawsWholeDesktop()) {
+        // ADR-21: the whole desktop, opaque -- the wallpaper the shell renders
+        // (captured while its list is hidden), then the icons where the shell
+        // keeps them, then the selection. No input floor, no holes: nothing of
+        // the desktop is under this window any more.
+        frame.fill(Qt::black);
+        {
+            QPainter painter(&frame);
+            painter.drawImage(QRect(QPoint(0, 0), box.size()), m_wallpaper);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::TextAntialiasing, true);
+            QSet<QString> selected;
+            for (const QString& path : m_selection)
+                selected.insert(BackdropLayout::pathKey(path));
+            paintDesktop(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(),
+                         scale(), selected);
+        }
+        paintRubberBand(frame, box);
+        return frame;
+    }
     // NOT fully transparent: see DesktopBackdrop::kInputAlphaFloor. The one alpha
     // level is what makes the frame a rectangle the cursor can find, and without
     // it the empty desktop's gestures are unreachable through any mouse (T-060).
@@ -187,21 +290,25 @@ QImage DesktopBackdrop::buildFrame() const
     if (m_drawFreeIcons)
         paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
 
-    // The fence being drawn (T-041). The rubber band carries virtual-screen
-    // pixels like the cells do, so the painter is translated once -- and only
-    // here, since paintCells() restored its own state.
-    if (!m_rubberBand.isEmpty()) {
-        painter.save();
-        painter.translate(-box.topLeft());
-        QPen pen(kRubberBandPen, qMax(1.0, scale()));
-        pen.setStyle(Qt::DashLine);
-        painter.setPen(pen);
-        painter.setBrush(kRubberBandFill);
-        painter.drawRect(m_rubberBand);
-        painter.restore();
-    }
-
+    painter.end();
+    paintRubberBand(frame, box);
     return frame;
+}
+
+void DesktopBackdrop::paintRubberBand(QImage& frame, const QRect& box) const
+{
+    // The fence being drawn (T-041). The rubber band carries virtual-screen
+    // pixels like the cells do, so the painter is translated once.
+    if (m_rubberBand.isEmpty())
+        return;
+    QPainter painter(&frame);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.translate(-box.topLeft());
+    QPen pen(kRubberBandPen, qMax(1.0, scale()));
+    pen.setStyle(Qt::DashLine);
+    painter.setPen(pen);
+    painter.setBrush(kRubberBandFill);
+    painter.drawRect(m_rubberBand);
 }
 
 void DesktopBackdrop::setNativeIconRects(const QVector<QRect>& rects)
@@ -209,7 +316,8 @@ void DesktopBackdrop::setNativeIconRects(const QVector<QRect>& rects)
     if (m_nativeRects == rects)
         return;
     m_nativeRects = rects;
-    if (m_surface)
+    // ADR-21: the drawn desktop steps aside for nothing -- the list is hidden.
+    if (m_surface && !drawsWholeDesktop())
         m_surface->setNativeIconRects(rects);
     // The rects are no longer only an answer to WM_NCHITTEST: they are cut out of
     // the frame (see buildFrame), so a change has to reach the screen -- otherwise
@@ -230,11 +338,48 @@ void DesktopBackdrop::setDrawFreeIcons(bool draw)
 {
     if (m_drawFreeIcons == draw)
         return;
+    const bool was = drawsWholeDesktop();
     m_drawFreeIcons = draw;
     // T-042: the icons of this layer are only ours to carry while it draws them.
     // Turning the drawing off mid-carry puts the icon back rather than leaving a
     // path armed for a release that is no longer about anything.
     m_pressedIcon.clear();
+    remodel(was);
+}
+
+void DesktopBackdrop::setWallpaper(const QImage& wallpaper)
+{
+    const bool was = drawsWholeDesktop();
+    m_wallpaper = wallpaper;
+    remodel(was);
+}
+
+void DesktopBackdrop::remodel(bool wasWholeDesktop)
+{
+    // The two modes are two different windows as far as Windows is concerned: a
+    // per-pixel layer with holes, or an opaque blit surface that takes every
+    // click (ADR-15 -- the layered modes cannot be switched on a live child).
+    if (wasWholeDesktop != drawsWholeDesktop() && isAttached()) {
+        detach();
+        attach();
+    }
+    refresh();
+}
+
+void DesktopBackdrop::setSelection(const QStringList& paths)
+{
+    if (m_selection == paths)
+        return;
+    m_selection = paths;
+    refresh();
+}
+
+void DesktopBackdrop::setSelectionInternal(const QStringList& paths)
+{
+    if (m_selection == paths)
+        return;
+    m_selection = paths;
+    emit selectionChanged(m_selection);
     refresh();
 }
 
@@ -354,6 +499,66 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     const int iconIndex = m_drawFreeIcons ? BackdropGesture::iconAt(m_cells, screen) : -1;
     const bool onIcon = m_drawFreeIcons ? iconIndex >= 0 : overNativeIcon(screen);
 
+    // ADR-21 -- the drawn desktop's own clicks, the ones the native list used to
+    // answer: selection, and the right button on an icon. Read before the
+    // machine, which knows nothing about selections.
+    const bool whole = drawsWholeDesktop();
+    const QString hit = iconIndex >= 0 ? m_cells.at(iconIndex).item.path : QString();
+    const bool ctrl = mouse->modifiers().testFlag(Qt::ControlModifier);
+    const auto selected = [this](const QString& path) {
+        const QString key = BackdropLayout::pathKey(path);
+        for (const QString& s : m_selection) {
+            if (BackdropLayout::pathKey(s) == key)
+                return true;
+        }
+        return false;
+    };
+    if (whole && mouse->button() == Qt::RightButton) {
+        if (mouse->type() == QEvent::MouseButtonPress && !hit.isEmpty()) {
+            // As on the real desktop: the icon joins the selection first (or
+            // becomes it), and the menu acts on the selection.
+            m_rightOnIcon = true;
+            if (!selected(hit))
+                setSelectionInternal({hit});
+            return true;
+        }
+        if (mouse->type() == QEvent::MouseButtonRelease && m_rightOnIcon) {
+            m_rightOnIcon = false;
+            if (!m_selection.isEmpty())
+                emit iconMenuRequested(m_selection, screen);
+            return true;
+        }
+        if (mouse->type() == QEvent::MouseButtonPress && !ctrl)
+            setSelectionInternal({});
+    }
+    if (whole && mouse->button() == Qt::LeftButton
+        && mouse->type() == QEvent::MouseButtonPress) {
+        m_narrowOnRelease.clear();
+        if (hit.isEmpty()) {
+            if (!ctrl)
+                setSelectionInternal({});
+        } else if (ctrl) {
+            QStringList next = m_selection;
+            if (selected(hit)) {
+                const QString key = BackdropLayout::pathKey(hit);
+                next.erase(std::remove_if(next.begin(), next.end(),
+                                          [&key](const QString& s) {
+                                              return BackdropLayout::pathKey(s) == key;
+                                          }),
+                           next.end());
+            } else {
+                next.append(hit);
+            }
+            setSelectionInternal(next);
+        } else if (!selected(hit)) {
+            setSelectionInternal({hit});
+        } else {
+            // Already selected: a drag carries the whole selection, a plain
+            // click narrows it to this icon -- on the release.
+            m_narrowOnRelease = hit;
+        }
+    }
+
     BackdropGesture::Result result;
     switch (mouse->type()) {
     case QEvent::MouseButtonPress:
@@ -376,6 +581,12 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
         break;
     default:
         return false;
+    }
+    if (whole && mouse->type() == QEvent::MouseButtonRelease
+        && mouse->button() == Qt::LeftButton) {
+        if (!m_narrowOnRelease.isEmpty() && result.action != BackdropGesture::Action::IconDrop)
+            setSelectionInternal({m_narrowOnRelease});
+        m_narrowOnRelease.clear();
     }
     return applyGesture(result);
 }
@@ -482,9 +693,14 @@ bool DesktopBackdrop::attach()
     surface->setLayer(platform::win::DesktopSurface::Layer::Backdrop);
     applyGestureMode(surface, m_gestures, this);
     surface->setDevicePixelRatio(1.0); // the frame is already in physical pixels
-    surface->setNativeIconRects(m_nativeRects);
+    // ADR-21: the drawn desktop is the opaque blit path (ADR-15 -- the only
+    // layered mode that reaches the screen on a child of Progman), and owns
+    // every click. The transparent layer keeps the per-pixel path and its holes.
+    const bool opaque = drawsWholeDesktop();
+    surface->setNativeIconRects(opaque ? QVector<QRect>() : m_nativeRects);
+    surface->setOwnsAllInput(opaque);
     surface->setFrame(m_frame);
-    if (!surface->setPerPixelAlpha(true)) {
+    if (!opaque && !surface->setPerPixelAlpha(true)) {
         qCWarning(lcBackdrop) << "the per-pixel path was refused; no backdrop";
         delete surface;
         return false;
@@ -498,7 +714,7 @@ bool DesktopBackdrop::attach()
     // attach() pushes the frame through UpdateLayeredWindow. If that push failed,
     // DesktopSurface has already fallen back to the opaque WM_PAINT path -- which
     // for a full-screen window would hide the wallpaper. Refuse instead.
-    if (!surface->perPixelAlpha()) {
+    if (!opaque && !surface->perPixelAlpha()) {
         qCCritical(lcBackdrop)
             << "the per-pixel push failed (UpdateLayeredWindow): an opaque full-screen "
                "window would hide the wallpaper, so the backdrop is refused and the native "

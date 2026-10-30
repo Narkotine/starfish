@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 
+#include "core/desktop_item.hpp"
 #include "platform/win/desktop_menu.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/screen_layout.hpp"
@@ -23,6 +24,7 @@ class LayoutStore;
 namespace starfish::platform::win {
 class HotkeyManager;
 class ShellIconCache;
+class DesktopShellView;
 struct NativeDesktopIcon;
 } // namespace starfish::platform::win
 
@@ -105,6 +107,14 @@ public:
 
     bool desktopIconsHidden() const;
     void setDesktopIconsHidden(bool hidden);
+
+    // ADR-21: is StarFish drawing the desktop right now, and through which view.
+    bool drawnDesktop() const { return m_shellView != nullptr; }
+    platform::win::DesktopShellView* shellView() const { return m_shellView.get(); }
+    // The backdrop's window, which owns the shell menus (0 when not hosted).
+    quintptr backdropOwner() const;
+    // The desktop's background menu at `point`, as a right-click opens it.
+    void showDesktopMenu(const QPoint& point) { onDesktopMenu(QRect(), point); }
 
     // The emergency exit (F-034 / T-046): asks the desktop to show the native
     // icons right now, whatever our own bookkeeping believes. Deliberately not a
@@ -198,6 +208,22 @@ private:
     // to follow. It reads only while the shell is drawing its icons -- a hidden
     // list view answers empty names and positions no desktop has (measured).
     void syncNativeIcons();
+
+    // ADR-21 -- the drawn desktop, the product's desktop since session 58. The
+    // shell's own view (DesktopShellView) says what is on the desktop and where;
+    // the native list is hidden behind the T-046 marker; the backdrop draws the
+    // wallpaper and the icons and answers every click, with the shell's own menus
+    // and verbs. claimDrawnDesktop() refuses -- and leaves the desktop native --
+    // whenever one step of it cannot be taken.
+    bool claimDrawnDesktop();
+    void releaseDrawnDesktop();
+    // Re-reads the view and pushes what changed to the backdrop. Cheap when
+    // nothing moved (a signature comparison).
+    void syncShellView();
+    void refreshWallpaper();
+    void onIconMenu(const QStringList& paths, const QPoint& point);
+    void openDesktopItem(const QString& path);
+
     // The fallback ADR-13 needs and does not want: an icon a fence holds has to
     // stop being drawn by the desktop, and moving it is how that is done. When the
     // desktop refuses to be moved one icon at a time (auto-arrange on), the whole
@@ -226,6 +252,13 @@ private:
 
     // True while the icons are ours to draw (see takeOverDesktopIcons).
     bool m_ownsIcons = false;
+    std::unique_ptr<platform::win::DesktopShellView> m_shellView;
+    QTimer m_shellTimer;   // the view's periodic re-read (positions, renames, View > size)
+    QTimer m_shellResync;  // a re-read soon after something we know changed the desktop
+    QString m_shellSignature;
+    quint64 m_wallpaperSignature = 0;
+    int m_shellTicks = 0;
+    QHash<QString, core::DesktopItem> m_itemCache;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

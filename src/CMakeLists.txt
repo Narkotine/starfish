@@ -5,6 +5,7 @@ qt_add_executable(starfish WIN32
     # Application manifest. Load bearing: see src/starfish.manifest (ADR-4).
     starfish.rc
     app/product_app.cpp
+    app/drawn_desktop_probe.cpp
     core/desktop_item.cpp
     core/desktop_watcher.cpp
     core/icon_hiding_marker.cpp
@@ -19,6 +20,7 @@ qt_add_executable(starfish WIN32
     platform/win/desktop_surface.cpp
     platform/win/desktop_icons.cpp
     platform/win/desktop_menu.cpp
+    platform/win/desktop_shell_view.cpp
     platform/win/desktop_scanner.cpp
     platform/win/shell_icon_cache.cpp
     platform/win/shell_context_menu.cpp
@@ -143,9 +145,15 @@ target_link_libraries(starfish PRIVATE
     #   ole32    CoInitializeEx, CoCreateInstance, CoTaskMemFree (T-004)
     #   uuid     CLSID_ShellLink / IID_IShellLinkW / IID_IImageList symbols
     #   dwmapi   DwmGetWindowAttribute(DWMWA_CLOAKED) diagnostic (T-020)
+    #   oleaut32 VARIANT for IShellWindows::FindWindowSW (ADR-21)
+    #   comctl32 SetWindowSubclass: shell submenus filled on WM_INITMENUPOPUP (ADR-21)
+    #   shlwapi  StrRetToBufW (ADR-21)
     user32
     shell32
     ole32
+    oleaut32
     uuid
     dwmapi
+    comctl32
+    shlwapi
 )

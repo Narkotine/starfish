@@ -27,6 +27,7 @@
 #include <QWheelEvent>
 #include <QWindow>
 
+#include "app/drawn_desktop_probe.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
@@ -1075,6 +1076,11 @@ int main(int argc, char* argv[])
                        "made this the exception -- the product leaves the user's icons "
                        "alone -- so it is here for the development path and for the probes "
                        "that still measure the old behaviour."));
+    const QCommandLineOption nativeDesktopOption(
+        QStringLiteral("native-desktop"),
+        QStringLiteral("ADR-21: leave the desktop's own icons on screen (the ADR-20 desktop): "
+                       "an icon filed into a fence then shows twice. Without it StarFish "
+                       "draws the desktop, and gives it back when it stops."));
     const QCommandLineOption noHostOption(
         QLatin1String("no-host"),
         QLatin1String("With the product: do not put the fences on the desktop."));
@@ -1127,6 +1133,12 @@ int main(int argc, char* argv[])
     parser.addOption(uninstallMenuOption);
     parser.addOption(newFenceOption);
     parser.addOption(claimDesktopOption);
+    parser.addOption(nativeDesktopOption);
+    const QCommandLineOption drawnDesktopProbeOption(
+        QStringLiteral("drawn-desktop-probe"),
+        QStringLiteral("ADR-21: run the drawn desktop on the real desktop and check it (shell "
+                       "view, menus, sync, restore). Report: build/drawn-desktop-probe.txt."));
+    parser.addOption(drawnDesktopProbeOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -7643,6 +7655,9 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
+    if (parser.isSet(drawnDesktopProbeOption))
+        return starfish::app::runDrawnDesktopProbe(app);
+
     if (parser.isSet(crashVictimOption)) {
         // The child half of --crash-demo (T-046). It hides the native icons
         // through the product's own path -- the very call the tray toggle runs --
@@ -8022,7 +8037,8 @@ int main(int argc, char* argv[])
         // ordinary launch leaves the wallpaper and the user's icons exactly as
         // they are; --claim-desktop brings T-056's behaviour back, for the dev
         // path and for the probes that measure it.
-        options.claimDesktop = parser.isSet(claimDesktopOption);
+        // ADR-21: the drawn desktop is the product; --native-desktop is the way out.
+        options.claimDesktop = !parser.isSet(nativeDesktopOption);
         options.hotkeys = !parser.isSet(noHotkeysOption);
         options.watchDesktop = !parser.isSet(noWatchOption);
 

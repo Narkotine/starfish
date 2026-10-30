@@ -7,6 +7,8 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
+#include <QThread>
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -14,6 +16,7 @@
 #include <QMenu>
 #include <QRect>
 #include <QScreen>
+#include <QSettings>
 #include <QTimer>
 #include <QUrl>
 
@@ -23,6 +26,7 @@
 #include "core/layout_store.hpp"
 #include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
+#include "platform/win/desktop_shell_view.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
 #include "platform/win/shell_context_menu.hpp"
@@ -219,15 +223,16 @@ bool ProductApp::start(const Options& options, QString* error)
     // icons, their drags, the shell's menu and its rubber band are the shell's, by
     // construction, and creating a fence is an entry in the desktop's **own**
     // menu, which Explorer builds and we only answer.
-    if (m_options.claimDesktop) {
-        // The development path keeps the old world: the backdrop draws the icons
-        // (T-039/T-056), so it is hosted -- setDesktopIconsHidden() below does that
-        // first and refuses to hide anything if it cannot. The icons are read
-        // **before** they are taken over, since a hidden list view has nothing to
-        // describe (T-062).
-        syncNativeIcons();
-        setDesktopIconsHidden(true);
-    }
+    //
+    // ⚠️ ADR-21 (session 58) reverses ADR-20: the user's first need is that an
+    // icon filed into a fence **leaves the desktop** without its file moving, and
+    // that every icon is back if StarFish stops. Only a desktop StarFish draws can
+    // do both without injecting anything into Explorer -- so the drawn desktop is
+    // the product again, this time driven by the shell's own view (positions,
+    // items, menus, verbs) instead of an imitation of it. `--native-desktop` keeps
+    // the ADR-20 desktop.
+    if (m_options.claimDesktop && !claimDrawnDesktop())
+        qCWarning(lc) << "the drawn desktop could not be set up: the desktop stays native";
 
     // The screen arrangement changes while StarFish is running: a monitor is
     // unplugged, docked, re-arranged, or its scaling changes. Qt is the
@@ -616,6 +621,30 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
             owner = reinterpret_cast<void*>(surface->hwnd());
     }
 
+    if (drawnDesktop()) {
+        // ADR-21: the desktop's **real** background menu -- the one its own view
+        // builds (SVGIO_BACKGROUND), with View, Sort by, Refresh, Paste, Undo, New
+        // and every extension, its submenus filled by the shell itself. Our entry
+        // goes on top; the registry verb that says the same thing (T-071) is taken
+        // out, since this one creates the fence where the user clicked.
+        QStringList hidden{QStringLiteral("StarFish"), platform::win::desktopMenuLabel()};
+        const QString registered =
+            QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\DesktopBackground\\"
+                                     "Shell\\StarFish"),
+                      QSettings::NativeFormat)
+                .value(QStringLiteral("."))
+                .toString();
+        if (!registered.isEmpty())
+            hidden << registered;
+        constexpr int kCreateFence = 1;
+        const int chosen = m_shellView->showBackgroundMenu(
+            point, backdropOwner(), {{kCreateFence, label, true, false, {}}}, hidden);
+        // Whatever the shell ran (a new folder, a paste, View > Small icons)
+        // shows up on the next read; asked for now rather than in 1.5 s.
+        m_shellResync.start();
+        if (chosen != kCreateFence)
+            return;
+    } else {
     const platform::win::ShellContextMenu::BackgroundChoice choice =
         platform::win::ShellContextMenu::showForDesktopBackground(point, owner, label);
 
@@ -623,6 +652,7 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
     // inside the menu call, and a dismissed menu creates nothing at all.
     if (choice != platform::win::ShellContextMenu::BackgroundChoice::StarfishVerb)
         return;
+    }
 
     const QString id = m_container->createFence(nextFenceTitle(), target);
     if (id.isEmpty())
@@ -652,6 +682,19 @@ void ProductApp::wireBackdrop()
 
     connect(backdrop, &ui::DesktopBackdrop::desktopMenuRequested, this,
             &ProductApp::onDesktopMenu);
+    // ADR-21: the drawn desktop's item menu, and the view's re-reads.
+    connect(backdrop, &ui::DesktopBackdrop::iconMenuRequested, this, &ProductApp::onIconMenu);
+    m_shellTimer.setInterval(1500);
+    connect(&m_shellTimer, &QTimer::timeout, this, [this] {
+        syncShellView();
+        // The wallpaper changes far less often (a slideshow, Spotlight, the user
+        // picking a new one): checked every ~9 s, pushed only when it differs.
+        if (++m_shellTicks % 6 == 0)
+            refreshWallpaper();
+    });
+    m_shellResync.setSingleShot(true);
+    m_shellResync.setInterval(300);
+    connect(&m_shellResync, &QTimer::timeout, this, &ProductApp::syncShellView);
     // F-022: the desktop's own double-click, the gesture the feature was always
     // specified with. It is the same toggle the tray and the hot key use.
     connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this,
@@ -670,6 +713,13 @@ void ProductApp::wireBackdrop()
             [this](const QString& path, const QPoint& point) {
                 if (!m_container)
                     return;
+                // ADR-21: This PC, the Recycle Bin, the user's folder are not files:
+                // a tile is a path (ADR-7), so they stay on the desktop.
+                if (path.startsWith(QLatin1String("::"))) {
+                    qCInfo(lc).noquote()
+                        << QStringLiteral("\"%1\" is not a file: it cannot be filed").arg(path);
+                    return;
+                }
                 // What the button came up *on* decides: a fence takes it. Letting
                 // go on the bare desktop is how a drag is called off -- the entry
                 // stays where it is, because an icon is never moved and never
@@ -695,6 +745,10 @@ void ProductApp::wireBackdrop()
             [this](const QString& path) {
                 if (!m_container)
                     return;
+                if (drawnDesktop()) {
+                    openDesktopItem(path);
+                    return;
+                }
                 // The same resolution a fence's tile uses (F-006/T-005): a .lnk or
                 // a .url opens through its target, never through the link file.
                 const QString target = ui::IconGrid::launchPath(m_container->itemForPath(path));
@@ -936,6 +990,18 @@ void ProductApp::onRollUpToggled(const QString& id, bool rolledUp)
 
 void ProductApp::onDesktopIconsToggled(bool hidden)
 {
+    if (m_options.claimDesktop && m_options.hostOnDesktop) {
+        // ADR-21: "hide the desktop icons" is the drawn desktop, and showing them
+        // again is the native one.
+        if (hidden)
+            claimDrawnDesktop();
+        else
+            releaseDrawnDesktop();
+        if (m_tray)
+            m_tray->setDesktopIconsHidden(m_iconsHidden);
+        refreshStatus();
+        return;
+    }
     setDesktopIconsHidden(hidden);
 }
 
@@ -1051,6 +1117,10 @@ bool ProductApp::enableBackdrop()
 void ProductApp::syncNativeIcons()
 {
     if (!m_container || !m_options.hostOnDesktop)
+        return;
+    // ADR-21: the drawn desktop reads the shell's view, not the list view, and
+    // the icons a fence holds simply leave the backdrop (BackdropLayout::freeItems).
+    if (drawnDesktop())
         return;
     ui::DesktopBackdrop* backdrop = m_container->backdrop();
     if (!backdrop)
@@ -1200,6 +1270,13 @@ void ProductApp::refreshDesktopItems()
 {
     if (!m_container)
         return;
+    // ADR-21: the shell's view is the authority on what the desktop shows (the
+    // Public desktop and This PC included). The watcher only says "something
+    // changed"; the view needs a moment to take the change in.
+    if (drawnDesktop()) {
+        m_shellResync.start();
+        return;
+    }
     QString error;
     QList<core::DesktopItem> items = platform::win::DesktopScanner::scan(&error);
     if (!error.isEmpty())
@@ -1222,6 +1299,17 @@ void ProductApp::restoreDesktopIcons()
     // product is not hosting (--no-host): "give me my icons back" is a request
     // from the user to the desktop, not a piece of our own bookkeeping.
     qCInfo(lc) << "restoring the desktop icons on request";
+    // ADR-21: the drawn desktop goes with them -- it only exists over a hidden list.
+    if (drawnDesktop()) {
+        m_shellTimer.stop();
+        m_shellResync.stop();
+        m_shellView.reset();
+        m_ownsIcons = false;
+        if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr) {
+            backdrop->setWallpaper({});
+            backdrop->setDrawFreeIcons(false);
+        }
+    }
     if (platform::win::DesktopSurface::setDesktopIconsHidden(false)) {
         m_iconsHidden = false;
     } else {
@@ -1325,6 +1413,17 @@ void ProductApp::shutdown()
     delete m_tray;
     m_tray = nullptr;
 
+    // ADR-21: under the drawn desktop the list comes back *first* -- it appears
+    // under our opaque backdrop, invisible, and is what shows the moment the
+    // backdrop goes. The other order would flash a desktop without icons.
+    m_shellTimer.stop();
+    m_shellResync.stop();
+    if (drawnDesktop() && m_iconsHidden) {
+        platform::win::DesktopSurface::setDesktopIconsHidden(false);
+        m_iconsHidden = false;
+    }
+    m_shellView.reset();
+
     delete m_container;
     m_container = nullptr;
 
@@ -1339,6 +1438,258 @@ void ProductApp::shutdown()
     }
 
     m_started = false;
+}
+
+// ---------------------------------------------------------------------------
+// ADR-21 -- the drawn desktop
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A cheap fingerprint of a frame: every 97th pixel. Enough to tell one
+// wallpaper from another, at a fraction of a full comparison.
+quint64 imageSignature(const QImage& image)
+{
+    if (image.isNull())
+        return 0;
+    const QImage rgb = image.format() == QImage::Format_ARGB32 ? image
+                                                              : image.convertToFormat(QImage::Format_ARGB32);
+    const auto* pixels = reinterpret_cast<const quint32*>(rgb.constBits());
+    const qsizetype count = rgb.sizeInBytes() / 4;
+    quint64 h = 1469598103934665603ULL;
+    for (qsizetype i = 0; i < count; i += 97) {
+        h ^= pixels[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+// The wallpaper as the shell renders it with its list hidden. The view repaints
+// in its own process, so the capture is retried until two in a row agree --
+// a frame caught mid-repaint would still carry icons.
+QImage settledWallpaper(const QRect& area)
+{
+    QImage previous;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        QThread::msleep(120);
+        QImage current = platform::win::DesktopShellView::captureWallpaper(area);
+        if (current.isNull())
+            return {};
+        if (!previous.isNull() && imageSignature(current) == imageSignature(previous))
+            return current;
+        previous = std::move(current);
+    }
+    return previous;
+}
+
+} // namespace
+
+quintptr ProductApp::backdropOwner() const
+{
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr) {
+        if (platform::win::DesktopSurface* surface = backdrop->surface())
+            return surface->hwnd();
+    }
+    return 0;
+}
+
+bool ProductApp::claimDrawnDesktop()
+{
+    if (drawnDesktop())
+        return true;
+    if (!m_container || !m_options.hostOnDesktop)
+        return false;
+    ui::DesktopBackdrop* backdrop = m_container->backdrop();
+    if (!backdrop)
+        return false;
+
+    // 1. What the desktop shows, read while it still shows it.
+    m_shellView = std::make_unique<platform::win::DesktopShellView>();
+    m_shellSignature.clear();
+    syncShellView();
+    if (m_shellSignature.isEmpty()) {
+        qCWarning(lc) << "the desktop's shell view is unreachable; the desktop stays native";
+        m_shellView.reset();
+        return false;
+    }
+
+    // 2. The list goes -- marker first (T-046): from here on a crash leaves a
+    //    record, and the next launch, the tray and an Explorer restart all bring
+    //    the icons back.
+    if (!platform::win::DesktopSurface::setDesktopIconsHidden(true)) {
+        qCWarning(lc) << "the desktop's icon list could not be hidden; the desktop stays native";
+        m_shellView.reset();
+        return false;
+    }
+    m_iconsHidden = true;
+    m_ownsIcons = true;
+
+    // 3. The wallpaper as the shell renders it without its icons, then our
+    //    desktop over it. Any failure gives the list back.
+    const QImage wallpaper = settledWallpaper(backdrop->area());
+    if (!wallpaper.isNull()) {
+        backdrop->setWallpaper(wallpaper);
+        m_wallpaperSignature = imageSignature(wallpaper);
+        backdrop->setDrawFreeIcons(true);
+    }
+    if (wallpaper.isNull() || !enableBackdrop() || !backdrop->drawsWholeDesktop()) {
+        qCWarning(lc) << "the drawn desktop could not be hosted (wallpaper"
+                      << (wallpaper.isNull() ? "missing)" : "ok)") << "; the icons come back";
+        platform::win::DesktopSurface::setDesktopIconsHidden(false);
+        m_iconsHidden = false;
+        m_ownsIcons = false;
+        backdrop->setWallpaper({});
+        backdrop->setDrawFreeIcons(false);
+        m_container->setBackdropEnabled(false);
+        m_shellView.reset();
+        return false;
+    }
+
+    m_shellTimer.start();
+    if (m_tray)
+        m_tray->setDesktopIconsHidden(true);
+    qCInfo(lc).noquote() << QStringLiteral("the desktop is drawn by StarFish: %1 icon(s)")
+                                .arg(backdrop->freeCount());
+    refreshStatus();
+    return true;
+}
+
+void ProductApp::releaseDrawnDesktop()
+{
+    m_shellTimer.stop();
+    m_shellResync.stop();
+    // The list first, under our opaque frame; then our frame goes (see shutdown).
+    if (m_iconsHidden && platform::win::DesktopSurface::setDesktopIconsHidden(false))
+        m_iconsHidden = false;
+    m_ownsIcons = false;
+    m_shellView.reset();
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr) {
+        backdrop->setWallpaper({});
+        backdrop->setDrawFreeIcons(false);
+    }
+    if (m_container)
+        m_container->setBackdropEnabled(false);
+    refreshStatus();
+}
+
+void ProductApp::syncShellView()
+{
+    if (!m_shellView || !m_container)
+        return;
+    ui::DesktopBackdrop* backdrop = m_container->backdrop();
+    if (!backdrop)
+        return;
+
+    const platform::win::ShellViewState state = m_shellView->read();
+    if (!state.ok)
+        return; // Explorer away for a moment: the last good desktop stays on screen
+
+    // Nothing to do when nothing moved -- this runs every 1.5 s.
+    QString signature = QStringLiteral("%1x%2/%3/%4|")
+                            .arg(state.spacing.width())
+                            .arg(state.spacing.height())
+                            .arg(state.iconSize)
+                            .arg(state.iconsShown);
+    for (const platform::win::ShellViewItem& item : state.items)
+        signature += QStringLiteral("%1\x1f%2\x1f%3,%4\x1e")
+                         .arg(item.parsingName, item.displayName)
+                         .arg(item.position.x())
+                         .arg(item.position.y());
+    if (signature == m_shellSignature)
+        return;
+    m_shellSignature = signature;
+
+    // The metrics the user chose (View > Large / Medium / Small icons), in the
+    // backdrop's logical units: it scales them back by the primary monitor's ratio.
+    const ui::ScreenInfo* primary = backdrop->screens().primary();
+    const qreal scale = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
+    const int iconSize = qMax(16, state.iconSize);
+    const QSize spacing = state.spacing.isValid() && !state.spacing.isEmpty()
+                              ? state.spacing
+                              : QSize(iconSize + 47, iconSize + 50);
+    const int top = qRound(5 * scale); // the icon sits a few pixels under its slot's top (measured: 5 at 100 %)
+    ui::BackdropLayout::Metrics metrics = backdrop->metrics();
+    metrics.iconSize = qRound(iconSize / scale);
+    metrics.cellWidth = qRound(spacing.width() / scale);
+    metrics.labelHeight = qMax(0, qRound((spacing.height() - iconSize - top) / scale));
+    backdrop->setMetrics(metrics);
+
+    QList<core::DesktopItem> items;
+    QHash<QString, QRect> boxes;
+    if (state.iconsShown) {
+        items.reserve(state.items.size());
+        for (const platform::win::ShellViewItem& view : state.items) {
+            core::DesktopItem item;
+            const auto cached = m_itemCache.constFind(view.parsingName);
+            if (cached != m_itemCache.constEnd()) {
+                item = cached.value();
+            } else {
+                if (!view.parsingName.startsWith(QLatin1String("::"))
+                    && QFileInfo::exists(view.parsingName)) {
+                    item = platform::win::DesktopScanner::itemForPath(view.parsingName);
+                }
+                if (item.path.isEmpty()) {
+                    item.path = view.parsingName;
+                    item.fileName = view.displayName;
+                }
+                m_itemCache.insert(view.parsingName, item);
+            }
+            // The view's own spelling wins, and what it shows is shown -- hidden
+            // files included when the user asked Explorer to show them.
+            item.name = view.displayName;
+            item.isHidden = false;
+            items.append(item);
+            boxes.insert(ui::BackdropLayout::pathKey(item.path),
+                         QRect(view.position.x() - (spacing.width() - iconSize) / 2,
+                               view.position.y() + top, spacing.width(),
+                               spacing.height() - top));
+        }
+    }
+    backdrop->setNativeIconBoxes(boxes);
+    m_container->setDesktopItems(std::move(items));
+}
+
+void ProductApp::refreshWallpaper()
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop || !drawnDesktop() || platform::win::nativeDesktopIconsVisible())
+        return; // never a capture with the icons in it
+    const QImage wallpaper = platform::win::DesktopShellView::captureWallpaper(backdrop->area());
+    const quint64 signature = imageSignature(wallpaper);
+    if (wallpaper.isNull() || signature == m_wallpaperSignature)
+        return;
+    m_wallpaperSignature = signature;
+    backdrop->setWallpaper(wallpaper);
+    qCInfo(lc) << "the wallpaper changed: redrawn";
+}
+
+void ProductApp::onIconMenu(const QStringList& paths, const QPoint& point)
+{
+    if (!drawnDesktop() || paths.isEmpty())
+        return;
+    // ADR-21: the item's **real** menu -- the native view's selection is made
+    // ours, and its own menu (SVGIO_SELECTION) is shown: Open, Run as
+    // administrator, Pin, Send to, Copy, Delete, Properties and every extension.
+    bool rename = false;
+    m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, &rename);
+    if (rename) {
+        // The shell's in-place edit happens in the hidden list: ours is lot 3.
+        qCInfo(lc) << "rename asked from the item menu: not handled yet (ADR-21, lot 3)";
+    }
+    m_shellResync.start();
+}
+
+void ProductApp::openDesktopItem(const QString& path)
+{
+    // The default verb of the item itself, as the desktop's double-click runs it:
+    // a shortcut keeps its arguments and working folder, This PC opens, a
+    // document opens with its own application.
+    if (m_shellView && m_shellView->invokeSelectionVerb({path}, QString())) {
+        qCInfo(lc).noquote() << QStringLiteral("opened \"%1\" (its default verb)").arg(path);
+        return;
+    }
+    qCInfo(lc).noquote() << QStringLiteral("opening \"%1\" through the URL handler").arg(path);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 } // namespace starfish::app

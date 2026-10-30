@@ -7,6 +7,7 @@
 #include <QRect>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 #include <QVector>
 
@@ -105,6 +106,24 @@ public:
     // floor, and let the native icons show through.
     void setDrawFreeIcons(bool draw);
     bool freeIconsDrawn() const { return m_drawFreeIcons; }
+
+    // ADR-21 -- the drawn desktop. With a wallpaper set *and* the free icons
+    // drawn, the backdrop is an **opaque** surface (the blit path, ADR-15: the
+    // per-pixel one does not reach the screen on a child of Progman) showing the
+    // wallpaper, the icons where the shell keeps them, and the selection. It then
+    // owns every click (DesktopSurface::setOwnsAllInput): the native list is
+    // hidden, so nothing is under it to step aside for. Without a wallpaper the
+    // old transparent layer stays -- an opaque frame with nothing to show would
+    // be a black desktop.
+    void setWallpaper(const QImage& wallpaper);
+    const QImage& wallpaper() const { return m_wallpaper; }
+    bool drawsWholeDesktop() const { return m_drawFreeIcons && !m_wallpaper.isNull(); }
+
+    // The selected icons (paths, as the cells carry them). Drawn with the
+    // desktop's own highlight; changed by the clicks this class reads, or by the
+    // owner (an icon filed into a fence leaves the selection).
+    void setSelection(const QStringList& paths);
+    const QStringList& selection() const { return m_selection; }
 
     // The monitors, so the backdrop covers exactly the virtual screen and picks
     // up the primary monitor's scaling.
@@ -206,6 +225,11 @@ signals:
     // aside over them instead of reporting anything.
     void iconDropRequested(const QString& path, const QPoint& point);
     void iconActivateRequested(const QString& path);
+    // ADR-21: a right-click on one of the icons this layer draws. `paths` is the
+    // selection it acts on (the clicked icon joined it first, as on the real
+    // desktop); `point` is where the button came up, in screen pixels.
+    void iconMenuRequested(const QStringList& paths, const QPoint& point);
+    void selectionChanged(const QStringList& paths);
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -220,6 +244,7 @@ private:
     // the logical metrics and the caption font are scaled by this.
     qreal scale() const;
     QImage buildFrame() const;
+    void paintRubberBand(QImage& frame, const QRect& box) const;
 
     bool handleMouse(QMouseEvent* mouse);
     // True when `screen` (virtual-screen pixels) is inside a native icon.
@@ -256,6 +281,19 @@ private:
     // because the identity lives in the cells (DesktopItem), which the pure
     // machine has no reason to carry.
     QString m_pressedIcon;
+
+    // ADR-21.
+    QImage m_wallpaper;
+    QStringList m_selection;
+    // A left press on an icon that was already selected: the selection only
+    // narrows to it on the release, so a multi-selection can still be carried.
+    QString m_narrowOnRelease;
+    // The right button went down on an icon: its release opens the item menu.
+    bool m_rightOnIcon = false;
+    void setSelectionInternal(const QStringList& paths);
+    // Re-hosts the window when the surface mode (transparent layer / opaque
+    // desktop) has to change.
+    void remodel(bool wasWholeDesktop);
 };
 
 } // namespace starfish::ui

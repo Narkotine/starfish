@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QImage>
+#include <QPainter>
 #include <QLoggingCategory>
 #include <QtGlobal>
 
@@ -17,6 +18,7 @@
 #include <commctrl.h>      // ILD_TRANSPARENT
 #include <commoncontrols.h> // IImageList, IID_IImageList
 #include <shellapi.h>       // SHGetFileInfoW, SHGetImageList, SHIL_*
+#include <shlobj.h>         // SHParseDisplayName
 
 namespace starfish::platform::win {
 
@@ -110,12 +112,36 @@ QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx)
     const int target = qBound(kMinSizePx, sizePx, kMaxSizePx);
     const QString nativePath = QDir::toNativeSeparators(path);
 
+    // SHGFI_OVERLAYINDEX: the shortcut arrow (and any other overlay -- sync
+    // state, shared) is part of how the desktop draws an icon; since ADR-21 the
+    // desktop is ours to draw, so it travels with the icon. The overlay comes
+    // back in the top byte of iIcon.
     SHFILEINFOW info{};
-    if (::SHGetFileInfoW(wide(nativePath), 0, &info, sizeof(info),
-                         SHGFI_SYSICONINDEX | SHGFI_LARGEICON)
-        == 0) {
-        return scaledTo(fallbackIcon(nativePath), target);
+    DWORD_PTR found = 0;
+    if (nativePath.startsWith(QLatin1String("::"))) {
+        // ADR-21: a namespace item of the desktop (This PC, the Recycle Bin, the
+        // user's folder) has a parsing name, not a path -- resolved to its ID list.
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(::SHParseDisplayName(wide(nativePath), nullptr, &pidl, 0, nullptr)) && pidl) {
+            found = ::SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &info, sizeof(info),
+                                     SHGFI_PIDL | SHGFI_SYSICONINDEX | SHGFI_LARGEICON
+                                         | SHGFI_OVERLAYINDEX | SHGFI_ICON);
+            ::CoTaskMemFree(pidl);
+        }
+        if (found == 0)
+            return {};
+    } else {
+        found = ::SHGetFileInfoW(wide(nativePath), 0, &info, sizeof(info),
+                                 SHGFI_SYSICONINDEX | SHGFI_LARGEICON | SHGFI_OVERLAYINDEX | SHGFI_ICON);
+        if (found == 0)
+            return scaledTo(fallbackIcon(nativePath), target);
     }
+    // SHGFI_OVERLAYINDEX only works together with SHGFI_ICON (documented); the
+    // icon itself is not used -- the image list gives the right size.
+    if (info.hIcon)
+        ::DestroyIcon(info.hIcon);
+    const int iconIndex = info.iIcon & 0x00FFFFFF;
+    const UINT overlay = (static_cast<UINT>(info.iIcon) >> 24) & 0x0F;
 
     IImageList* imageList = nullptr;
     if (FAILED(::SHGetImageList(imageListFor(target), imageListIid(),
@@ -125,20 +151,48 @@ QPixmap ShellIconCache::loadIcon(const QString& path, int sizePx)
     }
 
     HICON icon = nullptr;
-    const HRESULT hr = imageList->GetIcon(info.iIcon, ILD_TRANSPARENT, &icon);
+    const HRESULT hr = imageList->GetIcon(iconIndex, ILD_TRANSPARENT, &icon);
+    // The overlay is an image of the same list, drawn over the icon. Asked for
+    // separately: GetIcon() ignores an overlay mask (measured -- the shortcut
+    // arrow did not appear).
+    // Taken from the *small* list, drawn unscaled in the bottom-left corner:
+    // that is the arrow's size on the desktop at 48 px (measured against
+    // build\captures\baseline_progman.png -- the 48 px list's own overlay is
+    // twice as large). Large icons (96+) use the 32 px one.
     imageList->Release();
+    const int overlaySize = target >= 96 ? 32 : 16;
+    HICON overlayIcon = nullptr;
+    IImageList* overlayList = nullptr;
+    if (overlay > 0
+        && SUCCEEDED(::SHGetImageList(imageListFor(overlaySize), imageListIid(),
+                                      reinterpret_cast<void**>(&overlayList)))
+        && overlayList) {
+        int overlayIndex = -1;
+        if (SUCCEEDED(overlayList->GetOverlayImage(static_cast<int>(overlay), &overlayIndex))
+            && overlayIndex >= 0)
+            overlayList->GetIcon(overlayIndex, ILD_TRANSPARENT, &overlayIcon);
+        overlayList->Release();
+    }
 
     if (FAILED(hr) || !icon) {
         qCDebug(lc) << "system image list lookup failed for" << path << "-> falling back";
         return scaledTo(fallbackIcon(nativePath), target);
     }
 
-    const QPixmap pixmap = pixmapFromIcon(icon);
+    const QPixmap base = pixmapFromIcon(icon);
     ::DestroyIcon(icon);
-    if (pixmap.isNull())
+    const QPixmap overlayPixmap = overlayIcon ? pixmapFromIcon(overlayIcon) : QPixmap();
+    if (overlayIcon)
+        ::DestroyIcon(overlayIcon);
+    if (base.isNull())
         return scaledTo(fallbackIcon(nativePath), target);
 
-    return scaledTo(pixmap, target);
+    QPixmap pixmap = scaledTo(base, target);
+    if (!overlayPixmap.isNull() && pixmap.width() > overlayPixmap.width()) {
+        QPainter painter(&pixmap);
+        painter.drawPixmap(0, pixmap.height() - overlayPixmap.height(), overlayPixmap);
+    }
+    return pixmap;
 }
 
 QPixmap ShellIconCache::iconFor(const QString& path, int sizePx)

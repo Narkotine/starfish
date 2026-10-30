@@ -1217,6 +1217,13 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
             *result = HTCLIENT;
             return true;
         }
+        // ADR-21: the drawn desktop. The list view is hidden, so what is under
+        // this window is the bare wallpaper: every click is the desktop's, and
+        // the desktop is us.
+        if (m_ownsAllInput) {
+            *result = HTCLIENT;
+            return true;
+        }
         // From here on, the backdrop only: the surface that stands over the
         // desktop's own layers with nothing of its own to draw.
         //

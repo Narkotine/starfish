@@ -139,6 +139,13 @@ public:
     void setClickThrough(bool clickThrough);
     bool clickThrough() const { return m_clickThrough; }
 
+    // ADR-21: the backdrop *is* the desktop -- the native list is hidden and every
+    // icon on screen is ours. Nothing is under this window to step aside for, so
+    // the backdrop answers HTCLIENT everywhere, left button included (the
+    // ADR-13 step-asides below are the shared-desktop mode, and stay for it).
+    void setOwnsAllInput(bool owns) { m_ownsAllInput = owns; }
+    bool ownsAllInput() const { return m_ownsAllInput; }
+
     // The rectangles the *native* desktop icons occupy, in this window's own
     // (physical) coordinates -- client coordinates, because that is what a child
     // window's hit test works in.
@@ -348,6 +355,7 @@ private:
     bool m_visible = true;
     Layer m_layer = Layer::BelowIconLayer;
     bool m_clickThrough = false;
+    bool m_ownsAllInput = false;
 
     QVector<QRect> m_nativeIconRects;
     QObject* m_inputTarget = nullptr;

@@ -138,6 +138,11 @@ public:
         const auto boxFor = [&boxes](const core::DesktopItem& item) -> QRect {
             if (boxes.isEmpty())
                 return {};
+            // ADR-21: the drawn desktop keys the shell's slots by path -- a name
+            // is not unique (a user and a Public shortcut can share one).
+            const auto byPath = boxes.constFind(pathKey(item.path));
+            if (byPath != boxes.constEnd())
+                return byPath.value();
             const auto byName = boxes.constFind(item.name);
             if (byName != boxes.constEnd())
                 return byName.value();
