@@ -183,6 +183,10 @@ public:
     // The caption rectangle of an icon (screen pixels) -- where F2 edits.
     QRect labelRectOf(const QString& path) const;
     QRect iconRectOf(const QString& path) const;
+    // Session 62: the picture a drag of `paths` carries (physical pixels), the
+    // icons laid out as they sit -- those within reach of `press`, as Windows
+    // caps a big selection. `hotspot` = `press` inside the image.
+    QImage dragImage(const QStringList& paths, const QPoint& press, QPoint* hotspot) const;
 
     // Creates the window and pushes the first frame. Returns false when there is
     // no desktop to host it on, or -- and this is the interesting case -- when

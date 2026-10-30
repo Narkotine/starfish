@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QImage>
 #include <QPoint>
 #include <QString>
 #include <QStringList>
@@ -48,7 +49,20 @@ bool shellDataObjectFormats(void* dataObject, bool* hdrop, bool* idList);
 // Drags the items with the shell's own drag loop and images (SHDoDragDrop).
 // Modal: returns when the button comes up, with the DROPEFFECT the target
 // chose. While it runs, internalDragActive() is true and says what is carried.
-int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner);
+int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner,
+                   const QImage& image = QImage(), const QPoint& hotspot = QPoint());
+// Session 62: the drag's picture, the official way -- IDragSourceHelper::
+// InitializeFromBitmap on the data object, so the shell draws it everywhere
+// (our windows, Explorer, other applications). `image` premultiplied ARGB,
+// `hotspot` = the cursor inside it. hasDragImage() is for the probes.
+bool attachDragImage(void* dataObject, const QImage& image, const QPoint& hotspot);
+bool hasDragImage(void* dataObject);
+// ... and the drop targets' half (IDropTargetHelper): our own targets show the
+// picture and the shell's drop description as they are dragged over.
+void dragImageEnter(quintptr hwnd, void* dataObject, const QPoint& screen, unsigned long effect);
+void dragImageOver(const QPoint& screen, unsigned long effect);
+void dragImageLeave();
+void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect);
 bool internalDragActive();
 QStringList internalDragPaths();
 QPoint internalDragOrigin();

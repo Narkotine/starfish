@@ -92,7 +92,9 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWOR
     m_canDrop = internalDragActive() || dataHasHdrop(pDataObj);
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
-    (void)pt;
+    // Session 62: the picture follows the cursor over the fence too.
+    dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), pDataObj, QPoint(pt.x, pt.y),
+                   m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
     return S_OK;
 }
 
@@ -101,13 +103,14 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD /*grfKeyState*/, POINT
 {
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
-    (void)pt;
+    dragImageOver(QPoint(pt.x, pt.y), m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
     return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
 {
     m_canDrop = false;
+    dragImageLeave();
     return S_OK;
 }
 
@@ -119,6 +122,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*g
     if (pdwEffect)
         *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
     m_canDrop = false;
+    dragImageDrop(pDataObj, QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)),
+                  pdwEffect ? *pdwEffect : DROPEFFECT_NONE);
 
     if (!paths.isEmpty() && m_handler) {
         // OLE reports screen coordinates; the handler wants client coordinates

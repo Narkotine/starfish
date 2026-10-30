@@ -2392,7 +2392,11 @@ void ProductApp::dragDesktopItems(const QStringList& paths, const QPoint& origin
 {
     if (!drawnDesktop() || paths.isEmpty())
         return;
-    platform::win::dragShellItems(paths, origin, backdropOwner());
+    // Session 62: the icons travel with the cursor, as on Windows' desktop.
+    QPoint hotspot;
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    const QImage picture = backdrop ? backdrop->dragImage(paths, origin, &hotspot) : QImage();
+    platform::win::dragShellItems(paths, origin, backdropOwner(), picture, hotspot);
     m_shellSignature.clear();
     m_shellResync.start();
 }

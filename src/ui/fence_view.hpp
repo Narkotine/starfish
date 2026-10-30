@@ -11,6 +11,7 @@ class QDropEvent;
 class QWheelEvent;
 
 #include "core/desktop_item.hpp"
+#include "ui/drag_image.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_metrics.hpp"
 #include "ui/icon_grid.hpp"
@@ -130,6 +131,12 @@ public:
     // mirrors is the folder's, not the fence's).
     int removeItemsByPath(const QStringList& paths);
 
+public:
+    // Session 62: the picture a drag of tile `index` carries (device pixels at
+    // `dpr`), and where the press sits in it (logical). For the ghost and the probe.
+    QImage dragImageFor(int index, const QPoint& press, qreal dpr, QPoint* hotspot) const;
+    bool dragGhostVisible() const;
+
 signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.
@@ -229,6 +236,9 @@ private:
     int m_dropTargetIndex = -1;
     QPoint m_dragStartPos;
     bool m_dragging = false;
+    // Session 62: the picture of the dragged tile, under the cursor.
+    DragGhost* m_ghost = nullptr;
+    void updateDragGhost(bool dragging);
     // F-011: the pointer of an in-flight tile drag is outside the fence, so the
     // release will hand the tile back to the desktop. Recomputed on every move
     // (dragging back in disarms it again), which is why it is not a one-way

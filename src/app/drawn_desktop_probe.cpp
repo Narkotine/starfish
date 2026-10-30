@@ -524,6 +524,32 @@ int runDrawnDesktopProbe(QApplication& app)
                           .arg(hdrop ? QLatin1String("yes") : QLatin1String("no"))
                           .arg(idList ? QLatin1String("yes") : QLatin1String("no")));
 
+                // Session 62: the drag shows the dragged icons (the shell's drag
+                // image helper), not the default "document" cursor. No DoDragDrop.
+                {
+                    const int at = cellIndex(backdrop, testNative);
+                    const QString path = at >= 0 ? backdrop->cells().at(at).item.path : testNative;
+                    QPoint hotspot;
+                    const QImage picture = backdrop->dragImage({path}, icon.center(), &hotspot);
+                    void* withImage = platform::win::createShellDataObject({testNative});
+                    const bool attached = platform::win::attachDragImage(withImage, picture, hotspot);
+                    const bool carried = platform::win::hasDragImage(withImage);
+                    platform::win::releaseComObject(withImage);
+                    bool translucent = false;
+                    for (int y = 0; y < picture.height() && !translucent; ++y)
+                        for (int x = 0; x < picture.width() && !translucent; ++x)
+                            translucent = qAlpha(picture.pixel(x, y)) > 0 && qAlpha(picture.pixel(x, y)) < 255;
+                    picture.save(captures + QStringLiteral("/lot62_drag_image.png"));
+                    check(QStringLiteral("a drag shows the dragged icon, a little translucent"),
+                          !picture.isNull() && attached && carried && translucent
+                              && QRect(QPoint(), picture.size()).contains(hotspot),
+                          QStringLiteral("%1x%2, hotspot %3,%4, attached %5, carried %6")
+                              .arg(picture.width()).arg(picture.height())
+                              .arg(hotspot.x()).arg(hotspot.y())
+                              .arg(attached ? QLatin1String("yes") : QLatin1String("no"))
+                              .arg(carried ? QLatin1String("yes") : QLatin1String("no")));
+                }
+
                 // (f) Our icon dropped back on the desktop moves (the file does not).
                 // Session 61: carried as a real drag carries it -- the *cell's*
                 // path (C:/...), not the shell's name (C:\...). Given the shell's

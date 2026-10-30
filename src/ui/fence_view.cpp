@@ -5,6 +5,8 @@
 #include <QCursor>
 #include <QDesktopServices>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
@@ -332,6 +334,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         m_geometryDragging = true;
         m_dragOriginIndex = -1;
         m_dragging = false;
+        updateDragGhost(false);
         m_dropTargetIndex = -1;
         m_releaseArmed = false;
         emit geometryDragStarted();
@@ -355,6 +358,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     m_dragStartPos = event->pos();
     m_dropTargetIndex = -1;
     m_dragging = false;
+    updateDragGhost(false);
     m_releaseArmed = false;
 
     update();
@@ -398,6 +402,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         m_grid.selectOnly(m_dragOriginIndex);
         m_dragging = true;
     }
+    updateDragGhost(true);
 
     m_dropTargetIndex = itemAt(event->pos());
     // F-011: outside the fence there is no cell to drop onto, and the release
@@ -438,6 +443,7 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
             && !m_grid.items().at(from).path.isEmpty()) {
             const QString path = m_grid.items().at(from).path;
             m_dragging = false;
+            updateDragGhost(false);
             m_dragOriginIndex = -1;
             m_dragStartPos = QPoint();
             m_dropTargetIndex = -1;
@@ -454,6 +460,7 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         if (to >= 0 && from >= 0 && from != to)
             m_grid.moveItem(from, to);
         m_dragging = false;
+        updateDragGhost(false);
         m_dragOriginIndex = -1;
         m_dragStartPos = QPoint();
         m_dropTargetIndex = -1;
@@ -688,6 +695,60 @@ void FenceView::showContextMenuForIndex(int index, const QPoint& globalPos)
     Q_UNUSED(index);
     Q_UNUSED(globalPos);
 #endif
+}
+
+} // namespace starfish::ui
+
+namespace starfish::ui {
+
+QImage FenceView::dragImageFor(int index, const QPoint& press, qreal dpr, QPoint* hotspot) const
+{
+    if (index < 0 || index >= m_grid.items().size())
+        return {};
+    const QRect content = contentRect();
+    const QVector<IconCell> cells = m_grid.cells(content.size());
+    if (index >= cells.size())
+        return {};
+    DragTile tile;
+    tile.icon = cells.at(index).icon.translated(content.topLeft());
+    tile.label = cells.at(index).label.translated(content.topLeft());
+    const core::DesktopItem& item = m_grid.items().at(index);
+    tile.pixmap = m_iconProvider ? m_iconProvider(item, qRound(m_grid.iconSize() * dpr)) : QPixmap();
+    tile.text = item.name;
+    QPoint topLeft;
+    const QImage image = DragImage::compose({tile}, m_grid.captionFont(), DragImage::kOpacity, dpr, &topLeft);
+    if (hotspot)
+        *hotspot = press - topLeft;
+    return image;
+}
+
+bool FenceView::dragGhostVisible() const
+{
+    return m_ghost && m_ghost->isVisible();
+}
+
+void FenceView::updateDragGhost(bool dragging)
+{
+    if (!dragging) {
+        if (m_ghost) {
+            m_ghost->hide();
+            m_ghost->deleteLater();
+            m_ghost = nullptr;
+        }
+        return;
+    }
+    if (!m_ghost) {
+        QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+        const qreal dpr = screen ? screen->devicePixelRatio() : 1.0;
+        QPoint hotspot;
+        const QImage image = dragImageFor(m_dragOriginIndex, m_dragStartPos, dpr, &hotspot);
+        if (image.isNull())
+            return;
+        m_ghost = new DragGhost;
+        m_ghost->setImage(image, hotspot);
+        connect(this, &QObject::destroyed, m_ghost, &QObject::deleteLater);
+    }
+    m_ghost->follow(QCursor::pos());
 }
 
 } // namespace starfish::ui

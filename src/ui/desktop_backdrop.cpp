@@ -1,4 +1,5 @@
 #include "ui/desktop_backdrop.hpp"
+#include "ui/drag_image.hpp"
 
 #include <QColor>
 #include <QFont>
@@ -494,6 +495,39 @@ QRect DesktopBackdrop::labelRectOf(const QString& path) const
 {
     const int i = cellOf(path);
     return i < 0 ? QRect() : m_cells.at(i).label;
+}
+
+QImage DesktopBackdrop::dragImage(const QStringList& paths, const QPoint& press, QPoint* hotspot) const
+{
+    QSet<QString> keys;
+    for (const QString& p : paths)
+        keys.insert(BackdropLayout::pathKey(p));
+    const qreal s = scale();
+    QFont font(QStringLiteral("Segoe UI"));
+    font.setPixelSize(qMax(9, qRound(12.0 * s)));
+    const QFontMetrics fm(font);
+    const int inset = qRound(4 * s);
+    const int reach = qRound(360 * s);
+    QList<DragTile> tiles;
+    for (const BackdropCell& cell : m_cells) {
+        if (!keys.contains(BackdropLayout::pathKey(cell.item.path)))
+            continue;
+        const QPoint c = cell.icon.center();
+        if (qAbs(c.x() - press.x()) > reach || qAbs(c.y() - press.y()) > reach)
+            continue;
+        DragTile tile;
+        tile.icon = cell.icon;
+        tile.label = QRect(cell.label.x() + inset, cell.label.y() + qRound(2 * s),
+                           cell.label.width() - 2 * inset, qMin(cell.label.height(), 2 * fm.height()));
+        tile.pixmap = m_iconProvider ? m_iconProvider(cell.item, physicalMetrics().iconSize) : QPixmap();
+        tile.text = cell.item.name;
+        tiles.append(tile);
+    }
+    QPoint topLeft;
+    const QImage image = DragImage::compose(tiles, font, DragImage::kOpacity, 1.0, &topLeft);
+    if (hotspot)
+        *hotspot = press - topLeft;
+    return image;
 }
 
 QRect DesktopBackdrop::iconRectOf(const QString& path) const

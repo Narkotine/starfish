@@ -57,6 +57,13 @@ public:
     bool hasBaseFont() const { return m_hasBaseFont; }
 
     int iconSize() const { return m_iconSize; }
+    // Session 62: the icon and caption rects of every cell (content-local).
+    QVector<IconCell> cells(const QSize& contentSize) const
+    {
+        return IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
+                                   m_items.size());
+    }
+    QFont captionFont() const { return m_captionFont; }
     // The width of one grid cell: wider than the icon, so a caption has room to
     // wrap instead of being cut to the width of the icon square (T-049) --
     // and, since T-078, as wide as the longest caption of this grid needs,

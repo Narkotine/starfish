@@ -160,6 +160,7 @@ public:
         m_internal = internalDragActive();
         if (m_internal) {
             *effect = (*effect & DROPEFFECT_MOVE) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
+            dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), data, QPoint(pt.x, pt.y), *effect);
             return S_OK;
         }
         if (IDropTarget* shell = shellTarget())
@@ -171,6 +172,7 @@ public:
     {
         if (m_internal) {
             *effect = (*effect & DROPEFFECT_MOVE) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
+            dragImageOver(QPoint(pt.x, pt.y), *effect);
             return S_OK;
         }
         if (m_shell)
@@ -182,6 +184,8 @@ public:
     {
         if (!m_internal && m_shell)
             m_shell->DragLeave();
+        if (m_internal)
+            dragImageLeave();
         m_internal = false;
         return S_OK;
     }
@@ -192,6 +196,7 @@ public:
             // Ours: the icons move on the desktop, no file does. NONE tells the
             // source there is nothing for it to finish (no "delete after move").
             *effect = DROPEFFECT_NONE;
+            dragImageDrop(data, QPoint(pt.x, pt.y), DROPEFFECT_MOVE);
             if (m_internalDrop)
                 m_internalDrop(QPoint(pt.x, pt.y), internalDragPaths(), internalDragOrigin());
             return S_OK;
@@ -367,11 +372,120 @@ bool shellDataObjectFormats(void* dataObject, bool* hdrop, bool* idList)
     return true;
 }
 
-int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner)
+namespace {
+
+HBITMAP bitmapFrom(const QImage& source)
+{
+    const QImage image = source.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = image.width();
+    info.bmiHeader.biHeight = -image.height(); // top-down, like QImage
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC screen = ::GetDC(nullptr);
+    HBITMAP bitmap = ::CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ::ReleaseDC(nullptr, screen);
+    if (!bitmap || !bits)
+        return nullptr;
+    const int stride = image.width() * 4;
+    for (int y = 0; y < image.height(); ++y)
+        memcpy(static_cast<uchar*>(bits) + y * stride, image.constScanLine(y), size_t(stride));
+    return bitmap;
+}
+
+IDropTargetHelper* targetHelper()
+{
+    static IDropTargetHelper* helper = [] {
+        IDropTargetHelper* h = nullptr;
+        if (FAILED(::CoCreateInstance(CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&h))))
+            h = nullptr;
+        return h;
+    }();
+    return helper;
+}
+
+} // namespace
+
+bool attachDragImage(void* dataObject, const QImage& image, const QPoint& hotspot)
+{
+    auto* data = static_cast<IDataObject*>(dataObject);
+    if (!data || image.isNull())
+        return false;
+    IDragSourceHelper* helper = nullptr;
+    if (FAILED(::CoCreateInstance(CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&helper)))
+        || !helper)
+        return false;
+    IDragSourceHelper2* helper2 = nullptr;
+    if (SUCCEEDED(helper->QueryInterface(IID_PPV_ARGS(&helper2))) && helper2) {
+        helper2->SetFlags(DSH_ALLOWDROPDESCRIPTIONTEXT); // "Move to Documents"...
+        helper2->Release();
+    }
+    SHDRAGIMAGE drag{};
+    drag.sizeDragImage = {image.width(), image.height()};
+    drag.ptOffset = {qBound(0, hotspot.x(), image.width() - 1), qBound(0, hotspot.y(), image.height() - 1)};
+    drag.hbmpDragImage = bitmapFrom(image);
+    drag.crColorKey = CLR_NONE;
+    const HRESULT hr = drag.hbmpDragImage ? helper->InitializeFromBitmap(&drag, data) : E_FAIL;
+    if (FAILED(hr) && drag.hbmpDragImage)
+        ::DeleteObject(drag.hbmpDragImage); // owned by the helper only on success
+    helper->Release();
+    if (FAILED(hr))
+        qCWarning(lc) << "the drag image was refused, hr" << Qt::hex << quint32(hr);
+    return SUCCEEDED(hr);
+}
+
+bool hasDragImage(void* dataObject)
+{
+    auto* data = static_cast<IDataObject*>(dataObject);
+    if (!data)
+        return false;
+    FORMATETC format{static_cast<CLIPFORMAT>(::RegisterClipboardFormatW(L"DragImageBits")), nullptr,
+                     DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    return data->QueryGetData(&format) == S_OK;
+}
+
+void dragImageEnter(quintptr hwnd, void* dataObject, const QPoint& screen, unsigned long effect)
+{
+    if (IDropTargetHelper* h = targetHelper()) {
+        POINT pt{screen.x(), screen.y()};
+        h->DragEnter(reinterpret_cast<HWND>(hwnd), static_cast<IDataObject*>(dataObject), &pt, effect);
+    }
+}
+
+void dragImageOver(const QPoint& screen, unsigned long effect)
+{
+    if (IDropTargetHelper* h = targetHelper()) {
+        POINT pt{screen.x(), screen.y()};
+        h->DragOver(&pt, effect);
+    }
+}
+
+void dragImageLeave()
+{
+    if (IDropTargetHelper* h = targetHelper())
+        h->DragLeave();
+}
+
+void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect)
+{
+    if (IDropTargetHelper* h = targetHelper()) {
+        POINT pt{screen.x(), screen.y()};
+        h->Drop(static_cast<IDataObject*>(dataObject), &pt, effect);
+    }
+}
+
+int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner,
+                   const QImage& image, const QPoint& hotspot)
 {
     auto* data = static_cast<IDataObject*>(createShellDataObject(parsingNames));
     if (!data)
         return DROPEFFECT_NONE;
+    // Session 62: our picture, or the shell's default when there is none.
+    if (!image.isNull())
+        attachDragImage(data, image, hotspot);
     beginInternalDrag(parsingNames, origin);
     DWORD effect = DROPEFFECT_NONE;
     const HRESULT hr = ::SHDoDragDrop(reinterpret_cast<HWND>(owner), data, nullptr,

@@ -22,6 +22,7 @@
 
 #include "core/context_menu.hpp"
 #include "ui/context_menu_editor.hpp"
+#include "ui/drag_image.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
@@ -189,6 +190,7 @@ int runUiProbe(QApplication& app)
     settings.setSortOnAdd(false);
     settings.setDesktopShortcutArrows(true);
     settings.setDesktopOverlapAllowed(false);
+    settings.setStartWithWindows(false, false);
     if (offscreen)
         settings.setAttribute(Qt::WA_DontShowOnScreen);
     settings.show();
@@ -204,6 +206,78 @@ int runUiProbe(QApplication& app)
     // is in front of it -- the user's own windows.
     check(QStringLiteral("the settings window has four pages"),
           settings.findChild<QListWidget*>(QStringLiteral("nav"))->count() == 4, {});
+    // Session 62: "start with Windows" on General; a Task Manager disable shows
+    // as off, with a hint (the registry is the truth -- nothing written here).
+    {
+        settings.showPage(ui::SettingsDialog::General);
+        wait(150);
+        auto* box = settings.findChild<QCheckBox*>(QStringLiteral("startWithWindowsSwitch"));
+        QLabel* hint = nullptr;
+        for (QLabel* label : settings.findChildren<QLabel*>())
+            if (label->property("startWithWindowsHint").toBool())
+                hint = label;
+        const bool shown = box && hint && box->isVisibleTo(&settings);
+        const QString plain = hint ? hint->text() : QString();
+        settings.setStartWithWindows(true, false);
+        const bool on = box && box->isChecked() && hint->text() == plain;
+        settings.setStartWithWindows(true, true);
+        const bool disabled = box && !box->isChecked() && hint->text() != plain;
+        settings.grab().save(captures + QStringLiteral("/ui_settings_start_disabled_%1.png").arg(theme));
+        const QString disabledText = hint ? hint->text() : QString();
+        settings.setStartWithWindows(false, false);
+        check(QStringLiteral("\"start with Windows\" is on General, a Task Manager disable shown"),
+              shown && on && disabled, disabledText);
+    }
+    // Session 62: the picture a drag carries -- the icons as they sit, on a
+    // light plate, a little translucent; transparent around them.
+    {
+        auto tilePixmap = [](QColor color) {
+            QPixmap pm(48, 48);
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setBrush(color);
+            p.setPen(Qt::NoPen);
+            p.drawRoundedRect(QRectF(4, 4, 40, 40), 6, 6);
+            return pm;
+        };
+        QList<ui::DragTile> tiles;
+        const QStringList names = {QStringLiteral("Rapport annuel.docx"), QStringLiteral("Photos"),
+                                   QStringLiteral("Un nom de fichier assez long pour deux lignes.txt")};
+        const QColor colors[] = {QColor(0x2B, 0x7C, 0xD3), QColor(0xF2, 0xC2, 0x3C), QColor(0x6E, 0xB5, 0x4A)};
+        for (int i = 0; i < 3; ++i) {
+            ui::DragTile t;
+            t.icon = QRect(20 + i * 86, 10 + (i == 2 ? 100 : 0), 48, 48);
+            t.label = QRect(t.icon.x() - 18, t.icon.bottom() + 5, 84, 34);
+            t.pixmap = tilePixmap(colors[i]);
+            t.text = names.at(i);
+            tiles << t;
+        }
+        QFont font(QStringLiteral("Segoe UI"));
+        font.setPixelSize(12);
+        QPoint topLeft;
+        const QImage image = ui::DragImage::compose(tiles, font, ui::DragImage::kOpacity, 1.0, &topLeft);
+        int maxAlpha = 0;
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                maxAlpha = qMax(maxAlpha, qAlpha(image.pixel(x, y)));
+        const bool cornerClear = !image.isNull() && qAlpha(image.pixel(image.width() - 1, 0)) == 0;
+        // On a wallpaper-like sheet, the way it looks while dragged.
+        QImage sheet(image.size() + QSize(80, 80), QImage::Format_ARGB32_Premultiplied);
+        {
+            QPainter p(&sheet);
+            QLinearGradient g(0, 0, sheet.width(), sheet.height());
+            g.setColorAt(0, QColor(0x1E, 0x3A, 0x5F));
+            g.setColorAt(1, QColor(0x5F, 0x8F, 0xB0));
+            p.fillRect(sheet.rect(), g);
+            p.drawImage(40, 40, image);
+        }
+        sheet.save(captures + QStringLiteral("/ui_drag_image.png"));
+        check(QStringLiteral("a drag picture: the icons as they sit, translucent, clear around"),
+              !image.isNull() && maxAlpha > 0 && maxAlpha < 255 && cornerClear
+                  && image.format() == QImage::Format_ARGB32_Premultiplied,
+              QStringLiteral("%1x%2, max alpha %3").arg(image.width()).arg(image.height()).arg(maxAlpha));
+    }
     {
         settings.showPage(ui::SettingsDialog::Fences);
         wait(150);
@@ -268,6 +342,18 @@ int runUiProbe(QApplication& app)
         dbl(QPoint(view.width() - 30, m.titleBarHeight / 2));
         check(QStringLiteral("double-click: on the name renames, elsewhere on the band rolls up"),
               onText && edits == 1 && rolls == 1, QStringLiteral("edits %1, roll-ups %2").arg(edits).arg(rolls));
+        // Session 62: a tile dragged out of the fence carries its picture (the
+        // ghost that follows the cursor); composed only, no window shown here.
+        {
+            QPoint hotspot;
+            const QImage tile = view.dragImageFor(1, QPoint(120, 90), 1.0, &hotspot);
+            if (!tile.isNull())
+                tile.save(captures + QStringLiteral("/ui_fence_drag_tile.png"));
+            check(QStringLiteral("a fence tile has its drag picture"),
+                  !tile.isNull() && !view.dragGhostVisible(),
+                  QStringLiteral("%1x%2, hotspot %3,%4").arg(tile.width()).arg(tile.height())
+                      .arg(hotspot.x()).arg(hotspot.y()));
+        }
         // The picture: the fence, and the edit where ProductApp puts it (same
         // style as startFenceTitleEdit) -- a montage of the two widgets.
         QPixmap shot(view.size());
