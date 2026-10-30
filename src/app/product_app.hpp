@@ -168,6 +168,9 @@ public:
     // The drop of our own icons back onto the desktop (the drop target's half).
     void onInternalDrop(const QPoint& point, const QStringList& paths, const QPoint& origin);
     QPoint desktopItemPosition(const QString& path) const { return m_itemPositions.value(path); }
+    // A drop from elsewhere is about to happen at `point` (physical screen):
+    // what appears next on the desktop is placed there.
+    void onForeignDrop(const QPoint& point, const QStringList& stems = {});
     // The desktop's background menu at `point`, as a right-click opens it.
     void showDesktopMenu(const QPoint& point) { onDesktopMenu(QRect(), point); }
 
@@ -345,6 +348,11 @@ private:
     QHash<QString, QPoint> m_itemPositions;
     qint64 m_renameNewUntil = 0;
     QSet<QString> m_namesBeforeNew;
+    // T-091 follow-up: a drop from elsewhere, placed under the cursor.
+    QPoint m_foreignDropAt;
+    qint64 m_foreignDropUntil = 0;
+    QSet<QString> m_namesBeforeDrop;
+    QStringList m_dropStems;
 
     void onNewFence();
     // F-001 / T-055: the user right-clicked or right-dragged the bare desktop.

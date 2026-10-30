@@ -147,6 +147,29 @@ private slots:
                  (QStringList{QStringLiteral("C:\\a"), QStringLiteral("C:\\b"), QStringLiteral("--first=C:\\a")}));
     }
 
+    void packagedAppsHaveTheirGroup()
+    {
+        ContextMenuItem terminal;
+        terminal.key = QStringLiteral("terminal"); // a place Windows 11 has for it
+        terminal.label = QStringLiteral("Ouvrir dans le Terminal");
+        terminal.packagedIndex = 0;
+        ContextMenuItem notepad;
+        notepad.key = QStringLiteral("app:Microsoft.WindowsNotepad/OpenInNotepad");
+        notepad.label = QStringLiteral("Modifier dans Bloc-notes");
+        notepad.packagedIndex = 1;
+        const auto bg = composeWindows11Menu(background(), ContextMenuKind::Background, {}, {}, QString(),
+                                             nullptr, {terminal});
+        QVERIFY(keys(bg).join(QLatin1Char(' ')).contains(QStringLiteral("personalize | terminal | more-options")));
+        ContextMenuConfig config;
+        config.items.hidden << notepad.key;
+        const auto hidden = composeWindows11Menu(fileMenu(), ContextMenuKind::Selection, config, {}, QString(),
+                                                 nullptr, {notepad});
+        QVERIFY(!keys(hidden).contains(notepad.key));
+        const auto shown = composeWindows11Menu(fileMenu(), ContextMenuKind::Selection, {}, {}, QString(),
+                                                nullptr, {notepad});
+        QVERIFY(keys(shown).join(QLatin1Char(' ')).contains(QStringLiteral("properties | app:Microsoft.WindowsNotepad/OpenInNotepad | more-options")));
+    }
+
     void configurationRoundTrips()
     {
         QTemporaryDir dir;

@@ -138,7 +138,9 @@ void fill(QMenu* menu, const std::vector<core::ContextMenuItem>& items, const Mo
             sub->setEnabled(item.enabled);
             continue;
         }
-        QAction* action = menu->addAction(glyphIcon(item.glyph, item.enabled ? fg : dim), text);
+        const QIcon icon = !item.iconFile.isEmpty() ? QIcon(item.iconFile)
+                                                    : glyphIcon(item.glyph, item.enabled ? fg : dim);
+        QAction* action = menu->addAction(icon, text);
         action->setObjectName(item.key);
         action->setEnabled(item.enabled);
         if (item.checked) {

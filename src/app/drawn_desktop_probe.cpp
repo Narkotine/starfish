@@ -33,6 +33,7 @@
 #include "core/icon_hiding_marker.hpp"
 #include "platform/win/desktop_shell_view.hpp"
 #include "platform/win/desktop_surface.hpp"
+#include "platform/win/packaged_commands.hpp"
 #include "platform/win/shell_operations.hpp"
 #include "ui/backdrop_gesture.hpp"
 #include "ui/backdrop_layout.hpp"
@@ -552,6 +553,11 @@ int runDrawnDesktopProbe(QApplication& app)
                 const QString source = QDir(outside).filePath(QStringLiteral("StarFish probe drop.txt"));
                 const QString landed = QDir(desktop).filePath(QStringLiteral("StarFish probe drop.txt"));
                 bool copiedIn = false;
+                bool underCursor = false;
+                QRect where;
+                // A bare spot away from the screen's centre, where the shell
+                // would not put a new file by itself.
+                const QPoint dropPoint = backdrop->area().center() + QPoint(-420, 260);
                 if (!QFileInfo::exists(landed)) {
                     {
                         QFile file(source);
@@ -559,15 +565,29 @@ int runDrawnDesktopProbe(QApplication& app)
                         file.write("dropped by the StarFish probe\n");
                     }
                     void* foreign = platform::win::createShellDataObject({QDir::toNativeSeparators(source)});
-                    playDrop(desktopTarget, foreign, backdrop->area().center(), true);
+                    playDrop(desktopTarget, foreign, dropPoint, true);
                     copiedIn = waitUntil(8000, [&] {
                         return QFileInfo::exists(landed)
                                && cellIndex(backdrop, QDir::toNativeSeparators(landed)) >= 0;
                     });
                     platform::win::releaseComObject(foreign);
+                    // ...and is placed under the cursor (the grid may snap it).
+                    underCursor = waitUntil(6000, [&] {
+                        const int i = cellIndex(backdrop, QDir::toNativeSeparators(landed));
+                        if (i < 0)
+                            return false;
+                        const QRect box = backdrop->cells().at(i).icon.united(backdrop->cells().at(i).label);
+                        return box.adjusted(-100, -100, 100, 100).contains(dropPoint);
+                    });
+                    const int i = cellIndex(backdrop, QDir::toNativeSeparators(landed));
+                    if (i >= 0)
+                        where = backdrop->cells().at(i).icon;
                 }
                 check(QStringLiteral("a file dropped from outside lands on the Desktop"), copiedIn,
                       landed);
+                check(QStringLiteral("...under the cursor"), underCursor,
+                      QStringLiteral("dropped at %1,%2, icon at %3,%4")
+                          .arg(dropPoint.x()).arg(dropPoint.y()).arg(where.x()).arg(where.y()));
                 QFile::remove(landed);
                 QDir(outside).removeRecursively();
 
@@ -628,7 +648,8 @@ int runDrawnDesktopProbe(QApplication& app)
                 };
                 core::ContextMenuItem create;
                 create.key = QStringLiteral("starfish:create-fence");
-                create.label = QStringLiteral("Create a fence here");
+                // The product's own label, translated as the product shows it.
+                create.label = QCoreApplication::translate("starfish::app::ProductApp", "Create a fence here");
                 create.ownId = 1;
                 const std::vector<core::ContextMenuItem> ours{create};
 
@@ -644,6 +665,14 @@ int runDrawnDesktopProbe(QApplication& app)
                           && bgKeys.contains(QStringLiteral("starfish:create-fence"))
                           && bgKeys.last() == QLatin1String("more-options"),
                       bgKeys.join(QLatin1Char(' ')));
+                const bool terminalDeclared =
+                    !platform::win::packagedCommandDeclarations()
+                         .filter(QStringLiteral("Directory\\Background"))
+                         .isEmpty();
+                check(QStringLiteral("...with the packaged apps' entries (IExplorerCommand)"),
+                      !terminalDeclared || bgKeys.contains(QStringLiteral("terminal"))
+                          || !bgKeys.filter(QStringLiteral("app:")).isEmpty(),
+                      terminalDeclared ? QStringLiteral("a packaged app declares one") : QStringLiteral("none declared"));
                 check(QStringLiteral("...and only them (extensions under Show more options)"),
                       onlyWindows11, bgKeys.join(QLatin1Char(' ')));
 

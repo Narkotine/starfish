@@ -36,6 +36,7 @@
 #include "platform/win/desktop_shell_view.hpp"
 #include "platform/win/desktop_surface.hpp"
 #include "platform/win/hotkey_manager.hpp"
+#include "platform/win/packaged_commands.hpp"
 #include "platform/win/shell_context_menu.hpp"
 #include "platform/win/shell_icon_cache.hpp"
 #include "platform/win/shell_operations.hpp"
@@ -741,9 +742,11 @@ void ProductApp::wireBackdrop()
             &ProductApp::dragDesktopItems);
     backdrop->setDropTargetFactory([this](quintptr hwnd) {
         return platform::win::createDesktopDropTarget(
-            hwnd, [this](const QPoint& point, const QStringList& paths, const QPoint& origin) {
+            hwnd,
+            [this](const QPoint& point, const QStringList& paths, const QPoint& origin) {
                 onInternalDrop(point, paths, origin);
-            });
+            },
+            [this](const QPoint& point, const QStringList& stems) { onForeignDrop(point, stems); });
     });
     // T-090: the desktop window died under us (Explorer restarted).
     connect(backdrop, &ui::DesktopBackdrop::desktopLost, this, &ProductApp::onDesktopLost);
@@ -1769,6 +1772,40 @@ void ProductApp::syncShellView()
     m_itemPositions.clear();
     for (const platform::win::ShellViewItem& item : state.items)
         m_itemPositions.insert(item.parsingName, item.position);
+    // A drop from elsewhere: what it created goes under the cursor, side by
+    // side, as on the native desktop (the hidden view would put it in a free slot).
+    if (m_foreignDropUntil > 0) {
+        if (QDateTime::currentMSecsSinceEpoch() > m_foreignDropUntil) {
+            m_foreignDropUntil = 0;
+        } else {
+            int placed = 0;
+            const int stepX = qMax(state.spacing.width(), 1);
+            for (const platform::win::ShellViewItem& item : state.items) {
+                if (m_namesBeforeDrop.contains(item.parsingName))
+                    continue;
+                // Only what the drop made: a file of the same name, its copy
+                // ("x - Copie") or its shortcut ("x - Raccourci"). A drop with no
+                // file names (virtual items) takes what appears first.
+                const QString stem = QFileInfo(item.parsingName).completeBaseName();
+                bool ours = m_dropStems.isEmpty() && placed == 0;
+                for (const QString& s : std::as_const(m_dropStems))
+                    ours = ours || stem.startsWith(s, Qt::CaseInsensitive);
+                if (!ours)
+                    continue;
+                m_namesBeforeDrop.insert(item.parsingName);
+                const QPoint topLeft = m_foreignDropAt
+                                       - QPoint(stepX / 2, state.iconSize / 2 + 8)
+                                       + QPoint(placed * stepX, 0);
+                if (m_shellView->positionItem(item.parsingName, topLeft))
+                    ++placed;
+            }
+            if (placed > 0) {
+                qCInfo(lc) << placed << "dropped item(s) placed under the cursor";
+                m_shellSignature.clear(); // read the positions the view kept
+                m_shellResync.start();
+            }
+        }
+    }
     if (m_renameNewUntil > 0) {
         if (QDateTime::currentMSecsSinceEpoch() > m_renameNewUntil) {
             m_renameNewUntil = 0;
@@ -2001,6 +2038,19 @@ bool ProductApp::moveDesktopItems(const QStringList& paths, const QPoint& delta)
     return moved == paths.size();
 }
 
+void ProductApp::onForeignDrop(const QPoint& point, const QStringList& stems)
+{
+    m_dropStems = stems;
+    m_namesBeforeDrop.clear();
+    if (m_shellView) {
+        for (const platform::win::ShellViewItem& item : m_shellView->read().items)
+            m_namesBeforeDrop.insert(item.parsingName);
+    }
+    m_foreignDropAt = point;
+    m_foreignDropUntil = QDateTime::currentMSecsSinceEpoch() + 15000;
+    m_shellResync.start();
+}
+
 void ProductApp::armNewItemRename()
 {
     m_namesBeforeNew.clear();
@@ -2171,8 +2221,24 @@ ProductApp::composeContextMenu(core::ContextMenuKind kind, const QStringList& pa
     std::vector<core::ContextMenuItem> classic = toContextMenuItems(shell);
     const core::ContextMenuConfig config =
         core::ContextMenuConfig::load(core::ContextMenuConfig::defaultPath());
-    std::vector<core::ContextMenuItem> items =
-        core::composeWindows11Menu(classic, kind, config, ours, tr("Show more options"));
+    // The packaged apps' entries (IExplorerCommand), which the classic menu never has.
+    std::vector<core::ContextMenuItem> packaged;
+    const QString desktopFolder = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    for (const platform::win::PackagedCommand& c : platform::win::packagedCommandsFor(
+             paths, kind == core::ContextMenuKind::Background, desktopFolder)) {
+        core::ContextMenuItem item;
+        // A title Windows 11 has a place for ("Ouvrir dans le Terminal") takes it.
+        const QString known = core::contextMenuKey(c.title, false);
+        item.key = known.startsWith(QLatin1String("label:")) ? c.key : known;
+        item.label = c.title;
+        item.iconFile = c.iconFile;
+        item.enabled = c.enabled;
+        item.packagedIndex = c.index;
+        packaged.push_back(item);
+    }
+    std::vector<core::ContextMenuItem> items = core::composeWindows11Menu(
+        classic, kind, config, ours, tr("Show more options"), nullptr, packaged);
+
     if (!items.empty() && items.back().ownId == core::kMoreOptionsId)
         items.back().shortcut = tr("Shift+F10"); // what opens it from the keyboard
     // The keys a user can name in the configuration, with what they say.
@@ -2185,6 +2251,12 @@ ProductApp::composeContextMenu(core::ContextMenuKind kind, const QStringList& pa
         const QString key = core::contextMenuKey(item.label, !item.children.empty());
         if (!m_seenMenuKeys.contains(prefix + key)) {
             m_seenMenuKeys.insert(prefix + key, item.label);
+            grew = true;
+        }
+    }
+    for (const core::ContextMenuItem& item : packaged) {
+        if (!m_seenMenuKeys.contains(prefix + item.key)) {
+            m_seenMenuKeys.insert(prefix + item.key, item.label);
             grew = true;
         }
     }
@@ -2226,6 +2298,8 @@ int ProductApp::runContextMenuEntry(const core::ContextMenuItem& item, core::Con
             m_shellView->invokeMenuCommand(item.command, point, backdropOwner());
         if (item.key.startsWith(QLatin1String("new/")))
             armNewItemRename();
+    } else if (item.packagedIndex >= 0) {
+        platform::win::invokePackagedCommand(item.packagedIndex);
     } else if (item.customIndex >= 0) {
         const core::ContextMenuConfig config =
             core::ContextMenuConfig::load(core::ContextMenuConfig::defaultPath());
@@ -2243,6 +2317,7 @@ int ProductApp::runContextMenuEntry(const core::ContextMenuItem& item, core::Con
         result = item.ownId;
     }
     m_shellView->closeMenuModel();
+    platform::win::releasePackagedCommands();
     return result;
 }
 
@@ -2267,6 +2342,7 @@ int ProductApp::showModernContextMenu(core::ContextMenuKind kind, const QStringL
     menu.reset();
     if (!any) {
         m_shellView->closeMenuModel();
+        platform::win::releasePackagedCommands();
         return -1;
     }
     qCInfo(lc).noquote() << QStringLiteral("drawn menu: \"%1\" (%2)").arg(picked.label, picked.key);

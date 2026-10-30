@@ -19,6 +19,7 @@ struct ContextMenuItem {
     QString label;    // what the menu writes
     QString shortcut; // "Ctrl+Z", may be empty
     QString glyph;    // a Segoe Fluent Icons code point, may be empty
+    QString iconFile; // an image file, preferred to the glyph (a packaged app's icon)
     bool separator = false;
     bool enabled = true;
     bool checked = false;
@@ -28,6 +29,7 @@ struct ContextMenuItem {
     int command = -1;     // the shell's command offset; -1 when not a shell entry
     int ownId = -1;       // a StarFish entry's id; -1 otherwise
     int customIndex = -1; // a user entry (ContextMenuProfile::custom); -1 otherwise
+    int packagedIndex = -1; // a packaged app's IExplorerCommand; -1 otherwise
     std::vector<ContextMenuItem> children;
 };
 
@@ -81,14 +83,17 @@ constexpr int kMoreOptionsId = -100;
 // order and groups, the top bar for Cut/Copy/Rename/Share/Delete (Paste on the
 // background); the user's `hidden`, `shown`, `order` and `custom`; the StarFish
 // entries (`ours`, with ownId and key set) before "Show more options", which is
-// always last. `classic` entries need no key: it is computed here.
+// always last. `classic` entries need no key: it is computed here. `packaged`
+// (the Store apps' entries, keyed "app:...") form their own group, as in
+// Windows 11, before StarFish's.
 // `omitted` (optional) receives the keys of what went under "Show more options".
 std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuItem>& classic,
                                                   ContextMenuKind kind,
                                                   const ContextMenuConfig& config,
                                                   const std::vector<ContextMenuItem>& ours,
                                                   const QString& moreOptionsLabel,
-                                                  QStringList* omitted = nullptr);
+                                                  QStringList* omitted = nullptr,
+                                                  const std::vector<ContextMenuItem>& packaged = {});
 
 // The program and arguments of a custom entry, placeholders expanded.
 QStringList expandCustomArguments(const ContextMenuCustomEntry& entry, const QStringList& paths,

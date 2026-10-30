@@ -9,6 +9,9 @@
 #include <QTimer>
 
 #include "platform/win/desktop_shell_view.hpp"
+#include "platform/win/packaged_commands.hpp"
+
+#include <QElapsedTimer>
 
 namespace starfish::app {
 
@@ -86,6 +89,23 @@ int runContextMenuProbe(QApplication& app)
     }
     view.closeMenuModel();
     view.select({});
+    log << QStringLiteral("== packaged declarations");
+    log << platform::win::packagedCommandDeclarations().filter(QStringLiteral("Background"))
+        << platform::win::packagedCommandDeclarations().filter(QStringLiteral("Notepad"));
+    for (int pass = 0; pass < 2; ++pass) {
+        QElapsedTimer t;
+        t.start();
+        const auto bg = platform::win::packagedCommandsFor({}, true, desktop);
+        log << QStringLiteral("== packaged, background (pass %1, %2 ms)").arg(pass).arg(t.elapsed());
+        for (const auto& c : bg)
+            log << QStringLiteral("  %1 \"%2\" enabled=%3 icon=%4").arg(c.key, c.title).arg(c.enabled).arg(c.iconFile);
+        t.restart();
+        const auto files = platform::win::packagedCommandsFor({testFile}, false, desktop);
+        log << QStringLiteral("== packaged, file (%1 ms)").arg(t.elapsed());
+        for (const auto& c : files)
+            log << QStringLiteral("  %1 \"%2\" enabled=%3 icon=%4").arg(c.key, c.title).arg(c.enabled).arg(c.iconFile);
+    }
+    platform::win::releasePackagedCommands();
     QFile::remove(testFile);
 
     QFile report(QStringLiteral("build/context-menu-probe.txt"));

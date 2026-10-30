@@ -249,7 +249,8 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
                                                   const ContextMenuConfig& config,
                                                   const std::vector<ContextMenuItem>& oursIn,
                                                   const QString& moreOptionsLabel,
-                                                  QStringList* omitted)
+                                                  QStringList* omitted,
+                                                  const std::vector<ContextMenuItem>& packaged)
 {
     const ContextMenuProfile& profile = config.profile(kind);
     const auto hidden = [&](const QString& key) {
@@ -285,6 +286,11 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
         out.push_back(top);
     }
 
+    for (const ContextMenuItem& item : packaged) {
+        if (!byKey.contains(item.key))
+            byKey.insert(item.key, &item);
+    }
+
     // The user's order first.
     bool orderedAny = false;
     for (const QString& key : profile.order) {
@@ -317,6 +323,13 @@ std::vector<ContextMenuItem> composeWindows11Menu(const std::vector<ContextMenuI
         } else if (omitted && !omitted->contains(item.key)) {
             *omitted << item.key;
         }
+    }
+
+    // The packaged apps' entries (Terminal, Notepad, Photos...).
+    out.push_back(separator());
+    for (const ContextMenuItem& item : packaged) {
+        if (const ContextMenuItem* taken = take(item.key))
+            out.push_back(*taken);
     }
 
     // StarFish's entries and the user's own.

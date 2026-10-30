@@ -98,11 +98,33 @@ DragState& dragState()
     return state;
 }
 
+// The base names (no extension) of the files a data object carries, if any.
+QStringList droppedStems(IDataObject* data)
+{
+    QStringList stems;
+    FORMATETC format{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    if (!data || FAILED(data->GetData(&format, &medium)))
+        return stems;
+    auto* drop = static_cast<HDROP>(::GlobalLock(medium.hGlobal));
+    if (drop) {
+        const UINT count = ::DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < count; ++i) {
+            wchar_t path[MAX_PATH * 2]{};
+            if (::DragQueryFileW(drop, i, path, MAX_PATH * 2))
+                stems << QFileInfo(QString::fromWCharArray(path)).completeBaseName();
+        }
+        ::GlobalUnlock(medium.hGlobal);
+    }
+    ::ReleaseStgMedium(&medium);
+    return stems;
+}
+
 class DesktopDropTarget : public IDropTarget
 {
 public:
-    DesktopDropTarget(HWND hwnd, InternalDrop internalDrop)
-        : m_hwnd(hwnd), m_internalDrop(std::move(internalDrop))
+    DesktopDropTarget(HWND hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop)
+        : m_hwnd(hwnd), m_internalDrop(std::move(internalDrop)), m_foreignDrop(std::move(foreignDrop))
     {
     }
     ~DesktopDropTarget()
@@ -176,6 +198,8 @@ public:
         }
         if (IDropTarget* shell = shellTarget()) {
             qCInfo(lc) << "a drop from outside goes to the desktop folder";
+            if (m_foreignDrop)
+                m_foreignDrop(QPoint(pt.x, pt.y), droppedStems(data));
             return shell->Drop(data, keys, pt, effect);
         }
         *effect = DROPEFFECT_NONE;
@@ -200,6 +224,7 @@ private:
 
     HWND m_hwnd = nullptr;
     InternalDrop m_internalDrop;
+    ForeignDrop m_foreignDrop;
     IDropTarget* m_shell = nullptr;
     bool m_internal = false;
     LONG m_ref = 1;
@@ -385,10 +410,10 @@ void endInternalDrag()
     dragState() = DragState{};
 }
 
-void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop)
+void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop)
 {
-    return static_cast<IDropTarget*>(
-        new DesktopDropTarget(reinterpret_cast<HWND>(hwnd), std::move(internalDrop)));
+    return static_cast<IDropTarget*>(new DesktopDropTarget(reinterpret_cast<HWND>(hwnd),
+                                                           std::move(internalDrop), std::move(foreignDrop)));
 }
 
 } // namespace starfish::platform::win

@@ -63,6 +63,10 @@ void endInternalDrag();
 // moves it onto the Desktop exactly as the real desktop would.
 using InternalDrop = std::function<void(const QPoint& screen, const QStringList& paths,
                                         const QPoint& origin)>;
-void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop);
+// `foreignDrop` is told where a drop from elsewhere happens, just before the
+// desktop folder takes it, so what it creates can be placed under the cursor;
+// `stems` are the dropped files' base names (CF_HDROP), empty when it has none.
+using ForeignDrop = std::function<void(const QPoint& screen, const QStringList& stems)>;
+void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop = {});
 
 } // namespace starfish::platform::win
