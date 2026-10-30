@@ -512,4 +512,10 @@
 
 ### (détail de T-032, archivé avec les autres)
 
+## Archivé en session 60 (2026-10-30)
 
+| ID | Tâche | Phase | Prio | Statut |
+|---|---|---|---|---|
+| T-086 | **Redimensionnement : le bord opposé bouge** — ✅ **CORRIGÉ (session 60)** : cause = le redimensionnement passait par la règle du **déplacement** (`applyRequest`) : l'aimantation **translatait tout le rectangle** (son centre, qui dépend de la largeur, accrochait une cible) et la borne d'écran le **faisait glisser** ; `FenceGeometry::applyResize` ne bouge plus que les bords tirés (aimantés seuls, bornés seuls), tests `resizeFromTheRightNeverMovesTheTopLeft` / `resizeFromTheLeftMovesOnlyTheLeftEdge`. Énoncé d'origine : (retour utilisateur session 54, donné **comme approximation** : « occasionnellement, selon la position de la fence ») : le bord qu'on tire suit bien le curseur, mais l'**opposé** se déplace parfois. **Non reproductible à volonté** ⇒ **instrumenter d'abord** (journaliser `x/y/w/h` demandés et obtenus, l'écran du centre, l'aimantation, la borne d'écran). Candidats nommés, **aucun prouvé** : l'**aimantation** recale l'opposé ; une zone poussée contre un **bord d'écran** est ramenée ; le **rayon effectif** change au fil du geste (`min(demandé, demi-petit-côté)`) | 5 | P1 | ✅ |
+
+- **T-086** (Phase 5, P1) — ⚠️ **Le bord opposé bouge pendant un redimensionnement** (retour utilisateur session 54, donné comme **approximation** : « occasionnellement, selon, je pense position de la fence, font bouger le bord opposé que celui qu'on drag »). Le bord **tiré** suit bien le curseur ; c'est l'**opposé** qui se déplace parfois. **Non reproductible à volonté** ⇒ **instrumenter d'abord** : journaliser la géométrie **demandée** et la géométrie **obtenue** à chaque pas (`x/y/w/h`), l'écran du centre, l'aimantation et la borne d'écran. Candidats nommés, **aucun prouvé** : l'**aimantation** qui recale le bord opposé, la **borne d'écran** (une zone poussée contre un bord y est ramenée), le **rayon effectif** qui change en cours de geste. Aucun de ces chemins ne touche le document ni le disque.

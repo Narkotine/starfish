@@ -258,6 +258,36 @@ QWidget* SettingsDialog::buildFences()
                      tr("The small arrow Windows draws on a shortcut, on the icons inside the fences."),
                      m_arrows, p));
 
+    m_sortOnAdd = new ToggleSwitch;
+    m_sortOnAdd->setObjectName(QStringLiteral("sortOnAddSwitch"));
+    connect(m_sortOnAdd, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit sortOnAddToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE8CB)), tr("Sort icons alphabetically when added to a fence"),
+                     tr("Off: an icon goes where it is dropped and the order stays yours."),
+                     m_sortOnAdd, p));
+
+    l->addWidget(sectionTitle(tr("Desktop"), p));
+    m_desktopArrows = new ToggleSwitch;
+    m_desktopArrows->setObjectName(QStringLiteral("desktopArrowsSwitch"));
+    connect(m_desktopArrows, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit desktopShortcutArrowsToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE71B)), tr("Shortcut arrows on desktop icons"),
+                     tr("Only on the desktop StarFish draws; Windows' own setting is left alone."),
+                     m_desktopArrows, p));
+    m_overlap = new ToggleSwitch;
+    m_overlap->setObjectName(QStringLiteral("overlapSwitch"));
+    connect(m_overlap, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit desktopOverlapToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE81E)), tr("Allow desktop icons and fences to overlap"),
+                     tr("Off: an icon under a fence moves to the nearest free place."),
+                     m_overlap, p));
+
     l->addWidget(sectionTitle(tr("Material of all fences"), p));
     QFrame* materials = card(p);
     auto* materialLayout = new QVBoxLayout(materials);
@@ -366,6 +396,27 @@ void SettingsDialog::setFenceShortcutArrows(bool shown)
 {
     m_updating = true;
     m_arrows->setChecked(shown);
+    m_updating = false;
+}
+
+void SettingsDialog::setSortOnAdd(bool sorted)
+{
+    m_updating = true;
+    m_sortOnAdd->setChecked(sorted);
+    m_updating = false;
+}
+
+void SettingsDialog::setDesktopShortcutArrows(bool shown)
+{
+    m_updating = true;
+    m_desktopArrows->setChecked(shown);
+    m_updating = false;
+}
+
+void SettingsDialog::setDesktopOverlapAllowed(bool allowed)
+{
+    m_updating = true;
+    m_overlap->setChecked(allowed);
     m_updating = false;
 }
 

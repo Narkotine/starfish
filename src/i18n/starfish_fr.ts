@@ -118,7 +118,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5725"/>
+        <location filename="../main.cpp" line="+5770"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -126,7 +126,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2265"/>
+        <location filename="../app/product_app.cpp" line="+2461"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -136,12 +136,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2105"/>
+        <location line="-2280"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+388"/>
         <location line="+124"/>
         <location line="+87"/>
         <source>StarFish</source>
@@ -175,17 +175,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+327"/>
-        <source>Rename fence</source>
-        <translation>Renommer la zone</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Fence name:</source>
-        <translation>Nom de la zone :</translation>
-    </message>
-    <message>
-        <location line="+27"/>
+        <location filename="../app/product_app.cpp" line="+348"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -195,7 +185,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+415"/>
+        <location line="+418"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -258,7 +248,7 @@
 <context>
     <name>starfish::ui::ContextMenuEditor</name>
     <message>
-        <location filename="../ui/context_menu_editor.cpp" line="+41"/>
+        <location filename="../ui/context_menu_editor.cpp" line="+42"/>
         <source>Entry of my own</source>
         <translation>Entrée personnelle</translation>
     </message>
@@ -359,7 +349,7 @@
         <translation>Réinitialiser</translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+102"/>
         <source>View</source>
         <translation>Affichage</translation>
     </message>
@@ -545,12 +535,12 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+244"/>
+        <location filename="../ui/fence_view.cpp" line="+277"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+383"/>
+        <location line="+391"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
@@ -558,7 +548,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+101"/>
+        <location filename="../ui/settings_dialog.cpp" line="+102"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -576,18 +566,18 @@
     </message>
     <message>
         <location line="-75"/>
-        <location line="+133"/>
+        <location line="+163"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-132"/>
-        <location line="+151"/>
+        <location line="-162"/>
+        <location line="+181"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-153"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -667,6 +657,41 @@
         <translation>La petite flèche que Windows dessine sur un raccourci, sur les icônes des zones.</translation>
     </message>
     <message>
+        <location line="+9"/>
+        <source>Sort icons alphabetically when added to a fence</source>
+        <translation>Trier les icônes par ordre alphabétique à l&apos;ajout dans une zone</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Off: an icon goes where it is dropped and the order stays yours.</source>
+        <translation>Désactivé : une icône va là où vous la déposez et l&apos;ordre reste le vôtre.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Desktop</source>
+        <translation>Bureau</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Shortcut arrows on desktop icons</source>
+        <translation>Flèches de raccourci sur les icônes du bureau</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Only on the desktop StarFish draws; Windows&apos; own setting is left alone.</source>
+        <translation>Seulement sur le bureau dessiné par StarFish ; le réglage de Windows n&apos;est pas touché.</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Allow desktop icons and fences to overlap</source>
+        <translation>Autoriser la superposition entre icônes du bureau et zones</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Off: an icon under a fence moves to the nearest free place.</source>
+        <translation>Désactivé : une icône sous une zone va à la place libre la plus proche.</translation>
+    </message>
+    <message>
         <location line="+3"/>
         <source>Material of all fences</source>
         <translation>Matériau de toutes les zones</translation>
@@ -695,7 +720,7 @@
 <context>
     <name>starfish::ui::TrayIcon</name>
     <message>
-        <location filename="../ui/tray_icon.cpp" line="+90"/>
+        <location filename="../ui/tray_icon.cpp" line="+89"/>
         <source>New fence</source>
         <translation>Nouvelle zone</translation>
     </message>

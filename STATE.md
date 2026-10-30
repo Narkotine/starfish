@@ -7,13 +7,14 @@
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
 - **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre, liste re-masquée, écrans/DPI ; décisions : entrée de menu repointée, éléments virtuels rangeables, flèche des zones = réglage (oui par défaut) ; **lot 3 (T-091)** F2, clavier, rectangle, glisser OLE, `IFileOperation` + annuler ; **lot 4 (T-092)** menu clic droit façon Windows 11 dessiné par StarFish, configurable. `ctest` 17/17, `--drawn-desktop-probe` **46/46**. **§44**.
 - **Session 59 :** apps empaquetées dans le menu, dépôt étranger sous le curseur, icône StarFish (étoile de mer), **refonte Réglages + menu du tray** style Windows 11 (clair/sombre) avec **éditeur du menu clic droit**. `--drawn-desktop-probe` 48/48, `--product-probe` 34/34, `--ui-probe` 10/10.
+- **Session 60 :** retours utilisateur - redimensionnement stable (T-086 corrigé, cause = aimantation de déplacement), renommage sur le titre, tri à l'ajout (désactivé), écart titre/icônes 12 px (`FenceMetrics`, T-097), flèches du bureau (réglage), superposition bureau/zones interdite par défaut (icônes déplacées). `ctest` 18/18, `--ui-probe` 13/13 hors écran.
 - **Livré juste avant :** 57 - ADR-20 (renversé par l'ADR-21) ; 56 - T-042 1ʳᵉ tranche ; 52 - i18n.
-- **Dernière mise à jour :** 2026-10-30 (session 59)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-19 (`bf33643`) - sessions 57-58 **locales**, CI non déclenchée.
+- **Dernière mise à jour :** 2026-10-30 (session 60)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`61df2cc`, session 59) ; session 60 **locale**.
 
 ## 3 prochaines actions
 
-1. **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
+1. **Session 60 à essayer** : redimensionner (coin haut-gauche fixe), double-clic sur un titre, Réglages  Zones (3 nouveaux interrupteurs), zone posée sur des icônes du bureau. Puis **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
 2. **Plan ADR-21 livré** (T-089..T-092). Reste humain : deux écrans, vrai redémarrage d'Explorer (T-090) ; vrai glisser souris, focus clavier (T-091) ; le menu dessiné à la vraie souris et au clavier (T-092). Menu : Réglages → Menu clic droit (fichier `%LOCALAPPDATA%\StarFish\context-menu.json`).
 3. ⛔ Questions ouvertes : `T-036`, `T-033`, `T-030`.
 ## Où lire quoi (à la demande)

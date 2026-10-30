@@ -443,6 +443,11 @@ void FenceContainer::refreshBackdrop()
     // nowhere: the document keeps describing *fences*, and the desktop layer is
     // whatever is left over (ADR-7, and the reason F-007/F-011 need no restore
     // code).
+    m_backdrop->setOccupiedPaths(filedPathKeys());
+}
+
+QSet<QString> FenceContainer::filedPathKeys() const
+{
     QSet<QString> occupied;
     for (const FenceWindow& fence : m_fences) {
         if (!fence.view)
@@ -452,7 +457,17 @@ void FenceContainer::refreshBackdrop()
                 occupied.insert(BackdropLayout::pathKey(item.path));
         }
     }
-    m_backdrop->setOccupiedPaths(occupied);
+    return occupied;
+}
+
+QList<QRect> FenceContainer::fenceObstacleRects() const
+{
+    QList<QRect> rects;
+    if (!m_fencesVisible)
+        return rects;
+    for (const FenceWindow& fence : m_fences)
+        rects.append(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
+    return rects;
 }
 
 FenceWindow* FenceContainer::find(const QString& id)

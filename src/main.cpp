@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QLineEdit>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCheckBox>
@@ -5310,6 +5311,31 @@ int main(int argc, char* argv[])
                       product.container()->fenceTitle(id) == QLatin1String("Renamed"),
                       product.container()->fenceTitle(id));
 
+                // Session 60: the name is edited on the title itself -- driven
+                // here in-process (no input injected): Escape-like cancel keeps
+                // the name, a commit takes the trimmed text.
+                product.startFenceTitleEdit(id);
+                QLineEdit* titleEdit = product.fenceTitleEditor();
+                const bool editOpened = titleEdit != nullptr && product.fenceTitleEditId() == id
+                                        && titleEdit->text() == QLatin1String("Renamed");
+                if (titleEdit)
+                    titleEdit->setText(QLatin1String("Not kept"));
+                product.finishFenceTitleEdit(false);
+                const bool cancelKept = product.container()->fenceTitle(id) == QLatin1String("Renamed")
+                                        && product.fenceTitleEditor() == nullptr;
+                product.startFenceTitleEdit(id);
+                if (product.fenceTitleEditor())
+                    product.fenceTitleEditor()->setText(QLatin1String("  Inline  "));
+                product.finishFenceTitleEdit(true);
+                check(QLatin1String("the title is renamed in place: cancel keeps it, commit takes the trimmed name"),
+                      editOpened && cancelKept
+                          && product.container()->fenceTitle(id) == QLatin1String("Inline"),
+                      QLatin1String("opened %1, cancel kept %2, title [%3]")
+                          .arg(editOpened ? QLatin1String("yes") : QLatin1String("no"))
+                          .arg(cancelKept ? QLatin1String("yes") : QLatin1String("no"))
+                          .arg(product.container()->fenceTitle(id)));
+                product.container()->setFenceTitle(id, QLatin1String("Renamed"));
+
                 product.container()->setFenceRolledUp(id, true);
                 check(QLatin1String("rolling a fence up takes"),
                       product.container()->fenceRolledUp(id), {});
@@ -5484,9 +5510,13 @@ int main(int argc, char* argv[])
                 // and only the three switches that speak for the whole desktop --
                 // ADR-20's lesson stays: no switch takes the desktop's icons.
                 const QList<QCheckBox*> boxes = settings->findChildren<QCheckBox*>();
+                // Session 60 adds three, none of them about hiding icons.
                 const QStringList allowedSwitches{QStringLiteral("showFencesSwitch"),
                                                   QStringLiteral("arrowsSwitch"),
-                                                  QStringLiteral("modernSwitch")};
+                                                  QStringLiteral("modernSwitch"),
+                                                  QStringLiteral("sortOnAddSwitch"),
+                                                  QStringLiteral("desktopArrowsSwitch"),
+                                                  QStringLiteral("overlapSwitch")};
                 int strangeSwitches = 0;
                 for (QCheckBox* box : boxes) {
                     if (!allowedSwitches.contains(box->objectName()))
@@ -5497,7 +5527,7 @@ int main(int argc, char* argv[])
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
                 check(QLatin1String("... it has its four pages, the status line and only the global switches"),
-                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 3
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 6
                           && statusLabel != nullptr && !statusShown.isEmpty()
                           && settings->menuEditor() != nullptr,
                       QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
@@ -5514,6 +5544,18 @@ int main(int argc, char* argv[])
                       QLatin1String("fences shown: switch %1, product %2")
                           .arg(fencesSwitch && fencesSwitch->isChecked() ? QLatin1String("on") : QLatin1String("off"))
                           .arg(product.container()->fencesVisible() ? QLatin1String("on") : QLatin1String("off")));
+                auto* sortSwitch = settings->findChild<QCheckBox*>(QLatin1String("sortOnAddSwitch"));
+                auto* deskArrows = settings->findChild<QCheckBox*>(QLatin1String("desktopArrowsSwitch"));
+                auto* overlapSwitch = settings->findChild<QCheckBox*>(QLatin1String("overlapSwitch"));
+                check(QLatin1String("... the session-60 switches too (sort, desktop arrows, overlap)"),
+                      sortSwitch && deskArrows && overlapSwitch
+                          && sortSwitch->isChecked() == product.sortOnAdd()
+                          && deskArrows->isChecked() == product.desktopShortcutArrows()
+                          && overlapSwitch->isChecked() == product.allowDesktopOverlap(),
+                      QLatin1String("sort %1, desktop arrows %2, overlap %3")
+                          .arg(product.sortOnAdd() ? QLatin1String("on") : QLatin1String("off"))
+                          .arg(product.desktopShortcutArrows() ? QLatin1String("on") : QLatin1String("off"))
+                          .arg(product.allowDesktopOverlap() ? QLatin1String("on") : QLatin1String("off")));
 
                 // The half of the retired check that still has a subject: opening
                 // the window is not a way to change anything, and the line it shows
@@ -5639,7 +5681,10 @@ int main(int argc, char* argv[])
                 for (QCheckBox* box : secondSettings->findChildren<QCheckBox*>()) {
                     if (box->objectName() != QLatin1String("showFencesSwitch")
                         && box->objectName() != QLatin1String("arrowsSwitch")
-                        && box->objectName() != QLatin1String("modernSwitch"))
+                        && box->objectName() != QLatin1String("modernSwitch")
+                        && box->objectName() != QLatin1String("sortOnAddSwitch")
+                        && box->objectName() != QLatin1String("desktopArrowsSwitch")
+                        && box->objectName() != QLatin1String("overlapSwitch"))
                         ++secondBoxes;
                 }
             }

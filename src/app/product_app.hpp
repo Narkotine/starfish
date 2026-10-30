@@ -131,6 +131,31 @@ public:
     static bool fenceShortcutArrowsSetting();
     void setFenceShortcutArrows(bool shown);
     bool fenceShortcutArrows() const { return m_fenceShortcutArrows; }
+    // Session 60 (the user's feedback), HKCU\Software\StarFish as well:
+    // - sortIconsOnAdd (off): a drop is sorted by name only if asked, otherwise
+    //   it goes where it fell and the order stays the user's;
+    // - desktopShortcutArrows (on, as Windows): the arrow on the drawn desktop's
+    //   icons -- StarFish's drawing only, the shell's overlay is never touched;
+    // - allowDesktopOverlap (off): an icon never stays under a fence -- it goes
+    //   to the nearest free slot (the shell view keeps the place).
+    static bool sortOnAddSetting();
+    static bool desktopShortcutArrowsSetting();
+    static bool allowDesktopOverlapSetting();
+    void setSortOnAdd(bool sorted);
+    void setDesktopShortcutArrows(bool shown);
+    void setAllowDesktopOverlap(bool allowed);
+    bool sortOnAdd() const { return m_sortOnAdd; }
+    bool desktopShortcutArrows() const { return m_desktopShortcutArrows; }
+    bool allowDesktopOverlap() const { return m_allowDesktopOverlap; }
+    // Moves the free desktop icons out from under the fences now; returns how
+    // many moved. Public for the probe (runs in this process, no input).
+    int resolveDesktopOverlaps();
+    // Session 60: a fence's name is edited on the title itself (double-click on
+    // the name, or the menu's Rename). Return or leaving commits, Escape cancels.
+    void startFenceTitleEdit(const QString& id);
+    void finishFenceTitleEdit(bool commit);
+    QLineEdit* fenceTitleEditor() const { return m_titleEdit; }
+    QString fenceTitleEditId() const { return m_titleEdit ? m_titleEditId : QString(); }
 
     // T-092 (lot 4) -- the right-click menu drawn by StarFish, Windows 11's
     // look, filled from the desktop's real menus and configurable
@@ -333,6 +358,16 @@ private:
     int m_desktopLosses = 0;
     int m_listReshown = 0;
     bool m_fenceShortcutArrows = true;
+    bool m_sortOnAdd = false;
+    bool m_desktopShortcutArrows = true;
+    bool m_allowDesktopOverlap = false;
+    QTimer m_overlapTimer; // after a fence moved, grew or came back: the sweep, once
+    void scheduleOverlapSweep();
+    QSize m_shellSpacing;
+    int m_shellIconSize = 0;
+    bool m_shellIconsShown = false;
+    QLineEdit* m_titleEdit = nullptr;
+    QString m_titleEditId;
     // T-092: the classic entries' keys seen so far, for context-menu-keys.txt.
     QMap<QString, QString> m_seenMenuKeys;
     int showModernContextMenu(core::ContextMenuKind kind, const QStringList& paths, const QPoint& point,

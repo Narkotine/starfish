@@ -41,6 +41,12 @@ target_link_libraries(test_starfish_desktop_item PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_desktop_item COMMAND test_starfish_desktop_item)
 
+# Desktop icons kept out from under the fences (session 60): pure, header-only.
+add_executable(test_starfish_overlap_planner test_overlap_planner.cpp)
+target_include_directories(test_starfish_overlap_planner PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_overlap_planner PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME core_overlap_planner COMMAND test_starfish_overlap_planner)
+
 # Icon grid geometry + selection + paint: the pure half of T-005, no Win32.
 add_executable(test_starfish_icon_grid
     test_icon_grid.cpp

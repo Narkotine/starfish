@@ -8,7 +8,9 @@
 #include <QFile>
 #include <QLabel>
 #include <QGuiApplication>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QMouseEvent>
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
@@ -20,6 +22,7 @@
 
 #include "core/context_menu.hpp"
 #include "ui/context_menu_editor.hpp"
+#include "ui/fence_view.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -105,12 +108,20 @@ int runUiProbe(QApplication& app)
               QString::number(icon.availableSizes().size()));
     }
 
+    // Session 60: STARFISH_UI_PROBE_OFFSCREEN=1 -- nothing on screen, no
+    // screen grab at all (the tray section grabs the taskbar), for runs while
+    // the user is at the PC or StarFish already runs.
+    const bool offscreen = qEnvironmentVariableIntValue("STARFISH_UI_PROBE_OFFSCREEN") != 0;
+    if (offscreen)
+        lines << QStringLiteral("off-screen: tray section skipped, windows not shown");
+
     // --- the tray icon and its menu --------------------------------------------
     ui::TrayIcon tray;
-    const bool shown = tray.show();
+    const bool shown = !offscreen && tray.show();
     tray.setFenceCount(3);
     tray.setFenceMaterial(QStringLiteral("translucent"));
-    check(QStringLiteral("the tray icon shows"), shown, {});
+    if (!offscreen)
+        check(QStringLiteral("the tray icon shows"), shown, {});
     if (shown) {
         QScreen* screen = QGuiApplication::primaryScreen();
         const QRect full = screen->geometry();
@@ -174,6 +185,12 @@ int runUiProbe(QApplication& app)
     settings.setFencesVisible(true);
     settings.setFenceShortcutArrows(true);
     settings.setFenceMaterial(QStringLiteral("translucent"));
+    // Session 60's defaults: sort off, desktop arrows on, overlap off.
+    settings.setSortOnAdd(false);
+    settings.setDesktopShortcutArrows(true);
+    settings.setDesktopOverlapAllowed(false);
+    if (offscreen)
+        settings.setAttribute(Qt::WA_DontShowOnScreen);
     settings.show();
     settings.raise();
     wait(500);
@@ -187,6 +204,97 @@ int runUiProbe(QApplication& app)
     // is in front of it -- the user's own windows.
     check(QStringLiteral("the settings window has four pages"),
           settings.findChild<QListWidget*>(QStringLiteral("nav"))->count() == 4, {});
+    {
+        settings.showPage(ui::SettingsDialog::Fences);
+        wait(150);
+        QStringList states;
+        bool all = true;
+        for (const char* name : {"sortOnAddSwitch", "desktopArrowsSwitch", "overlapSwitch"}) {
+            auto* box = settings.findChild<QCheckBox*>(QLatin1String(name));
+            all = all && box && box->isVisibleTo(&settings);
+            states << QStringLiteral("%1=%2").arg(QLatin1String(name),
+                                                  box ? (box->isChecked() ? QLatin1String("on") : QLatin1String("off"))
+                                                      : QLatin1String("absent"));
+        }
+        auto* sortBox = settings.findChild<QCheckBox*>(QStringLiteral("sortOnAddSwitch"));
+        auto* arrowsBox = settings.findChild<QCheckBox*>(QStringLiteral("desktopArrowsSwitch"));
+        auto* overlapBox = settings.findChild<QCheckBox*>(QStringLiteral("overlapSwitch"));
+        check(QStringLiteral("the Fences page has the session-60 switches, at their defaults"),
+              all && sortBox && !sortBox->isChecked() && arrowsBox && arrowsBox->isChecked() && overlapBox
+                  && !overlapBox->isChecked(),
+              states.join(QLatin1Char(' ')));
+        // A switch flipped by the product (setX) must not echo back as a request.
+        int echoes = 0;
+        QObject::connect(&settings, &ui::SettingsDialog::sortOnAddToggled, &settings, [&] { ++echoes; });
+        settings.setSortOnAdd(true);
+        settings.setSortOnAdd(false);
+        check(QStringLiteral("setting a switch from the product sends nothing back"), echoes == 0,
+              QString::number(echoes));
+    }
+
+    // --- session 60: the fence's title, edited in place ----------------------
+    {
+        ui::FenceView view;
+        view.setAttribute(Qt::WA_DontShowOnScreen);
+        view.setTitle(QStringLiteral("Jeux"));
+        QList<core::DesktopItem> items;
+        for (const char* name : {"Steam", "Epic Games", "GOG Galaxy", "Battle.net"}) {
+            core::DesktopItem item;
+            item.name = QString::fromUtf8(name);
+            item.fileName = item.name;
+            item.path = QStringLiteral("C:/probe/") + item.name;
+            items.append(item);
+        }
+        view.setItems(items);
+        view.resize(380, 230);
+        const QRect title = view.titleTextRect();
+        const ui::FenceMetrics m = view.metrics();
+        check(QStringLiteral("the title text sits in the title bar"),
+              !title.isEmpty() && QRect(0, 0, view.width(), m.titleBarHeight).contains(title),
+              QStringLiteral("%1,%2 %3x%4").arg(title.x()).arg(title.y()).arg(title.width()).arg(title.height()));
+        check(QStringLiteral("the gap under the title is the metrics' (12 px, was 24)"),
+              m.titleGap + m.gridPadding == 12, QStringLiteral("titleGap %1 + gridPadding %2").arg(m.titleGap).arg(m.gridPadding));
+        // The gestures, as events sent in this process (nothing injected).
+        int edits = 0, rolls = 0;
+        QObject::connect(&view, &ui::FenceView::titleEditRequested, &view, [&] { ++edits; });
+        QObject::connect(&view, &ui::FenceView::rollUpRequested, &view, [&](bool) { ++rolls; });
+        auto dbl = [&](const QPoint& at) {
+            QMouseEvent e(QEvent::MouseButtonDblClick, QPointF(at), view.mapToGlobal(QPointF(at)),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&view, &e);
+        };
+        dbl(title.center());
+        const bool onText = edits == 1 && rolls == 0;
+        dbl(QPoint(view.width() - 30, m.titleBarHeight / 2));
+        check(QStringLiteral("double-click: on the name renames, elsewhere on the band rolls up"),
+              onText && edits == 1 && rolls == 1, QStringLiteral("edits %1, roll-ups %2").arg(edits).arg(rolls));
+        // The picture: the fence, and the edit where ProductApp puts it (same
+        // style as startFenceTitleEdit) -- a montage of the two widgets.
+        QPixmap shot(view.size());
+        shot.fill(QColor(0x3A, 0x5F, 0x8A));
+        view.render(&shot, QPoint(), QRegion(), QWidget::DrawChildren);
+        QLineEdit edit;
+        edit.setAttribute(Qt::WA_DontShowOnScreen);
+        QFont font(QStringLiteral("Segoe UI"), 9);
+        font.setBold(true);
+        edit.setFont(font);
+        edit.setStyleSheet(QStringLiteral("QLineEdit { background: #FFFFFF; color: #000000; "
+                                          "border: 1px solid #0078D7; border-radius: 3px; "
+                                          "selection-background-color: #0078D7; "
+                                          "selection-color: #FFFFFF; padding: 0 3px; }"));
+        edit.setText(QStringLiteral("Jeux"));
+        edit.selectAll();
+        edit.resize(qMax(title.width() + 48, 160), 24);
+        edit.show();
+        edit.setFocus();
+        wait(50);
+        edit.render(&shot, QPoint(title.left() - 4, title.center().y() - 12));
+        shot.save(captures + QStringLiteral("/ui_fence_title_edit.png"));
+        QPixmap plain(view.size());
+        plain.fill(QColor(0x3A, 0x5F, 0x8A));
+        view.render(&plain, QPoint(), QRegion(), QWidget::DrawChildren);
+        plain.save(captures + QStringLiteral("/ui_fence_gap.png"));
+    }
 
     // --- the editor, driven by calls, on the scratch file -----------------------
     ui::ContextMenuEditor* editor = settings.menuEditor();

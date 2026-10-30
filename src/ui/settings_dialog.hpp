@@ -44,6 +44,10 @@ public:
     void setFencesVisible(bool visible);
     void setFenceMaterial(const QString& material);
     void setFenceShortcutArrows(bool shown);
+    // Session 60.
+    void setSortOnAdd(bool sorted);
+    void setDesktopShortcutArrows(bool shown);
+    void setDesktopOverlapAllowed(bool allowed);
     void setRestoreIconsOffered(bool offered);
 
     ContextMenuEditor* menuEditor() const { return m_menuEditor; }
@@ -55,6 +59,9 @@ signals:
     void fencesVisibilityToggled(bool visible);
     void fenceMaterialRequested(const QString& material);
     void fenceShortcutArrowsToggled(bool shown);
+    void sortOnAddToggled(bool sorted);
+    void desktopShortcutArrowsToggled(bool shown);
+    void desktopOverlapToggled(bool allowed);
     void restoreIconsRequested();
 
 protected:
@@ -72,6 +79,9 @@ private:
     QLabel* m_status = nullptr;
     QCheckBox* m_showFences = nullptr;
     QCheckBox* m_arrows = nullptr;
+    QCheckBox* m_sortOnAdd = nullptr;
+    QCheckBox* m_desktopArrows = nullptr;
+    QCheckBox* m_overlap = nullptr;
     QHash<QString, QRadioButton*> m_materials;
     QWidget* m_restoreRow = nullptr;
     ContextMenuEditor* m_menuEditor = nullptr;

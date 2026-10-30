@@ -11,7 +11,6 @@
 #include <QThread>
 #include <QGuiApplication>
 #include <QDateTime>
-#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLoggingCategory>
@@ -26,11 +25,14 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <windows.h>
+
 #include "core/context_menu.hpp"
 #include "core/desktop_item.hpp"
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
+#include "core/overlap_planner.hpp"
 #include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "platform/win/desktop_shell_view.hpp"
@@ -56,6 +58,25 @@ QLoggingCategory lc("starfish.product");
 namespace starfish::app {
 
 namespace {
+
+// F2's edit: Escape cancels, Return and leaving it commit (as Explorer's own).
+class RenameEdit : public QLineEdit
+{
+public:
+    std::function<void()> onCancel;
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event->key() == Qt::Key_Escape) {
+            if (onCancel)
+                onCancel();
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+};
+
 
 // F-021 asks for Win+Space, but Windows reserves that for the language switcher
 // and refuses to register it (measured, session 15). Win+Alt+Space is close
@@ -190,14 +211,18 @@ bool ProductApp::start(const Options& options, QString* error)
     platform::win::ShellIconCache* icons = m_icons.get();
     // The shortcut arrow on a fence's tiles is the user's setting (session 58,
     // default on: the tile then looks like the desktop icon it was); the
-    // desktop itself always shows it, like Windows.
+    // drawn desktop has its own setting (session 60).
     m_fenceShortcutArrows = fenceShortcutArrowsSetting();
     m_container->setIconProvider([this, icons](const core::DesktopItem& item, int sizePx) {
         return icons->iconFor(item.path, sizePx, m_fenceShortcutArrows);
     });
-    m_container->setBackdropIconProvider([icons](const core::DesktopItem& item, int sizePx) {
-        return icons->iconFor(item.path, sizePx, true);
+    m_desktopShortcutArrows = desktopShortcutArrowsSetting();
+    m_container->setBackdropIconProvider([this, icons](const core::DesktopItem& item, int sizePx) {
+        return icons->iconFor(item.path, sizePx, m_desktopShortcutArrows);
     });
+    m_sortOnAdd = sortOnAddSetting();
+    m_container->setSortOnAdd(m_sortOnAdd);
+    m_allowDesktopOverlap = allowDesktopOverlapSetting();
     // The Shell resolves a restored path exactly as it resolves a dropped one, so
     // a tile means the same thing wherever it came from (ADR-7).
     m_container->setItemResolver([](const QString& path) {
@@ -377,6 +402,24 @@ void ProductApp::wirePersistence()
 {
     connectLifecycle([this] { onLifecycleChanged(); });
 
+    // Session 60: what can put a fence over desktop icons -- a fence made,
+    // moved, grown, unrolled or shown again, or an icon leaving one.
+    m_overlapTimer.setSingleShot(true);
+    m_overlapTimer.setInterval(400);
+    connect(&m_overlapTimer, &QTimer::timeout, this, [this] { resolveDesktopOverlaps(); });
+    ui::FenceContainer* c = m_container;
+    connect(c, &ui::FenceContainer::fenceCreated, this, [this](const QString&) { scheduleOverlapSweep(); });
+    connect(c, &ui::FenceContainer::fenceRectChanged, this,
+            [this](const QString&, const QRect&) { scheduleOverlapSweep(); });
+    connect(c, &ui::FenceContainer::fenceRolledUpChanged, this,
+            [this](const QString&, bool rolledUp) { if (!rolledUp) scheduleOverlapSweep(); });
+    connect(c, &ui::FenceContainer::fencesVisibilityChanged, this,
+            [this](bool visible) { if (visible) scheduleOverlapSweep(); });
+    connect(c, &ui::FenceContainer::fenceContentChanged, this,
+            [this](const QString&) { scheduleOverlapSweep(); });
+    connect(c, &ui::FenceContainer::fenceTitleEditRequested, this,
+            &ProductApp::startFenceTitleEdit);
+
     connect(m_store, &core::LayoutStore::saveFailed, this,
             [](const QString& path, const QString& error) {
                 qCWarning(lc).noquote()
@@ -495,6 +538,11 @@ void ProductApp::wireSettings()
             &ProductApp::applyMaterialToAllFences);
     connect(m_settings, &ui::SettingsDialog::fenceShortcutArrowsToggled, this,
             &ProductApp::setFenceShortcutArrows);
+    connect(m_settings, &ui::SettingsDialog::sortOnAddToggled, this, &ProductApp::setSortOnAdd);
+    connect(m_settings, &ui::SettingsDialog::desktopShortcutArrowsToggled, this,
+            &ProductApp::setDesktopShortcutArrows);
+    connect(m_settings, &ui::SettingsDialog::desktopOverlapToggled, this,
+            &ProductApp::setAllowDesktopOverlap);
     connect(m_settings, &ui::SettingsDialog::restoreIconsRequested, this,
             &ProductApp::restoreDesktopIcons);
     m_settings->setRestoreIconsOffered(m_options.claimDesktop);
@@ -826,7 +874,10 @@ void ProductApp::wireBackdrop()
                                .arg(path);
                     return;
                 }
-                const int filed = m_container->fileInto(id, {m_container->itemForPath(path)});
+                // Session 60: where it was let go, not at the end (unless the
+                // user asked for alphabetical order).
+                const int filed =
+                    m_container->fileIntoAt(id, {m_container->itemForPath(path)}, point);
                 qCInfo(lc).noquote()
                     << QStringLiteral("dropped \"%1\" on %2: %3 item(s) filed")
                            .arg(path, id)
@@ -986,20 +1037,10 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     case ui::FenceMenu::Action::ToggleRoll:
         onRollUpToggled(id, !m_container->fenceRolledUp(id));
         break;
-    case ui::FenceMenu::Action::Rename: {
-        bool accepted = false;
-        const QString current = m_container->fenceTitle(id);
-        const QString title = QInputDialog::getText(nullptr, tr("Rename fence"),
-                                                    tr("Fence name:"), QLineEdit::Normal,
-                                                    current, &accepted);
-        const QString name = title.trimmed();
-        // An empty or unchanged name changes nothing, and the name is stored
-        // trimmed: it is the one piece of text the fence shows, and a title made
-        // of spaces would leave a fence that looks unnamed with no way to say so.
-        if (accepted && !name.isEmpty() && name != current)
-            onRenameFence(id, name);
+    case ui::FenceMenu::Action::Rename:
+        // Session 60: on the title itself, no dialog.
+        startFenceTitleEdit(id);
         break;
-    }
     case ui::FenceMenu::Action::Remove:
         onRemoveFence(id);
         break;
@@ -1447,6 +1488,9 @@ void ProductApp::refreshStatus()
         m_settings->setFenceMaterial(sharedFenceMaterial());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
+    m_settings->setSortOnAdd(m_sortOnAdd);
+    m_settings->setDesktopShortcutArrows(m_desktopShortcutArrows);
+    m_settings->setDesktopOverlapAllowed(m_allowDesktopOverlap);
 }
 
 QString ProductApp::statusText() const
@@ -1688,7 +1732,174 @@ bool ProductApp::claimDrawnDesktop()
 namespace {
 const QString kSettingsKey = QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish");
 const QString kFenceArrows = QStringLiteral("fenceShortcutArrows");
+const QString kSortOnAdd = QStringLiteral("sortIconsOnAdd");
+const QString kDesktopArrows = QStringLiteral("desktopShortcutArrows");
+const QString kDesktopOverlap = QStringLiteral("allowDesktopOverlap");
 } // namespace
+
+bool ProductApp::sortOnAddSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(kSortOnAdd, false).toBool();
+}
+
+bool ProductApp::desktopShortcutArrowsSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(kDesktopArrows, true).toBool();
+}
+
+bool ProductApp::allowDesktopOverlapSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(kDesktopOverlap, false).toBool();
+}
+
+void ProductApp::setSortOnAdd(bool sorted)
+{
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kSortOnAdd, sorted);
+    m_sortOnAdd = sorted;
+    if (m_container)
+        m_container->setSortOnAdd(sorted);
+    if (m_settings)
+        m_settings->setSortOnAdd(sorted);
+    qCInfo(lc) << "icons sorted by name when added to a fence:" << sorted;
+}
+
+void ProductApp::setDesktopShortcutArrows(bool shown)
+{
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kDesktopArrows, shown);
+    if (m_desktopShortcutArrows == shown)
+        return;
+    m_desktopShortcutArrows = shown;
+    if (m_container)
+        m_container->refreshBackdropIcons();
+    if (m_settings)
+        m_settings->setDesktopShortcutArrows(shown);
+    qCInfo(lc) << "shortcut arrows on desktop icons:" << (shown ? "shown" : "hidden");
+}
+
+void ProductApp::setAllowDesktopOverlap(bool allowed)
+{
+    QSettings(kSettingsKey, QSettings::NativeFormat).setValue(kDesktopOverlap, allowed);
+    m_allowDesktopOverlap = allowed;
+    if (m_settings)
+        m_settings->setDesktopOverlapAllowed(allowed);
+    qCInfo(lc) << "desktop icons may sit under a fence:" << allowed;
+    if (!allowed)
+        scheduleOverlapSweep();
+}
+
+void ProductApp::scheduleOverlapSweep()
+{
+    if (!m_allowDesktopOverlap && drawnDesktop())
+        m_overlapTimer.start();
+}
+
+int ProductApp::resolveDesktopOverlaps()
+{
+    if (m_allowDesktopOverlap || !drawnDesktop() || !m_shellView || !m_container
+        || !m_shellIconsShown || m_itemPositions.isEmpty())
+        return 0;
+    ui::DesktopBackdrop* backdrop = m_container->backdrop();
+    if (!backdrop)
+        return 0;
+    // Not while a button is down: a fence still being dragged would push the
+    // icons around under the user's hand. Tried again a moment later.
+    if ((GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON)) & 0x8000) {
+        m_overlapTimer.start();
+        return 0;
+    }
+    const QList<QRect> obstacles = m_container->fenceObstacleRects();
+    if (obstacles.isEmpty())
+        return 0;
+    // The work areas, physical (the same convention as screenLayout()).
+    QList<QRect> areas;
+    for (QScreen* screen : QGuiApplication::screens()) {
+        const qreal dpr = screen->devicePixelRatio();
+        const QRect a = screen->availableGeometry();
+        areas.append(QRect(qRound(a.x() * dpr), qRound(a.y() * dpr), qRound(a.width() * dpr),
+                           qRound(a.height() * dpr)));
+    }
+    const ui::ScreenInfo* primary = backdrop->screens().primary();
+    const qreal scale = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
+    core::OverlapSlot slot;
+    slot.iconSize = qMax(16, m_shellIconSize);
+    slot.spacing = m_shellSpacing.isValid() && !m_shellSpacing.isEmpty()
+                       ? m_shellSpacing
+                       : QSize(slot.iconSize + 47, slot.iconSize + 50);
+    slot.top = qRound(5 * scale);
+    // Filed icons are not on the desktop (hidden there): never moved.
+    const QSet<QString> filed = m_container->filedPathKeys();
+    QList<QPair<QString, QPoint>> items;
+    for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it) {
+        if (!filed.contains(ui::BackdropLayout::pathKey(it.key())))
+            items.append({it.key(), it.value()});
+    }
+    const QList<core::OverlapMove> moves = core::OverlapPlanner::plan(items, obstacles, areas, slot);
+    int moved = 0;
+    for (const core::OverlapMove& move : moves) {
+        if (m_shellView->positionItem(move.key, move.to)) {
+            m_itemPositions.insert(move.key, move.to);
+            ++moved;
+        }
+    }
+    if (moved > 0) {
+        qCInfo(lc) << moved << "desktop icon(s) moved out from under a fence";
+        m_shellSignature.clear();
+        m_shellResync.start();
+    }
+    return moved;
+}
+
+void ProductApp::startFenceTitleEdit(const QString& id)
+{
+    if (!m_container || !m_container->contains(id))
+        return;
+    finishFenceTitleEdit(false);
+    const QRect title = m_container->fenceTitleScreenRect(id); // logical
+    if (title.isNull())
+        return;
+    auto* edit = new RenameEdit;
+    edit->setObjectName(QStringLiteral("fenceTitleEdit"));
+    edit->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    // The fence's title, bold as it is drawn, on a light field so the edit reads
+    // as one.
+    QFont font(QStringLiteral("Segoe UI"), 9);
+    font.setBold(true);
+    edit->setFont(font);
+    edit->setStyleSheet(QStringLiteral("QLineEdit { background: #FFFFFF; color: #000000; "
+                                       "border: 1px solid #0078D7; border-radius: 3px; "
+                                       "selection-background-color: #0078D7; "
+                                       "selection-color: #FFFFFF; padding: 0 3px; }"));
+    edit->setText(m_container->fenceTitle(id));
+    edit->selectAll();
+    const int width = qMax(title.width() + 48, 160);
+    edit->setGeometry(title.left() - 4, title.center().y() - 12, width, 24);
+    edit->onCancel = [this] { finishFenceTitleEdit(false); };
+    connect(edit, &QLineEdit::editingFinished, this, [this] { finishFenceTitleEdit(true); });
+    m_titleEdit = edit;
+    m_titleEditId = id;
+    edit->show();
+    edit->raise();
+    edit->activateWindow();
+    edit->setFocus();
+    qCInfo(lc).noquote() << QStringLiteral("renaming fence %1 on its title").arg(id);
+}
+
+void ProductApp::finishFenceTitleEdit(bool commit)
+{
+    if (!m_titleEdit)
+        return;
+    QLineEdit* edit = m_titleEdit;
+    m_titleEdit = nullptr; // editingFinished fires again on hide
+    const QString id = m_titleEditId;
+    const QString name = edit->text().trimmed();
+    edit->hide();
+    edit->deleteLater();
+    // An empty or unchanged name changes nothing; stored trimmed (a title of
+    // spaces would look unnamed).
+    if (commit && m_container && m_container->contains(id) && !name.isEmpty()
+        && name != m_container->fenceTitle(id))
+        onRenameFence(id, name);
+}
 
 bool ProductApp::fenceShortcutArrowsSetting()
 {
@@ -1794,6 +2005,12 @@ void ProductApp::syncShellView()
     if (signature == m_shellSignature)
         return;
     m_shellSignature = signature;
+    m_shellSpacing = state.spacing;
+    m_shellIconSize = state.iconSize;
+    m_shellIconsShown = state.iconsShown;
+    // Session 60: a new icon (an installer's shortcut) or one put back may land
+    // under a fence -- checked once the view is quiet.
+    scheduleOverlapSweep();
     m_itemPositions.clear();
     for (const platform::win::ShellViewItem& item : state.items)
         m_itemPositions.insert(item.parsingName, item.position);
@@ -1946,27 +2163,6 @@ void ProductApp::openDesktopItem(const QString& path)
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
-namespace {
-
-// F2's edit: Escape cancels, Return and leaving it commit (as Explorer's own).
-class RenameEdit : public QLineEdit
-{
-public:
-    std::function<void()> onCancel;
-
-protected:
-    void keyPressEvent(QKeyEvent* event) override
-    {
-        if (event->key() == Qt::Key_Escape) {
-            if (onCancel)
-                onCancel();
-            return;
-        }
-        QLineEdit::keyPressEvent(event);
-    }
-};
-
-} // namespace
 
 void ProductApp::startRename(const QString& path)
 {
