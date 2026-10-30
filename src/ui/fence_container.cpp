@@ -1471,8 +1471,17 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
         setFenceRect(id, moved, /*snap=*/true);
         return;
     }
-    setFenceRect(id, FenceGeometry::resize(fence->dragStartRect, handle, delta, m_minSize),
-                 /*snap=*/true);
+    // T-086: a resize moves the grabbed edges only (applyResize), never the
+    // fence -- the top-left corner stays put unless the left/top edge is held.
+    const QRect requested = FenceGeometry::resize(fence->dragStartRect, handle, delta, m_minSize);
+    const QRect target = FenceGeometry::applyResize(fence->dragStartRect, fence->rolledUp, handle, requested,
+                                                    otherRects(id), m_screens.frames(),
+                                                    m_screens.clampRectFor(fence->dragStartRect), m_minSize,
+                                                    m_snapThreshold, true);
+    fence->rect = target;
+    fence->monitor = m_screens.nameFor(target);
+    applyVisibleGeometry(*fence);
+    emit fenceRectChanged(id, target);
 }
 
 void FenceContainer::endGeometryDrag(const QString& id)

@@ -286,6 +286,88 @@ public:
         return clampIntoRect(target, clampTo);
     }
 
+    // T-086 (session 60) -- a *resize* request. applyRequest() treats any rect as
+    // a move: snap() translates the whole rect (its left, centre *or* right line
+    // may catch a target -- the centre depends on the width, hence "it depends on
+    // the length"), and clampIntoRect() slides it back on screen. Both moved the
+    // edges the user was not holding. Here only the grabbed edges snap (each to
+    // the nearest line, within the threshold) and only they are bounded by the
+    // screen and the minimum size; the opposite edges are copied from `stored`
+    // and never change. A rolled-up fence resizes its width only.
+    static QRect applyResize(const QRect& stored, bool rolledUp, FenceHandle handle,
+                             const QRect& requested, const QList<QRect>& others,
+                             const QList<QRect>& frames, const QRect& clampTo,
+                             const QSize& minSize, int snapThreshold, bool snap)
+    {
+        const bool west = handle == FenceHandle::Left || handle == FenceHandle::TopLeft
+                          || handle == FenceHandle::BottomLeft;
+        const bool east = handle == FenceHandle::Right || handle == FenceHandle::TopRight
+                          || handle == FenceHandle::BottomRight;
+        const bool north = !rolledUp
+                           && (handle == FenceHandle::Top || handle == FenceHandle::TopLeft
+                               || handle == FenceHandle::TopRight);
+        const bool south = !rolledUp
+                           && (handle == FenceHandle::Bottom || handle == FenceHandle::BottomLeft
+                               || handle == FenceHandle::BottomRight);
+        // Edges as exclusive coordinates (right = x + width).
+        int left = stored.left();
+        int top = stored.top();
+        int right = stored.left() + stored.width();
+        int bottom = stored.top() + stored.height();
+        if (west)
+            left = requested.left();
+        if (east)
+            right = requested.left() + requested.width();
+        if (north)
+            top = requested.top();
+        if (south)
+            bottom = requested.top() + requested.height();
+
+        if (snap && snapThreshold > 0) {
+            QList<int> xs;
+            QList<int> ys;
+            for (const QRect& r : frames + others) {
+                xs << r.left() << r.left() + r.width();
+                ys << r.top() << r.top() + r.height();
+            }
+            bool hit = false;
+            if (west)
+                left += bestOffset({left}, xs, snapThreshold, &hit);
+            if (east)
+                right += bestOffset({right}, xs, snapThreshold, &hit);
+            if (north)
+                top += bestOffset({top}, ys, snapThreshold, &hit);
+            if (south)
+                bottom += bestOffset({bottom}, ys, snapThreshold, &hit);
+        }
+
+        if (clampTo.width() > 0 && clampTo.height() > 0) {
+            if (west)
+                left = qMax(left, clampTo.left());
+            if (east)
+                right = qMin(right, clampTo.left() + clampTo.width());
+            if (north)
+                top = qMax(top, clampTo.top());
+            if (south)
+                bottom = qMin(bottom, clampTo.top() + clampTo.height());
+        }
+        const int minW = qMax(1, minSize.width());
+        const int minH = qMax(1, minSize.height());
+        if (right - left < minW) {
+            if (west)
+                left = right - minW;
+            else
+                right = left + minW;
+        }
+        if (!rolledUp && bottom - top < minH) {
+            if (north)
+                top = bottom - minH;
+            else
+                bottom = top + minH;
+        }
+        return QRect(left, top, right - left, rolledUp ? stored.height() : bottom - top);
+    }
+
     // The single-screen case: one screen at (0,0), which is both the snapping
     // frame and the area to stay inside.
     static QRect applyRequest(const QRect& stored, bool rolledUp, const QRect& requested,

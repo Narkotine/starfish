@@ -32,6 +32,8 @@ private slots:
     void clampToBoundsKeepsRectInside();
     void clampToBoundsShrinksOversizedRect();
     void visibleRectReducesRolledFenceToItsTitleBar();
+    void resizeFromTheRightNeverMovesTheTopLeft();
+    void resizeFromTheLeftMovesOnlyTheLeftEdge();
     void applyRequestKeepsTheStoredHeightWhenRolled();
     void applyRequestSnapsARolledFenceByItsTitleBar();
     void applyRequestKeepsARolledTitleBarOnScreen();
@@ -236,6 +238,48 @@ void TestFenceGeometry::visibleRectReducesRolledFenceToItsTitleBar()
     QCOMPARE(rolled.x(), stored.x());
     QCOMPARE(rolled.y(), stored.y());
     QCOMPARE(rolled.width(), stored.width());
+}
+
+void TestFenceGeometry::resizeFromTheRightNeverMovesTheTopLeft()
+{
+    // T-086: the screen's centre line (960) is near the fence's *centre* at some
+    // widths; applyRequest() snapped the whole rect onto it, moving the top-left.
+    const QRect screen(0, 0, 1920, 1080);
+    const QRect start(700, 300, 500, 400);
+    const QList<QRect> others{QRect(1260, 100, 300, 300)};
+    for (int dx = -150; dx <= 900; dx += 7) {
+        for (const FenceHandle h : {FenceHandle::Right, FenceHandle::Bottom, FenceHandle::BottomRight}) {
+            const QPoint delta(dx, dx / 3);
+            const QRect requested = FenceGeometry::resize(start, h, delta, QSize(120, 80));
+            const QRect r = FenceGeometry::applyResize(start, false, h, requested, others, {screen}, screen,
+                                                       QSize(120, 80), 12, true);
+            QCOMPARE(r.topLeft(), start.topLeft());
+            QVERIFY(r.right() < screen.width()); // the screen trims the edge, it does not push the fence
+        }
+    }
+    // ... and the moving edge still snaps (to the other fence's left, 1260).
+    const QRect near = FenceGeometry::resize(start, FenceHandle::Right, QPoint(55, 0), QSize(120, 80));
+    QCOMPARE(FenceGeometry::applyResize(start, false, FenceHandle::Right, near, others, {screen}, screen,
+                                        QSize(120, 80), 12, true)
+                 .left() + FenceGeometry::applyResize(start, false, FenceHandle::Right, near, others, {screen},
+                                                      screen, QSize(120, 80), 12, true)
+                               .width(),
+             1260);
+}
+
+void TestFenceGeometry::resizeFromTheLeftMovesOnlyTheLeftEdge()
+{
+    const QRect screen(0, 0, 1920, 1080);
+    const QRect start(700, 300, 500, 400);
+    for (int dx = -800; dx <= 600; dx += 11) {
+        const QRect requested = FenceGeometry::resize(start, FenceHandle::Left, QPoint(dx, 0), QSize(120, 80));
+        const QRect r = FenceGeometry::applyResize(start, false, FenceHandle::Left, requested, {}, {screen},
+                                                   screen, QSize(120, 80), 12, true);
+        QCOMPARE(r.left() + r.width(), start.left() + start.width()); // the right edge stays
+        QCOMPARE(r.top(), start.top());
+        QCOMPARE(r.height(), start.height());
+        QVERIFY(r.left() >= 0 && r.width() >= 120);
+    }
 }
 
 void TestFenceGeometry::applyRequestKeepsTheStoredHeightWhenRolled()
