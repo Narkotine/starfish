@@ -34,7 +34,8 @@
 | T-095 | **Formes spéciales de zones** (demande session 59) : autre chose qu'un rectangle arrondi — à préciser avec lui (pastille, onglet, forme libre ?) | 6 | P3 | ⏳ |
 | T-096 | **Zones spéciales « techniques »** (demande session 59) : zones au comportement propre (ex. dossier lié, récents, corbeille, presse-papiers ?) — liste à établir avec lui | 6 | P3 | ⏳ |
 | T-097 | **Design avancé des zones** (demande session 60, « pour l'avenir ») : une page de réglages pour les marges d'une zone - hauteur et retrait du titre, écart titre/icônes, marges, écart entre cases, hauteur des libellés. Déjà paramétré : `ui/fence_metrics.hpp` (`FenceMetrics`, valeurs par défaut = l'écran actuel) ; reste la page et la persistance. Va avec **T-093** | 5 (v0.2) | P2 | ⏳ |
-| T-098 | **Zone translucide, icônes nettes, sans fond opaque** (demande session 62) : aujourd'hui la translucidité est l'alpha **de la fenêtre** (ADR-15) et les tuiles ont une **seconde fenêtre opaque** découpée en **rectangles** (ADR-17) : d'où le pavé derrière chaque icône. **Étude s62 : faisable**, par translucidité **composée** (voir détail). ~1-2 sessions | 5 (v0.2) | P1 | ⏳ |
+| T-098 | **Zone translucide, icônes nettes** : **fait session 63**. Sur le bureau dessiné, une zone = **une fenêtre opaque composée** (bureau dessous + couleur à sa transparence + titre/icônes opaques avec ombre du bureau) ; plus de fenêtre d'icônes. Bureau natif : ancien mode (ADR-15/17). Curseurs chiffrés : défaut (Réglages → Zones) + par zone (menu → Transparence...). | 5 (v0.2) | P1 | ✅ |
+| T-099 | **Flou derrière une zone translucide** (option, non faite s63) : flouter le morceau de bureau avant composition, désactivé par défaut ; coût à mesurer au déplacement. | 5 (v0.2) | P3 | ⏳ |
 
 ## Tâches ouvertes — détail
 
@@ -69,7 +70,7 @@
 
 - **T-087** (Phase 5 / v0.2, P2) — **Voir ce qu'on tient, et ce qu'on va obtenir** (idées utilisateur session 54). Deux manques : (a) pendant un **glisser** de tuile, rien ne suit le curseur — le **repère d'insertion** dit seulement où ça tombera ; l'utilisateur demande un **fantôme** de ce qu'il tient ; (b) quand on **trace le rectangle** au bouton droit pour créer une zone, le menu n'arrive qu'au **relâcher** : il demande une **proposition graphique avant le lâcher**. À trancher : le fantôme est-il une **capture** de la tuile ou un simple **contour** ?
 
-- **T-098** (Phase 5 / v0.2, P1) - **Zone translucide, icônes nettes** (étude session 62, sans code).
+- **T-098** - fait session 63 (zone composée + curseurs de transparence). Reste **T-099** (flou, option).
   - **Pourquoi le pavé** : sur un enfant de `Progman`, seul l'alpha **uniforme** de fenêtre arrive à l'écran (ADR-15, le per-pixel `UpdateLayeredWindow` est invisible, mesuré). Une fenêtre = un alpha : les tuiles ont donc leur fenêtre opaque (ADR-17), et une région est faite de **rectangles 1 bit** -> le fond de la zone, opaque, autour de l'icône et du texte.
   - **Ce qui a changé depuis ADR-17** : avec l'ADR-21, **tout** ce qu'il y a sous une zone est à nous (fond opaque du bureau dessiné = papier peint + icônes, `DesktopBackdrop::frame()`, pixels physiques) et les autres zones. L'objection d'ADR-17 (« faux au-dessus d'une autre zone ») tombe : on connaît aussi leur image.
   - **Proposition** : zone **opaque** (alpha 255, plus d'overlay) dont l'image = découpe du fond du bureau sous elle + couleur du panneau à son alpha + titre et tuiles **opaques** (texte avec ombre, comme le bureau). Bonus impossible aujourd'hui : **flou** (acrylique).
