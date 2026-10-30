@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 
+#include "core/overlap_planner.hpp"
 #include "core/context_menu.hpp"
 #include "core/desktop_item.hpp"
 #include "platform/win/desktop_menu.hpp"
@@ -192,7 +193,13 @@ public:
     void newDesktopFolder();
     // The drop of our own icons back onto the desktop (the drop target's half).
     void onInternalDrop(const QPoint& point, const QStringList& paths, const QPoint& origin);
-    QPoint desktopItemPosition(const QString& path) const { return m_itemPositions.value(path); }
+    // Session 61: a path as the drawn desktop spells it (C:/...) or as the
+    // shell does (C:\...) -- both name the same icon.
+    QPoint desktopItemPosition(const QString& path) const { return m_itemPositions.value(shellNameOf(path)); }
+    QString shellNameOf(const QString& path) const;
+    void syncShellViewForProbe() { m_shellSignature.clear(); syncShellView(); }
+    bool desktopSnapsToGrid() const { return m_shellSnap; }
+    bool desktopAutoArranges() const { return m_shellAutoArrange; }
     // A drop from elsewhere is about to happen at `point` (physical screen):
     // what appears next on the desktop is placed there.
     void onForeignDrop(const QPoint& point, const QStringList& stems = {});
@@ -381,7 +388,12 @@ private:
     void armNewItemRename();
     QLineEdit* m_renameEdit = nullptr;
     QString m_renamePath;
-    QHash<QString, QPoint> m_itemPositions;
+    QHash<QString, QPoint> m_itemPositions;   // by the shell's parsing name
+    QHash<QString, QString> m_shellNames;     // BackdropLayout::pathKey -> parsing name
+    bool m_shellSnap = false;
+    bool m_shellAutoArrange = false;
+    QList<QRect> desktopWorkAreas() const;
+    core::OverlapSlot desktopSlot() const;
     qint64 m_renameNewUntil = 0;
     QSet<QString> m_namesBeforeNew;
     // T-091 follow-up: a drop from elsewhere, placed under the cursor.

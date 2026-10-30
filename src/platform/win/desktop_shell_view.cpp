@@ -456,6 +456,8 @@ struct DesktopShellView::Impl {
     // The child id of the item whose parsing name is `name`, or null. Caller frees.
     PITEMID_CHILD find(const QString& name, int* indexOut = nullptr)
     {
+        // Session 61: the drawn desktop spells a file C:/...; the shell C:\...
+        const QString wanted = QString(name).replace(QLatin1Char('/'), QLatin1Char('\\'));
         int count = 0;
         if (!ok(folderView->ItemCount(SVGIO_ALLVIEW, &count)))
             return nullptr;
@@ -463,7 +465,7 @@ struct DesktopShellView::Impl {
             PITEMID_CHILD child = nullptr;
             if (!ok(folderView->Item(i, &child)) || !child)
                 continue;
-            if (displayNameOf(folder, child, SHGDN_FORPARSING).compare(name, Qt::CaseInsensitive)
+            if (displayNameOf(folder, child, SHGDN_FORPARSING).compare(wanted, Qt::CaseInsensitive)
                 == 0) {
                 if (indexOut)
                     *indexOut = i;

@@ -1810,22 +1810,8 @@ int ProductApp::resolveDesktopOverlaps()
     const QList<QRect> obstacles = m_container->fenceObstacleRects();
     if (obstacles.isEmpty())
         return 0;
-    // The work areas, physical (the same convention as screenLayout()).
-    QList<QRect> areas;
-    for (QScreen* screen : QGuiApplication::screens()) {
-        const qreal dpr = screen->devicePixelRatio();
-        const QRect a = screen->availableGeometry();
-        areas.append(QRect(qRound(a.x() * dpr), qRound(a.y() * dpr), qRound(a.width() * dpr),
-                           qRound(a.height() * dpr)));
-    }
-    const ui::ScreenInfo* primary = backdrop->screens().primary();
-    const qreal scale = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
-    core::OverlapSlot slot;
-    slot.iconSize = qMax(16, m_shellIconSize);
-    slot.spacing = m_shellSpacing.isValid() && !m_shellSpacing.isEmpty()
-                       ? m_shellSpacing
-                       : QSize(slot.iconSize + 47, slot.iconSize + 50);
-    slot.top = qRound(5 * scale);
+    const QList<QRect> areas = desktopWorkAreas();
+    const core::OverlapSlot slot = desktopSlot();
     // Filed icons are not on the desktop (hidden there): never moved.
     const QSet<QString> filed = m_container->filedPathKeys();
     QList<QPair<QString, QPoint>> items;
@@ -1847,6 +1833,40 @@ int ProductApp::resolveDesktopOverlaps()
         m_shellResync.start();
     }
     return moved;
+}
+
+QList<QRect> ProductApp::desktopWorkAreas() const
+{
+    // The work areas, physical (the same convention as screenLayout()).
+    QList<QRect> areas;
+    for (QScreen* screen : QGuiApplication::screens()) {
+        const qreal dpr = screen->devicePixelRatio();
+        const QRect a = screen->availableGeometry();
+        areas.append(QRect(qRound(a.x() * dpr), qRound(a.y() * dpr), qRound(a.width() * dpr),
+                           qRound(a.height() * dpr)));
+    }
+    return areas;
+}
+
+core::OverlapSlot ProductApp::desktopSlot() const
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    const ui::ScreenInfo* primary = backdrop ? backdrop->screens().primary() : nullptr;
+    const qreal scale = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
+    core::OverlapSlot slot;
+    slot.iconSize = qMax(16, m_shellIconSize);
+    slot.spacing = m_shellSpacing.isValid() && !m_shellSpacing.isEmpty()
+                       ? m_shellSpacing
+                       : QSize(slot.iconSize + 47, slot.iconSize + 50);
+    slot.top = qRound(5 * scale);
+    return slot;
+}
+
+QString ProductApp::shellNameOf(const QString& path) const
+{
+    if (m_itemPositions.contains(path))
+        return path;
+    return m_shellNames.value(ui::BackdropLayout::pathKey(path));
 }
 
 void ProductApp::startFenceTitleEdit(const QString& id)
@@ -2012,8 +2032,13 @@ void ProductApp::syncShellView()
     // under a fence -- checked once the view is quiet.
     scheduleOverlapSweep();
     m_itemPositions.clear();
-    for (const platform::win::ShellViewItem& item : state.items)
+    m_shellNames.clear();
+    m_shellSnap = state.snapToGrid;
+    m_shellAutoArrange = state.autoArrange;
+    for (const platform::win::ShellViewItem& item : state.items) {
         m_itemPositions.insert(item.parsingName, item.position);
+        m_shellNames.insert(ui::BackdropLayout::pathKey(item.parsingName), item.parsingName);
+    }
     // A drop from elsewhere: what it created goes under the cursor, side by
     // side, as on the native desktop (the hidden view would put it in a free slot).
     if (m_foreignDropUntil > 0) {
@@ -2246,17 +2271,52 @@ bool ProductApp::moveDesktopItems(const QStringList& paths, const QPoint& delta)
 {
     if (!m_shellView)
         return false;
-    int moved = 0;
+    // Session 61 (the user: "impossible de déplacer une icône"): the drawn
+    // desktop names a file C:/..., the shell C:\... -- looked up as such, the
+    // move found nothing and every file icon stayed put. Translated here.
+    QStringList names;
     for (const QString& path : paths) {
-        const auto it = m_itemPositions.constFind(path);
-        if (it == m_itemPositions.constEnd())
-            continue;
-        if (m_shellView->positionItem(path, it.value() + delta))
-            ++moved;
+        const QString name = shellNameOf(path);
+        if (!name.isEmpty() && !names.contains(name))
+            names << name;
+    }
+    if (names.isEmpty()) {
+        qCInfo(lc).noquote() << QStringLiteral("nothing to move: %1 not on the desktop")
+                                    .arg(paths.join(QLatin1String(", ")));
+        return false;
+    }
+    int moved = 0;
+    if (m_shellAutoArrange) {
+        // "Auto arrange": Explorer decides the places, as on its own desktop --
+        // the drop only says where in the order.
+        for (const QString& name : std::as_const(names)) {
+            if (m_shellView->positionItem(name, m_itemPositions.value(name) + delta))
+                ++moved;
+        }
+    } else {
+        // Free icons only (a filed one is hidden there), the grid if Explorer
+        // aligns to it, never under a fence unless the user allows it.
+        const QSet<QString> filed = m_container ? m_container->filedPathKeys() : QSet<QString>();
+        QList<QPair<QString, QPoint>> items;
+        for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it) {
+            if (names.contains(it.key()) || !filed.contains(ui::BackdropLayout::pathKey(it.key())))
+                items.append({it.key(), it.value()});
+        }
+        const QList<QRect> obstacles = m_allowDesktopOverlap || !m_container
+                                           ? QList<QRect>()
+                                           : m_container->fenceObstacleRects();
+        const QList<core::OverlapMove> moves = core::OverlapPlanner::planMove(
+            items, names, delta, m_shellSnap, obstacles, desktopWorkAreas(), desktopSlot());
+        for (const core::OverlapMove& move : moves) {
+            if (m_shellView->positionItem(move.key, move.to)) {
+                m_itemPositions.insert(move.key, move.to);
+                ++moved;
+            }
+        }
     }
     m_shellSignature.clear();
     m_shellResync.start();
-    return moved == paths.size();
+    return moved > 0;
 }
 
 void ProductApp::onForeignDrop(const QPoint& point, const QStringList& stems)
@@ -2295,8 +2355,9 @@ void ProductApp::onInternalDrop(const QPoint& point, const QStringList& paths, c
     const QPoint delta = point - origin;
     if (qAbs(delta.x()) + qAbs(delta.y()) < 4)
         return; // let go where it was picked up
-    moveDesktopItems(paths, delta);
-    qCInfo(lc).noquote() << QStringLiteral("moved %1 icon(s) by %2,%3")
+    const bool moved = moveDesktopItems(paths, delta);
+    qCInfo(lc).noquote() << QStringLiteral("%1 %2 icon(s) by %3,%4")
+                                .arg(moved ? QLatin1String("moved") : QLatin1String("could not move"))
                                 .arg(paths.size())
                                 .arg(delta.x())
                                 .arg(delta.y());

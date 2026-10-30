@@ -6,6 +6,7 @@
 #include <QRect>
 #include <QSet>
 #include <QSize>
+#include <QStringList>
 #include <QString>
 
 #include <limits>
@@ -50,73 +51,125 @@ public:
                                    const OverlapSlot& slot)
     {
         QList<OverlapMove> moves;
-        const int sw = slot.spacing.width();
-        const int sh = slot.spacing.height();
-        if (sw <= 0 || sh <= 0 || obstacles.isEmpty() || areas.isEmpty())
+        if (!slot.spacing.isValid() || slot.spacing.isEmpty() || obstacles.isEmpty() || areas.isEmpty())
             return moves;
-        auto underFence = [&](const QRect& box) {
-            for (const QRect& o : obstacles)
-                if (o.intersects(box))
-                    return true;
-            return false;
-        };
-        auto inArea = [&](const QRect& box) {
-            for (const QRect& a : areas)
-                if (a.contains(box))
-                    return true;
-            return false;
-        };
         // What stays is taken first; what moves takes its new slot in turn.
         QList<QRect> taken;
         QList<int> movers;
         for (int i = 0; i < items.size(); ++i) {
             const QRect box = slot.boxAt(items.at(i).second);
-            if (underFence(box))
+            if (underAny(box, obstacles))
                 movers.append(i);
             else
                 taken.append(box);
         }
         for (int i : std::as_const(movers)) {
             const QPoint from = items.at(i).second;
-            QPoint best;
-            qint64 bestDistance = std::numeric_limits<qint64>::max();
-            for (const QRect& a : areas) {
-                // The grid through `from`, over the whole area.
-                const int i0 = floorDiv(a.left() - from.x() - sw, sw);
-                const int i1 = floorDiv(a.right() - from.x() + sw, sw);
-                const int j0 = floorDiv(a.top() - from.y() - sh, sh);
-                const int j1 = floorDiv(a.bottom() - from.y() + sh, sh);
-                for (int gx = i0; gx <= i1; ++gx) {
-                    for (int gy = j0; gy <= j1; ++gy) {
-                        const QPoint p(from.x() + gx * sw, from.y() + gy * sh);
-                        const qint64 dx = p.x() - from.x();
-                        const qint64 dy = p.y() - from.y();
-                        const qint64 d = dx * dx + dy * dy;
-                        if (d >= bestDistance)
-                            continue;
-                        const QRect box = slot.boxAt(p);
-                        if (!inArea(box) || underFence(box))
-                            continue;
-                        bool free = true;
-                        for (const QRect& t : std::as_const(taken))
-                            free = free && !t.intersects(box);
-                        if (!free)
-                            continue;
-                        best = p;
-                        bestDistance = d;
-                    }
-                }
-            }
-            if (bestDistance == std::numeric_limits<qint64>::max())
+            QPoint to;
+            if (!nearestFree(from, taken, obstacles, areas, slot, &to))
                 continue; // a desktop full to the brim: left where it is
-            taken.append(slot.boxAt(best));
-            moves.append({items.at(i).first, from, best});
+            taken.append(slot.boxAt(to));
+            moves.append({items.at(i).first, from, to});
+        }
+        return moves;
+    }
+
+    // Session 61: icons the user dragged on the desktop. `moving` (keys of
+    // `items`) all move by `delta`, the selection keeping its shape. With
+    // `snap` (Explorer's "Align icons to grid") the delta is rounded to whole
+    // grid steps -- the grid the icons already sit on -- and a slot already
+    // taken by an icon that stays sends the dragged one to the nearest free
+    // slot (Explorer's rule). Never into a fence (obstacles; empty when the
+    // user allows overlap) nor off the work areas. Icons that end where they
+    // started are not listed.
+    static QList<OverlapMove> planMove(const QList<QPair<QString, QPoint>>& items,
+                                       const QStringList& moving, const QPoint& delta, bool snap,
+                                       const QList<QRect>& obstacles, const QList<QRect>& areas,
+                                       const OverlapSlot& slot)
+    {
+        QList<OverlapMove> moves;
+        const int sw = slot.spacing.width();
+        const int sh = slot.spacing.height();
+        if (sw <= 0 || sh <= 0 || areas.isEmpty() || moving.isEmpty())
+            return moves;
+        const QPoint step = snap ? QPoint(qRound(double(delta.x()) / sw) * sw,
+                                          qRound(double(delta.y()) / sh) * sh)
+                                 : delta;
+        if (step.isNull())
+            return moves;
+        // Without the grid, Explorer lets icons sit on each other: only fences
+        // and the screen bound the drop then.
+        QList<QRect> taken;
+        if (snap) {
+            for (const auto& item : items) {
+                if (!moving.contains(item.first))
+                    taken.append(slot.boxAt(item.second));
+            }
+        }
+        for (const auto& item : items) {
+            if (!moving.contains(item.first))
+                continue;
+            const QPoint want = item.second + step;
+            QPoint to = want;
+            if (!fits(slot.boxAt(want), taken, obstacles, areas)
+                && !nearestFree(want, taken, obstacles, areas, slot, &to))
+                continue; // nowhere to go: it stays
+            if (snap)
+                taken.append(slot.boxAt(to));
+            if (to != item.second)
+                moves.append({item.first, item.second, to});
         }
         return moves;
     }
 
 private:
     static int floorDiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+
+    static bool underAny(const QRect& box, const QList<QRect>& rects)
+    {
+        for (const QRect& r : rects)
+            if (r.intersects(box))
+                return true;
+        return false;
+    }
+
+    static bool fits(const QRect& box, const QList<QRect>& taken, const QList<QRect>& obstacles,
+                     const QList<QRect>& areas)
+    {
+        bool inArea = false;
+        for (const QRect& a : areas)
+            inArea = inArea || a.contains(box);
+        return inArea && !underAny(box, obstacles) && !underAny(box, taken);
+    }
+
+    // The free slot of the grid through `from` nearest to it.
+    static bool nearestFree(const QPoint& from, const QList<QRect>& taken,
+                            const QList<QRect>& obstacles, const QList<QRect>& areas,
+                            const OverlapSlot& slot, QPoint* out)
+    {
+        const int sw = slot.spacing.width();
+        const int sh = slot.spacing.height();
+        qint64 bestDistance = std::numeric_limits<qint64>::max();
+        for (const QRect& a : areas) {
+            const int i0 = floorDiv(a.left() - from.x() - sw, sw);
+            const int i1 = floorDiv(a.right() - from.x() + sw, sw);
+            const int j0 = floorDiv(a.top() - from.y() - sh, sh);
+            const int j1 = floorDiv(a.bottom() - from.y() + sh, sh);
+            for (int gx = i0; gx <= i1; ++gx) {
+                for (int gy = j0; gy <= j1; ++gy) {
+                    const QPoint p(from.x() + gx * sw, from.y() + gy * sh);
+                    const qint64 dx = p.x() - from.x();
+                    const qint64 dy = p.y() - from.y();
+                    const qint64 d = dx * dx + dy * dy;
+                    if (d >= bestDistance || !fits(slot.boxAt(p), taken, obstacles, areas))
+                        continue;
+                    *out = p;
+                    bestDistance = d;
+                }
+            }
+        }
+        return bestDistance != std::numeric_limits<qint64>::max();
+    }
 };
 
 } // namespace starfish::core

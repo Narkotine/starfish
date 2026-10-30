@@ -8,9 +8,10 @@
 - **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre, liste re-masquée, écrans/DPI ; décisions : entrée de menu repointée, éléments virtuels rangeables, flèche des zones = réglage (oui par défaut) ; **lot 3 (T-091)** F2, clavier, rectangle, glisser OLE, `IFileOperation` + annuler ; **lot 4 (T-092)** menu clic droit façon Windows 11 dessiné par StarFish, configurable. `ctest` 17/17, `--drawn-desktop-probe` **46/46**. **§44**.
 - **Session 59 :** apps empaquetées dans le menu, dépôt étranger sous le curseur, icône StarFish (étoile de mer), **refonte Réglages + menu du tray** style Windows 11 (clair/sombre) avec **éditeur du menu clic droit**. `--drawn-desktop-probe` 48/48, `--product-probe` 34/34, `--ui-probe` 10/10.
 - **Session 60 :** retours utilisateur - redimensionnement stable (T-086 corrigé, cause = aimantation de déplacement), renommage sur le titre, tri à l'ajout (désactivé), écart titre/icônes 12 px (`FenceMetrics`, T-097), flèches du bureau (réglage), superposition bureau/zones interdite par défaut (icônes déplacées). `ctest` 18/18, `--ui-probe` 13/13 hors écran.
+- **Session 61 :** déplacer une icône sur le bureau dessiné réparé (chemin `C:/` vs nom `C:\` du shell), grille + case libre la plus proche ; `starfish --quit`. Sondes 49/49, 37/37, 21/21, 45/45, 13/13 ; `ctest` 18/18.
 - **Livré juste avant :** 57 - ADR-20 (renversé par l'ADR-21) ; 56 - T-042 1ʳᵉ tranche ; 52 - i18n.
-- **Dernière mise à jour :** 2026-10-30 (session 60)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`61df2cc`, session 59) ; session 60 **locale**.
+- **Dernière mise à jour :** 2026-10-30 (session 61)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`61df2cc`, session 59) ; sessions 60-61 **locales**.
 
 ## 3 prochaines actions
 

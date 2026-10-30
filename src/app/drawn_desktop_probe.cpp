@@ -525,24 +525,50 @@ int runDrawnDesktopProbe(QApplication& app)
                           .arg(idList ? QLatin1String("yes") : QLatin1String("no")));
 
                 // (f) Our icon dropped back on the desktop moves (the file does not).
+                // Session 61: carried as a real drag carries it -- the *cell's*
+                // path (C:/...), not the shell's name (C:\...). Given the shell's
+                // name, this check passed while every real drag moved nothing.
+                const int dragged = cellIndex(backdrop, testNative);
+                const QString cellPath = dragged >= 0 ? backdrop->cells().at(dragged).item.path : testNative;
                 const QPoint before = product.desktopItemPosition(testNative);
                 void* desktopTarget = backdrop->surface() ? backdrop->surface()->customDropTarget() : nullptr;
                 const QPoint origin = icon.center();
                 const QPoint target = origin + QPoint(0, 2 * backdrop->physicalMetrics().cellWidth);
-                platform::win::beginInternalDrag({testNative}, origin);
+                platform::win::beginInternalDrag({cellPath}, origin);
                 const DWORD moveEffect = playDrop(desktopTarget, data, target, false);
                 platform::win::endInternalDrag();
                 const bool moved = waitUntil(3000, [&] {
                     return product.desktopItemPosition(testNative) != before;
                 });
-                check(QStringLiteral("our icon dropped on the desktop moves there"),
-                      desktopTarget && moved && QFileInfo::exists(testFile)
-                          && moveEffect == DROPEFFECT_NONE,
-                      QStringLiteral("%1,%2 -> %3,%4")
+                const QPoint after = product.desktopItemPosition(testNative);
+                const QSize step = product.shellView()->read().spacing;
+                // On the grid when Explorer aligns to it: a whole number of steps.
+                const bool onGrid = !product.desktopSnapsToGrid()
+                                    || (step.width() > 0 && step.height() > 0
+                                        && (after.x() - before.x()) % step.width() == 0
+                                        && (after.y() - before.y()) % step.height() == 0);
+                check(QStringLiteral("our icon dropped on the desktop moves there (carried as C:/..., on the grid)"),
+                      desktopTarget && moved && onGrid && QFileInfo::exists(testFile)
+                          && moveEffect == DROPEFFECT_NONE && cellPath.contains(QLatin1Char('/')),
+                      QStringLiteral("[%5] %1,%2 -> %3,%4, grid %6x%7 (%8)")
                           .arg(before.x())
                           .arg(before.y())
-                          .arg(product.desktopItemPosition(testNative).x())
-                          .arg(product.desktopItemPosition(testNative).y()));
+                          .arg(after.x())
+                          .arg(after.y())
+                          .arg(cellPath)
+                          .arg(step.width())
+                          .arg(step.height())
+                          .arg(product.desktopAutoArranges() ? QLatin1String("auto-arrange")
+                               : product.desktopSnapsToGrid() ? QLatin1String("snap to grid")
+                                                              : QLatin1String("free")));
+                // The shell keeps that place (what a restart reads back).
+                product.syncShellViewForProbe();
+                bool kept = false;
+                for (const platform::win::ShellViewItem& it : product.shellView()->read().items) {
+                    if (it.parsingName.compare(testNative, Qt::CaseInsensitive) == 0)
+                        kept = it.position == after;
+                }
+                check(QStringLiteral("... and the shell keeps that place"), kept && moved, {});
                 product.shellView()->positionItem(testNative, before);
                 platform::win::releaseComObject(data);
 
