@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QLineEdit>
+#include <QWinEventNotifier>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCheckBox>
@@ -1155,6 +1156,11 @@ int main(int argc, char* argv[])
         QStringLiteral("Session 59: photograph and check StarFish's own windows (tray menu, settings, "
                        "menu editor on a scratch file). Report: build/ui-probe.txt."));
     parser.addOption(uiProbeOption);
+    const QCommandLineOption quitOption(
+        QStringLiteral("quit"),
+        QStringLiteral("Session 61: asks the running StarFish to quit cleanly (native icons "
+                       "restored, document written), as the tray's Quit does, then returns."));
+    parser.addOption(quitOption);
     parser.addOption(noHostOption);
     parser.addOption(noTrayOption);
     parser.addOption(noHotkeysOption);
@@ -7766,6 +7772,20 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
+#if defined(_WIN32)
+    if (parser.isSet(quitOption)) {
+        // A named event, nothing else: no window message, no pointer (T-071).
+        HANDLE quit = ::OpenEventW(EVENT_MODIFY_STATE, FALSE, L"Local\\StarFish.Quit");
+        if (!quit) {
+            qCInfo(lc).noquote() << "StarFish is not running";
+            return 0;
+        }
+        ::SetEvent(quit);
+        ::CloseHandle(quit);
+        qCInfo(lc).noquote() << "asked the running StarFish to quit";
+        return 0;
+    }
+#endif
     if (parser.isSet(drawnDesktopProbeOption))
         return starfish::app::runDrawnDesktopProbe(app);
     if (parser.isSet(contextMenuProbeOption))
@@ -8165,6 +8185,20 @@ int main(int argc, char* argv[])
 
         QObject::connect(&product, &starfish::app::ProductApp::quitRequested, &app,
                          &QCoreApplication::quit);
+#if defined(_WIN32)
+        // `starfish --quit` (session 61): the same clean way out as the tray's
+        // Quit, for a rebuild or an update without touching the tray.
+        HANDLE quitEvent = ::CreateEventW(nullptr, TRUE, FALSE, L"Local\\StarFish.Quit");
+        QWinEventNotifier* quitNotifier = nullptr;
+        if (quitEvent) {
+            ::ResetEvent(quitEvent);
+            quitNotifier = new QWinEventNotifier(quitEvent, &app);
+            QObject::connect(quitNotifier, &QWinEventNotifier::activated, &app, [] {
+                qCInfo(lc).noquote() << "asked to quit (starfish --quit)";
+                QCoreApplication::quit();
+            });
+        }
+#endif
 
         // `--seconds N` closes the application after N seconds, like every other
         // demo. It is how the product mode is exercised without a hand on the
