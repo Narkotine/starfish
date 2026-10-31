@@ -625,6 +625,7 @@ private:
     // (rounded panel, or body + tab), and the window region that follows it.
     QPainterPath physicalOutline(const FenceWindow& fence, const QSize& size) const;
     void applyOutline(FenceWindow& fence);
+    QPainterPath windowShape(const FenceWindow& fence, const QSize& size) const; // session 70
     int m_snapThreshold = 8;
     bool m_host = false;
     int m_nextId = 1;

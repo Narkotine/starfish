@@ -129,6 +129,10 @@ public:
     enum class TitleSide { Top, Bottom, Left, Right };
     void setTitleSide(TitleSide side);
     TitleSide titleSide() const;
+    // Session 70: the side chosen, whatever the roll-up; the bar's own switch.
+    TitleSide storedTitleSide() const { return m_titleSide; }
+    bool titleBarShown() const { return m_titleBarShown; }
+    int borderWidth() const { return m_borderWidth; }
     QRect titleBandRect() const;     // the band, widget coordinates
     QTransform bandTransform() const; // band coordinates -> widget
     int bandLength() const;

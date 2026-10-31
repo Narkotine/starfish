@@ -961,7 +961,7 @@ void FenceContainer::composeFence(FenceWindow& fence)
             if (!ov.intersects(visible))
                 continue;
             const QRect target = ov.translated(-visible.topLeft());
-            const QPainterPath shape = physicalOutline(other, target.size()).translated(target.topLeft());
+            const QPainterPath shape = windowShape(other, target.size()).translated(target.topLeft());
             painter.save();
             painter.setClipPath(shape);
             painter.drawImage(target, other.frame);
@@ -1004,8 +1004,22 @@ void FenceContainer::composeFence(FenceWindow& fence)
                 }
                 return tile;
             }();
+            // Session 70: on the panel only -- inside the border, never over the
+            // icons, their labels or the title (they stay crisp).
+            QPainterPath grainArea = panelShape;
+            if (fence.view) {
+                const QTransform scale = QTransform::fromScale(dpr, dpr);
+                const QSizeF logical = QSizeF(visible.size()) / dpr;
+                grainArea = scale.map(fence.view->outlinePath(logical, qMax(0, fence.view->borderWidth())));
+                QPainterPath keep;
+                for (const QRect& tile : fence.view->tileRects())
+                    keep.addRect(scale.mapRect(QRectF(tile)));
+                if (fence.view->titleShown())
+                    keep.addRect(scale.mapRect(QRectF(fence.view->titleTextRect()).adjusted(-2, -2, 2, 2)));
+                grainArea = grainArea.subtracted(keep);
+            }
             painter.save();
-            painter.setClipPath(panelShape);
+            painter.setClipPath(grainArea);
             painter.setOpacity(fence.style.effect == QLatin1String("textured") ? 1.0 : 0.6);
             painter.fillRect(QRect(QPoint(0, 0), visible.size()), QBrush(grain));
             painter.restore();
@@ -1781,16 +1795,31 @@ QPainterPath FenceContainer::physicalOutline(const FenceWindow& fence, const QSi
     return QTransform::fromScale(dpr, dpr).map(fence.view->outlinePath(QSizeF(size) / dpr));
 }
 
+QPainterPath FenceContainer::windowShape(const FenceWindow& fence, const QSize& size) const
+{
+    // Session 70: composed, the pixels just outside the outline are the desktop
+    // itself (the frame is composed over it), so the window keeps one pixel more
+    // than the outline: its anti-aliased edge stays whole instead of being cut
+    // to the region's staircase (the border looked thinner on every curve).
+    const QPainterPath outline = physicalOutline(fence, size);
+    if (!m_composed)
+        return outline;
+    QPainterPathStroker stroker;
+    stroker.setWidth(2.0);
+    stroker.setJoinStyle(Qt::RoundJoin);
+    return outline.united(stroker.createStroke(outline)).simplified();
+}
+
 void FenceContainer::applyOutline(FenceWindow& fence)
 {
     if (!fence.surface)
         return;
-    if (!fence.view || !fence.view->tabbed()) {
+    if (!fence.view || (!fence.view->tabbed() && !m_composed)) {
         fence.surface->setShapePolygon(QPolygon());
         return;
     }
     const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
-    fence.surface->setShapePolygon(physicalOutline(fence, visible.size()).toFillPolygon().toPolygon());
+    fence.surface->setShapePolygon(windowShape(fence, visible.size()).toFillPolygon().toPolygon());
 }
 
 QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
@@ -1800,8 +1829,18 @@ QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
     const FenceMetrics& m = fence.view->metrics();
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     // Session 68: whatever the band takes across (a side bar) counts too.
-    const int chrome = fence.view->width() > 0 ? fence.view->width() - fence.view->contentRect().width()
-                                               : 2 * m.inset;
+    // Session 70: rolled up, the view has no content area, so its whole width
+    // read as "chrome" and every move of a rolled-up fence (the first click of
+    // the double-click that rolls it down) widened it. The chrome is the
+    // unrolled fence's: the insets, plus the band when it runs down a side.
+    const FenceView::TitleSide side = fence.view->storedTitleSide();
+    const int band = fence.view->titleBarShown()
+            && (side == FenceView::TitleSide::Left || side == FenceView::TitleSide::Right)
+        ? fence.view->titleBarHeight()
+        : 0;
+    const int chrome = fence.rolledUp || fence.view->width() <= 0
+        ? 2 * m.inset + band
+        : fence.view->width() - fence.view->contentRect().width();
     const int logical = chrome + 2 * m.gridPadding + fence.view->cellWidth();
     return QSize(qMax(64, qCeil(logical * dpr)), m_minSize.height());
 }

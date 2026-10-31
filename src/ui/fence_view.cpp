@@ -317,47 +317,63 @@ int FenceView::tabPadding() const
 
 QPainterPath FenceView::outlinePath(const QSizeF& size, qreal inset) const
 {
-    const int r = qBound(0, m_cornerRadius, int(qMin(size.width(), size.height()) / 2));
+    // Session 70: one outline, offset inwards by `inset` as a true parallel
+    // curve -- every straight edge moves in by `inset`, a convex corner keeps
+    // its centre with radius r - inset, a concave fillet keeps its centre with
+    // radius f + inset. The border is stroked on outlinePath(size, width / 2),
+    // so its outer edge *is* outlinePath(size, 0), which is the window's shape:
+    // the same thickness everywhere, nothing cut by the region.
+    const qreal r = qBound(0, m_cornerRadius, int(qMin(size.width(), size.height()) / 2));
+    auto rounded = [](QPainterPath& p, const QRectF& rect, qreal radius) {
+        if (rect.width() <= 0 || rect.height() <= 0)
+            return;
+        const qreal rr = qBound<qreal>(0, radius, qMin(rect.width(), rect.height()) / 2);
+        if (rr > 0)
+            p.addRoundedRect(rect, rr, rr);
+        else
+            p.addRect(rect);
+    };
     QPainterPath path;
     if (!tabbed()) {
-        path.addRoundedRect(QRectF(QPointF(0, 0), size).adjusted(inset, inset, -inset, -inset), r, r);
+        rounded(path, QRectF(QPointF(0, 0), size).adjusted(inset, inset, -inset, -inset), r - inset);
         return path;
     }
     const TitleSide side = titleSide();
     const bool across = side == TitleSide::Left || side == TitleSide::Right;
     const qreal L = across ? size.height() : size.width();
     const qreal T = across ? size.width() : size.height();
-    const qreal b = titleBarHeight();
+    const qreal b = qMin<qreal>(titleBarHeight(), T);
     const QPair<int, int> span = tabSpan(int(L));
-    const qreal x0 = qMax<qreal>(inset, span.first);
-    const qreal x1 = qMin<qreal>(L - inset, span.first + span.second);
+    const qreal x0 = span.first;
+    const qreal x1 = span.first + span.second;
+    // The tab's corners and its junctions share the tab's height: the fence's
+    // radius, up to half of it each (a convex corner over a concave one).
     const qreal rt = qMin<qreal>(r, b / 2);
-    const qreal bodyH = T - b - inset;
+    const qreal bodyH = T - b;
     if (bodyH <= 1) {
         // Rolled up: the tab and nothing else.
-        path.addRoundedRect(QRectF(x0, inset, x1 - x0, T - 2 * inset), rt, rt);
+        rounded(path, QRectF(x0 + inset, inset, x1 - x0 - 2 * inset, T - 2 * inset), rt - inset);
     } else {
-        const qreal rb = qMin<qreal>(r, qMin(L - 2 * inset, bodyH) / 2);
-        path.addRoundedRect(QRectF(inset, b, L - 2 * inset, bodyH), rb, rb);
+        const qreal rb = qMin<qreal>(r, qMin(L, bodyH) / 2);
+        rounded(path, QRectF(inset, b + inset, L - 2 * inset, bodyH - 2 * inset), rb - inset);
         QPainterPath tab;
-        const qreal tabH = qMin(b - inset + rb + rt + 1, T - 2 * inset);
-        tab.addRoundedRect(QRectF(x0, inset, x1 - x0, tabH), rt, rt);
+        // Down past the body's corners, so its own lower corners are inside.
+        const qreal tabBottom = qMin(b + rb + rt + 1, T - inset);
+        rounded(tab, QRectF(x0 + inset, inset, x1 - x0 - 2 * inset, tabBottom - inset), rt - inset);
         path = path.united(tab);
-        // The concave junction: a fillet where a side of the tab meets the
-        // body's edge (only where the body's own corner leaves room).
-        const qreal f = qMin<qreal>(rb, 8);
+        const qreal f = rt;
         if (f >= 1) {
-            auto fillet = [&](qreal sx, qreal cx) {
-                QPainterPath square;
-                square.addRect(QRectF(sx, b - f, f, f));
+            auto fillet = [&](const QRectF& square, const QPointF& centre) {
+                QPainterPath sq;
+                sq.addRect(square);
                 QPainterPath circle;
-                circle.addEllipse(QPointF(cx, b - f), f, f);
-                path = path.united(square.subtracted(circle));
+                circle.addEllipse(centre, f + inset, f + inset);
+                path = path.united(sq.subtracted(circle));
             };
-            if (x0 - f >= inset + rb)
-                fillet(x0 - f, x0 - f);
-            if (x1 + f <= L - inset - rb)
-                fillet(x1, x1 + f);
+            if (x0 - f >= rb)
+                fillet(QRectF(x0 - f, b - f, f + inset, f + inset), QPointF(x0 - f, b - f));
+            if (x1 + f <= L - rb)
+                fillet(QRectF(x1 - inset, b - f, f + inset, f + inset), QPointF(x1 + f, b - f));
         }
     }
     return outlineTransform(size).map(path.simplified());
