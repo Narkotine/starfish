@@ -15,6 +15,9 @@
 #include <QLabel>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
+#include <QToolButton>
 #include <QPointer>
 #include <QPushButton>
 #include <QSlider>
@@ -183,13 +186,25 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     saveTemplate->setObjectName(QStringLiteral("saveTemplate"));
     auto* forNew = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "For new fences"), dialog);
     forNew->setObjectName(QStringLiteral("templateForNewFences"));
+    // Session 70 (T-103): rename or delete the chosen template.
+    auto* manage = new QToolButton(dialog);
+    manage->setObjectName(QStringLiteral("manageTemplate"));
+    manage->setText(QCoreApplication::translate("FenceAppearanceDialog", "Manage"));
+    manage->setPopupMode(QToolButton::InstantPopup);
+    auto* manageMenu = new QMenu(manage);
+    QAction* renameTemplate = manageMenu->addAction(QCoreApplication::translate("FenceAppearanceDialog", "Rename..."));
+    QAction* deleteTemplate = manageMenu->addAction(QCoreApplication::translate("FenceAppearanceDialog", "Delete"));
+    manage->setMenu(manageMenu);
+    manage->setEnabled(false);
     auto* templateRow = new QHBoxLayout;
     templateRow->addWidget(templates, 1);
     templateRow->addWidget(forNew);
+    templateRow->addWidget(manage);
     templateRow->addWidget(saveTemplate);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Template"), templateRow);
-    auto fillTemplates = [templates, forNew](const QString& select) {
+    auto fillTemplates = [templates, forNew, manage](const QString& select) {
         const QSignalBlocker b1(templates), b2(forNew);
+        manage->setEnabled(!select.isEmpty());
         templates->clear();
         templates->addItem(QCoreApplication::translate("FenceAppearanceDialog", "(none)"), QString());
         for (const QString& name : FenceTemplates::names())
@@ -217,6 +232,34 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
             return;
         FenceTemplates::save(name, safe->fenceStyle(id));
         fillTemplates(name);
+    });
+    QObject::connect(renameTemplate, &QAction::triggered, dialog, [dialog, templates, fillTemplates] {
+        const QString from = templates->currentData().toString();
+        if (from.isEmpty())
+            return;
+        bool ok = false;
+        const QString to = QInputDialog::getText(dialog, QCoreApplication::translate("FenceAppearanceDialog", "Rename template"),
+                                                 QCoreApplication::translate("FenceAppearanceDialog", "Name:"),
+                                                 QLineEdit::Normal, from, &ok).trimmed();
+        if (!ok || to.isEmpty() || to == from)
+            return;
+        if (!FenceTemplates::rename(from, to)) {
+            QMessageBox::information(dialog, QCoreApplication::translate("FenceAppearanceDialog", "Rename template"),
+                                     QCoreApplication::translate("FenceAppearanceDialog", "A template with that name already exists."));
+            return;
+        }
+        fillTemplates(to);
+    });
+    QObject::connect(deleteTemplate, &QAction::triggered, dialog, [dialog, templates, fillTemplates] {
+        const QString name = templates->currentData().toString();
+        if (name.isEmpty())
+            return;
+        if (QMessageBox::question(dialog, QCoreApplication::translate("FenceAppearanceDialog", "Delete template"),
+                                  QCoreApplication::translate("FenceAppearanceDialog", "Delete the template \"%1\"? Fences keep their look.").arg(name))
+            != QMessageBox::Yes)
+            return;
+        FenceTemplates::remove(name);
+        fillTemplates(QString());
     });
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
@@ -276,8 +319,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     };
     refresh();
 
-    QObject::connect(templates, &QComboBox::currentIndexChanged, dialog, [templates, forNew, safe, id, refresh](int) {
+    QObject::connect(templates, &QComboBox::currentIndexChanged, dialog, [templates, forNew, manage, safe, id, refresh](int) {
         const QString name = templates->currentData().toString();
+        manage->setEnabled(!name.isEmpty());
         {
             const QSignalBlocker b(forNew);
             forNew->setEnabled(!name.isEmpty());

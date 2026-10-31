@@ -55,6 +55,19 @@ inline void remove(const QString& name)
         store().remove(QStringLiteral("fenceTemplateDefault"));
 }
 
+// Session 70 (T-103): a new name; the "for new fences" choice follows it.
+inline bool rename(const QString& from, const QString& to)
+{
+    if (to.isEmpty() || from == to || !contains(from) || contains(to))
+        return false;
+    QVariantMap map = all();
+    map.insert(to, map.take(from));
+    store().setValue(QStringLiteral("fenceTemplates"), map);
+    if (store().value(QStringLiteral("fenceTemplateDefault")).toString() == from)
+        store().setValue(QStringLiteral("fenceTemplateDefault"), to);
+    return true;
+}
+
 // The template new fences get ("" = none: the schema's defaults).
 inline QString defaultName()
 {
