@@ -10,9 +10,9 @@
 - **Session 62 :** « Démarrer avec Windows » (clé `Run` HKCU) ; image de glisser ; étude T-098.
 - **Sessions 63-64 :** rectangle fluide ; zone translucide composée (T-098) + curseurs de transparence ; superposition cohérente + réglage.
 - **Session 65 :** liste de l'utilisateur : icônes en haut à gauche ; sélection unique, menu Windows 11 sur les tuiles, glisser entre zones ; menu de zone = comportement + **Apparence…** (couleurs récentes, bordure, effets acrylique/texturé, largeur, barre de titre, modèles) ; curseurs de redimensionnement ; langue ; aperçu du tracé. Commits locaux.
-- **Session 66 :** retours apparence : bande de titre à la transparence de la zone, alignement du titre, arrondi, icônes seules fondues, largeur minimale = une colonne centrée, flèches sur toutes les zones, corbeille, `crash.log`.
-- **Dernière mise à jour :** 2026-10-31 (session 66)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-66 **locales**.
+- **Sessions 66-68 :** retours apparence (titre, transparence, largeur, curseurs, corbeille, `crash.log`) ; barre de titre en haut / bas / gauche / droite, affichable depuis le menu ; dossiers dans À propos ; traduction extensible (`docs/traduction.md`).
+- **Dernière mise à jour :** 2026-10-31 (session 68)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-68 **locales**.
 
 ## 3 prochaines actions
 
