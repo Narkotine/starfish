@@ -73,6 +73,24 @@ private slots:
         QCOMPARE(submenus, 1);
     }
 
+    void theTitleBarEntryIsCheckedWhenShown()
+    {
+        // Session 68: show / hide the title bar, straight from the menu.
+        FenceMenu::State state;
+        for (bool shown : {true, false}) {
+            state.titleBarShown = shown;
+            int found = 0;
+            for (const FenceMenu::Entry& e : FenceMenu::entries(state)) {
+                if (e.action == FenceMenu::Action::ToggleTitleBar) {
+                    ++found;
+                    QVERIFY(e.checkable);
+                    QCOMPARE(e.checked, shown);
+                }
+            }
+            QCOMPARE(found, 1);
+        }
+    }
+
     void recentColoursPutTheLastFirstOnceAndKeepSixteen()
     {
         QStringList list;

@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QPointF>
 #include <QStringList>
+#include <QTransform>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -117,6 +118,15 @@ public:
     // Right), its inset (wider under a strong rounding), and the opacity the
     // icons alone are painted with (fadeIcons, composed).
     void setTitleAlignment(Qt::Alignment align);
+    // Session 68: the side the title bar sits on. Left reads bottom to top,
+    // right top to bottom; rolled up, the bar is always along the top.
+    enum class TitleSide { Top, Bottom, Left, Right };
+    void setTitleSide(TitleSide side);
+    TitleSide titleSide() const;
+    QRect titleBandRect() const;     // the band, widget coordinates
+    QTransform bandTransform() const; // band coordinates -> widget
+    int bandLength() const;
+    FenceHandle handleAt(const QPoint& point) const;
     Qt::Alignment titleAlignment() const { return m_titleAlign; }
     int titleInset() const;
     void setIconOpacity(qreal opacity);
@@ -278,6 +288,7 @@ private:
     bool m_hovered = false;
     bool m_titleBarShown = true;
     Qt::Alignment m_titleAlign = Qt::AlignLeft;
+    TitleSide m_titleSide = TitleSide::Top;
     qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;

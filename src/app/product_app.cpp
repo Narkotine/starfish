@@ -1013,6 +1013,7 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     const core::FenceStyle fenceStyle = m_container->fenceStyle(id);
     state.radius = fenceStyle.radius;
     state.hasTitleBarColor = !fenceStyle.titleBarColor.isEmpty();
+    state.titleBarShown = fenceStyle.titleBar;
     if (const ui::FenceView* view = m_container->view(id))
         state.sortBy = view->sortBy();
 
@@ -1110,6 +1111,12 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     case ui::FenceMenu::Action::Remove:
         onRemoveFence(id);
         break;
+    case ui::FenceMenu::Action::ToggleTitleBar: {
+        core::FenceStyle style = m_container->fenceStyle(id);
+        style.titleBar = !style.titleBar;
+        m_container->setFenceStyle(id, style);
+        break;
+    }
     case ui::FenceMenu::Action::FadeIcons:
         // T-082: the option that puts the material on the fence's icons as well.
         // One call, through setFenceStyle: the container re-applies the material,
@@ -2031,8 +2038,16 @@ void ProductApp::startFenceTitleEdit(const QString& id)
                                        "selection-color: #FFFFFF; padding: 0 3px; }"));
     edit->setText(m_container->fenceTitle(id));
     edit->selectAll();
-    const int width = qMax(title.width() + 48, 160);
-    edit->setGeometry(title.left() - 4, title.center().y() - 12, width, 24);
+    // Session 68: a vertical title (left / right bar) is edited across, laid
+    // over the fence from its bar.
+    if (title.height() > title.width()) {
+        const int width = qMax(title.height() + 48, 160);
+        const bool right = m_container->fenceStyle(id).titleSide == QLatin1String("right");
+        edit->setGeometry(right ? title.right() + 4 - width : title.left() - 4, title.center().y() - 12, width, 24);
+    } else {
+        const int width = qMax(title.width() + 48, 160);
+        edit->setGeometry(title.left() - 4, title.center().y() - 12, width, 24);
+    }
     edit->onCancel = [this] { finishFenceTitleEdit(false); };
     connect(edit, &QLineEdit::editingFinished, this, [this] { finishFenceTitleEdit(true); });
     m_titleEdit = edit;

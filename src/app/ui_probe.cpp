@@ -219,6 +219,15 @@ int runUiProbe(QApplication& app)
     // is in front of it -- the user's own windows.
     check(QStringLiteral("the settings window has four pages"),
           settings.findChild<QListWidget*>(QStringLiteral("nav"))->count() == 4, {});
+    // Session 68: About shows the folders, each with a button to open it.
+    {
+        auto* data = settings.findChild<QPushButton*>(QStringLiteral("openDataFolder"));
+        auto* local = settings.findChild<QPushButton*>(QStringLiteral("openLocalFolder"));
+        auto* language = settings.findChild<QComboBox*>(QStringLiteral("languageCombo"));
+        check(QStringLiteral("About: the data and crash-log folders, each with Open (session 68)"),
+              data && local && language && language->findData(QStringLiteral("fr")) >= 0,
+              language ? QStringLiteral("%1 language entries").arg(language->count()) : QString());
+    }
     // Session 62: "start with Windows" on General; a Task Manager disable shows
     // as off, with a hint (the registry is the truth -- nothing written here).
     {
@@ -600,6 +609,56 @@ int runUiProbe(QApplication& app)
               QStringLiteral("width %1, room %2 / %3").arg(shrunk.width()).arg(leftRoom).arg(rightRoom));
         check(QStringLiteral("a fence follows the pointer with no button held (resize arrows, session 66)"),
               view->hasMouseTracking(), QString());
+    }
+
+    // --- session 68: the title bar on any side ---------------------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Jeux vidéo"), QRect(0, 0, 300, 220));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s68/a.txt")),
+                                core::itemFromPathOnly(QStringLiteral("C:/s68/b.txt"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(300, 220);
+        QImage sheet(3 * 310 + 10, 230, QImage::Format_ARGB32_Premultiplied);
+        sheet.fill(QColor(0x9A, 0xC8, 0x2A));
+        QPainter sp(&sheet);
+        QString detail;
+        bool ok = true;
+        const QStringList sides{QStringLiteral("bottom"), QStringLiteral("left"), QStringLiteral("right")};
+        for (int i = 0; i < sides.size(); ++i) {
+            core::FenceStyle style = container.fenceStyle(id);
+            style.titleSide = sides.at(i);
+            style.radius = 20;
+            style.background = QStringLiteral("#B31F2937");
+            style.defaultOpacity = false;
+            style.titleBarColor = QStringLiteral("#FF2563EB");
+            style.titleAlign = i == 1 ? QStringLiteral("center") : QString();
+            container.setFenceStyle(id, style);
+            const QRect band = view->titleBandRect();
+            const QRect content = view->contentRect();
+            const QRect text = view->titleTextRect();
+            const bool bandOk = i == 0 ? band.top() == 220 - band.height() && content.bottom() < band.top()
+                              : i == 1 ? band.left() == 0 && band.height() == 220 && content.left() > band.right()
+                                       : band.right() == 299 && band.height() == 220 && content.right() < band.left();
+            const bool textOk = band.contains(text) && (i == 0 ? text.width() > text.height() : text.height() > text.width());
+            const bool grab = view->handleAt(band.center()) == ui::FenceHandle::TitleBar
+                              && view->handleAt(content.center()) == ui::FenceHandle::None;
+            ok = ok && bandOk && textOk && grab;
+            detail += QStringLiteral("%1: band %2 text %3 grab %4  ").arg(sides.at(i)).arg(bandOk).arg(textOk).arg(grab);
+            sp.save();
+            sp.translate(10 + i * 310, 5);
+            view->render(&sp, QPoint(), QRegion(), QWidget::DrawChildren);
+            sp.restore();
+        }
+        sp.end();
+        sheet.save(captures + QStringLiteral("/s68_title_sides_%1.png").arg(theme));
+        // Back on top for an old layout: no key = top.
+        core::FenceStyle style = container.fenceStyle(id);
+        style.titleSide.clear();
+        container.setFenceStyle(id, style);
+        ok = ok && view->titleSide() == ui::FenceView::TitleSide::Top && view->titleBandRect().top() == 0;
+        check(QStringLiteral("the title bar at the bottom, left, right: band, vertical text, grab, icons beside (session 68)"),
+              ok, detail);
     }
 
     // --- session 67: the title clears the rounded corner -----------------------

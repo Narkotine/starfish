@@ -102,11 +102,19 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     titleBar->setToolTip(QCoreApplication::translate("FenceAppearanceDialog", "Hidden: the fence moves by the thin band at its top."));
     auto* titleAlign = new QComboBox(dialog);
     titleAlign->setObjectName(QStringLiteral("titleAlign"));
-    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title on the left"), QString());
+    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title at the start"), QString());
     titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title centred"), QStringLiteral("center"));
-    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title on the right"), QStringLiteral("right"));
+    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title at the end"), QStringLiteral("right"));
+    // Session 68: and on which side it sits.
+    auto* titleSide = new QComboBox(dialog);
+    titleSide->setObjectName(QStringLiteral("titleSide"));
+    titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "At the top"), QString());
+    titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "At the bottom"), QStringLiteral("bottom"));
+    titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "On the left (vertical)"), QStringLiteral("left"));
+    titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "On the right (vertical)"), QStringLiteral("right"));
     auto* titleRow = new QHBoxLayout;
     titleRow->addWidget(titleBar);
+    titleRow->addWidget(titleSide, 1);
     titleRow->addWidget(titleAlign, 1);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar"), titleRow);
 
@@ -199,11 +207,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign), b13(titleSide);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -234,6 +242,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleBar->setChecked(style.titleBar);
         titleAlign->setCurrentIndex(qMax(0, titleAlign->findData(style.titleAlign)));
         titleAlign->setEnabled(style.titleBar);
+        titleSide->setCurrentIndex(qMax(0, titleSide->findData(style.titleSide)));
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -313,6 +322,10 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     });
     QObject::connect(titleBar, &QCheckBox::toggled, dialog, [restyle](bool shown) {
         restyle([shown](core::FenceStyle& style) { style.titleBar = shown; });
+    });
+    QObject::connect(titleSide, &QComboBox::currentIndexChanged, dialog, [titleSide, restyle](int) {
+        const QString chosen = titleSide->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.titleSide = chosen; });
     });
     QObject::connect(titleAlign, &QComboBox::currentIndexChanged, dialog, [titleAlign, restyle](int) {
         const QString chosen = titleAlign->currentData().toString();

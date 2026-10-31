@@ -71,6 +71,8 @@ struct FenceStyle {
     QString effect;
     // Session 66: the title in its bar: "" left, "center", "right".
     QString titleAlign;
+    // Session 68: the side of the title bar: "" top, "bottom", "left", "right".
+    QString titleSide;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

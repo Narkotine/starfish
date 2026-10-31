@@ -21,6 +21,8 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegion>
+#include <QTransform>
 #include <QPen>
 #include <QPoint>
 #include <QRect>
@@ -183,7 +185,88 @@ QRect FenceView::contentRect() const
     if (m_rolledUp)
         return QRect();
     const FenceMetrics& m = m_metrics;
-    return rect().adjusted(m.inset, titleBarHeight() + (titleShown() ? m.titleGap : 0), -m.inset, -m.inset);
+    // Session 68: the band may sit on any side; the icons take the rest.
+    const int band = titleBarHeight() + (titleShown() ? m.titleGap : 0);
+    switch (titleSide()) {
+    case TitleSide::Bottom:
+        return rect().adjusted(m.inset, m.inset, -m.inset, -band);
+    case TitleSide::Left:
+        return rect().adjusted(band, m.inset, -m.inset, -m.inset);
+    case TitleSide::Right:
+        return rect().adjusted(m.inset, m.inset, -band, -m.inset);
+    case TitleSide::Top:
+        break;
+    }
+    return rect().adjusted(m.inset, band, -m.inset, -m.inset);
+}
+
+FenceView::TitleSide FenceView::titleSide() const
+{
+    // A rolled-up fence is its title bar, laid along the top.
+    return m_rolledUp ? TitleSide::Top : m_titleSide;
+}
+
+void FenceView::setTitleSide(TitleSide side)
+{
+    if (m_titleSide == side)
+        return;
+    m_titleSide = side;
+    update();
+    emit contentChanged();
+}
+
+QRect FenceView::titleBandRect() const
+{
+    const int band = titleBarHeight();
+    switch (titleSide()) {
+    case TitleSide::Bottom:
+        return QRect(0, height() - band, width(), band);
+    case TitleSide::Left:
+        return QRect(0, 0, band, height());
+    case TitleSide::Right:
+        return QRect(width() - band, 0, band, height());
+    case TitleSide::Top:
+        break;
+    }
+    return QRect(0, 0, width(), band);
+}
+
+QTransform FenceView::bandTransform() const
+{
+    // Band coordinates: x along the bar (its length), y across it (0..band).
+    // Left reads bottom to top, right top to bottom -- both face the fence.
+    QTransform t;
+    switch (titleSide()) {
+    case TitleSide::Bottom:
+        t.translate(0, height() - titleBarHeight());
+        break;
+    case TitleSide::Left:
+        t.translate(0, height());
+        t.rotate(-90);
+        break;
+    case TitleSide::Right:
+        t.translate(width(), 0);
+        t.rotate(90);
+        break;
+    case TitleSide::Top:
+        break;
+    }
+    return t;
+}
+
+int FenceView::bandLength() const
+{
+    const TitleSide side = titleSide();
+    return side == TitleSide::Left || side == TitleSide::Right ? height() : width();
+}
+
+FenceHandle FenceView::handleAt(const QPoint& point) const
+{
+    // The resize grips first (any side), then the band wherever it lies.
+    const FenceHandle handle = FenceGeometry::hitTest(rect(), point, kResizeBorder, 0, cornerRadius());
+    if (handle == FenceHandle::None && rect().contains(point) && titleBandRect().contains(point))
+        return FenceHandle::TitleBar;
+    return handle;
 }
 
 void FenceView::setMetrics(const FenceMetrics& metrics)
@@ -200,9 +283,9 @@ QRect FenceView::titleTextRect() const
     QFont titleFont = font();
     titleFont.setBold(true);
     const QFontMetrics fm(titleFont);
-    const QString text = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
+    const QString text = m_title.isEmpty() ? tr("Fence") : m_title;
     const int inset = titleInset();
-    const int available = qMax(0, width() - 2 * inset);
+    const int available = qMax(0, bandLength() - 2 * inset);
     const int w = qMin(available, fm.horizontalAdvance(text) + 2);
     const int h = fm.height();
     int x = inset;
@@ -210,7 +293,8 @@ QRect FenceView::titleTextRect() const
         x = inset + (available - w) / 2;
     else if (m_titleAlign & Qt::AlignRight)
         x = inset + available - w;
-    return QRect(x, (m_metrics.titleBarHeight - h) / 2, w, h);
+    // In band coordinates, then mapped onto the widget (session 68).
+    return bandTransform().mapRect(QRect(x, (m_metrics.titleBarHeight - h) / 2, w, h));
 }
 
 int FenceView::titleInset() const
@@ -292,11 +376,11 @@ void FenceView::paintEvent(QPaintEvent* event)
     // panel (two translucent layers made it near opaque): the panel fills
     // below the band, the band fills the band, the border goes over both.
     if (m_titleBarColor.isValid()) {
-        const int band = titleBarHeight();
+        const QRect bandRect = titleBandRect();
         painter.save();
-        painter.setClipRect(QRect(0, band, width(), height() - band));
+        painter.setClipRegion(QRegion(rect()).subtracted(QRegion(bandRect)));
         painter.fillPath(panel, fill);
-        painter.setClipRect(QRect(0, 0, width(), band));
+        painter.setClipRect(bandRect);
         QColor bandFill = m_titleBarColor;
         if (m_hovered && m_hoverHighlight)
             bandFill = QColor::fromHsv(bandFill.hsvHue(), bandFill.hsvSaturation(),
@@ -317,9 +401,11 @@ void FenceView::paintEvent(QPaintEvent* event)
         titleFont.setBold(true);
         painter.setFont(titleFont);
         const int inset = titleInset();
-        const QRect titleRect(inset, 0, qMax(0, width() - 2 * inset), m_metrics.titleBarHeight);
+        painter.save();
+        painter.setTransform(bandTransform(), true);
+        const QRect titleRect(inset, 0, qMax(0, bandLength() - 2 * inset), m_metrics.titleBarHeight);
         const QString titleText_ = painter.fontMetrics().elidedText(
-            m_title.isEmpty() ? QStringLiteral("Fence") : m_title, Qt::ElideRight, titleRect.width());
+            m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
         const Qt::Alignment align = Qt::AlignVCenter | (m_titleAlign ? m_titleAlign : Qt::AlignLeft);
         if (m_grid.textShadow()) {
             painter.setPen(QColor(0, 0, 0, 0xA0));
@@ -327,11 +413,15 @@ void FenceView::paintEvent(QPaintEvent* event)
         }
         painter.setPen(titleText);
         painter.drawText(titleRect, align, titleText_);
+        painter.restore();
     } else if (m_hovered) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
+        painter.save();
+        painter.setTransform(bandTransform(), true);
         painter.setPen(QPen(QColor(255, 255, 255, 0x70), 2, Qt::SolidLine, Qt::RoundCap));
-        painter.drawLine(QPointF(width() / 2.0 - 14, kHiddenTitleBand / 2.0 + 1),
-                         QPointF(width() / 2.0 + 14, kHiddenTitleBand / 2.0 + 1));
+        painter.drawLine(QPointF(bandLength() / 2.0 - 14, kHiddenTitleBand / 2.0 + 1),
+                         QPointF(bandLength() / 2.0 + 14, kHiddenTitleBand / 2.0 + 1));
+        painter.restore();
     }
 
     const QRect content = contentRect();
@@ -412,7 +502,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     // before the icon grid so a fence gesture never disturbs the icon selection
     // -- which is also what keeps the two drags mutually exclusive.
     const FenceHandle handle =
-        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius());
+        handleAt(event->pos());
     if (handle != FenceHandle::None) {
         m_geometryHandle = handle;
         m_geometryStartScreen = event->globalPosition();
@@ -473,7 +563,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         // the fence can be grabbed.
         if (!(event->buttons() & Qt::LeftButton))
             setCursor(cursorForHandle(
-                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius())));
+                handleAt(event->pos())));
         return;
     }
 
@@ -609,7 +699,7 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
 {
     // F-020: a double-click on the title bar rolls the fence up or down. Checked
     // before the grid so a double-click on an icon still launches it.
-    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius())
+    if (handleAt(event->pos())
         == FenceHandle::TitleBar) {
         // Session 60: on the title's text, a double-click renames in place (as a
         // file's name in Explorer); anywhere else on the band it still rolls up.
@@ -639,7 +729,7 @@ void FenceView::wheelEvent(QWheelEvent* event)
     // F-020: the wheel over the title bar rolls the fence up (away from the
     // user) or down (towards them). Only the title bar reacts, so scrolling over
     // the icon grid is never hijacked.
-    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, titleBarHeight(), cornerRadius())
+    if (handleAt(event->position().toPoint())
         != FenceHandle::TitleBar) {
         QWidget::wheelEvent(event);
         return;

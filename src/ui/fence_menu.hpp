@@ -73,6 +73,7 @@ enum class Action {
     Sort,       // the submenu; its children come from sortEntries()
     SortBy,     // value = index into sortKeys()
     Appearance, // "Appearance...": material, transparency, corners, colours
+    ToggleTitleBar, // session 68: show / hide the title bar, checkable
 };
 
 struct Entry {
@@ -112,6 +113,7 @@ struct State {
     int radius = 0;
     bool hasTitleBarColor = false;
     QString sortBy = QStringLiteral("name");
+    bool titleBarShown = true; // session 68
 };
 
 // Session 65: what a fence can be sorted by (core::sortForDisplay's keys).
@@ -263,6 +265,14 @@ inline QList<Entry> entries(const State& state)
     roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
                                 : QCoreApplication::translate("FenceMenu", "Roll up");
     out.append(roll);
+
+    // Session 68 (the user asked for it here): the title bar, shown or not.
+    Entry titleBar;
+    titleBar.action = Action::ToggleTitleBar;
+    titleBar.label = QCoreApplication::translate("FenceMenu", "Show the title bar");
+    titleBar.checkable = true;
+    titleBar.checked = state.titleBarShown;
+    out.append(titleBar);
 
     Entry sort;
     sort.kind = Kind::Submenu;

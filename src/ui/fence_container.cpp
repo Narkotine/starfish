@@ -726,6 +726,10 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setTitleAlignment(fence.style.titleAlign == QLatin1String("center") ? Qt::AlignHCenter
                                   : fence.style.titleAlign == QLatin1String("right") ? Qt::AlignRight
                                                                                        : Qt::AlignLeft);
+    fence.view->setTitleSide(fence.style.titleSide == QLatin1String("bottom") ? FenceView::TitleSide::Bottom
+                             : fence.style.titleSide == QLatin1String("left") ? FenceView::TitleSide::Left
+                             : fence.style.titleSide == QLatin1String("right") ? FenceView::TitleSide::Right
+                                                                               : FenceView::TitleSide::Top);
     // fadeIcons, composed: the icons alone at the fence's transparency.
     fence.view->setIconOpacity(m_composed && fence.style.fadeIcons ? alpha / 255.0 : 1.0);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
@@ -1753,7 +1757,10 @@ QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
         return m_minSize;
     const FenceMetrics& m = fence.view->metrics();
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
-    const int logical = 2 * (m.inset + m.gridPadding) + fence.view->cellWidth();
+    // Session 68: whatever the band takes across (a side bar) counts too.
+    const int chrome = fence.view->width() > 0 ? fence.view->width() - fence.view->contentRect().width()
+                                               : 2 * m.inset;
+    const int logical = chrome + 2 * m.gridPadding + fence.view->cellWidth();
     return QSize(qMax(64, qCeil(logical * dpr)), m_minSize.height());
 }
 

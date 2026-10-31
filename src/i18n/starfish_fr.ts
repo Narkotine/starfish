@@ -92,44 +92,64 @@
         <translation>Masquée : la fence se déplace par la fine bande du haut.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Title on the left</source>
-        <translation>Titre à gauche</translation>
-    </message>
-    <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Title centred</source>
         <translation>Titre centré</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Title on the right</source>
-        <translation>Titre à droite</translation>
+        <location line="-1"/>
+        <source>Title at the start</source>
+        <translation>Titre au début</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Title at the end</source>
+        <translation>Titre à la fin</translation>
     </message>
     <message>
         <location line="+4"/>
+        <source>At the top</source>
+        <translation>En haut</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>At the bottom</source>
+        <translation>En bas</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>On the left (vertical)</source>
+        <translation>À gauche (vertical)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>On the right (vertical)</source>
+        <translation>À droite (vertical)</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Title bar</source>
         <translation>Barre de titre</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+176"/>
+        <location line="+177"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-172"/>
+        <location line="-173"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+177"/>
+        <location line="+178"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-172"/>
+        <location line="-173"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -189,7 +209,7 @@
         <translation>Nom :</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+156"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -220,7 +240,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+191"/>
+        <location filename="../ui/fence_menu.hpp" line="+193"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -291,6 +311,11 @@
     </message>
     <message>
         <location line="+136"/>
+        <source>Show the title bar</source>
+        <translation>Afficher la barre de titre</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Sort by</source>
         <translation>Trier par</translation>
     </message>
@@ -326,7 +351,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2340"/>
+        <location filename="../app/product_app.cpp" line="+2347"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -352,7 +377,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2525"/>
+        <location line="-2532"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -385,13 +410,13 @@
         <translation>Créer une zone ici (%1 x %2)</translation>
     </message>
     <message>
-        <location filename="../app/drawn_desktop_probe.cpp" line="+710"/>
+        <location filename="../app/drawn_desktop_probe.cpp" line="+713"/>
         <location filename="../app/product_app.cpp" line="+3"/>
         <source>Create a fence here</source>
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+379"/>
+        <location filename="../app/product_app.cpp" line="+386"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -746,7 +771,13 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+354"/>
+        <location filename="../ui/fence_view.cpp" line="+286"/>
+        <location line="+122"/>
+        <source>Fence</source>
+        <translation>Zone</translation>
+    </message>
+    <message>
+        <location line="+30"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -759,7 +790,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+109"/>
+        <location filename="../ui/settings_dialog.cpp" line="+110"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -771,24 +802,24 @@
     </message>
     <message>
         <location line="-23"/>
-        <location line="+105"/>
+        <location line="+106"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="-104"/>
-        <location line="+258"/>
+        <location line="-105"/>
+        <location line="+259"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-257"/>
-        <location line="+276"/>
+        <location line="-258"/>
+        <location line="+277"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-248"/>
+        <location line="-249"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -800,17 +831,17 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+326"/>
+        <location line="+356"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-316"/>
+        <location line="-346"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Language</source>
         <translation>Langue</translation>
     </message>
@@ -841,11 +872,12 @@
     </message>
     <message>
         <location line="+2"/>
+        <location line="+231"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-224"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1005,7 +1037,27 @@
         <translation>Des zones pour ranger le bureau de Windows. Vos fichiers ne bougent jamais : une zone les montre, le dossier du bureau les garde.</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+19"/>
+        <source>Folders</source>
+        <translation>Dossiers</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Settings and fences</source>
+        <translation>Réglages et zones</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Crash log and cache</source>
+        <translation>Journal de plantage et cache</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Preferences: registry, HKEY_CURRENT_USER\Software\StarFish</source>
+        <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
+    </message>
+    <message>
+        <location line="+81"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
