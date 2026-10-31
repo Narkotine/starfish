@@ -101,32 +101,44 @@ set_property(SOURCE starfish.rc APPEND PROPERTY OBJECT_DEPENDS
 # is verified from the product's own window instead of being trusted.
 find_package(Qt6 QUIET COMPONENTS LinguistTools)
 if(TARGET Qt6::lrelease)
-    set(starfish_ts_file ${CMAKE_CURRENT_SOURCE_DIR}/i18n/starfish_fr.ts)
-    set(starfish_qm_file ${CMAKE_CURRENT_BINARY_DIR}/starfish_fr.qm)
-    add_custom_command(
-        OUTPUT ${starfish_qm_file}
-        COMMAND Qt6::lrelease ${starfish_ts_file} -qm ${starfish_qm_file}
-        DEPENDS ${starfish_ts_file}
-        COMMENT "Compiling the French catalogue (F-036)"
-        VERBATIM)
-    # The catalogue has to sit next to the executables (the application *and* the
-    # test binaries all land in the build directory): that is where core::i18n
-    # looks first, and what the unit test reads back.
-    #
-    # This is its own rule, with the `.qm` as its input -- **not** a POST_BUILD
-    # step of the application, which fires only on a relink. Measured: editing a
-    # translation rebuilt the `.qm` and left the copy next to starfish.exe
-    # untouched, silently, with `ninja` reporting "no work to do" (the same trap
-    # as an untracked `.rc` resource, src/CMakeLists.txt above).
-    add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/starfish_fr.qm
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${starfish_qm_file} ${CMAKE_BINARY_DIR}/starfish_fr.qm
-        DEPENDS ${starfish_qm_file}
-        COMMENT "Placing starfish_fr.qm next to the executables"
-        VERBATIM)
-    add_custom_target(starfish_translations ALL DEPENDS ${CMAKE_BINARY_DIR}/starfish_fr.qm)
+    # Session 68: every src/i18n/starfish_<lang>.ts is a language. Adding one is
+    # adding the file (docs/traduction.md): it is compiled here, placed next to
+    # the executables, and core::i18n::availableLanguages() offers it.
+    file(GLOB starfish_ts_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/i18n/starfish_*.ts)
+    set(starfish_placed_qm_files)
+    foreach(starfish_ts_file IN LISTS starfish_ts_files)
+        get_filename_component(starfish_ts_name ${starfish_ts_file} NAME_WE)
+        set(starfish_qm_file ${CMAKE_CURRENT_BINARY_DIR}/${starfish_ts_name}.qm)
+        add_custom_command(
+            OUTPUT ${starfish_qm_file}
+            COMMAND Qt6::lrelease ${starfish_ts_file} -qm ${starfish_qm_file}
+            DEPENDS ${starfish_ts_file}
+            COMMENT "Compiling the catalogue ${starfish_ts_name} (F-036)"
+            VERBATIM)
+        # Next to the executables (application and tests): where core::i18n
+        # looks first. Its own rule with the `.qm` as input -- not a POST_BUILD
+        # step, which fires only on a relink (a measured trap, session 40s).
+        add_custom_command(
+            OUTPUT ${CMAKE_BINARY_DIR}/${starfish_ts_name}.qm
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${starfish_qm_file} ${CMAKE_BINARY_DIR}/${starfish_ts_name}.qm
+            DEPENDS ${starfish_qm_file}
+            COMMENT "Placing ${starfish_ts_name}.qm next to the executables"
+            VERBATIM)
+        list(APPEND starfish_placed_qm_files ${CMAKE_BINARY_DIR}/${starfish_ts_name}.qm)
+    endforeach()
+    add_custom_target(starfish_translations ALL DEPENDS ${starfish_placed_qm_files})
     add_dependencies(starfish starfish_translations)
+    # `cmake --build build --target starfish_lupdate`: refreshes every catalogue
+    # from the sources (new strings appear as unfinished).
+    if(TARGET Qt6::lupdate)
+        add_custom_target(starfish_lupdate
+            COMMAND Qt6::lupdate -no-obsolete -locations relative ${CMAKE_CURRENT_SOURCE_DIR}
+                    -ts ${starfish_ts_files}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Updating the translation sources"
+            VERBATIM)
+    endif()
 else()
     message(STATUS "Qt6::lrelease not found: no translation is built, the interface stays in English")
 endif()

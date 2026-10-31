@@ -1,6 +1,7 @@
 #include "core/i18n.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QLibraryInfo>
 #include <QLoggingCategory>
 #include <QTranslator>
@@ -64,7 +65,35 @@ bool loadFrom(QTranslator* translator, const QString& name, const QStringList& d
 
 QStringList availableLanguages()
 {
-    return {QStringLiteral("en"), QStringLiteral("fr")};
+    // Session 68: the offer is what ships -- the source language plus every
+    // `starfish_<lang>.qm` found where install() looks (next to the executable,
+    // then translations/). Adding a language is adding src/i18n/starfish_<lang>.ts:
+    // CMake compiles it, this lists it, Settings offers it.
+    QStringList languages{QLatin1String(kSourceLanguage)};
+    if (QCoreApplication* app = QCoreApplication::instance()) {
+        const QString base = app->applicationDirPath();
+        for (const QString& dir : {base, base + QStringLiteral("/translations")}) {
+            const QStringList files =
+                QDir(dir).entryList({QStringLiteral("starfish_*.qm")}, QDir::Files, QDir::Name);
+            for (const QString& file : files) {
+                const QString code = file.mid(9, file.size() - 9 - 3).toLower(); // starfish_<code>.qm
+                if (!code.isEmpty() && !languages.contains(code))
+                    languages << code;
+            }
+        }
+    }
+    return languages;
+}
+
+QString displayName(const QString& language)
+{
+    if (language == QLatin1String(kSourceLanguage))
+        return QStringLiteral("English");
+    QString name = QLocale(language).nativeLanguageName();
+    if (name.isEmpty())
+        return language;
+    name[0] = name.at(0).toUpper();
+    return name;
 }
 
 QString catalogNameFor(const QString& language)
@@ -76,8 +105,10 @@ QString catalogNameFor(const QString& language)
 
 QString fromLocale(const QLocale& locale)
 {
-    if (locale.language() == QLocale::French)
-        return QStringLiteral("fr");
+    // Any language that ships, not only French (session 68).
+    const QString code = locale.name().section(QLatin1Char('_'), 0, 0).toLower();
+    if (availableLanguages().contains(code))
+        return code;
     return QLatin1String(kSourceLanguage);
 }
 

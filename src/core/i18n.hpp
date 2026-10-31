@@ -45,12 +45,16 @@ inline constexpr const char* kSourceLanguage = "en";
 // under, T-076).
 QStringList availableLanguages();
 
+// The language's own name for itself, capitalised ("Français", "Deutsch"):
+// what the language list in Settings shows.
+QString displayName(const QString& language);
+
 // The catalogue file name for a language, without extension: `starfish_fr`.
 // Empty for the source language, which has no catalogue.
 QString catalogNameFor(const QString& language);
 
-// The language a machine's locale asks for. Anything that is not French gets the
-// source language.
+// The language a machine's locale asks for, when a catalogue for it ships;
+// anything else gets the source language.
 QString fromLocale(const QLocale& locale);
 QString fromSystemLocale();
 

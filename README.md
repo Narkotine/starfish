@@ -22,6 +22,7 @@ Suite : `TODO.md` (T-090 synchronisation complète, T-091 gestes délégués au 
 | [`devlog/`](devlog/) | Journal de développement, une entrée datée par session de travail. |
 | [`docs/produit.md`](docs/produit.md) | Documentation produit : vision, personas, cas d'usage, inventaire fonctionnel complet (référence Fences 6), périmètre par version, non-objectifs. |
 | [`docs/plan.md`](docs/plan.md) | Plan de mise en œuvre par phases avec critères de sortie. |
+| [`docs/traduction.md`](docs/traduction.md) | Traduction : comment l'interface est traduite (Qt Linguist) et **comment ajouter une langue** (un fichier `.ts`). |
 | [`docs/technique.md`](docs/technique.md) | Architecture, décisions techniques (ADR), modèle de données, intégration Windows, build/packaging. |
 
 ## Reprendre le travail (agent ou humain)
