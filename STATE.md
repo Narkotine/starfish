@@ -17,7 +17,7 @@
 
 1. **Session 60 à essayer** : redimensionner (coin haut-gauche fixe), double-clic sur un titre, Réglages  Zones (3 nouveaux interrupteurs), zone posée sur des icônes du bureau. Puis **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
 2. **Plan ADR-21 livré** (T-089..T-092). Reste humain : deux écrans, vrai redémarrage d'Explorer (T-090) ; vrai glisser souris, focus clavier (T-091) ; le menu dessiné à la vraie souris et au clavier (T-092). Menu : Réglages → Menu clic droit (fichier `%LOCALAPPDATA%\StarFish\context-menu.json`).
-3. ❓ Questions ouvertes : \T-095\, \T-096\, \T-013\, \T-031\, \T-036\, \T-015\.
+3. ❓ Questions ouvertes : `T-095`, `T-096`, `T-013`, `T-031`, `T-036`, `T-015`.
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |
