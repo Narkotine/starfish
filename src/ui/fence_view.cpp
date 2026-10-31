@@ -260,8 +260,141 @@ int FenceView::bandLength() const
     return side == TitleSide::Left || side == TitleSide::Right ? height() : width();
 }
 
+void FenceView::setTabTitle(bool tab)
+{
+    if (m_tabTitle == tab)
+        return;
+    m_tabTitle = tab;
+    update();
+    emit contentChanged();
+}
+
+QTransform FenceView::outlineTransform(const QSizeF& size) const
+{
+    // Outline coordinates: x along the bar, y from the bar's *outer* edge
+    // inwards, over the whole fence (the bottom bar is mirrored, not turned).
+    QTransform t;
+    switch (titleSide()) {
+    case TitleSide::Bottom:
+        t = QTransform(1, 0, 0, -1, 0, size.height());
+        break;
+    case TitleSide::Left:
+        t.translate(0, size.height());
+        t.rotate(-90);
+        break;
+    case TitleSide::Right:
+        t.translate(size.width(), 0);
+        t.rotate(90);
+        break;
+    case TitleSide::Top:
+        break;
+    }
+    return t;
+}
+
+QPair<int, int> FenceView::tabSpan(int length) const
+{
+    // Session 69 (T-115): the tab is as long as the title, plus its padding.
+    QFont titleFont = font();
+    titleFont.setBold(true);
+    const QFontMetrics fm(titleFont);
+    const QString text = m_title.isEmpty() ? tr("Fence") : m_title;
+    const int pad = tabPadding();
+    const int w = qMin(length, fm.horizontalAdvance(text) + 2 + 2 * pad);
+    int x = 0;
+    if (m_titleAlign & Qt::AlignHCenter)
+        x = (length - w) / 2;
+    else if (m_titleAlign & Qt::AlignRight)
+        x = length - w;
+    return {x, w};
+}
+
+int FenceView::tabPadding() const
+{
+    const int rt = qMin(cornerRadius(), titleBarHeight() / 2);
+    return qMax(m_metrics.titleInset, rt + 4) + qMax(0, m_borderWidth);
+}
+
+QPainterPath FenceView::outlinePath(const QSizeF& size, qreal inset) const
+{
+    const int r = qBound(0, m_cornerRadius, int(qMin(size.width(), size.height()) / 2));
+    QPainterPath path;
+    if (!tabbed()) {
+        path.addRoundedRect(QRectF(QPointF(0, 0), size).adjusted(inset, inset, -inset, -inset), r, r);
+        return path;
+    }
+    const TitleSide side = titleSide();
+    const bool across = side == TitleSide::Left || side == TitleSide::Right;
+    const qreal L = across ? size.height() : size.width();
+    const qreal T = across ? size.width() : size.height();
+    const qreal b = titleBarHeight();
+    const QPair<int, int> span = tabSpan(int(L));
+    const qreal x0 = qMax<qreal>(inset, span.first);
+    const qreal x1 = qMin<qreal>(L - inset, span.first + span.second);
+    const qreal rt = qMin<qreal>(r, b / 2);
+    const qreal bodyH = T - b - inset;
+    if (bodyH <= 1) {
+        // Rolled up: the tab and nothing else.
+        path.addRoundedRect(QRectF(x0, inset, x1 - x0, T - 2 * inset), rt, rt);
+    } else {
+        const qreal rb = qMin<qreal>(r, qMin(L - 2 * inset, bodyH) / 2);
+        path.addRoundedRect(QRectF(inset, b, L - 2 * inset, bodyH), rb, rb);
+        QPainterPath tab;
+        const qreal tabH = qMin(b - inset + rb + rt + 1, T - 2 * inset);
+        tab.addRoundedRect(QRectF(x0, inset, x1 - x0, tabH), rt, rt);
+        path = path.united(tab);
+        // The concave junction: a fillet where a side of the tab meets the
+        // body's edge (only where the body's own corner leaves room).
+        const qreal f = qMin<qreal>(rb, 8);
+        if (f >= 1) {
+            auto fillet = [&](qreal sx, qreal cx) {
+                QPainterPath square;
+                square.addRect(QRectF(sx, b - f, f, f));
+                QPainterPath circle;
+                circle.addEllipse(QPointF(cx, b - f), f, f);
+                path = path.united(square.subtracted(circle));
+            };
+            if (x0 - f >= inset + rb)
+                fillet(x0 - f, x0 - f);
+            if (x1 + f <= L - inset - rb)
+                fillet(x1, x1 + f);
+        }
+    }
+    return outlineTransform(size).map(path.simplified());
+}
+
 FenceHandle FenceView::handleAt(const QPoint& point) const
 {
+    if (tabbed()) {
+        // Session 69: the tab is the bar; the body has its grips; the rest of
+        // the strip along the bar is not the fence's (the window region leaves
+        // it to the desktop).
+        const QPointF op = outlineTransform(QSizeF(size())).inverted().map(QPointF(point));
+        const int b = titleBarHeight();
+        const QPair<int, int> span = tabSpan(bandLength());
+        const bool inTab = op.x() >= span.first && op.x() <= span.first + span.second;
+        if (op.y() < b + (inTab ? kResizeBorder : 0)) {
+            if (!inTab || !rect().contains(point))
+                return FenceHandle::None;
+            if (op.y() >= kResizeBorder)
+                return FenceHandle::TitleBar;
+            switch (titleSide()) {
+            case TitleSide::Bottom: return FenceHandle::Bottom;
+            case TitleSide::Left: return FenceHandle::Left;
+            case TitleSide::Right: return FenceHandle::Right;
+            case TitleSide::Top: break;
+            }
+            return FenceHandle::Top;
+        }
+        QRect body = rect();
+        switch (titleSide()) {
+        case TitleSide::Bottom: body.adjust(0, 0, 0, -b); break;
+        case TitleSide::Left: body.adjust(b, 0, 0, 0); break;
+        case TitleSide::Right: body.adjust(0, 0, -b, 0); break;
+        case TitleSide::Top: body.adjust(0, b, 0, 0); break;
+        }
+        return FenceGeometry::hitTest(body, point, kResizeBorder, 0, cornerRadius());
+    }
     // The resize grips first (any side), then the band wherever it lies.
     const FenceHandle handle = FenceGeometry::hitTest(rect(), point, kResizeBorder, 0, cornerRadius());
     if (handle == FenceHandle::None && rect().contains(point) && titleBandRect().contains(point))
@@ -284,10 +417,16 @@ QRect FenceView::titleTextRect() const
     titleFont.setBold(true);
     const QFontMetrics fm(titleFont);
     const QString text = m_title.isEmpty() ? tr("Fence") : m_title;
+    const int h = fm.height();
+    if (tabbed()) {
+        const QPair<int, int> span = tabSpan(bandLength());
+        const int pad = tabPadding();
+        const int w = qMax(0, qMin(span.second - 2 * pad, fm.horizontalAdvance(text) + 2));
+        return bandTransform().mapRect(QRect(span.first + pad, (m_metrics.titleBarHeight - h) / 2, w, h));
+    }
     const int inset = titleInset();
     const int available = qMax(0, bandLength() - 2 * inset);
     const int w = qMin(available, fm.horizontalAdvance(text) + 2);
-    const int h = fm.height();
     int x = inset;
     if (m_titleAlign & Qt::AlignHCenter)
         x = inset + (available - w) / 2;
@@ -363,15 +502,51 @@ void FenceView::paintEvent(QPaintEvent* event)
     // a touch lighter, the border brighter.
     QColor border = m_borderColor;
     QColor fill = m_panelColor;
-    if (m_hovered && m_hoverHighlight) {
+    QColor bandFill = m_titleBarColor;
+    int borderWidth = m_borderWidth;
+    // Session 69: the hover effect, the fence's own or the default.
+    const HoverEffect hover = m_hovered && m_hoverHighlight ? m_hoverEffect : HoverEffect::None;
+    auto lighter = [](const QColor& c) {
+        return QColor::fromHsv(c.hsvHue(), c.hsvSaturation(), qMin(255, c.value() + 14), c.alpha());
+    };
+    auto opaquer = [](QColor c) {
+        c.setAlpha(qMin(255, c.alpha() + 90));
+        return c;
+    };
+    auto tinted = [this](const QColor& c) {
+        const QColor a = m_borderColor;
+        return QColor((c.red() * 2 + a.red()) / 3, (c.green() * 2 + a.green()) / 3, (c.blue() * 2 + a.blue()) / 3,
+                      c.alpha());
+    };
+    switch (hover) {
+    case HoverEffect::Lighter:
         border = border.lighter(140);
-        fill = QColor::fromHsv(fill.hsvHue(), fill.hsvSaturation(), qMin(255, fill.value() + 14), fill.alpha());
+        fill = lighter(fill);
+        if (bandFill.isValid())
+            bandFill = lighter(bandFill);
+        break;
+    case HoverEffect::Opacity:
+        fill = opaquer(fill);
+        if (bandFill.isValid())
+            bandFill = opaquer(bandFill);
+        break;
+    case HoverEffect::Colour:
+        fill = tinted(fill);
+        if (bandFill.isValid())
+            bandFill = tinted(bandFill);
+        break;
+    case HoverEffect::NoBorder:
+        borderWidth = 0;
+        break;
+    case HoverEffect::Glow:
+        border = border.lighter(150);
+        break;
+    case HoverEffect::None:
+        break;
     }
     const qreal half = qMax(0.5, m_borderWidth / 2.0);
-    const QRectF panelRect = QRectF(rect()).adjusted(half, half, -half, -half);
-    const int radius = cornerRadius();
-    QPainterPath panel;
-    panel.addRoundedRect(panelRect, radius, radius);
+    // Session 69: the outline -- a rounded panel, or a body with its tab.
+    const QPainterPath panel = outlinePath(QSizeF(size()), half);
     // T-080, session 66: the title bar's own colour is *not* laid over the
     // panel (two translucent layers made it near opaque): the panel fills
     // below the band, the band fills the band, the border goes over both.
@@ -381,17 +556,27 @@ void FenceView::paintEvent(QPaintEvent* event)
         painter.setClipRegion(QRegion(rect()).subtracted(QRegion(bandRect)));
         painter.fillPath(panel, fill);
         painter.setClipRect(bandRect);
-        QColor bandFill = m_titleBarColor;
-        if (m_hovered && m_hoverHighlight)
-            bandFill = QColor::fromHsv(bandFill.hsvHue(), bandFill.hsvSaturation(),
-                                       qMin(255, bandFill.value() + 14), bandFill.alpha());
         painter.fillPath(panel, bandFill);
         painter.restore();
     } else {
         painter.fillPath(panel, fill);
     }
-    if (m_borderWidth > 0) {
-        painter.setPen(QPen(border, m_borderWidth));
+    if (hover == HoverEffect::Glow) {
+        // An inner glow along the outline (the window region cuts anything
+        // outside it): wide soft strokes, clipped to the fence.
+        painter.save();
+        painter.setClipPath(panel);
+        painter.setBrush(Qt::NoBrush);
+        for (int i = 3; i >= 1; --i) {
+            QColor glow = border;
+            glow.setAlpha(40);
+            painter.setPen(QPen(glow, i * 6));
+            painter.drawPath(panel);
+        }
+        painter.restore();
+    }
+    if (borderWidth > 0) {
+        painter.setPen(QPen(border, borderWidth));
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(panel);
     }
@@ -403,10 +588,16 @@ void FenceView::paintEvent(QPaintEvent* event)
         const int inset = titleInset();
         painter.save();
         painter.setTransform(bandTransform(), true);
-        const QRect titleRect(inset, 0, qMax(0, bandLength() - 2 * inset), m_metrics.titleBarHeight);
+        QRect titleRect(inset, 0, qMax(0, bandLength() - 2 * inset), m_metrics.titleBarHeight);
+        if (tabbed()) {
+            const QPair<int, int> span = tabSpan(bandLength());
+            const int pad = tabPadding();
+            titleRect = QRect(span.first + pad, 0, qMax(0, span.second - 2 * pad), m_metrics.titleBarHeight);
+        }
         const QString titleText_ = painter.fontMetrics().elidedText(
             m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
-        const Qt::Alignment align = Qt::AlignVCenter | (m_titleAlign ? m_titleAlign : Qt::AlignLeft);
+        const Qt::Alignment align =
+            Qt::AlignVCenter | (tabbed() ? Qt::AlignHCenter : (m_titleAlign ? m_titleAlign : Qt::AlignLeft));
         if (m_grid.textShadow()) {
             painter.setPen(QColor(0, 0, 0, 0xA0));
             painter.drawText(titleRect.translated(1, 1), align, titleText_);

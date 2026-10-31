@@ -682,6 +682,15 @@ void DesktopSurface::setCornerRadius(int radiusPx)
     applyShape();
 }
 
+void DesktopSurface::setShapePolygon(const QPolygon& polygon)
+{
+    if (m_shapePolygon == polygon)
+        return;
+    m_shapePolygon = polygon;
+    m_shapedSize = QSize();
+    applyShape();
+}
+
 // T-082. The tiles' shape: the union of the rectangles, and nothing else. The
 // overlay's *content* is the very same frame the panel blits -- one render serves
 // both windows, and no pixel of a tile can drift from the pixel the panel would
@@ -763,6 +772,22 @@ void DesktopSurface::applyShape()
             region = ::CreateRectRgn(0, 0, 0, 0);
         if (!region || !::SetWindowRgn(self, region, TRUE)) {
             qCWarning(lc) << "SetWindowRgn (tile rects) failed, error" << ::GetLastError();
+            if (region)
+                ::DeleteObject(region);
+            return;
+        }
+        m_shapedSize = QSize(w, h);
+        return;
+    }
+
+    if (!m_shapePolygon.isEmpty()) {
+        QVector<POINT> points;
+        points.reserve(m_shapePolygon.size());
+        for (const QPoint& p : m_shapePolygon)
+            points.append(POINT{p.x(), p.y()});
+        HRGN region = ::CreatePolygonRgn(points.constData(), int(points.size()), WINDING);
+        if (!region || !::SetWindowRgn(self, region, TRUE)) {
+            qCWarning(lc) << "SetWindowRgn (outline) failed, error" << ::GetLastError();
             if (region)
                 ::DeleteObject(region);
             return;
@@ -1139,7 +1164,7 @@ bool DesktopSurface::place()
     // rule applies -- it is a function of the size alone, so a stale one counts as
     // "not where it belongs" and gets rebuilt.
     const bool shapeIsCurrent =
-        (m_regionRects.isEmpty() && m_cornerRadius <= 0) || m_shapedSize == m_rect.size();
+        (m_regionRects.isEmpty() && m_cornerRadius <= 0 && m_shapePolygon.isEmpty()) || m_shapedSize == m_rect.size();
     // ... and a panel that belongs to an overlay is only where it belongs when the
     // overlay is **directly above** it: anything in between would hide the tiles
     // behind its own panel. Moving a fence is what breaks that (both windows are
@@ -1171,7 +1196,7 @@ bool DesktopSurface::place()
     // ADR-15: a window region is expressed in window coordinates, so it is the
     // *size* that decides whether it has to be rebuilt -- a move changes nothing
     // about it. A rolled-up fence changes height, and a resize changes both.
-    if ((m_cornerRadius > 0 || !m_regionRects.isEmpty()) && m_shapedSize != m_rect.size())
+    if ((m_cornerRadius > 0 || !m_regionRects.isEmpty() || !m_shapePolygon.isEmpty()) && m_shapedSize != m_rect.size())
         applyShape();
     if (m_perPixelAlpha) {
         // UpdateLayeredWindow carries the position *and the size*: the frame it is

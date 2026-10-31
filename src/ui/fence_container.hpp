@@ -621,6 +621,10 @@ private:
     // Session 66: a fence with icons can shrink to one column with the same
     // room on both sides (physical pixels); an empty one keeps m_minSize.
     QSize minSizeFor(const FenceWindow& fence) const;
+    // Session 69: a fence's outline in physical pixels for a physical size
+    // (rounded panel, or body + tab), and the window region that follows it.
+    QPainterPath physicalOutline(const FenceWindow& fence, const QSize& size) const;
+    void applyOutline(FenceWindow& fence);
     int m_snapThreshold = 8;
     bool m_host = false;
     int m_nextId = 1;

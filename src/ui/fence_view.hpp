@@ -4,6 +4,8 @@
 #include <QPointF>
 #include <QStringList>
 #include <QTransform>
+#include <QPainterPath>
+#include <QPair>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -69,6 +71,10 @@ public:
     void setBorder(int width, const QColor& color);
     // Session 65: a light highlight while the pointer is over the fence.
     void setHoverHighlight(bool on) { m_hoverHighlight = on; }
+    // Session 69: what the hover does (the fence's own, or the default's).
+    enum class HoverEffect { None, Lighter, Opacity, Colour, NoBorder, Glow };
+    void setHoverEffect(HoverEffect effect) { m_hoverEffect = effect; }
+    HoverEffect hoverEffect() const { return m_hoverEffect; }
     bool hovered() const { return m_hovered; }
     int cornerRadius() const;
 
@@ -127,6 +133,17 @@ public:
     QTransform bandTransform() const; // band coordinates -> widget
     int bandLength() const;
     FenceHandle handleAt(const QPoint& point) const;
+    // Session 69 (T-115): the title bar as a tab as long as the title, joined
+    // to the body by a rounded (concave) junction; the rest of the strip is
+    // not the fence's. outlinePath() is the fence's shape for a size (logical
+    // pixels): what is painted, and the window region.
+    void setTabTitle(bool tab);
+    bool tabTitle() const { return m_tabTitle; }
+    bool tabbed() const { return m_tabTitle && titleShown(); }
+    QPainterPath outlinePath(const QSizeF& size, qreal inset = 0) const;
+    QTransform outlineTransform(const QSizeF& size) const;
+    QPair<int, int> tabSpan(int length) const; // offset, length along the bar
+    int tabPadding() const;
     Qt::Alignment titleAlignment() const { return m_titleAlign; }
     int titleInset() const;
     void setIconOpacity(qreal opacity);
@@ -285,10 +302,12 @@ private:
     int m_borderWidth = 1;
     QColor m_borderColor = QColor(0x3B, 0x82, 0xF6);
     bool m_hoverHighlight = true;
+    HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
     bool m_titleBarShown = true;
     Qt::Alignment m_titleAlign = Qt::AlignLeft;
     TitleSide m_titleSide = TitleSide::Top;
+    bool m_tabTitle = false;
     qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;

@@ -73,6 +73,11 @@ struct FenceStyle {
     QString titleAlign;
     // Session 68: the side of the title bar: "" top, "bottom", "left", "right".
     QString titleSide;
+    // Session 69 (T-115): "" a full-width bar, "tab" a tab as long as the title.
+    QString titleBarShape;
+    // Session 69: "" the default (Settings), "none", "lighter", "opacity",
+    // "colour", "noborder", "glow".
+    QString hoverEffect;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

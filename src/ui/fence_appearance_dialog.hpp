@@ -117,6 +117,24 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     titleRow->addWidget(titleSide, 1);
     titleRow->addWidget(titleAlign, 1);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar"), titleRow);
+    // Session 69 (T-115): the bar across the whole side, or a tab as long as
+    // the title.
+    auto* titleShape = new QComboBox(dialog);
+    titleShape->setObjectName(QStringLiteral("titleBarShape"));
+    titleShape->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Full width"), QString());
+    titleShape->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Tab (as long as the title)"), QStringLiteral("tab"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar shape"), titleShape);
+    // Session 69: what the pointer over the fence does.
+    auto* hoverCombo = new QComboBox(dialog);
+    hoverCombo->setObjectName(QStringLiteral("hoverEffect"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Nothing"), QStringLiteral("none"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Lighter"), QStringLiteral("lighter"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Less transparent"), QStringLiteral("opacity"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Tinted with the border colour"), QStringLiteral("colour"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Border hidden"), QStringLiteral("noborder"));
+    hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Glow"), QStringLiteral("glow"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "On hover"), hoverCombo);
 
     auto* panel = new QPushButton(dialog);
     panel->setObjectName(QStringLiteral("panelColour"));
@@ -207,11 +225,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign), b13(titleSide);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign), b13(titleSide), b14(titleShape), b15(hoverCombo);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -243,6 +261,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleAlign->setCurrentIndex(qMax(0, titleAlign->findData(style.titleAlign)));
         titleAlign->setEnabled(style.titleBar);
         titleSide->setCurrentIndex(qMax(0, titleSide->findData(style.titleSide)));
+        titleShape->setCurrentIndex(qMax(0, titleShape->findData(style.titleBarShape)));
+        titleShape->setEnabled(style.titleBar);
+        hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -322,6 +343,14 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     });
     QObject::connect(titleBar, &QCheckBox::toggled, dialog, [restyle](bool shown) {
         restyle([shown](core::FenceStyle& style) { style.titleBar = shown; });
+    });
+    QObject::connect(titleShape, &QComboBox::currentIndexChanged, dialog, [titleShape, restyle](int) {
+        const QString chosen = titleShape->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.titleBarShape = chosen; });
+    });
+    QObject::connect(hoverCombo, &QComboBox::currentIndexChanged, dialog, [hoverCombo, restyle](int) {
+        const QString chosen = hoverCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.hoverEffect = chosen; });
     });
     QObject::connect(titleSide, &QComboBox::currentIndexChanged, dialog, [titleSide, restyle](int) {
         const QString chosen = titleSide->currentData().toString();

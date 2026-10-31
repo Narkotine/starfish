@@ -6,6 +6,7 @@
 #include <QPoint>
 #include <QPointF>
 #include <QRect>
+#include <QPolygon>
 #include <QStringList>
 #include <QTimer>
 #include <QtGlobal>
@@ -219,6 +220,10 @@ public:
     // window's size changes.
     void setCornerRadius(int radiusPx);
     int cornerRadius() const { return m_cornerRadius; }
+    // Session 69 (T-115): any outline (window coordinates, physical pixels) for
+    // the panel shape -- a fence with a tab-style title. Empty = the rounded
+    // panel above. Like the radius, it is re-applied when the size changes.
+    void setShapePolygon(const QPolygon& polygon);
 
     // ⚠️ T-082 -- the *other* shape a hosted surface can take: the **union of
     // these rectangles** (window coordinates, physical pixels) instead of the
@@ -368,6 +373,7 @@ private:
     // stacked directly above (see setStackAbove). Both are empty/null for every
     // fence panel -- they exist for the icon overlay.
     QVector<QRect> m_regionRects;
+    QPolygon m_shapePolygon;
     Shape m_shape = Shape::RoundedPanel;
     // The surface this one is stacked directly below -- set on a fence's *panel*
     // (its overlay is the window above it). See setStackedBelow.

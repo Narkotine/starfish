@@ -726,6 +726,7 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setTitleAlignment(fence.style.titleAlign == QLatin1String("center") ? Qt::AlignHCenter
                                   : fence.style.titleAlign == QLatin1String("right") ? Qt::AlignRight
                                                                                        : Qt::AlignLeft);
+    fence.view->setTabTitle(fence.style.titleBarShape == QLatin1String("tab"));
     fence.view->setTitleSide(fence.style.titleSide == QLatin1String("bottom") ? FenceView::TitleSide::Bottom
                              : fence.style.titleSide == QLatin1String("left") ? FenceView::TitleSide::Left
                              : fence.style.titleSide == QLatin1String("right") ? FenceView::TitleSide::Right
@@ -739,7 +740,24 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     if (!border.isValid())
         border = QColor(0x3B, 0x82, 0xF6);
     fence.view->setBorder(fence.style.borderWidth >= 0 ? fence.style.borderWidth : m_defaultBorderWidth, border);
-    fence.view->setHoverHighlight(m_hoverHighlight);
+    // Session 69: the fence's own hover effect, or the default (Settings:
+    // on = lighter, off = none).
+    const QString hover = fence.style.hoverEffect;
+    FenceView::HoverEffect effect = m_hoverHighlight ? FenceView::HoverEffect::Lighter : FenceView::HoverEffect::None;
+    if (hover == QLatin1String("none"))
+        effect = FenceView::HoverEffect::None;
+    else if (hover == QLatin1String("lighter"))
+        effect = FenceView::HoverEffect::Lighter;
+    else if (hover == QLatin1String("opacity"))
+        effect = FenceView::HoverEffect::Opacity;
+    else if (hover == QLatin1String("colour"))
+        effect = FenceView::HoverEffect::Colour;
+    else if (hover == QLatin1String("noborder"))
+        effect = FenceView::HoverEffect::NoBorder;
+    else if (hover == QLatin1String("glow"))
+        effect = FenceView::HoverEffect::Glow;
+    fence.view->setHoverEffect(effect);
+    fence.view->setHoverHighlight(effect != FenceView::HoverEffect::None);
     fence.view->setFixedCellWidth(fence.style.cellWidth);
     fence.view->setTitleBarShown(fence.style.titleBar);
 }
@@ -764,10 +782,8 @@ void FenceContainer::setNewFenceStyle(const core::FenceStyle& style)
 void FenceContainer::setHoverHighlight(bool on)
 {
     m_hoverHighlight = on;
-    for (FenceWindow& fence : m_fences) {
-        if (fence.view)
-            fence.view->setHoverHighlight(on);
-    }
+    for (FenceWindow& fence : m_fences)
+        applyStyleToView(fence); // session 69: a fence's own effect wins
 }
 
 void FenceContainer::setDefaultFenceAlpha(int alpha)
@@ -945,17 +961,13 @@ void FenceContainer::composeFence(FenceWindow& fence)
             if (!ov.intersects(visible))
                 continue;
             const QRect target = ov.translated(-visible.topLeft());
-            const qreal radius = other.view ? other.view->cornerRadius() * m_screens.devicePixelRatioFor(other.rect) : 0;
-            QPainterPath shape;
-            shape.addRoundedRect(QRectF(target), radius, radius);
+            const QPainterPath shape = physicalOutline(other, target.size()).translated(target.topLeft());
             painter.save();
             painter.setClipPath(shape);
             painter.drawImage(target, other.frame);
             painter.restore();
         }
-        const qreal radius = fence.view ? fence.view->cornerRadius() * dpr : 0;
-        QPainterPath panelShape;
-        panelShape.addRoundedRect(QRectF(QPointF(0, 0), QSizeF(visible.size())), radius, radius);
+        const QPainterPath panelShape = physicalOutline(fence, visible.size());
         // T-099 (session 65): acrylic -- what is behind, blurred (down then up,
         // smooth: a cheap wide blur), under the translucent panel.
         if (fence.style.effect == QLatin1String("acrylic") && visible.width() > 16 && visible.height() > 16) {
@@ -1033,6 +1045,7 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
         // their own.
         fence.surface->setUniformAlpha(255);
         fence.surface->setCornerRadius(fence.view->cornerRadius());
+        applyOutline(fence);
         syncIconOverlay(fence);
         return true;
     }
@@ -1046,6 +1059,7 @@ bool FenceContainer::applyMaterialToSurface(FenceWindow& fence)
         return false;
     }
     fence.surface->setCornerRadius(fence.view->cornerRadius());
+    applyOutline(fence);
     // T-082: the icons are not part of that window any more. The panel is what
     // fades, so the tiles get the second window that keeps them opaque -- or lose
     // it, when the material is opaque or the fence asks for its icons to fade too.
@@ -1751,6 +1765,34 @@ bool FenceContainer::removeFence(const QString& id)
     return false;
 }
 
+QPainterPath FenceContainer::physicalOutline(const FenceWindow& fence, const QSize& size) const
+{
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+    QPainterPath path;
+    if (!fence.view) {
+        path.addRect(QRectF(QPointF(0, 0), QSizeF(size)));
+        return path;
+    }
+    if (!fence.view->tabbed()) {
+        const qreal radius = fence.view->cornerRadius() * dpr;
+        path.addRoundedRect(QRectF(QPointF(0, 0), QSizeF(size)), radius, radius);
+        return path;
+    }
+    return QTransform::fromScale(dpr, dpr).map(fence.view->outlinePath(QSizeF(size) / dpr));
+}
+
+void FenceContainer::applyOutline(FenceWindow& fence)
+{
+    if (!fence.surface)
+        return;
+    if (!fence.view || !fence.view->tabbed()) {
+        fence.surface->setShapePolygon(QPolygon());
+        return;
+    }
+    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    fence.surface->setShapePolygon(physicalOutline(fence, visible.size()).toFillPolygon().toPolygon());
+}
+
 QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
 {
     if (!fence.view || fence.view->items().isEmpty())
@@ -1814,6 +1856,7 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
         // surface the smaller radius, or the window would be cut to a shape the
         // panel no longer draws. Idempotent (an unchanged radius returns at once).
         fence.surface->setCornerRadius(fence.view ? fence.view->cornerRadius() : 0);
+        applyOutline(fence); // session 69: a tab-style title shapes the window
         fence.surface->setGeometry(visible);
     }
 
@@ -1946,6 +1989,7 @@ void FenceContainer::renderFence(const QString& id)
     // widget into those physical pixels, so a fence keeps the same apparent size
     // (and the same icon density) on a 150 % monitor as on a 100 % one.
     const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    applyOutline(*fence); // session 69: the tab follows the title and the style
     if (m_composed && fence->surface) {
         // T-098: the fence's own pixels over transparency, then composed.
         QImage content(visible.size(), QImage::Format_ARGB32_Premultiplied);
