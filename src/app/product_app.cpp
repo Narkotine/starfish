@@ -559,6 +559,13 @@ void ProductApp::wireSettings()
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
             .setValue(QStringLiteral("language"), code);
     });
+    connect(m_settings, &ui::SettingsDialog::desktopDoubleClickHidesToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("desktopDoubleClickHides"), on);
+        m_doubleClickHides = on;
+        if (!on)
+            setDesktopHiddenByUser(false); // nothing stays hidden behind a switched-off gesture
+    });
     connect(m_settings, &ui::SettingsDialog::hoverHighlightToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat).setValue(QStringLiteral("fenceHoverHighlight"), on);
         if (m_container)
@@ -903,8 +910,14 @@ void ProductApp::wireBackdrop()
     connect(&m_shellResync, &QTimer::timeout, this, &ProductApp::syncShellView);
     // F-022: the desktop's own double-click, the gesture the feature was always
     // specified with. It is the same toggle the tray and the hot key use.
-    connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this,
-            [this] { m_container->toggleFencesVisible(); });
+    // Session 69: only when the setting is on (off by default), and it hides
+    // the drawn icons with the fences -- drawing only: no file, no position.
+    m_doubleClickHides = QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+                             .value(QStringLiteral("desktopDoubleClickHides"), false).toBool();
+    connect(backdrop, &ui::DesktopBackdrop::quickHideRequested, this, [this] {
+        if (m_doubleClickHides)
+            setDesktopHiddenByUser(!m_desktopHiddenByUser);
+    });
 
     // -------------------------------------------------------------------------
     // T-042 (first slice) -- the icons the backdrop draws answer the mouse.
@@ -1578,6 +1591,7 @@ void ProductApp::refreshStatus()
                                 .value(QStringLiteral("language")).toString());
     if (m_container) {
         m_settings->setHoverHighlight(m_container->hoverHighlight());
+        m_settings->setDesktopDoubleClickHides(m_doubleClickHides);
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
@@ -2265,7 +2279,7 @@ void ProductApp::syncShellView()
 
     QList<core::DesktopItem> items;
     QHash<QString, QRect> boxes;
-    if (state.iconsShown) {
+    if (state.iconsShown && !m_desktopHiddenByUser) {
         items.reserve(state.items.size());
         for (const platform::win::ShellViewItem& view : state.items) {
             core::DesktopItem item;
@@ -2296,6 +2310,18 @@ void ProductApp::syncShellView()
     }
     backdrop->setNativeIconBoxes(boxes);
     m_container->setDesktopItems(std::move(items));
+}
+
+void ProductApp::setDesktopHiddenByUser(bool hidden)
+{
+    if (!m_container)
+        return;
+    m_desktopHiddenByUser = hidden;
+    if (m_container->fencesVisible() == hidden)
+        m_container->toggleFencesVisible();
+    m_shellSignature.clear();
+    syncShellView();
+    qCInfo(lc) << (hidden ? "desktop hidden by a double-click" : "desktop shown again");
 }
 
 void ProductApp::refreshWallpaper()

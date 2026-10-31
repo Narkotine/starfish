@@ -383,6 +383,11 @@ private:
     int m_listReshown = 0;
     bool m_fenceShortcutArrows = true;
     bool m_sortOnAdd = false;
+    // Session 69: double-click on the empty desktop hides fences and icons
+    // (setting, off by default), and whether they are hidden that way now.
+    bool m_doubleClickHides = false;
+    bool m_desktopHiddenByUser = false;
+    void setDesktopHiddenByUser(bool hidden);
     bool m_desktopShortcutArrows = true;
     bool m_allowDesktopOverlap = false;
     QTimer m_overlapTimer; // after a fence moved, grew or came back: the sweep, once

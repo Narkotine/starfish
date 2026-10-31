@@ -330,6 +330,17 @@ QWidget* SettingsDialog::buildFences()
     l->addWidget(row(QString(QChar(0xE7C9)), tr("Highlight the fence under the pointer"),
                      tr("A touch lighter, its border brighter."), m_hover, p));
 
+    // Session 69: optional, off by default.
+    m_doubleClickHides = new ToggleSwitch;
+    m_doubleClickHides->setObjectName(QStringLiteral("desktopDoubleClickSwitch"));
+    m_doubleClickHides->setChecked(false);
+    connect(m_doubleClickHides, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit desktopDoubleClickHidesToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE7B3)), tr("Double-click the desktop to hide fences and icons"),
+                     tr("Again to bring everything back. Your files never move."), m_doubleClickHides, p));
+
     // T-094 (session 65): the border of every fence without its own.
     l->addWidget(sectionTitle(tr("Fence border"), p));
     QFrame* borderCard = card(p);
@@ -520,6 +531,13 @@ void SettingsDialog::setLanguage(const QString& code)
 {
     m_updating = true;
     m_language->setCurrentIndex(qMax(0, m_language->findData(code)));
+    m_updating = false;
+}
+
+void SettingsDialog::setDesktopDoubleClickHides(bool on)
+{
+    m_updating = true;
+    m_doubleClickHides->setChecked(on);
     m_updating = false;
 }
 
