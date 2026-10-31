@@ -53,6 +53,7 @@ public:
     void setFenceOverlapAllowed(bool allowed);
     void setHoverHighlight(bool on);
     void setDesktopDoubleClickHides(bool on); // session 69
+    void setHoverUnroll(bool on);             // session 71
     void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
@@ -78,6 +79,7 @@ signals:
     void fenceOverlapToggled(bool allowed);
     void hoverHighlightToggled(bool on);
     void desktopDoubleClickHidesToggled(bool on); // session 69
+    void hoverUnrollToggled(bool on);             // session 71
     void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
@@ -110,6 +112,7 @@ private:
     QCheckBox* m_fenceOverlap = nullptr;
     QCheckBox* m_hover = nullptr;
     QCheckBox* m_doubleClickHides = nullptr;
+    QCheckBox* m_hoverUnroll = nullptr;
     QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;
     QPushButton* m_borderColour = nullptr;

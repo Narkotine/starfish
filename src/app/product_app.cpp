@@ -234,6 +234,7 @@ bool ProductApp::start(const Options& options, QString* error)
     {
         const QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
         m_container->setHoverHighlight(settings.value(QStringLiteral("fenceHoverHighlight"), true).toBool());
+        m_container->setHoverUnrollDefault(settings.value(QStringLiteral("fenceHoverUnroll"), false).toBool());
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle());
         m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
                                       settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
@@ -565,6 +566,12 @@ void ProductApp::wireSettings()
         m_doubleClickHides = on;
         if (!on)
             setDesktopHiddenByUser(false); // nothing stays hidden behind a switched-off gesture
+    });
+    connect(m_settings, &ui::SettingsDialog::hoverUnrollToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("fenceHoverUnroll"), on);
+        if (m_container)
+            m_container->setHoverUnrollDefault(on);
     });
     connect(m_settings, &ui::SettingsDialog::hoverHighlightToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat).setValue(QStringLiteral("fenceHoverHighlight"), on);
@@ -1027,6 +1034,8 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     state.radius = fenceStyle.radius;
     state.hasTitleBarColor = !fenceStyle.titleBarColor.isEmpty();
     state.titleBarShown = fenceStyle.titleBar;
+    state.hoverUnroll = fenceStyle.hoverUnroll;
+    state.hoverUnrollDefault = m_container->hoverUnrollDefault();
     if (const ui::FenceView* view = m_container->view(id))
         state.sortBy = view->sortBy();
 
@@ -1054,6 +1063,9 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
                 break;
             case ui::FenceMenu::Action::Sort:
                 children = ui::FenceMenu::sortEntries(state);
+                break;
+            case ui::FenceMenu::Action::HoverUnroll:
+                children = ui::FenceMenu::hoverUnrollEntries(state);
                 break;
             default:
                 break;
@@ -1207,6 +1219,14 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle()); // it may have changed
         break;
     }
+    case ui::FenceMenu::Action::HoverUnrollChoice:
+        if (value >= 0 && value < ui::FenceMenu::hoverUnrollKeys().size()) {
+            core::FenceStyle style = m_container->fenceStyle(id);
+            style.hoverUnroll = ui::FenceMenu::hoverUnrollKeys().at(value);
+            m_container->setFenceStyle(id, style);
+        }
+        break;
+    case ui::FenceMenu::Action::HoverUnroll: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Sort: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Colours:  // ... and so are the colours
@@ -1592,6 +1612,7 @@ void ProductApp::refreshStatus()
     if (m_container) {
         m_settings->setHoverHighlight(m_container->hoverHighlight());
         m_settings->setDesktopDoubleClickHides(m_doubleClickHides);
+        m_settings->setHoverUnroll(m_container->hoverUnrollDefault());
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);

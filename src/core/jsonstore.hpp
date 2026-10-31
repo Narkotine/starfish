@@ -78,6 +78,9 @@ struct FenceStyle {
     // Session 69: "" the default (Settings), "none", "lighter", "opacity",
     // "colour", "noborder", "glow".
     QString hoverEffect;
+    // Session 71: unroll a rolled-up fence under the pointer: "" the default
+    // (Settings), "on", "off".
+    QString hoverUnroll;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

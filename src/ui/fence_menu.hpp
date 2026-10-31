@@ -74,6 +74,8 @@ enum class Action {
     SortBy,     // value = index into sortKeys()
     Appearance, // "Appearance...": material, transparency, corners, colours
     ToggleTitleBar, // session 68: show / hide the title bar, checkable
+    HoverUnroll,       // session 71: the submenu; children from hoverUnrollEntries()
+    HoverUnrollChoice, // value: 0 default (Settings), 1 yes, 2 no
 };
 
 struct Entry {
@@ -114,7 +116,35 @@ struct State {
     bool hasTitleBarColor = false;
     QString sortBy = QStringLiteral("name");
     bool titleBarShown = true; // session 68
+    QString hoverUnroll;       // session 71: "", "on", "off" (the fence's own)
+    bool hoverUnrollDefault = false; // ... and what "" means today
 };
+
+// Session 71: unroll on hover -- the default, or this fence's own yes / no.
+inline QStringList hoverUnrollKeys()
+{
+    return {QString(), QStringLiteral("on"), QStringLiteral("off")};
+}
+
+inline QList<Entry> hoverUnrollEntries(const State& state)
+{
+    QList<Entry> entries;
+    const QStringList keys = hoverUnrollKeys();
+    const QStringList labels{
+        state.hoverUnrollDefault ? QCoreApplication::translate("FenceMenu", "Default (yes)")
+                                 : QCoreApplication::translate("FenceMenu", "Default (no)"),
+        QCoreApplication::translate("FenceMenu", "Yes"), QCoreApplication::translate("FenceMenu", "No")};
+    for (int i = 0; i < keys.size(); ++i) {
+        Entry entry;
+        entry.action = Action::HoverUnrollChoice;
+        entry.value = i;
+        entry.label = labels.at(i);
+        entry.checkable = true;
+        entry.checked = state.hoverUnroll == keys.at(i);
+        entries.append(entry);
+    }
+    return entries;
+}
 
 // Session 65: what a fence can be sorted by (core::sortForDisplay's keys).
 inline QStringList sortKeys()
@@ -273,6 +303,12 @@ inline QList<Entry> entries(const State& state)
     titleBar.checkable = true;
     titleBar.checked = state.titleBarShown;
     out.append(titleBar);
+
+    Entry hoverUnroll;
+    hoverUnroll.kind = Kind::Submenu;
+    hoverUnroll.action = Action::HoverUnroll;
+    hoverUnroll.label = QCoreApplication::translate("FenceMenu", "Unroll on hover");
+    out.append(hoverUnroll);
 
     Entry sort;
     sort.kind = Kind::Submenu;

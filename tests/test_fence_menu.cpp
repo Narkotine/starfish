@@ -67,10 +67,29 @@ private slots:
         for (const FenceMenu::Entry& entry : entries) {
             if (entry.kind == FenceMenu::Kind::Submenu) {
                 ++submenus;
-                QCOMPARE(entry.action, FenceMenu::Action::Sort);
+                QVERIFY(entry.action == FenceMenu::Action::Sort || entry.action == FenceMenu::Action::HoverUnroll);
             }
         }
-        QCOMPARE(submenus, 1);
+        QCOMPARE(submenus, 2); // session 71: + "Unroll on hover"
+    }
+
+    void theHoverUnrollSubmenuMarksTheFencesChoice()
+    {
+        FenceMenu::State state;
+        for (const QString& pref : FenceMenu::hoverUnrollKeys()) {
+            state.hoverUnroll = pref;
+            const QList<FenceMenu::Entry> choices = FenceMenu::hoverUnrollEntries(state);
+            QCOMPARE(choices.size(), 3);
+            int marked = 0;
+            for (const FenceMenu::Entry& e : choices) {
+                QCOMPARE(e.action, FenceMenu::Action::HoverUnrollChoice);
+                if (e.checked) {
+                    ++marked;
+                    QCOMPARE(FenceMenu::hoverUnrollKeys().at(e.value), pref);
+                }
+            }
+            QCOMPARE(marked, 1);
+        }
     }
 
     void theTitleBarEntryIsCheckedWhenShown()

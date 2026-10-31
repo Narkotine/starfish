@@ -165,7 +165,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     borderWidth->setObjectName(QStringLiteral("borderWidth"));
     borderWidth->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (%1 px)")
                              .arg(container->defaultBorderWidth()), -1);
-    for (int px = 0; px <= 6; ++px)
+    for (int px = 0; px <= 12; ++px) // session 71: up to 12
         borderWidth->addItem(px == 0 ? QCoreApplication::translate("FenceAppearanceDialog", "None")
                                      : QStringLiteral("%1 px").arg(px), px);
     auto* borderColour = new QPushButton(dialog);

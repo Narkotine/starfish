@@ -330,6 +330,18 @@ QWidget* SettingsDialog::buildFences()
     l->addWidget(row(QString(QChar(0xE7C9)), tr("Highlight the fence under the pointer"),
                      tr("A touch lighter, its border brighter."), m_hover, p));
 
+    // Session 71: optional, off by default; a fence may say yes or no itself.
+    m_hoverUnroll = new ToggleSwitch;
+    m_hoverUnroll->setObjectName(QStringLiteral("hoverUnrollSwitch"));
+    m_hoverUnroll->setChecked(false);
+    connect(m_hoverUnroll, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit hoverUnrollToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE70D)), tr("Unroll a rolled-up fence under the pointer"),
+                     tr("It rolls back up when the pointer leaves. A fence can say yes or no itself (its menu)."),
+                     m_hoverUnroll, p));
+
     // Session 69: optional, off by default.
     m_doubleClickHides = new ToggleSwitch;
     m_doubleClickHides->setObjectName(QStringLiteral("desktopDoubleClickSwitch"));
@@ -349,7 +361,7 @@ QWidget* SettingsDialog::buildFences()
     borderLayout->addWidget(new QLabel(tr("Thickness"), borderCard));
     m_borderWidth = new QSpinBox(borderCard);
     m_borderWidth->setObjectName(QStringLiteral("borderWidth"));
-    m_borderWidth->setRange(0, 8);
+    m_borderWidth->setRange(0, 12); // session 71: up to 12
     m_borderWidth->setSuffix(QStringLiteral(" px"));
     m_borderWidth->setValue(1);
     borderLayout->addWidget(m_borderWidth);
@@ -531,6 +543,13 @@ void SettingsDialog::setLanguage(const QString& code)
 {
     m_updating = true;
     m_language->setCurrentIndex(qMax(0, m_language->findData(code)));
+    m_updating = false;
+}
+
+void SettingsDialog::setHoverUnroll(bool on)
+{
+    m_updating = true;
+    m_hoverUnroll->setChecked(on);
     m_updating = false;
 }
 
