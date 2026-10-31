@@ -6,6 +6,7 @@
 #include "core/jsonstore.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/fence_menu.hpp"
+#include "ui/recent_colours.hpp"
 
 using namespace starfish::ui;
 
@@ -52,40 +53,54 @@ private:
 private slots:
     void theMenuOffersEachActionExactlyOnce()
     {
+        // Session 65: behaviour only; the look is one "Appearance..." entry.
         FenceMenu::State state;
         const QList<FenceMenu::Entry> entries = FenceMenu::entries(state);
-
-        QCOMPARE(countOf(entries, FenceMenu::Action::Material), 0); // the submenu is not an Action
         QCOMPARE(countOf(entries, FenceMenu::Action::ToggleRoll), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Rename), 1);
         QCOMPARE(countOf(entries, FenceMenu::Action::Remove), 1);
-        // T-098: the exact transparency, on every fence (opaque is 0 %).
-        QCOMPARE(countOf(entries, FenceMenu::Action::Transparency), 1);
-        // T-082: and *not* the icons entry -- the state here is a fence whose panel
-        // is fully opaque, where the material has nothing else to cover.
-        QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 0);
-        // T-080: the appearance is offered as submenus too, so none of its actions
-        // is a top-level entry -- and "same as the panel" is absent while the fence
-        // has no band of its own (that is what State::hasTitleBarColor is for).
+        QCOMPARE(countOf(entries, FenceMenu::Action::Appearance), 1);
+        QCOMPARE(countOf(entries, FenceMenu::Action::Transparency), 0);
         QCOMPARE(countOf(entries, FenceMenu::Action::PanelColor), 0);
-        QCOMPARE(countOf(entries, FenceMenu::Action::TitleBarColor), 0);
-        QCOMPARE(countOf(entries, FenceMenu::Action::ClearTitleBarColor), 0);
         QCOMPARE(countOf(entries, FenceMenu::Action::Radius), 0);
-
-        QStringList submenuActions;
+        int submenus = 0;
         for (const FenceMenu::Entry& entry : entries) {
             if (entry.kind == FenceMenu::Kind::Submenu) {
-                submenuActions << QString::number(static_cast<int>(entry.action));
-                QVERIFY(!entry.label.isEmpty());
+                ++submenus;
+                QCOMPARE(entry.action, FenceMenu::Action::Sort);
             }
-            if (entry.kind == FenceMenu::Kind::Separator)
-                QCOMPARE(entry.action, FenceMenu::Action::None);
         }
-        // T-064's material, then T-080's two.
-        QCOMPARE(submenuActions.size(), 3);
-        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Material))));
-        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Colours))));
-        QVERIFY(submenuActions.contains(QString::number(static_cast<int>(FenceMenu::Action::Radius))));
+        QCOMPARE(submenus, 1);
+    }
+
+    void recentColoursPutTheLastFirstOnceAndKeepSixteen()
+    {
+        QStringList list;
+        for (int i = 0; i < 20; ++i)
+            list = RecentColours::pushed(list, QColor(i, 0, 0).name(QColor::HexArgb));
+        QCOMPARE(list.size(), RecentColours::kMax);
+        QCOMPARE(list.first(), QStringLiteral("#FF130000"));
+        list = RecentColours::pushed(list, QStringLiteral("#ff100000"));
+        QCOMPARE(list.first(), QStringLiteral("#FF100000"));
+        QCOMPARE(list.count(QStringLiteral("#FF100000")), 1);
+        QCOMPARE(list.size(), RecentColours::kMax);
+    }
+
+    void theSortSubmenuMarksTheOrderInForce()
+    {
+        FenceMenu::State state;
+        state.sortBy = QStringLiteral("manual");
+        const QList<FenceMenu::Entry> sorts = FenceMenu::sortEntries(state);
+        QCOMPARE(sorts.size(), FenceMenu::sortKeys().size());
+        int checked = 0;
+        for (const FenceMenu::Entry& entry : sorts) {
+            QCOMPARE(entry.action, FenceMenu::Action::SortBy);
+            if (entry.checked) {
+                ++checked;
+                QCOMPARE(FenceMenu::sortKeys().at(entry.value), QStringLiteral("manual"));
+            }
+        }
+        QCOMPARE(checked, 1);
     }
 
     void theColoursSubmenuOffersTheTwoPickersAndTheWayBack()
@@ -169,8 +184,8 @@ private slots:
         const QList<FenceMenu::Entry> entries = FenceMenu::entries(state);
         QVERIFY(entries.size() >= 4);
 
-        // First entry: the material submenu (the entry T-064 is about).
-        QCOMPARE(entries.first().kind, FenceMenu::Kind::Submenu);
+        // Session 65: first entry, rename (behaviour first).
+        QCOMPARE(entries.first().action, FenceMenu::Action::Rename);
 
         // The last entry is the destructive one, and it is not a neighbour of a
         // toggle: a slip of the mouse must not be able to reach it.
@@ -269,40 +284,15 @@ private slots:
             QVERIFY(entry.enabled);
     }
 
-    void theIconsEntryExistsOnlyUnderATranslucentPanel()
+    void theIconsEntryLivesInTheAppearanceDialogNow()
     {
-        // T-082: the material fades the fence's own chrome (panel + title bar) by
-        // default, and the entry that asks for it on the icons *too* is absent
-        // while the panel is still opaque -- there is nothing to decide there, and
-        // an entry that could not change anything would be a promise.
-        FenceMenu::State opaque;
-        opaque.materialIsTranslucent = false;
-        QCOMPARE(countOf(FenceMenu::entries(opaque), FenceMenu::Action::FadeIcons), 0);
-
+        // Session 65: "the material on the icons too" moved to Appearance...,
+        // translucent panel or not.
         FenceMenu::State translucent;
         translucent.materialIsTranslucent = true;
-        // The list is kept in a local: find() hands back a pointer *into* it.
-        const QList<FenceMenu::Entry> entries = FenceMenu::entries(translucent);
-
-        // Exactly one, and it is a *state*: checkable, right under the material it
-        // qualifies (first entry, then the separator that opens the navigation
-        // group).
-        QCOMPARE(countOf(entries, FenceMenu::Action::FadeIcons), 1);
-        QCOMPARE(entries.at(0).action, FenceMenu::Action::Material);
-        QCOMPARE(entries.at(1).action, FenceMenu::Action::FadeIcons);
-        const FenceMenu::Entry* entry = find(entries, FenceMenu::Action::FadeIcons);
-        QVERIFY(entry != nullptr);
-        QVERIFY(entry->checkable);
-        QVERIFY(!entry->checked); // the document says `fadeIcons: false`
-        QVERIFY(entry->enabled);
-
-        // ...and the mark follows the document.
-        translucent.fadeIcons = true;
-        const QList<FenceMenu::Entry> asked = FenceMenu::entries(translucent);
-        const FenceMenu::Entry* marked = find(asked, FenceMenu::Action::FadeIcons);
-        QVERIFY(marked != nullptr);
-        QVERIFY(marked->checked);
+        QCOMPARE(countOf(FenceMenu::entries(translucent), FenceMenu::Action::FadeIcons), 0);
     }
+
 };
 
 QTEST_MAIN(TestFenceMenu)

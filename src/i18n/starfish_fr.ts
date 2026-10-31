@@ -20,6 +20,61 @@
     </message>
 </context>
 <context>
+    <name>FenceAppearanceDialog</name>
+    <message>
+        <location filename="../ui/fence_appearance_dialog.hpp" line="+50"/>
+        <source>Fence appearance</source>
+        <translation>Apparence de la fence</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Custom</source>
+        <translation>Personnalisé</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Material</source>
+        <translation>Matériau</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Use the default transparency (%1)</source>
+        <translation>Transparence par défaut (%1)</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Transparency</source>
+        <translation>Transparence</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The material on the icons too</source>
+        <translation>Le matériau aussi sur les icônes</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Corners</source>
+        <translation>Coins</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+80"/>
+        <source>Panel colour</source>
+        <translation>Couleur du panneau</translation>
+    </message>
+    <message>
+        <location line="-76"/>
+        <source>Same as the panel</source>
+        <translation>Comme le panneau</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location line="+81"/>
+        <source>Title bar colour</source>
+        <translation>Couleur de la barre de titre</translation>
+    </message>
+</context>
+<context>
     <name>FenceMaterial</name>
     <message>
         <location filename="../ui/fence_material.hpp" line="+205"/>
@@ -45,7 +100,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+149"/>
+        <location filename="../ui/fence_menu.hpp" line="+191"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -75,32 +130,7 @@
         <translation>Barre de titre : comme le panneau</translation>
     </message>
     <message>
-        <location line="+18"/>
-        <source>Material</source>
-        <translation>Matériau</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Material on the icons too</source>
-        <translation>Matériau sur les icônes aussi</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Transparency...</source>
-        <translation>Transparence...</translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>Colours</source>
-        <translation>Couleurs</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Corner radius</source>
-        <translation>Arrondi des coins</translation>
-    </message>
-    <message>
-        <location line="+11"/>
+        <location line="+27"/>
         <source>Roll down</source>
         <translation>Dérouler</translation>
     </message>
@@ -110,12 +140,47 @@
         <translation>Enrouler</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="-6"/>
         <source>Rename...</source>
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-131"/>
+        <source>Type</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Date modified</source>
+        <translation>Date de modification</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Size</source>
+        <translation>Taille</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>My own order</source>
+        <translation>Mon ordre</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Name</source>
+        <translation>Nom</translation>
+    </message>
+    <message>
+        <location line="+136"/>
+        <source>Sort by</source>
+        <translation>Trier par</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Appearance...</source>
+        <translation>Apparence…</translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Remove this fence</source>
         <translation>Supprimer cette zone</translation>
     </message>
@@ -141,7 +206,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2285"/>
+        <location filename="../app/product_app.cpp" line="+2286"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -167,24 +232,24 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2471"/>
+        <location line="-2472"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+401"/>
-        <location line="+124"/>
+        <location line="+399"/>
+        <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="-222"/>
+        <location line="-215"/>
         <source>%1 item(s) filed by the rules</source>
         <translation>%1 élément(s) rangé(s) par les règles</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+108"/>
         <source>Fence %1</source>
         <translation>Zone %1</translation>
     </message>
@@ -206,17 +271,17 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+360"/>
+        <location filename="../app/product_app.cpp" line="+364"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+427"/>
+        <location line="+437"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -262,11 +327,6 @@
     </message>
     <message>
         <location line="+4"/>
-        <source>Peek: %1</source>
-        <translation>Aperçu : %1</translation>
-    </message>
-    <message>
-        <location line="+3"/>
         <source>Hide: %1</source>
         <translation>Masquer : %1</translation>
     </message>
@@ -798,12 +858,7 @@
         <translation>Afficher les zones</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Peek (raise above the icons)</source>
-        <translation>Aperçu (au-dessus des icônes)</translation>
-    </message>
-    <message>
-        <location line="+8"/>
+        <location line="+12"/>
         <source>Fence material</source>
         <translation>Matériau des zones</translation>
     </message>
@@ -823,12 +878,12 @@
         <translation>Flèches de raccourci sur les icônes des zones</translation>
     </message>
     <message>
-        <location line="-41"/>
+        <location line="-38"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+36"/>
         <source>Desktop</source>
         <translation>Bureau</translation>
     </message>

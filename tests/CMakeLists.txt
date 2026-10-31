@@ -239,7 +239,7 @@ target_include_directories(test_starfish_fence_menu PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(test_starfish_fence_menu PRIVATE Qt6::Core Qt6::Test)
+target_link_libraries(test_starfish_fence_menu PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
 
 add_test(NAME ui_fence_menu COMMAND test_starfish_fence_menu)
 

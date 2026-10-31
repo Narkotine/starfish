@@ -49,6 +49,9 @@
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/fence_transparency_dialog.hpp"
+#include "ui/fence_appearance_dialog.hpp"
+#include "ui/recent_colours.hpp"
+#include "ui/fence_view.hpp"
 #include "ui/percent_slider.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/icon_grid.hpp"
@@ -84,9 +87,6 @@ protected:
 // F-021 asks for Win+Space, but Windows reserves that for the language switcher
 // and refuses to register it (measured, session 15). Win+Alt+Space is close
 // enough to remember and is actually accepted.
-constexpr int kPeekHotkeyId = 1;
-constexpr Qt::KeyboardModifiers kPeekModifiers = Qt::MetaModifier | Qt::AltModifier;
-constexpr Qt::Key kPeekKey = Qt::Key_Space;
 
 // F-022's documented trigger is a double click on the *empty* desktop, which
 // belongs to SysListView32 and therefore needs a global mouse hook (T-028).
@@ -500,8 +500,6 @@ void ProductApp::wireTray()
     connect(m_tray, &ui::TrayIcon::quitRequested, this, &ProductApp::quitRequested);
     connect(m_tray, &ui::TrayIcon::fencesVisibilityToggled, this,
             [this](bool visible) { m_container->setFencesVisible(visible); });
-    connect(m_tray, &ui::TrayIcon::peekToggled, this,
-            [this](bool active) { m_container->setPeekActive(active); });
     connect(m_tray, &ui::TrayIcon::desktopIconsToggled, this,
             &ProductApp::onDesktopIconsToggled);
     connect(m_tray, &ui::TrayIcon::restoreIconsRequested, this,
@@ -648,13 +646,8 @@ void ProductApp::wireHotkeys()
 
     m_hotkeys = new platform::win::HotkeyManager(this);
 
-    if (!m_hotkeys->registerHotkey(kPeekHotkeyId, kPeekModifiers, kPeekKey)) {
-        // Reported, never swallowed: the failure of a documented combination is
-        // information, not noise (session 15).
-        qCWarning(lc).noquote()
-            << QStringLiteral("could not register %1 for Peek (already taken?)")
-                   .arg(platform::win::HotkeyManager::describe(kPeekModifiers, kPeekKey));
-    }
+    // T-053 (session 65): no Peek hot key any more. A failure below is
+    // reported, never swallowed (session 15).
     if (!m_hotkeys->registerHotkey(kHideHotkeyId, kHideModifiers, kHideKey)) {
         qCWarning(lc).noquote()
             << QStringLiteral("could not register %1 for quick hide (already taken?)")
@@ -662,9 +655,7 @@ void ProductApp::wireHotkeys()
     }
 
     connect(m_hotkeys, &platform::win::HotkeyManager::triggered, this, [this](int id) {
-        if (id == kPeekHotkeyId)
-            m_container->togglePeek();
-        else if (id == kHideHotkeyId)
+        if (id == kHideHotkeyId)
             m_container->toggleFencesVisible();
     });
 }
@@ -983,6 +974,8 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     const core::FenceStyle fenceStyle = m_container->fenceStyle(id);
     state.radius = fenceStyle.radius;
     state.hasTitleBarColor = !fenceStyle.titleBarColor.isEmpty();
+    if (const ui::FenceView* view = m_container->view(id))
+        state.sortBy = view->sortBy();
 
     QMenu menu;
     for (const ui::FenceMenu::Entry& entry : ui::FenceMenu::entries(state)) {
@@ -1005,6 +998,9 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
                 break;
             case ui::FenceMenu::Action::Radius:
                 children = ui::FenceMenu::radiusEntries(state);
+                break;
+            case ui::FenceMenu::Action::Sort:
+                children = ui::FenceMenu::sortEntries(state);
                 break;
             default:
                 break;
@@ -1088,9 +1084,7 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     // starting colour and cancel changes nothing at all.
     case ui::FenceMenu::Action::PanelColor: {
         const core::FenceStyle current = m_container->fenceStyle(id);
-        const QColor picked = QColorDialog::getColor(QColor(current.background), nullptr,
-                                                     tr("Panel colour"),
-                                                     QColorDialog::ShowAlphaChannel);
+        const QColor picked = ui::RecentColours::pick(QColor(current.background), tr("Panel colour"));
         if (!picked.isValid())
             break;
         // The same `#AARRGGBB` spelling the presets write, so a colour chosen here
@@ -1109,8 +1103,7 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         // otherwise its panel -- because that is the colour the eye sees up there.
         const QColor start = current.titleBarColor.isEmpty() ? QColor(current.background)
                                                              : QColor(current.titleBarColor);
-        const QColor picked = QColorDialog::getColor(start, nullptr, tr("Title bar colour"),
-                                                     QColorDialog::ShowAlphaChannel);
+        const QColor picked = ui::RecentColours::pick(start, tr("Title bar colour"));
         if (!picked.isValid())
             break;
         const QString band = picked.name(QColor::HexArgb).toUpper();
@@ -1144,6 +1137,17 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     case ui::FenceMenu::Action::Transparency:
         editFenceTransparency(id);
         break;
+    case ui::FenceMenu::Action::SortBy:
+        if (value >= 0 && value < ui::FenceMenu::sortKeys().size())
+            m_container->setFenceSort(id, ui::FenceMenu::sortKeys().at(value), true);
+        break;
+    case ui::FenceMenu::Action::Appearance: {
+        QDialog* dialog = ui::createFenceAppearanceDialog(m_container, id, nullptr);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->exec();
+        break;
+    }
+    case ui::FenceMenu::Action::Sort: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Material: // carried by the submenu's own entries
     case ui::FenceMenu::Action::Colours:  // ... and so are the colours
     case ui::FenceMenu::Action::None:
@@ -1558,9 +1562,6 @@ QString ProductApp::statusText() const
                   : tr("not watching any folder"));
 
     if (m_hotkeys) {
-        if (m_hotkeys->isRegistered(kPeekHotkeyId))
-            parts << tr("Peek: %1").arg(
-                platform::win::HotkeyManager::describe(kPeekModifiers, kPeekKey));
         if (m_hotkeys->isRegistered(kHideHotkeyId))
             parts << tr("Hide: %1").arg(
                 platform::win::HotkeyManager::describe(kHideModifiers, kHideKey));

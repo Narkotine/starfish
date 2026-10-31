@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include "ui/fence_material.hpp"
 
@@ -68,6 +69,10 @@ enum class Action {
     ClearTitleBarColor, // "same as the panel" -- back to the pre-T-080 look
     Radius,
     Remove, // F-007 -- the fence goes, the files never move (AGENTS.md golden rule)
+    // Session 65: the menu keeps the behaviour; the look moved to a dialog.
+    Sort,       // the submenu; its children come from sortEntries()
+    SortBy,     // value = index into sortKeys()
+    Appearance, // "Appearance...": material, transparency, corners, colours
 };
 
 struct Entry {
@@ -106,7 +111,44 @@ struct State {
     // names that value), and whether the fence draws a band of its own.
     int radius = 0;
     bool hasTitleBarColor = false;
+    QString sortBy = QStringLiteral("name");
 };
+
+// Session 65: what a fence can be sorted by (core::sortForDisplay's keys).
+inline QStringList sortKeys()
+{
+    return {QStringLiteral("name"), QStringLiteral("type"), QStringLiteral("date"), QStringLiteral("size"),
+            QStringLiteral("manual")};
+}
+
+inline QString sortLabel(const QString& key)
+{
+    if (key == QLatin1String("type"))
+        return QCoreApplication::translate("FenceMenu", "Type");
+    if (key == QLatin1String("date"))
+        return QCoreApplication::translate("FenceMenu", "Date modified");
+    if (key == QLatin1String("size"))
+        return QCoreApplication::translate("FenceMenu", "Size");
+    if (key == QLatin1String("manual"))
+        return QCoreApplication::translate("FenceMenu", "My own order");
+    return QCoreApplication::translate("FenceMenu", "Name");
+}
+
+inline QList<Entry> sortEntries(const State& state)
+{
+    QList<Entry> entries;
+    const QStringList keys = sortKeys();
+    for (int i = 0; i < keys.size(); ++i) {
+        Entry entry;
+        entry.action = Action::SortBy;
+        entry.value = i;
+        entry.label = sortLabel(keys.at(i));
+        entry.checkable = true;
+        entry.checked = state.sortBy == keys.at(i);
+        entries.append(entry);
+    }
+    return entries;
+}
 
 // The three presets, as the "Material" submenu shows them: one radio mark, on the
 // preset in force -- and on **none** of them when the fence carries a custom
@@ -140,7 +182,7 @@ inline QList<Entry> materialEntries(const State& state)
 // the same honesty as a custom alpha marking no material.
 inline QList<int> radiusPresets()
 {
-    return {0, 6, 10, 14, 20};
+    return {0, 6, 10, 14, 20, 30, 40}; // 30 / 40: T-084
 }
 
 inline QString radiusLabel(int px)
@@ -204,79 +246,43 @@ inline QList<Entry> colourEntries(const State& state)
 // toggle.
 inline QList<Entry> entries(const State& state)
 {
+    // Session 65 (the user: "moins d'options esthétiques en accès direct au
+    // clic droit sur fence mais plutôt comportement"): behaviour here, the look
+    // in one "Appearance..." dialog.
     QList<Entry> out;
-
-    Entry material;
-    material.kind = Kind::Submenu;
-    material.action = Action::Material;
-    material.label = QCoreApplication::translate("FenceMenu", "Material");
-    out.append(material);
-
-    // T-082, right under the material it qualifies: what the choice *covers*. On
-    // a fence whose panel is still fully opaque there is nothing to decide, so the
-    // entry is not there at all.
-    if (state.materialIsTranslucent) {
-        Entry icons;
-        icons.kind = Kind::Action;
-        icons.action = Action::FadeIcons;
-        icons.label = QCoreApplication::translate("FenceMenu", "Material on the icons too");
-        icons.checkable = true;
-        icons.checked = state.fadeIcons;
-        out.append(icons);
-    }
-
-    // T-098: the exact value -- the presets above are three points on it.
-    Entry transparency;
-    transparency.kind = Kind::Action;
-    transparency.action = Action::Transparency;
-    transparency.label = QCoreApplication::translate("FenceMenu", "Transparency...");
-    out.append(transparency);
-
     Entry separator;
     separator.kind = Kind::Separator;
-    out.append(separator);
-
-    // T-080: the fence's own look, next to the material it belongs with (both are
-    // "what this fence looks like", and the material is a colour's alpha, so the
-    // two submenus are two halves of one choice).
-    Entry colours;
-    colours.kind = Kind::Submenu;
-    colours.action = Action::Colours;
-    colours.label = QCoreApplication::translate("FenceMenu", "Colours");
-    out.append(colours);
-
-    Entry radius;
-    radius.kind = Kind::Submenu;
-    radius.action = Action::Radius;
-    radius.label = QCoreApplication::translate("FenceMenu", "Corner radius");
-    out.append(radius);
-
-    out.append(separator);
-
-    Entry roll;
-    roll.kind = Kind::Action;
-    roll.action = Action::ToggleRoll;
-    // The label says what the click does, not what the fence is: an entry reading
-    // "Rolled up" that does nothing when clicked is a state display, and this
-    // menu has no room for one.
-    roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
-                                : QCoreApplication::translate("FenceMenu", "Roll up");
-    out.append(roll);
 
     Entry rename;
-    rename.kind = Kind::Action;
     rename.action = Action::Rename;
     rename.label = QCoreApplication::translate("FenceMenu", "Rename...");
     out.append(rename);
 
+    Entry roll;
+    roll.action = Action::ToggleRoll;
+    roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
+                                : QCoreApplication::translate("FenceMenu", "Roll up");
+    out.append(roll);
+
+    Entry sort;
+    sort.kind = Kind::Submenu;
+    sort.action = Action::Sort;
+    sort.label = QCoreApplication::translate("FenceMenu", "Sort by");
+    out.append(sort);
+
+    out.append(separator);
+
+    Entry appearance;
+    appearance.action = Action::Appearance;
+    appearance.label = QCoreApplication::translate("FenceMenu", "Appearance...");
+    out.append(appearance);
+
     out.append(separator);
 
     Entry remove;
-    remove.kind = Kind::Action;
     remove.action = Action::Remove;
     remove.label = QCoreApplication::translate("FenceMenu", "Remove this fence");
     out.append(remove);
-
     return out;
 }
 

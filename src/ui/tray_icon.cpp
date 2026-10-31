@@ -98,11 +98,8 @@ bool TrayIcon::show()
             emit fencesVisibilityToggled(checked);
         });
 
-        m_peek = glyphed(m_menu, tr("Peek (raise above the icons)"), 0);
-        m_peek->setCheckable(true);
-        connect(m_peek, &QAction::triggered, this, [this](bool checked) {
-            emit peekToggled(checked);
-        });
+        // T-053 (session 65): Peek is gone -- the fences sit above the icons
+        // anyway since ADR-15, so it had nothing left to show.
 
         // F-038 / T-057: the fence material, for every fence at once. The tray
         // cannot point at one fence; a fence's own menu chooses for one.

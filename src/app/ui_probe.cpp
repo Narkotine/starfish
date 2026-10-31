@@ -31,6 +31,8 @@
 #include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/icon_layout.hpp"
+#include <QComboBox>
+#include "ui/fence_appearance_dialog.hpp"
 #include "core/desktop_item.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/modern_menu.hpp"
@@ -434,6 +436,35 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("two tiles dragged into another fence land where let go (session 65)"),
               moved == 2 && va->items().size() == 1 && firstIsA,
               QStringLiteral("moved %1, A %2, B %3").arg(moved).arg(va->items().size()).arg(vb->items().size()));
+    }
+
+    // --- session 65: the fence's look in one dialog --------------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Jeux"), QRect(0, 0, 320, 240));
+        const core::FenceStyle before = container.fenceStyle(id);
+        QDialog* dialog = ui::createFenceAppearanceDialog(&container, id);
+        dialog->setAttribute(Qt::WA_DontShowOnScreen);
+        dialog->show();
+        wait(100);
+        auto* radius = dialog->findChild<QComboBox*>(QStringLiteral("radius"));
+        auto* useDefault = dialog->findChild<QCheckBox*>(QStringLiteral("useDefault"));
+        auto* slider = dialog->findChild<QSlider*>(QStringLiteral("transparencySlider"));
+        if (radius)
+            radius->setCurrentIndex(radius->findData(30));
+        if (useDefault)
+            useDefault->setChecked(false);
+        if (slider)
+            slider->setValue(50);
+        const bool live = container.fenceStyle(id).radius == 30
+                          && container.fenceEffectiveAlpha(id) == ui::PercentSlider::alphaFromPercent(50);
+        dialog->grab().save(captures + QStringLiteral("/ui_fence_appearance_dialog_%1.png").arg(theme));
+        dialog->reject();
+        const core::FenceStyle after = container.fenceStyle(id);
+        check(QStringLiteral("Appearance...: corners 30 and 50 % live, Cancel restores (session 65)"),
+              live && after.radius == before.radius && after.background == before.background
+                  && after.defaultOpacity == before.defaultOpacity,
+              QStringLiteral("live %1, radius back %2").arg(live ? QLatin1String("yes") : QLatin1String("no")).arg(after.radius));
     }
 
     // --- T-098: a fence's own transparency -----------------------------------
