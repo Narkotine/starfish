@@ -1585,8 +1585,14 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // applied, and the result is clamped once more: growing to the minimum must
     // not push a fence off its screen.
     fence.rect = m_screens.restoreRect(rect, monitorHint);
-    if (fence.rect.width() < m_minSize.width())
-        fence.rect.setWidth(m_minSize.width());
+    // Session 72: a fence with icons may be narrower than m_minSize (session
+    // 66: down to one centred column, minSizeFor()). Forcing m_minSize here
+    // widened every such fence at each restart (120 -> 160 px). The document's
+    // width stands; only an empty fence keeps the global minimum.
+    const bool hasContent = !items.isEmpty() || !portalPaths.isEmpty();
+    const int minWidth = hasContent ? 64 : m_minSize.width();
+    if (fence.rect.width() < minWidth)
+        fence.rect.setWidth(minWidth);
     if (fence.rect.height() < m_minSize.height())
         fence.rect.setHeight(m_minSize.height());
     fence.rect = FenceGeometry::clampIntoRect(fence.rect, m_screens.clampRectFor(fence.rect));
