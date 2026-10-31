@@ -25,6 +25,7 @@
 #include <QVBoxLayout>
 
 #include "core/context_menu.hpp"
+#include "core/i18n.hpp"
 #include "ui/context_menu_editor.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/modern_menu.hpp"
@@ -227,8 +228,9 @@ QWidget* SettingsDialog::buildGeneral()
     m_language = new QComboBox;
     m_language->setObjectName(QStringLiteral("languageCombo"));
     m_language->addItem(tr("Automatic (Windows)"), QString());
-    m_language->addItem(QStringLiteral("Français"), QStringLiteral("fr"));
-    m_language->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    // Session 68: every language that ships, found from its catalogue.
+    for (const QString& code : core::i18n::availableLanguages())
+        m_language->addItem(core::i18n::displayName(code), code);
     connect(m_language, &QComboBox::currentIndexChanged, this, [this](int) {
         if (!m_updating)
             emit languageChosen(m_language->currentData().toString());
@@ -464,6 +466,35 @@ QWidget* SettingsDialog::buildAbout()
     layout->addWidget(icon, 0, Qt::AlignTop);
     layout->addLayout(text, 1);
     l->addWidget(box);
+
+    // Session 68: where StarFish keeps what it knows -- each folder with a
+    // button that opens it in the Explorer.
+    l->addWidget(sectionTitle(tr("Folders"), p));
+    QString data = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (data.isEmpty())
+        data = QDir::homePath() + QStringLiteral("/.starfish");
+    const QString local = qEnvironmentVariable("LOCALAPPDATA") + QStringLiteral("/StarFish");
+    auto folderRow = [this, p](const QString& glyph, const QString& title, const QString& path,
+                               const QString& objectName) {
+        auto* open = new QPushButton(tr("Open"));
+        open->setObjectName(objectName);
+        const QString native = QDir::toNativeSeparators(path);
+        connect(open, &QPushButton::clicked, this, [path] {
+            QDir().mkpath(path);
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        });
+        QWidget* r = row(glyph, title, native, open, p);
+        r->setProperty("folderPath", native);
+        return r;
+    };
+    l->addWidget(folderRow(QString(QChar(0xE8B7)), tr("Settings and fences"), data,
+                           QStringLiteral("openDataFolder")));
+    l->addWidget(folderRow(QString(QChar(0xE9D9)), tr("Crash log and cache"), local,
+                           QStringLiteral("openLocalFolder")));
+    auto* registry = new QLabel(tr("Preferences: registry, HKEY_CURRENT_USER\\Software\\StarFish"), p);
+    registry->setObjectName(QStringLiteral("hint"));
+    registry->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    l->addWidget(registry);
     l->addStretch(1);
     return p;
 }
