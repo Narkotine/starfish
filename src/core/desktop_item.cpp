@@ -1,3 +1,5 @@
+#include <filesystem>
+#include <system_error>
 #include "core/desktop_item.hpp"
 
 #include <QFileInfo>
@@ -147,6 +149,14 @@ QList<DesktopItem> mergeDesktopItems(const QList<DesktopItem>& items)
         }
     }
     return merged;
+}
+
+bool entryExists(const QString& path)
+{
+    if (path.isEmpty())
+        return false;
+    std::error_code error;
+    return std::filesystem::exists(std::filesystem::symlink_status(std::filesystem::path(path.toStdWString()), error));
 }
 
 DesktopItem itemFromPathOnly(const QString& path)

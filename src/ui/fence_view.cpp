@@ -1028,7 +1028,9 @@ void FenceView::updateMissingTip(const QPoint& localPoint)
         QToolTip::showText(QCursor::pos(),
                            tr("Not found: %1").arg(QDir::toNativeSeparators(items.at(index).path))
                                + QLatin1Char('\n') + tr("Renamed, moved or deleted outside StarFish.")
-                               + QLatin1Char('\n') + tr("Right-click to remove it from the fence."));
+                               + QLatin1Char('\n')
+                               + (items.at(index).restorable ? tr("Right-click to restore the shortcut or remove it from the fence.")
+                                                             : tr("Right-click to remove it from the fence.")));
     } else {
         QToolTip::hideText();
     }

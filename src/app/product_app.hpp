@@ -17,6 +17,7 @@
 #include "core/overlap_planner.hpp"
 #include "core/context_menu.hpp"
 #include "core/desktop_item.hpp"
+#include "core/shortcut_vault.hpp"
 #include "platform/win/desktop_menu.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/screen_layout.hpp"
@@ -390,6 +391,12 @@ private:
     void setDesktopHiddenByUser(bool hidden);
     bool m_desktopShortcutArrows = true;
     bool m_allowDesktopOverlap = false;
+    // Session 75: copies of the fenced shortcuts, to put one back.
+    std::unique_ptr<core::ShortcutVault> m_vault;
+    QTimer m_vaultTimer;
+    bool m_autoRestoreShortcuts = false; // Settings, off by default
+    bool m_autoRestoreDone = false;      // only at startup
+    void syncShortcutVault();
     QTimer m_overlapTimer; // after a fence moved, grew or came back: the sweep, once
     void scheduleOverlapSweep();
     QSize m_shellSpacing;

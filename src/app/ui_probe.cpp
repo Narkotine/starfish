@@ -49,6 +49,7 @@
 #include "ui/tray_icon.hpp"
 #include "platform/win/shell_operations.hpp"
 #include "platform/win/desktop_scanner.hpp"
+#include "core/shortcut_vault.hpp"
 #include <QKeyEvent>
 
 namespace starfish::app {
@@ -1109,6 +1110,80 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 75: shortcuts kept by StarFish; a target-less shortcut is no "missing" --
+    {
+        QTemporaryDir temp;
+        const QString dir = QDir::fromNativeSeparators(temp.path());
+        const auto resolve = [](const QString& path) { return platform::win::DesktopScanner::itemForPath(path); };
+        const QString doc = dir + QStringLiteral("/target s75.txt");
+        {
+            QFile file(doc);
+            file.open(QIODevice::WriteOnly);
+            file.write("starfish probe s75");
+        }
+        const QString link = dir + QStringLiteral("/kept s75.lnk");
+        const QString orphan = dir + QStringLiteral("/no target s75.lnk");
+        const bool made = QFile::link(doc, link) && QFile::link(QStringLiteral("C:/starfish-s75-nowhere/app.exe"), orphan);
+        core::Layout layout;
+        {
+            ui::FenceContainer first;
+            first.setItemResolver(resolve);
+            const QString fid = first.createFence(QStringLiteral("Harnesses"), QRect(0, 0, 360, 200));
+            first.fileInto(fid, {resolve(link), resolve(orphan), resolve(doc)});
+            layout = first.toLayout();
+        }
+        ui::FenceContainer container;
+        container.setItemResolver(resolve);
+        container.applyLayout(layout);
+        const QString id = container.fenceIds().value(0);
+        ui::FenceView* view = container.view(id);
+        const auto stateOf = [view](const QString& path) {
+            for (const core::DesktopItem& item : view->items())
+                if (item.path.compare(path, Qt::CaseInsensitive) == 0)
+                    return (item.missing ? 1 : 0) + (item.restorable ? 2 : 0);
+            return -1;
+        };
+        container.reconcileMissingItems({});
+        // StoreApp: a shortcut with no file target (a Store app) is there, not missing.
+        const bool orphanKept = stateOf(orphan) == 0 && core::entryExists(orphan) && !QFileInfo::exists(orphan)
+                                && !resolve(orphan).fileId.isEmpty();
+        check(QStringLiteral("a shortcut whose target is no file (Store app, e.g. StoreApp) is not shown as missing (session 75)"),
+              made && orphanKept,
+              QStringLiteral("made %1, state %2, entryExists %3, QFileInfo::exists %4")
+                  .arg(made).arg(stateOf(orphan)).arg(core::entryExists(orphan)).arg(QFileInfo::exists(orphan)));
+
+        core::ShortcutVault vault(dir + QStringLiteral("/vault"));
+        const int copied = vault.sync(container.fencedFilePaths());
+        const bool onlyShortcuts = vault.has(link) && vault.has(orphan) && !vault.has(doc);
+        // Deleted from the "normal" desktop while StarFish was away.
+        QFile::remove(link);
+        container.reconcileMissingItems({});
+        vault.sync(container.fencedFilePaths());
+        container.markRestorable([&](const QString& path) { return vault.has(path); });
+        const bool restorable = stateOf(link) == 3;
+        {
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/s75_restorable_tile_%1.png").arg(theme));
+        }
+        const bool restored = vault.restore(link) && core::entryExists(link);
+        container.reconcileMissingItems({});
+        container.markRestorable([&](const QString& path) { return vault.has(path); });
+        const bool normal = stateOf(link) == 0;
+        const bool neverOver = !vault.restore(link); // something is there: never overwritten
+        const bool emptyKeeps = vault.sync({}) == 0 && vault.has(link);
+        container.releaseItems(id, {link});
+        vault.sync(container.fencedFilePaths());
+        const bool dropped = !vault.has(link) && !core::entryExists(vault.copyOf(link)) && vault.has(orphan);
+        check(QStringLiteral("fenced shortcuts are copied, a deleted one shows restorable and comes back; only shortcuts; copy dropped with its tile (session 75)"),
+              copied == 2 && onlyShortcuts && restorable && restored && normal && neverOver && emptyKeeps && dropped,
+              QStringLiteral("copied %1, only shortcuts %2, restorable %3, restored %4, normal %5, never over %6, empty keeps %7, dropped %8")
+                  .arg(copied).arg(onlyShortcuts).arg(restorable).arg(restored).arg(normal).arg(neverOver).arg(emptyKeeps).arg(dropped));
     }
 
     // --- session 74: a file renamed outside StarFish; rename inside a fence ---

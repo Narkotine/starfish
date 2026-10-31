@@ -283,6 +283,10 @@ public:
     // never dropped, nothing deleted. Returns how many tiles changed.
     int reconcileMissingItems(const QList<core::DesktopItem>& desktopItems);
     bool replaceFenceItem(const QString& id, const QString& oldPath, const core::DesktopItem& item);
+    // Session 75: every file a fence holds (no portal mirror, no virtual item).
+    QStringList fencedFilePaths() const;
+    // Session 75: a missing tile says whether StarFish can put its shortcut back.
+    int markRestorable(const std::function<bool(const QString& path)>& canRestore);
     // Session 74: a tile's caption on screen, physical pixels (the rename edit).
     QRect fenceItemLabelRect(const QString& id, const QString& path) const;
     // The acrylic / textured grain tile (session 71: public for the probe).

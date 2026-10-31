@@ -145,7 +145,7 @@ core::DesktopItem itemFromFileInfo(const QFileInfo& info, bool isPublicDesktop)
         item.targetPath = resolveInternetShortcutTarget(item.path);
 
     item.isHidden = hasHiddenAttribute(nativePath) || core::isDotHiddenName(fileName);
-    if (info.exists())
+    if (core::entryExists(item.path)) // session 75: the .lnk itself, not its target
         item.fileId = fileIdOf(item.path);
     return item;
 }

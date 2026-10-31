@@ -202,6 +202,9 @@ bool ProductApp::start(const Options& options, QString* error)
     m_store = new core::LayoutStore(this);
     if (!m_options.layoutPath.isEmpty())
         m_store->setFilePath(m_options.layoutPath);
+    // Session 75: next to the document (a probe's own document, its own copies).
+    m_vault = std::make_unique<core::ShortcutVault>(QFileInfo(m_store->filePath()).absolutePath()
+                                                    + QStringLiteral("/shortcuts"));
 
     // --- the fences --------------------------------------------------------
     m_container = new ui::FenceContainer(this);
@@ -239,6 +242,7 @@ bool ProductApp::start(const Options& options, QString* error)
         m_container->setRollOppositeDefault(settings.value(QStringLiteral("fenceRollOpposite"), false).toBool());
         m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
         m_container->setSnapToCellsDefault(settings.value(QStringLiteral("fenceSnapToCells"), false).toBool());
+        m_autoRestoreShortcuts = settings.value(QStringLiteral("fenceAutoRestoreShortcuts"), false).toBool();
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle());
         m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
                                       settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
@@ -442,6 +446,12 @@ void ProductApp::wirePersistence()
             [this](const QString&) { scheduleOverlapSweep(); });
     connect(c, &ui::FenceContainer::fenceTitleEditRequested, this,
             &ProductApp::startFenceTitleEdit);
+    // Session 75: the shortcut copies follow what the fences hold.
+    m_vaultTimer.setSingleShot(true);
+    m_vaultTimer.setInterval(1500);
+    connect(&m_vaultTimer, &QTimer::timeout, this, &ProductApp::syncShortcutVault);
+    connect(c, &ui::FenceContainer::fenceContentChanged, this, [this](const QString&) { m_vaultTimer.start(); });
+    connect(c, &ui::FenceContainer::fenceRemoved, this, [this](const QString&) { m_vaultTimer.start(); });
 
     connect(m_store, &core::LayoutStore::saveFailed, this,
             [](const QString& path, const QString& error) {
@@ -581,6 +591,11 @@ void ProductApp::wireSettings()
     });
     connect(m_settings, &ui::SettingsDialog::rollAnimatedToggled, this, [saveSwitch](bool on) {
         saveSwitch(QStringLiteral("fenceRollAnimated"), on, &ui::FenceContainer::setAnimateRoll);
+    });
+    connect(m_settings, &ui::SettingsDialog::autoRestoreShortcutsToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("fenceAutoRestoreShortcuts"), on);
+        m_autoRestoreShortcuts = on;
     });
     connect(m_settings, &ui::SettingsDialog::snapToCellsToggled, this, [saveSwitch](bool on) {
         saveSwitch(QStringLiteral("fenceSnapToCells"), on, &ui::FenceContainer::setSnapToCellsDefault);
@@ -1577,6 +1592,7 @@ void ProductApp::refreshDesktopItems()
     // the icons on screen are the native ones, in the order the user put them.
     core::sortForDisplay(items, QStringLiteral("name"), true);
     m_container->reconcileMissingItems(items); // session 74: renamed while we were away
+    syncShortcutVault();
     m_container->setDesktopItems(std::move(items));
 }
 
@@ -1650,6 +1666,7 @@ void ProductApp::refreshStatus()
         m_settings->setRollOpposite(m_container->rollOppositeDefault());
         m_settings->setRollAnimated(m_container->animateRoll());
         m_settings->setSnapToCells(m_container->snapToCellsDefault());
+        m_settings->setAutoRestoreShortcuts(m_autoRestoreShortcuts);
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
@@ -2346,7 +2363,7 @@ void ProductApp::syncShellView()
                 item = cached.value();
             } else {
                 if (!view.parsingName.startsWith(QLatin1String("::"))
-                    && QFileInfo::exists(view.parsingName)) {
+                    && core::entryExists(view.parsingName)) { // session 75: not the .lnk's target
                     item = platform::win::DesktopScanner::itemForPath(view.parsingName);
                 }
                 if (item.path.isEmpty()) {
@@ -2369,8 +2386,10 @@ void ProductApp::syncShellView()
     backdrop->setNativeIconBoxes(boxes);
     // Session 74: a fenced file renamed (here or while StarFish was closed)
     // is found again before the desktop draws it as a free icon.
-    if (!items.isEmpty())
+    if (!items.isEmpty()) {
         m_container->reconcileMissingItems(items);
+        syncShortcutVault(); // session 75
+    }
     m_container->setDesktopItems(std::move(items));
 }
 
@@ -2417,6 +2436,31 @@ void ProductApp::onIconMenu(const QStringList& paths, const QPoint& point)
     m_shellResync.start();
 }
 
+void ProductApp::syncShortcutVault()
+{
+    if (!m_vault || !m_container)
+        return;
+    const QStringList fenced = m_container->fencedFilePaths();
+    m_vault->sync(fenced);
+    if (!m_autoRestoreDone) {
+        m_autoRestoreDone = true;
+        if (m_autoRestoreShortcuts) {
+            // Session 75, optional (Settings): at startup, the fenced shortcuts
+            // deleted while StarFish was away come back from their copies.
+            int restored = 0;
+            for (const QString& path : fenced) {
+                if (!core::entryExists(path) && m_vault->restore(path)) {
+                    ++restored;
+                    qCInfo(lc).noquote() << QStringLiteral("shortcut restored at startup: %1").arg(path);
+                }
+            }
+            if (restored > 0)
+                m_container->reconcileMissingItems({});
+        }
+    }
+    m_container->markRestorable([this](const QString& path) { return m_vault->has(path); });
+}
+
 void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& paths, const QPoint& point)
 {
     if (paths.isEmpty() || !m_container)
@@ -2425,7 +2469,7 @@ void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& path
     // the one thing to do with it (its file is never touched).
     QStringList missing;
     for (const QString& path : paths) {
-        if (!path.startsWith(QLatin1String("::")) && !QFileInfo::exists(path))
+        if (!path.startsWith(QLatin1String("::")) && !core::entryExists(path))
             missing << path;
     }
     if (!missing.isEmpty()) {
@@ -2434,9 +2478,29 @@ void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& path
         QAction* info = menu.addAction(QCoreApplication::translate("ProductApp", "Not found: %1")
                                            .arg(QFileInfo(missing.first()).fileName()));
         info->setEnabled(false);
+        // Session 75: a shortcut StarFish kept a copy of can be put back.
+        QStringList restorable;
+        for (const QString& path : std::as_const(missing)) {
+            if (m_vault && m_vault->has(path))
+                restorable << path;
+        }
+        QAction* restore = restorable.isEmpty()
+                               ? nullptr
+                               : menu.addAction(QCoreApplication::translate("ProductApp", "Restore the shortcut"));
         QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove from the fence"));
-        if (menu.exec(logicalFromPhysical(point)) == remove)
+        QAction* chosen = menu.exec(logicalFromPhysical(point));
+        if (chosen == remove) {
             m_container->releaseItems(fenceId, missing);
+        } else if (chosen && chosen == restore) {
+            for (const QString& path : std::as_const(restorable)) {
+                const bool done = m_vault->restore(path);
+                qCInfo(lc).noquote() << QStringLiteral("restore \"%1\": %2").arg(path, done ? QStringLiteral("done")
+                                                                                           : QStringLiteral("failed"));
+            }
+            m_container->reconcileMissingItems({});
+            syncShortcutVault();
+            m_shellResync.start();
+        }
         return;
     }
     // The shell's selection menu needs items of the desktop's view; a tile of

@@ -17,6 +17,7 @@ qt_add_executable(starfish WIN32
     core/jsonstore.cpp
     core/context_menu.cpp
     core/layout_store.cpp
+    core/shortcut_vault.cpp
     core/snapshot.cpp
     core/zorder.cpp
     platform/win/desktop_host.cpp

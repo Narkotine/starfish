@@ -851,7 +851,7 @@ int FenceContainer::forgetMissingItems(const QString& id, const QStringList& pat
         return 0;
     QStringList gone;
     for (const QString& path : paths) {
-        if (!path.isEmpty() && !QFileInfo::exists(path))
+        if (!path.isEmpty() && !core::entryExists(path))
             gone.append(path);
     }
     if (gone.isEmpty())
@@ -884,12 +884,13 @@ int FenceContainer::reconcileMissingItems(const QList<core::DesktopItem>& deskto
             if (item.path.isEmpty() || item.path.startsWith(QLatin1String("::"))
                 || provided.contains(item.path.toLower()))
                 continue;
-            if (QFileInfo::exists(item.path)) {
+            if (core::entryExists(item.path)) {
                 if (item.missing) { // back where it was
                     core::DesktopItem found = resolveItem(item.path);
                     if (found.path.isEmpty())
                         found = item;
                     found.missing = false;
+                    found.restorable = false;
                     changed += fence.view->replaceItem(item.path, found) ? 1 : 0;
                 }
                 continue;
@@ -931,6 +932,41 @@ int FenceContainer::reconcileMissingItems(const QList<core::DesktopItem>& deskto
                                             .arg(fence.id, item.path);
                 changed += fence.view->replaceItem(item.path, lost) ? 1 : 0;
             }
+        }
+    }
+    return changed;
+}
+
+QStringList FenceContainer::fencedFilePaths() const
+{
+    QStringList paths;
+    for (const FenceWindow& fence : m_fences) {
+        if (!fence.view)
+            continue;
+        const QSet<QString> provided = portalProvided(fence.portals);
+        for (const core::DesktopItem& item : fence.view->items()) {
+            if (!item.path.isEmpty() && !item.path.startsWith(QLatin1String("::"))
+                && !provided.contains(item.path.toLower()))
+                paths << item.path;
+        }
+    }
+    return paths;
+}
+
+int FenceContainer::markRestorable(const std::function<bool(const QString& path)>& canRestore)
+{
+    int changed = 0;
+    for (FenceWindow& fence : m_fences) {
+        if (!fence.view)
+            continue;
+        const QList<core::DesktopItem> items = fence.view->items();
+        for (const core::DesktopItem& item : items) {
+            const bool restorable = item.missing && canRestore && canRestore(item.path);
+            if (restorable == item.restorable)
+                continue;
+            core::DesktopItem marked = item;
+            marked.restorable = restorable;
+            changed += fence.view->replaceItem(item.path, marked) ? 1 : 0;
         }
     }
     return changed;
@@ -2093,7 +2129,7 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
                     item.targetPath = entry.target;
                     item.isLink = true;
                 }
-                item.missing = !entry.path.startsWith(QLatin1String("::")) && !QFileInfo::exists(entry.path);
+                item.missing = !entry.path.startsWith(QLatin1String("::")) && !core::entryExists(entry.path);
                 items.append(item);
             }
         }

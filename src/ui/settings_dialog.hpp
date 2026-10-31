@@ -57,6 +57,7 @@ public:
     void setRollOpposite(bool on);            // session 73
     void setRollAnimated(bool on);            // session 73
     void setSnapToCells(bool on);             // session 73
+    void setAutoRestoreShortcuts(bool on);    // session 75
     void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
@@ -86,6 +87,7 @@ signals:
     void rollOppositeToggled(bool on);            // session 73
     void rollAnimatedToggled(bool on);            // session 73
     void snapToCellsToggled(bool on);             // session 73
+    void autoRestoreShortcutsToggled(bool on);    // session 75
     void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
@@ -122,6 +124,7 @@ private:
     QCheckBox* m_rollOpposite = nullptr;
     QCheckBox* m_rollAnimated = nullptr;
     QCheckBox* m_snapToCells = nullptr;
+    QCheckBox* m_autoRestoreShortcuts = nullptr;
     QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;
     QPushButton* m_borderColour = nullptr;

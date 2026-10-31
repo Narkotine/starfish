@@ -500,17 +500,22 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2434"/>
+        <location filename="../app/product_app.cpp" line="+2478"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+11"/>
+        <source>Restore the shortcut</source>
+        <translation>Restaurer le raccourci</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Remove from the fence</source>
         <translation>Retirer de la zone</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+27"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -518,7 +523,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5861"/>
+        <location filename="../main.cpp" line="+5863"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -536,12 +541,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2658"/>
+        <location line="-2722"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+468"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -585,7 +590,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+458"/>
+        <location line="+460"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -952,6 +957,11 @@
         <translation>Renommé, déplacé ou supprimé hors de StarFish.</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Right-click to restore the shortcut or remove it from the fence.</source>
+        <translation>Clic droit pour restaurer le raccourci ou le retirer de la zone.</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Right-click to remove it from the fence.</source>
         <translation>Clic droit pour le retirer de la zone.</translation>
@@ -983,18 +993,18 @@
     </message>
     <message>
         <location line="-105"/>
-        <location line="+303"/>
+        <location line="+306"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-302"/>
-        <location line="+321"/>
+        <location line="-305"/>
+        <location line="+324"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-293"/>
+        <location line="-296"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -1006,12 +1016,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+435"/>
+        <location line="+445"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-425"/>
+        <location line="-435"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1047,12 +1057,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+275"/>
+        <location line="+278"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-268"/>
+        <location line="-271"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1172,6 +1182,16 @@
         <translation>Largeur et hauteur tombent sur des colonnes et rangées entières. Chaque zone peut choisir (Apparence).</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Put back deleted fence shortcuts at startup</source>
+        <translation>Remettre au démarrage les raccourcis supprimés des zones</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>StarFish keeps a copy of the shortcuts in your fences. Off: a missing one can still be restored from its menu.</source>
+        <translation>StarFish garde une copie des raccourcis de vos zones. Désactivé : un raccourci manquant reste restaurable depuis son menu.</translation>
+    </message>
+    <message>
         <location line="+10"/>
         <source>Double-click the desktop to hide fences and icons</source>
         <translation>Double-clic sur le bureau pour masquer zones et icônes</translation>
@@ -1282,7 +1302,7 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+123"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

@@ -362,6 +362,9 @@ QWidget* SettingsDialog::buildFences()
     toggle(m_snapToCells, "snapToCellsSwitch", false, &SettingsDialog::snapToCellsToggled, QChar(0xE80A),
            tr("Resize fences in whole icons"),
            tr("Width and height land on whole columns and rows. A fence can choose for itself (Appearance)."));
+    toggle(m_autoRestoreShortcuts, "autoRestoreShortcutsSwitch", false, &SettingsDialog::autoRestoreShortcutsToggled,
+           QChar(0xE777), tr("Put back deleted fence shortcuts at startup"),
+           tr("StarFish keeps a copy of the shortcuts in your fences. Off: a missing one can still be restored from its menu."));
 
     // Session 69: optional, off by default.
     m_doubleClickHides = new ToggleSwitch;
@@ -578,6 +581,13 @@ void SettingsDialog::setRollAnimated(bool on)
 {
     m_updating = true;
     m_rollAnimated->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setAutoRestoreShortcuts(bool on)
+{
+    m_updating = true;
+    m_autoRestoreShortcuts->setChecked(on);
     m_updating = false;
 }
 

@@ -35,7 +35,14 @@ struct DesktopItem {
     // Session 74: the file is not where the tile says (renamed, moved or deleted
     // elsewhere and not found again). Shown as such, never dropped silently.
     bool missing = false;
+    // Session 75: a missing shortcut StarFish kept a copy of (it can put it back).
+    bool restorable = false;
 };
+
+// Session 75: the entry itself is on disk. Not QFileInfo::exists(), which on
+// Windows follows a .lnk to its target: a Store-app shortcut (no file target,
+// e.g. StoreApp) or a shortcut whose program is gone read as "missing".
+bool entryExists(const QString& path);
 
 // ---------------------------------------------------------------------------
 // Pure helpers: no Win32, no I/O, unit-tested in tests/test_desktop_item.cpp.

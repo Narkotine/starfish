@@ -84,7 +84,7 @@ void IconGrid::setSort(const QString& by, bool ascending)
 
 // Session 74: a tile whose file is not found -- a plain page with a warning
 // badge instead of the old dark square that said nothing.
-static void paintMissingIcon(QPainter& painter, const QRect& box)
+static void paintMissingIcon(QPainter& painter, const QRect& box, bool restorable)
 {
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -110,8 +110,22 @@ static void paintMissingIcon(QPainter& painter, const QRect& box)
     const qreal d = w * 0.46;
     const QRectF badge(box.x() + w - d - w * 0.04, box.y() + h - d - h * 0.02, d, d);
     painter.setPen(QPen(QColor(0xFF, 0xFF, 0xFF), qMax(1.0, w / 36.0)));
-    painter.setBrush(QColor(0xF5, 0x9E, 0x0B));
+    painter.setBrush(restorable ? QColor(0x3B, 0x82, 0xF6) : QColor(0xF5, 0x9E, 0x0B));
     painter.drawEllipse(badge);
+    if (restorable) {
+        // Session 75: StarFish kept a copy -- a "put back" arrow, not a warning.
+        const QRectF ring = badge.adjusted(d * 0.26, d * 0.26, -d * 0.26, -d * 0.26);
+        QPen arrow(QColor(0xFF, 0xFF, 0xFF), qMax(1.2, d / 9.0), Qt::SolidLine, Qt::RoundCap);
+        painter.setPen(arrow);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawArc(ring, 90 * 16, 270 * 16);
+        const QPointF tip(ring.center().x(), ring.top());
+        const qreal a = d * 0.14;
+        painter.drawLine(tip, tip + QPointF(-a, -a * 0.9));
+        painter.drawLine(tip, tip + QPointF(-a, a * 0.9));
+        painter.restore();
+        return;
+    }
     QFont bang = painter.font();
     bang.setBold(true);
     bang.setPixelSize(qMax(6, qRound(d * 0.72)));
@@ -166,7 +180,7 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
         // Icon.
         const QPixmap icon = item.missing ? QPixmap() : (iconFor ? iconFor(item, m_iconSize) : QPixmap());
         if (item.missing) {
-            paintMissingIcon(painter, cell.icon);
+            paintMissingIcon(painter, cell.icon, item.restorable);
         } else if (icon.isNull()) {
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(kIconPlaceholder, kIconPlaceholder, kIconPlaceholder));
