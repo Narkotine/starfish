@@ -8,16 +8,16 @@
 - **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre, liste re-masquée, écrans/DPI ; décisions : entrée de menu repointée, éléments virtuels rangeables, flèche des zones = réglage (oui par défaut) ; **lot 3 (T-091)** F2, clavier, rectangle, glisser OLE, `IFileOperation` + annuler ; **lot 4 (T-092)** menu clic droit façon Windows 11 dessiné par StarFish, configurable. `ctest` 17/17, `--drawn-desktop-probe` **46/46**. **§44**.
 - **Sessions 59-61 :** apps empaquetées au menu, icône, refonte Réglages + éditeur du menu ; redimensionnement, renommage sur le titre, superposition interdite ; `starfish --quit`.
 - **Session 62 :** « Démarrer avec Windows » (clé `Run` HKCU) ; image de glisser ; étude T-098.
-- **Session 63 :** rectangle de sélection fluide (redessin partiel : 60 images / 60 mouvements, ~2 ms, était 14 et ~140 ms) ; **T-098** zone translucide composée (une fenêtre opaque, icônes nettes) + curseurs de transparence (défaut + par zone). `ctest` 19/19, sondes 58/58, 37/37, 20/20, 43/43, 18/18.
-- **Session 64 :** zones superposées cohérentes (l'ordre des fenêtres = l'ordre des zones ; un clic remonte une zone) ; réglage « Autoriser la superposition des zones » (oui par défaut) ; grille d'icônes centrée (marges gauche = droite). `ctest` 19/19, sondes 64/64, 37/37, 20/20, 43/43, 20/20.
-- **Dernière mise à jour :** 2026-10-31 (session 64)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-64 **locales**.
+- **Sessions 63-64 :** rectangle fluide ; zone translucide composée (T-098) + curseurs de transparence ; superposition cohérente + réglage.
+- **Session 65 :** liste de l'utilisateur : icônes en haut à gauche ; sélection unique, menu Windows 11 sur les tuiles, glisser entre zones ; menu de zone = comportement + **Apparence…** (couleurs récentes, bordure, effets acrylique/texturé, largeur, barre de titre, modèles) ; curseurs de redimensionnement ; langue ; aperçu du tracé. Commits locaux.
+- **Dernière mise à jour :** 2026-10-31 (session 65)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-65 **locales**.
 
 ## 3 prochaines actions
 
 1. **Session 60 à essayer** : redimensionner (coin haut-gauche fixe), double-clic sur un titre, Réglages  Zones (3 nouveaux interrupteurs), zone posée sur des icônes du bureau. Puis **Son essai** : `build/starfish.exe` - bureau dessiné ; ranger une icône dans une zone (elle quitte le bureau), clic droit fond / icône, double-clic, quitter par le tray (tout revient). Raccourci d'urgence : tray « Restaurer mes icônes ».
 2. **Plan ADR-21 livré** (T-089..T-092). Reste humain : deux écrans, vrai redémarrage d'Explorer (T-090) ; vrai glisser souris, focus clavier (T-091) ; le menu dessiné à la vraie souris et au clavier (T-092). Menu : Réglages → Menu clic droit (fichier `%LOCALAPPDATA%\StarFish\context-menu.json`).
-3. ⛔ Questions ouvertes : `T-036`, `T-033`, `T-030`.
+3. ❓ Questions ouvertes : \T-095\, \T-096\, \T-013\, \T-031\, \T-036\, \T-015\.
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |
