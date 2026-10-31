@@ -106,6 +106,13 @@ public:
     // copying the formula and drifting away from it.
     int cellWidth() const { return m_grid.cellWidth(); }
     void setFixedCellWidth(int px);
+    // T-076 (session 65): the title bar shown or not. Hidden, a thin band at
+    // the top still moves the fence (a grip shows on hover); rolled up, the
+    // title comes back -- a rolled-up fence *is* its title.
+    void setTitleBarShown(bool shown);
+    bool titleShown() const { return m_titleBarShown || m_rolledUp; }
+    int titleBarHeight() const { return titleShown() ? m_metrics.titleBarHeight : kHiddenTitleBand; }
+    static constexpr int kHiddenTitleBand = 12;
 
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
@@ -261,6 +268,7 @@ private:
     QColor m_borderColor = QColor(0x3B, 0x82, 0xF6);
     bool m_hoverHighlight = true;
     bool m_hovered = false;
+    bool m_titleBarShown = true;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;
     IconGrid m_grid;

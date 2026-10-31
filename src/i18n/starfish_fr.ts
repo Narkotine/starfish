@@ -82,24 +82,34 @@
         <translation>Coins</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+173"/>
+        <location line="+2"/>
+        <source>Show the title bar</source>
+        <translation>Afficher la barre de titre</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Hidden: the fence moves by the thin band at its top.</source>
+        <translation>Masquée : la fence se déplace par la fine bande du haut.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location line="+174"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-169"/>
+        <location line="-170"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+174"/>
+        <location line="+175"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-169"/>
+        <location line="-170"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -159,7 +169,7 @@
         <translation>Nom :</translation>
     </message>
     <message>
-        <location line="+140"/>
+        <location line="+144"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -304,7 +314,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5799"/>
+        <location filename="../main.cpp" line="+5801"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -693,7 +703,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1145"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1160"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -716,7 +726,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+297"/>
+        <location filename="../ui/fence_view.cpp" line="+304"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>

@@ -177,7 +177,7 @@ QRect FenceView::contentRect() const
     if (m_rolledUp)
         return QRect();
     const FenceMetrics& m = m_metrics;
-    return rect().adjusted(m.inset, m.titleBarHeight + m.titleGap, -m.inset, -m.inset);
+    return rect().adjusted(m.inset, titleBarHeight() + (titleShown() ? m.titleGap : 0), -m.inset, -m.inset);
 }
 
 void FenceView::setMetrics(const FenceMetrics& metrics)
@@ -265,23 +265,30 @@ void FenceView::paintEvent(QPaintEvent* event)
         QPainterPath panel;
         panel.addRoundedRect(panelRect, radius, radius);
         painter.save();
-        painter.setClipRect(QRect(0, 0, width(), kTitleBarHeight));
+        painter.setClipRect(QRect(0, 0, width(), titleBarHeight()));
         painter.fillPath(panel, m_titleBarColor);
         painter.restore();
     }
 
-    QFont titleFont = font();
-    titleFont.setBold(true);
-    painter.setFont(titleFont);
-    const QRect titleRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
-                          m_metrics.titleBarHeight);
-    const QString titleShown = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
-    if (m_grid.textShadow()) {
-        painter.setPen(QColor(0, 0, 0, 0xA0));
-        painter.drawText(titleRect.translated(1, 1), Qt::AlignVCenter | Qt::AlignLeft, titleShown);
+    if (titleShown()) {
+        QFont titleFont = font();
+        titleFont.setBold(true);
+        painter.setFont(titleFont);
+        const QRect titleRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
+                              m_metrics.titleBarHeight);
+        const QString titleText_ = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
+        if (m_grid.textShadow()) {
+            painter.setPen(QColor(0, 0, 0, 0xA0));
+            painter.drawText(titleRect.translated(1, 1), Qt::AlignVCenter | Qt::AlignLeft, titleText_);
+        }
+        painter.setPen(titleText);
+        painter.drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft, titleText_);
+    } else if (m_hovered) {
+        // T-076: no title bar -- a small grip says where the fence is moved from.
+        painter.setPen(QPen(QColor(255, 255, 255, 0x70), 2, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(QPointF(width() / 2.0 - 14, kHiddenTitleBand / 2.0 + 1),
+                         QPointF(width() / 2.0 + 14, kHiddenTitleBand / 2.0 + 1));
     }
-    painter.setPen(titleText);
-    painter.drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft, titleShown);
 
     const QRect content = contentRect();
     // Rolled up (F-020): the widget is the title bar, nothing else is drawn.
@@ -358,7 +365,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     // before the icon grid so a fence gesture never disturbs the icon selection
     // -- which is also what keeps the two drags mutually exclusive.
     const FenceHandle handle =
-        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius());
+        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius());
     if (handle != FenceHandle::None) {
         m_geometryHandle = handle;
         m_geometryStartScreen = event->globalPosition();
@@ -419,7 +426,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         // the fence can be grabbed.
         if (!(event->buttons() & Qt::LeftButton))
             setCursor(cursorForHandle(
-                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius())));
+                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius())));
         return;
     }
 
@@ -555,11 +562,11 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
 {
     // F-020: a double-click on the title bar rolls the fence up or down. Checked
     // before the grid so a double-click on an icon still launches it.
-    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius())
+    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, titleBarHeight(), cornerRadius())
         == FenceHandle::TitleBar) {
         // Session 60: on the title's text, a double-click renames in place (as a
         // file's name in Explorer); anywhere else on the band it still rolls up.
-        if (titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
+        if (titleShown() && titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
             emit titleEditRequested();
             return;
         }
@@ -585,7 +592,7 @@ void FenceView::wheelEvent(QWheelEvent* event)
     // F-020: the wheel over the title bar rolls the fence up (away from the
     // user) or down (towards them). Only the title bar reacts, so scrolling over
     // the icon grid is never hijacked.
-    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, kTitleBarHeight, cornerRadius())
+    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, titleBarHeight(), cornerRadius())
         != FenceHandle::TitleBar) {
         QWidget::wheelEvent(event);
         return;
@@ -899,7 +906,7 @@ void FenceView::enterEvent(QEnterEvent* event)
 {
     QWidget::enterEvent(event);
     m_hovered = true;
-    if (m_hoverHighlight) {
+    if (m_hoverHighlight || !titleShown()) {
         update();
         emit contentChanged();
     }
@@ -909,7 +916,7 @@ void FenceView::leaveEvent(QEvent* event)
 {
     QWidget::leaveEvent(event);
     m_hovered = false;
-    if (m_hoverHighlight) {
+    if (m_hoverHighlight || !titleShown()) {
         update();
         emit contentChanged();
     }
@@ -925,6 +932,19 @@ void FenceView::setFixedCellWidth(int px)
         return;
     m_grid.setFixedCellWidth(px);
     update();
+}
+
+} // namespace starfish::ui
+
+namespace starfish::ui {
+
+void FenceView::setTitleBarShown(bool shown)
+{
+    if (m_titleBarShown == shown)
+        return;
+    m_titleBarShown = shown;
+    update();
+    emit contentChanged();
 }
 
 } // namespace starfish::ui

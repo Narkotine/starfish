@@ -240,7 +240,7 @@ public:
     // Session 65: the hover highlight, for every fence.
     void setHoverHighlight(bool on);
     // Session 65 (T-081): the look a new fence is born with (a template).
-    void setNewFenceStyle(const core::FenceStyle& style) { m_newFenceStyle = style; }
+    void setNewFenceStyle(const core::FenceStyle& style);
     bool hoverHighlight() const { return m_hoverHighlight; }
     void setDefaultFenceAlpha(int alpha);
     int defaultFenceAlpha() const { return m_defaultAlpha; }

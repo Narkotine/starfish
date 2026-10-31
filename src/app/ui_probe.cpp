@@ -32,6 +32,7 @@
 #include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/icon_layout.hpp"
+#include "ui/fence_geometry.hpp"
 #include <QComboBox>
 #include "ui/fence_appearance_dialog.hpp"
 #include "core/desktop_item.hpp"
@@ -463,6 +464,26 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("a 3 px red default border, none of its own, a lighter fence on hover (session 65)"),
               edge.red() > 200 && edge.green() < 80 && lighter && none.red() < 120 && !view->hovered(),
               QStringLiteral("edge %1, none %2, hover %3").arg(edge.name(), none.name(), lighter ? QLatin1String("lighter") : QLatin1String("same")));
+    }
+
+    // --- T-076 (session 65): a fence without its title bar -------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Sans titre"), QRect(0, 0, 320, 240));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s65/a.txt"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(320, 240);
+        const int withTitle = view->tileRects().value(0).top();
+        core::FenceStyle style = container.fenceStyle(id);
+        style.titleBar = false;
+        container.setFenceStyle(id, style);
+        const int without = view->tileRects().value(0).top();
+        const bool moveBand = ui::FenceGeometry::hitTest(view->rect(), QPoint(160, 8), 6, view->titleBarHeight(),
+                                                         view->cornerRadius()) == ui::FenceHandle::TitleBar;
+        view->grab().save(captures + QStringLiteral("/ui_fence_no_title_%1.png").arg(theme));
+        check(QStringLiteral("no title bar: the icons move up, the top band still moves it (T-076)"),
+              without < withTitle && moveBand && !view->titleShown(),
+              QStringLiteral("first tile top %1 -> %2").arg(withTitle).arg(without));
     }
 
     // --- session 65: the fence's look in one dialog --------------------------

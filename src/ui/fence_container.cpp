@@ -728,6 +728,7 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setBorder(fence.style.borderWidth >= 0 ? fence.style.borderWidth : m_defaultBorderWidth, border);
     fence.view->setHoverHighlight(m_hoverHighlight);
     fence.view->setFixedCellWidth(fence.style.cellWidth);
+    fence.view->setTitleBarShown(fence.style.titleBar);
 }
 
 void FenceContainer::setDefaultBorder(int width, const QString& color)
@@ -738,6 +739,13 @@ void FenceContainer::setDefaultBorder(int width, const QString& color)
         applyStyleToView(fence);
         renderFence(fence.id);
     }
+}
+
+void FenceContainer::setNewFenceStyle(const core::FenceStyle& style)
+{
+    m_newFenceStyle = style;
+    if (m_backdrop)
+        m_backdrop->setFencePreviewStyle(style.radius, QColor(style.background));
 }
 
 void FenceContainer::setHoverHighlight(bool on)

@@ -95,6 +95,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         radius->addItem(FenceMenu::radiusLabel(px), px);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Corners"), radius);
 
+    auto* titleBar = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "Show the title bar"), dialog);
+    titleBar->setObjectName(QStringLiteral("titleBarShown"));
+    titleBar->setToolTip(QCoreApplication::translate("FenceAppearanceDialog", "Hidden: the fence moves by the thin band at its top."));
+    form->addRow(QString(), titleBar);
+
     auto* panel = new QPushButton(dialog);
     panel->setObjectName(QStringLiteral("panelColour"));
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Panel colour"), panel);
@@ -184,11 +189,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -216,6 +221,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         }
         cell->setCurrentIndex(c);
         effect->setCurrentIndex(qMax(0, effect->findData(style.effect)));
+        titleBar->setChecked(style.titleBar);
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -291,6 +297,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
             else if (style.titleBarColor.isEmpty())
                 style.titleBarColor = style.background; // a band of its own, to be coloured
         });
+    });
+    QObject::connect(titleBar, &QCheckBox::toggled, dialog, [restyle](bool shown) {
+        restyle([shown](core::FenceStyle& style) { style.titleBar = shown; });
     });
     QObject::connect(effect, &QComboBox::currentIndexChanged, dialog, [effect, restyle](int) {
         const QString chosen = effect->currentData().toString();

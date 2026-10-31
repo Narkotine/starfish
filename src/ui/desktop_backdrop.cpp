@@ -1,4 +1,6 @@
 #include "ui/desktop_backdrop.hpp"
+
+#include <QPainterPath>
 #include "ui/drag_image.hpp"
 
 #include <QColor>
@@ -38,7 +40,6 @@ constexpr QRgb kIconPlaceholder = 0x37;
 // a preview of a *gesture*, not a fence yet, and it has to read as one while it
 // is dragged over whatever wallpaper is behind it.
 const QColor kRubberBandPen(0x3B, 0x82, 0xF6);
-const QColor kRubberBandFill(0x3B, 0x82, 0xF6, 0x24);
 
 // Draws the cells into an image whose origin is `area.topLeft()`. The cells
 // carry virtual-screen coordinates (a monitor left of the primary one is
@@ -347,13 +348,27 @@ void DesktopBackdrop::paintOverlays(QPainter& painter, const QRect& box) const
         painter.drawRect(m_marquee.adjusted(0, 0, -1, -1));
     }
     if (!m_rubberBand.isEmpty()) {
-        // The fence being drawn (T-041).
+        // The fence being drawn (T-041), shown as the fence it will be (T-087b,
+        // session 65): its panel, its corners, its title band -- translucent,
+        // with a dashed outline, so it still reads as "not made yet".
         painter.setRenderHint(QPainter::Antialiasing, true);
-        QPen pen(kRubberBandPen, qMax(1.0, scale()));
+        const qreal s = qMax(1.0, scale());
+        const QRectF band = QRectF(m_rubberBand).adjusted(0.5, 0.5, -0.5, -0.5);
+        const qreal radius = qMin<qreal>(m_previewRadius * s, qMin(band.width(), band.height()) / 2);
+        QPainterPath shape;
+        shape.addRoundedRect(band, radius, radius);
+        QColor panel = m_previewPanel;
+        panel.setAlpha(0xA0);
+        painter.fillPath(shape, panel);
+        painter.save();
+        painter.setClipRect(QRectF(band.left(), band.top(), band.width(), qMin<qreal>(30 * s, band.height())));
+        painter.fillPath(shape, QColor(255, 255, 255, 0x22));
+        painter.restore();
+        QPen pen(kRubberBandPen, s);
         pen.setStyle(Qt::DashLine);
         painter.setPen(pen);
-        painter.setBrush(kRubberBandFill);
-        painter.drawRect(m_rubberBand);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(shape);
     }
     painter.restore();
 }

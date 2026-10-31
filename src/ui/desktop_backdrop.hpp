@@ -126,6 +126,8 @@ public:
     // desktop's own highlight; changed by the clicks this class reads, or by the
     // owner (an icon filed into a fence leaves the selection).
     void setSelection(const QStringList& paths);
+    // T-087b: how the fence being drawn is previewed (a new fence's look).
+    void setFencePreviewStyle(int radius, const QColor& panel) { m_previewRadius = radius; m_previewPanel = panel; }
     const QStringList& selection() const { return m_selection; }
 
     // The monitors, so the backdrop covers exactly the virtual screen and picks
@@ -343,6 +345,8 @@ private:
     // it the mouse and acts on what it answers.
     BackdropGesture m_gesture;
     QRect m_rubberBand;
+    int m_previewRadius = 10;
+    QColor m_previewPanel = QColor(0x1F, 0x29, 0x37);
     bool m_gestures = false;
     // T-042: the path of the icon the left button went down on. The machine only
     // says "an icon, and it travelled"; *which* icon is the widget's business,
