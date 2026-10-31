@@ -602,6 +602,45 @@ int runUiProbe(QApplication& app)
               view->hasMouseTracking(), QString());
     }
 
+    // --- session 67: the title clears the rounded corner -----------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("MMM"), QRect(0, 0, 300, 140));
+        ui::FenceView* view = container.view(id);
+        view->resize(300, 140);
+        QString detail;
+        bool clear = true;
+        for (int radius : {30, 40}) {
+            for (int border : {1, 4}) {
+                core::FenceStyle style = container.fenceStyle(id);
+                style.radius = radius;
+                style.borderWidth = border;
+                style.borderColor = QStringLiteral("#FF000000");
+                style.titleAlign.clear();
+                container.setFenceStyle(id, style);
+                const QRect left = view->titleTextRect();
+                style.titleAlign = QStringLiteral("right");
+                container.setFenceStyle(id, style);
+                const QRect right = view->titleTextRect();
+                const int r = view->cornerRadius();
+                clear = clear && left.left() >= r + border && right.right() <= view->width() - 1 - (r + border);
+                detail += QStringLiteral("r%1 b%2: %3..%4  ").arg(radius).arg(border).arg(left.left()).arg(right.right());
+                if (radius == 40 && border == 4) {
+                    style.titleAlign.clear();
+                    container.setFenceStyle(id, style);
+                    QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+                    img.fill(QColor(0x9A, 0xC8, 0x2A));
+                    QPainter p(&img);
+                    view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+                    p.end();
+                    img.save(captures + QStringLiteral("/s67_title_r40_b4_%1.png").arg(theme));
+                }
+            }
+        }
+        check(QStringLiteral("the title clears the rounded corner and the border, left and right (session 67)"),
+              clear, detail);
+    }
+
     // --- T-098: a fence's own transparency -----------------------------------
     {
         ui::FenceContainer container;

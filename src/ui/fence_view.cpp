@@ -215,18 +215,12 @@ QRect FenceView::titleTextRect() const
 
 int FenceView::titleInset() const
 {
-    // Session 66: a strong rounding eats the corner the title starts in -- the
-    // text moves in as far as the curve reaches at the top of its capitals.
-    QFont titleFont = font();
-    titleFont.setBold(true);
-    const QFontMetrics fm(titleFont);
-    const qreal r = cornerRadius();
-    const qreal capTop = (m_metrics.titleBarHeight - fm.height()) / 2.0 + fm.ascent() - fm.capHeight();
-    if (r <= capTop)
-        return m_metrics.titleInset;
-    const qreal dy = r - capTop;
-    const int curve = qCeil(r - std::sqrt(qMax<qreal>(0, r * r - dy * dy)));
-    return qMax(m_metrics.titleInset, curve + 6);
+    // Session 67 (the user: "décaler le titre du rayon de courbure"): the
+    // title starts past the whole rounded corner and the border -- the s66
+    // curve-at-the-capitals offset was not enough to the eye.
+    const int border = qMax(0, m_borderWidth);
+    const int r = cornerRadius();
+    return qMax(m_metrics.titleInset, r > 0 ? r + border : m_metrics.titleInset + border);
 }
 
 void FenceView::setTitleAlignment(Qt::Alignment align)
