@@ -374,6 +374,7 @@ private:
     QString m_shellSignature;
     quint64 m_wallpaperSignature = 0;
     int m_shellTicks = 0;
+    int m_recycleBinState = -2; // session 66: -2 not read yet
     QHash<QString, core::DesktopItem> m_itemCache;
     QTimer m_reclaimTimer; // T-090: claims the desktop again after Explorer came back
     int m_reclaimTries = 0;

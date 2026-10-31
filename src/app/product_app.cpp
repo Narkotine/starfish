@@ -878,6 +878,21 @@ void ProductApp::wireBackdrop()
             m_shellSignature.clear();
         }
         syncShellView();
+        // Session 66: icons that change without their file changing -- the
+        // Recycle Bin (empty / full), and icons the shell could not give yet.
+        if (m_shellTicks % 2 == 0 && m_icons) {
+            bool redraw = m_icons->retryFailed();
+            const int bin = platform::win::ShellIconCache::recycleBinState();
+            if (bin != m_recycleBinState) {
+                if (m_recycleBinState != -2)
+                    redraw = m_icons->forget(platform::win::ShellIconCache::recycleBinPath()) || redraw;
+                m_recycleBinState = bin;
+            }
+            if (redraw) {
+                m_container->refreshBackdropIcons();
+                m_container->refreshFenceIcons();
+            }
+        }
         // The wallpaper changes far less often (a slideshow, Spotlight, the user
         // picking a new one): checked every ~9 s, pushed only when it differs.
         if (++m_shellTicks % 6 == 0)
@@ -2238,6 +2253,14 @@ void ProductApp::syncShellView()
     if (state.iconsShown) {
         items.reserve(state.items.size());
         for (const platform::win::ShellViewItem& view : state.items) {
+            // Session 66: a file the view still lists but the disk no longer
+            // has (renamed, deleted a moment ago) is not drawn -- it was a
+            // caption without an icon ("starfish - Raccourci").
+            if (!view.parsingName.startsWith(QLatin1String("::")) && !QFileInfo::exists(view.parsingName)) {
+                m_itemCache.remove(view.parsingName);
+                m_shellSignature.clear(); // looked at again on the next tick
+                continue;
+            }
             core::DesktopItem item;
             const auto cached = m_itemCache.constFind(view.parsingName);
             if (cached != m_itemCache.constEnd()) {

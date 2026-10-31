@@ -35,8 +35,26 @@ public:
     void clear();
     int cachedCount() const;
 
+    // Session 66: an icon that could not be read (a shortcut still being
+    // written, a target being rebuilt) is not left blank for good -- retried
+    // a few times; true when one came back, so the caller repaints.
+    bool retryFailed();
+    // Drops every cached size of the items whose path starts with `prefix`
+    // (case-insensitive); true when something was dropped.
+    bool forget(const QString& prefix);
+    // The Recycle Bin: 1 full, 0 empty, -1 unknown (SHQueryRecycleBinW).
+    static int recycleBinState();
+    static QString recycleBinPath() { return QStringLiteral("::{645FF040-5081-101B-9F08-00AA002F954E}"); }
+
 private:
+    struct Failed {
+        QString path;
+        int sizePx = 0;
+        bool overlays = true;
+        int tries = 0;
+    };
     QHash<QString, QPixmap> m_cache;
+    QHash<QString, Failed> m_failed;
 };
 
 } // namespace starfish::platform::win

@@ -207,12 +207,57 @@ QPixmap ShellIconCache::iconFor(const QString& path, int sizePx, bool overlays)
 
     const QPixmap pixmap = loadIcon(path, sizePx, overlays);
     m_cache.insert(key, pixmap);
+    if (pixmap.isNull())
+        m_failed.insert(key, Failed{path, sizePx, overlays, 0});
     return pixmap;
+}
+
+bool ShellIconCache::retryFailed()
+{
+    bool any = false;
+    for (auto it = m_failed.begin(); it != m_failed.end();) {
+        const QPixmap pixmap = loadIcon(it->path, it->sizePx, it->overlays);
+        if (!pixmap.isNull()) {
+            m_cache.insert(it.key(), pixmap);
+            any = true;
+            it = m_failed.erase(it);
+        } else if (++it->tries >= 20) {
+            it = m_failed.erase(it); // a minute of trying: what is blank stays blank
+        } else {
+            ++it;
+        }
+    }
+    return any;
+}
+
+bool ShellIconCache::forget(const QString& prefix)
+{
+    bool any = false;
+    for (auto it = m_cache.begin(); it != m_cache.end();) {
+        if (it.key().startsWith(prefix, Qt::CaseInsensitive)) {
+            m_failed.remove(it.key());
+            it = m_cache.erase(it);
+            any = true;
+        } else {
+            ++it;
+        }
+    }
+    return any;
+}
+
+int ShellIconCache::recycleBinState()
+{
+    SHQUERYRBINFO info{};
+    info.cbSize = sizeof(info);
+    if (FAILED(::SHQueryRecycleBinW(nullptr, &info)))
+        return -1;
+    return info.i64NumItems > 0 ? 1 : 0;
 }
 
 void ShellIconCache::clear()
 {
     m_cache.clear();
+    m_failed.clear();
 }
 
 int ShellIconCache::cachedCount() const
