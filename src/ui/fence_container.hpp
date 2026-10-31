@@ -47,6 +47,10 @@ struct FenceWindow {
     QRect rect;
     core::FenceStyle style; // panel colour + radius are applied to the view
     bool rolledUp = false;  // F-020: persisted (T-008) and acted upon (T-009)
+    // Session 71: rolled up in the document, shown unrolled while the pointer is
+    // over it ("unroll on hover"); never saved as unrolled.
+    bool hoverUnrolled = false;
+    int hoverSerial = 0;
     // T-011: the folder portals this fence mirrors, in declaration order. Each
     // one carries its last listing, which is how the tiles a portal
     // contributed are told apart from the fence's own items -- the document
@@ -87,6 +91,9 @@ struct FenceWindow {
     // no alpha and the icons no second window. Rebuilt when the content
     // changes; a move or a change underneath only re-composes.
     QImage content;
+    // Session 71: acrylic / textured -- `content` is the background only and
+    // this the icons, labels and title, laid over the grain.
+    QImage foreground;
     QRect composedAt; // the visible rect `frame` was last composed for
 
     // Geometry drag bookkeeping: `dragStartRect` is captured when a gesture
@@ -239,6 +246,16 @@ public:
     QString defaultBorderColor() const { return m_defaultBorderColor; }
     // Session 65: the hover highlight, for every fence.
     void setHoverHighlight(bool on);
+    // Session 71: a rolled-up fence unrolls under the pointer (the default; a
+    // fence's style.hoverUnroll overrides it) and rolls back up after it leaves.
+    void setHoverUnrollDefault(bool on) { m_hoverUnrollDefault = on; }
+    bool hoverUnrollDefault() const { return m_hoverUnrollDefault; }
+    bool fenceHoverUnrolls(const QString& id) const;
+    bool fenceHoverUnrolled(const QString& id) const;
+    static constexpr int kHoverUnrollDelayMs = 250;
+    static constexpr int kHoverRerollDelayMs = 700;
+    // The acrylic / textured grain tile (session 71: public for the probe).
+    static const QImage& grainTile();
     // Session 65 (T-081): the look a new fence is born with (a template).
     void setNewFenceStyle(const core::FenceStyle& style);
     bool hoverHighlight() const { return m_hoverHighlight; }
@@ -641,6 +658,9 @@ private:
     int m_defaultBorderWidth = 1;
     QString m_defaultBorderColor = QStringLiteral("#FF3B82F6");
     bool m_hoverHighlight = true;
+    bool m_hoverUnrollDefault = false;
+    void onFenceHover(const QString& id, bool hovered);
+    void hoverReroll(const QString& id, int serial);
     core::FenceStyle m_newFenceStyle;
     bool m_allowOverlap = true;
     bool m_composed = false;

@@ -133,6 +133,11 @@ public:
     TitleSide storedTitleSide() const { return m_titleSide; }
     bool titleBarShown() const { return m_titleBarShown; }
     int borderWidth() const { return m_borderWidth; }
+    // Session 71: what paintEvent draws. Background = panel, band, border;
+    // Foreground = title text, icons, labels, hints. The composed desktop puts a
+    // material's grain between the two, so it lies *behind* the icons.
+    enum class PaintLayers { All, Background, Foreground };
+    void setPaintLayers(PaintLayers layers) { m_paintLayers = layers; }
     QRect titleBandRect() const;     // the band, widget coordinates
     QTransform bandTransform() const; // band coordinates -> widget
     int bandLength() const;
@@ -206,6 +211,7 @@ signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.
     void contentChanged();
+    void hoverChanged(bool hovered); // session 71: enter / leave
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the
@@ -309,6 +315,7 @@ private:
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
     bool m_titleBarShown = true;
+    PaintLayers m_paintLayers = PaintLayers::All;
     Qt::Alignment m_titleAlign = Qt::AlignLeft;
     TitleSide m_titleSide = TitleSide::Top;
     bool m_tabTitle = false;

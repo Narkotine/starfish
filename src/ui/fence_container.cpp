@@ -5,7 +5,9 @@
 #include <QColor>
 #include <QDebug>
 #include <QDir>
+#include <QApplication>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <QPainterPath>
 #include <QRegion>
 #include <QLoggingCategory>
@@ -630,9 +632,64 @@ bool FenceContainer::fenceRolledUp(const QString& id) const
 {
     for (const FenceWindow& fence : m_fences) {
         if (fence.id == id)
-            return fence.rolledUp;
+            return fence.rolledUp || fence.hoverUnrolled; // session 71: the document's state
     }
     return false;
+}
+
+bool FenceContainer::fenceHoverUnrolls(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence)
+        return false;
+    const QString pref = fence->style.hoverUnroll;
+    return pref == QLatin1String("on") || (pref.isEmpty() && m_hoverUnrollDefault);
+}
+
+bool FenceContainer::fenceHoverUnrolled(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->hoverUnrolled;
+}
+
+void FenceContainer::onFenceHover(const QString& id, bool hovered)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !fence->view)
+        return;
+    const int serial = ++fence->hoverSerial; // cancels whatever was pending
+    if (hovered) {
+        if (!fence->rolledUp || !fenceHoverUnrolls(id))
+            return;
+        QTimer::singleShot(kHoverUnrollDelayMs, this, [this, id, serial] {
+            FenceWindow* f = find(id);
+            if (!f || f->hoverSerial != serial || !f->rolledUp || !f->view || !f->view->hovered() || f->dragging)
+                return;
+            f->rolledUp = false;
+            f->hoverUnrolled = true;
+            applyVisibleGeometry(*f);
+            qCInfo(lc).noquote() << QStringLiteral("fence %1 unrolled under the pointer").arg(id);
+        });
+        return;
+    }
+    if (fence->hoverUnrolled)
+        QTimer::singleShot(kHoverRerollDelayMs, this, [this, id, serial] { hoverReroll(id, serial); });
+}
+
+void FenceContainer::hoverReroll(const QString& id, int serial)
+{
+    FenceWindow* f = find(id);
+    if (!f || f->hoverSerial != serial || !f->hoverUnrolled)
+        return;
+    // Not under a gesture, an open menu or dialog, or the pointer back on it.
+    if (f->dragging || QApplication::activePopupWidget() || QApplication::activeModalWidget()
+        || (f->view && f->view->hovered())) {
+        QTimer::singleShot(kHoverRerollDelayMs, this, [this, id, serial] { hoverReroll(id, serial); });
+        return;
+    }
+    f->hoverUnrolled = false;
+    f->rolledUp = true;
+    applyVisibleGeometry(*f);
 }
 
 void FenceContainer::setFenceTitle(const QString& id, const QString& title)
@@ -931,6 +988,25 @@ void FenceContainer::recompose(const QRect& dirty)
     }
 }
 
+const QImage& FenceContainer::grainTile()
+{
+    static const QImage grain = [] {
+        QImage tile(128, 128, QImage::Format_ARGB32_Premultiplied);
+        quint32 seed = 0x5EED1234u;
+        for (int y = 0; y < tile.height(); ++y) {
+            auto* line = reinterpret_cast<QRgb*>(tile.scanLine(y));
+            for (int x = 0; x < tile.width(); ++x) {
+                seed = seed * 1664525u + 1013904223u;
+                const int v = (seed >> 24) & 0xFF;
+                const int a = 10 + ((seed >> 16) & 0x0F); // 10..25 of 255
+                line[x] = qPremultiply(qRgba(v, v, v, a));
+            }
+        }
+        return tile;
+    }();
+    return grain;
+}
+
 void FenceContainer::composeFence(FenceWindow& fence)
 {
     if (!m_backdrop || fence.content.isNull())
@@ -990,33 +1066,14 @@ void FenceContainer::composeFence(FenceWindow& fence)
         painter.drawImage(QRect(QPoint(0, 0), visible.size()), fence.content);
         // Acrylic and textured: a fine grain on the panel.
         if (fence.style.effect == QLatin1String("acrylic") || fence.style.effect == QLatin1String("textured")) {
-            static const QImage grain = [] {
-                QImage tile(128, 128, QImage::Format_ARGB32_Premultiplied);
-                quint32 seed = 0x5EED1234u;
-                for (int y = 0; y < tile.height(); ++y) {
-                    auto* line = reinterpret_cast<QRgb*>(tile.scanLine(y));
-                    for (int x = 0; x < tile.width(); ++x) {
-                        seed = seed * 1664525u + 1013904223u;
-                        const int v = (seed >> 24) & 0xFF;
-                        const int a = 10 + ((seed >> 16) & 0x0F); // 10..25 of 255
-                        line[x] = qPremultiply(qRgba(v, v, v, a));
-                    }
-                }
-                return tile;
-            }();
-            // Session 70: on the panel only -- inside the border, never over the
-            // icons, their labels or the title (they stay crisp).
+            const QImage& grain = grainTile();
+            // Session 71: the whole panel inside the border -- no cut-outs; the
+            // icons, labels and title come after, over it (`foreground`).
             QPainterPath grainArea = panelShape;
             if (fence.view) {
-                const QTransform scale = QTransform::fromScale(dpr, dpr);
                 const QSizeF logical = QSizeF(visible.size()) / dpr;
-                grainArea = scale.map(fence.view->outlinePath(logical, qMax(0, fence.view->borderWidth())));
-                QPainterPath keep;
-                for (const QRect& tile : fence.view->tileRects())
-                    keep.addRect(scale.mapRect(QRectF(tile)));
-                if (fence.view->titleShown())
-                    keep.addRect(scale.mapRect(QRectF(fence.view->titleTextRect()).adjusted(-2, -2, 2, 2)));
-                grainArea = grainArea.subtracted(keep);
+                grainArea = QTransform::fromScale(dpr, dpr)
+                                .map(fence.view->outlinePath(logical, qMax(0, fence.view->borderWidth())));
             }
             painter.save();
             painter.setClipPath(grainArea);
@@ -1024,6 +1081,8 @@ void FenceContainer::composeFence(FenceWindow& fence)
             painter.fillRect(QRect(QPoint(0, 0), visible.size()), QBrush(grain));
             painter.restore();
         }
+        if (!fence.foreground.isNull())
+            painter.drawImage(QRect(QPoint(0, 0), visible.size()), fence.foreground);
     }
     frame.setDevicePixelRatio(dpr);
     fence.frame = frame;
@@ -1599,6 +1658,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     connect(view, &FenceView::contentChanged, this, [this, id] { renderFence(id); });
     connect(view, &FenceView::itemReleaseRequested, this,
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
+    connect(view, &FenceView::hoverChanged, this, [this, id](bool hovered) { onFenceHover(id, hovered); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
     connect(view, &FenceView::titleEditRequested, this, [this, id] { emit fenceTitleEditRequested(id); });
@@ -1686,7 +1746,7 @@ core::Layout FenceContainer::toLayout() const
         out.monitor = fence.monitor;
         out.rect = fence.rect;
         out.style = fence.style;
-        out.rolledUp = fence.rolledUp;
+        out.rolledUp = fence.rolledUp || fence.hoverUnrolled; // session 71: never saved unrolled by hover
         if (fence.view) {
             out.sortBy = fence.view->sortBy();
             out.sortAscending = fence.view->sortAscending();
@@ -1948,6 +2008,16 @@ bool FenceContainer::setFenceRolledUp(const QString& id, bool rolledUp)
     FenceWindow* fence = find(id);
     if (!fence)
         return false;
+    if (fence->hoverUnrolled) {
+        // Session 71: an explicit choice ends the hover state; "roll down" on a
+        // fence shown unrolled by the pointer keeps it down.
+        fence->hoverUnrolled = false;
+        ++fence->hoverSerial;
+        if (!rolledUp) {
+            emit fenceRolledUpChanged(id, false);
+            return true;
+        }
+    }
     if (fence->rolledUp == rolledUp)
         return true;
 
@@ -2037,13 +2107,32 @@ void FenceContainer::renderFence(const QString& id)
         // Session 66: no colour swap any more (fadeIcons fades the icons in the
         // view); render must still not be heard (session 63's recursion).
         const QSignalBlocker quiet(fence->view);
-        {
+        // Session 71: with a grain, two layers -- the grain goes between them,
+        // behind the icons and the title rather than over them.
+        const bool grain = fence->style.effect == QLatin1String("acrylic")
+                           || fence->style.effect == QLatin1String("textured");
+        QImage foreground;
+        if (grain) {
+            foreground = content;
+            fence->view->setPaintLayers(FenceView::PaintLayers::Background);
+            {
+                QPainter painter(&content);
+                fence->view->render(&painter, QPoint(), QRegion(), QWidget::RenderFlags());
+            }
+            fence->view->setPaintLayers(FenceView::PaintLayers::Foreground);
+            {
+                QPainter painter(&foreground);
+                fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+            }
+            fence->view->setPaintLayers(FenceView::PaintLayers::All);
+        } else {
             QPainter painter(&content);
             fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
         }
         ++m_frameRenders;
         const QRect before = fence->composedAt;
         fence->content = content;
+        fence->foreground = foreground;
         QRegion region(visible);
         if (!before.isNull())
             region += before;
@@ -2061,6 +2150,7 @@ void FenceContainer::renderFence(const QString& id)
         return;
     }
     fence->content = QImage();
+    fence->foreground = QImage();
     QImage frame(visible.size(), QImage::Format_ARGB32_Premultiplied);
     frame.setDevicePixelRatio(dpr);
 

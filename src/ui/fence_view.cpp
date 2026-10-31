@@ -566,6 +566,7 @@ void FenceView::paintEvent(QPaintEvent* event)
     // T-080, session 66: the title bar's own colour is *not* laid over the
     // panel (two translucent layers made it near opaque): the panel fills
     // below the band, the band fills the band, the border goes over both.
+    if (m_paintLayers != PaintLayers::Foreground) {
     if (m_titleBarColor.isValid()) {
         const QRect bandRect = titleBandRect();
         painter.save();
@@ -596,6 +597,9 @@ void FenceView::paintEvent(QPaintEvent* event)
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(panel);
     }
+    } // background
+    if (m_paintLayers == PaintLayers::Background)
+        return;
 
     if (titleShown()) {
         QFont titleFont = font();
@@ -1254,6 +1258,7 @@ void FenceView::enterEvent(QEnterEvent* event)
         update();
         emit contentChanged();
     }
+    emit hoverChanged(true);
 }
 
 void FenceView::leaveEvent(QEvent* event)
@@ -1264,6 +1269,7 @@ void FenceView::leaveEvent(QEvent* event)
         update();
         emit contentChanged();
     }
+    emit hoverChanged(false);
 }
 
 } // namespace starfish::ui
