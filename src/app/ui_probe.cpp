@@ -30,6 +30,7 @@
 #include "ui/fence_transparency_dialog.hpp"
 #include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
+#include "ui/icon_layout.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -372,8 +373,10 @@ int runUiProbe(QApplication& app)
             left = minX;
             right = view.width() - 1 - maxX;
         }
-        check(QStringLiteral("a fence's grid has the same margin left and right (session 64)"),
-              left >= 0 && qAbs(left - right) <= 1,
+        // Session 65: top-left; the right margin is the left one plus what no
+        // whole column can use (< one column step).
+        check(QStringLiteral("a fence's grid starts top-left, the rest on the right (session 65)"),
+              left >= 0 && left <= 26 && right >= left && right - left < ui::IconLayout::maxCellWidthFor(48) + 8,
               QStringLiteral("left %1 px, right %2 px (735 px wide, 8 icons)").arg(left).arg(right));
     }
 

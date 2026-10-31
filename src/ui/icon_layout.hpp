@@ -90,13 +90,12 @@ public:
         const int cellW = qMax(icon, cellWidth);
         const int columns = columnsForWidth(viewport.width(), cellW, gap, padding);
         const int cellH = icon + labelHeight;
-        // Session 64: the columns are centred. Left-aligned, everything the
-        // last column could not use (up to a whole cell) piled up on the right:
-        // the fence looked as if it needed far more room on the right than on
-        // the left before an icon fitted. Same margin on both sides now -- the
-        // padding, plus half of what is left over.
-        const int used = columns * cellW + (columns - 1) * gap;
-        const int offset = qMax(0, (viewport.width() - 2 * padding - used) / 2);
+        // Session 65: top-left, like Explorer. Session 64 centred the columns,
+        // and every pixel of a resize moved every icon. Now an icon moves only
+        // when the column count changes; what the columns do not use stays on
+        // the right. The threshold stays symmetric (columnsForWidth): a column
+        // appears as soon as it fits with the same padding right as left.
+        const int offset = 0;
 
         for (int i = 0; i < itemCount; ++i) {
             const int col = i % columns;

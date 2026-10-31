@@ -34,8 +34,8 @@ private slots:
     void aDropIsSortedOnlyWhenTheUserAskedForIt();
     void columnsFitTheWidth();
     void computePositionsFirstTwoCells();
-    // Session 64: the same margin on the left and on the right.
-    void theColumnsAreCentred();
+    // Session 65: top-left; icons move only when the column count changes.
+    void theColumnsStayTopLeftWhileResizing();
     void aCellIsWiderThanItsIcon();
     void hitTestFindsCellAndGap();
     void aLongCaptionWrapsInsteadOfBeingCut();
@@ -628,20 +628,28 @@ void TestIconGrid::aDropIsSortedOnlyWhenTheUserAskedForIt()
     QCOMPARE(grid.sortBy(), QStringLiteral("name"));
 }
 
-void TestIconGrid::theColumnsAreCentred()
+void TestIconGrid::theColumnsStayTopLeftWhileResizing()
 {
     const int cellW = IconLayout::cellWidthFor(48); // 72, a column step of 80
-    for (int width = 120; width <= 900; width += 7) {
+    QVector<IconCell> previous;
+    int previousColumns = -1;
+    for (int width = 120; width <= 900; ++width) {
         const QVector<IconCell> cells = IconLayout::compute(QSize(width, 300), 48, cellW, 34, 8, 12, 40);
         const int columns = IconLayout::columnsForWidth(width, cellW, 8, 12);
+        // Top-left: the first cell sits at the padding, whatever the width.
+        QCOMPARE(cells.at(0).label.topLeft(), QPoint(12, 12 + 48));
+        // While the column count holds, no icon moves by a single pixel.
+        if (columns == previousColumns) {
+            for (int i = 0; i < cells.size(); ++i)
+                QCOMPARE(cells.at(i).icon, previous.at(i).icon);
+        }
+        // Every column fits with at least the left padding on the right too.
         int right = 0;
         for (int i = 0; i < columns; ++i)
             right = qMax(right, cells.at(i).label.right());
-        const int leftMargin = cells.at(0).label.left();
-        const int rightMargin = width - 1 - right;
-        QVERIFY2(qAbs(leftMargin - rightMargin) <= 1,
-                 qPrintable(QStringLiteral("width %1: left %2, right %3").arg(width).arg(leftMargin).arg(rightMargin)));
-        QVERIFY(leftMargin >= 12);
+        QVERIFY(width - 1 - right >= 12);
+        previous = cells;
+        previousColumns = columns;
     }
     // A column more as soon as it fits with the same padding on both sides:
     // 2 x 12 + 5 x 72 + 4 x 8 = 416.
