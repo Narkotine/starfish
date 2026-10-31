@@ -842,10 +842,60 @@ LayerAlphaHit measureLayerAlphaHit(const QRect& screen)
 
 } // namespace
 
+#if defined(_WIN32)
+// Session 66: StarFish was found gone once with nothing in the event log. A
+// crash now leaves one line in %LOCALAPPDATA%\StarFish\crash.log (time, code,
+// address, offset in the module) -- Win32 only in the filter, nothing that
+// allocates, and Windows' own handling continues after it.
+wchar_t g_crashLog[MAX_PATH] = {};
+
+LONG WINAPI writeCrashLine(EXCEPTION_POINTERS* info)
+{
+    if (!g_crashLog[0] || !info || !info->ExceptionRecord)
+        return EXCEPTION_CONTINUE_SEARCH;
+    const HANDLE file = ::CreateFileW(g_crashLog, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                                      FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return EXCEPTION_CONTINUE_SEARCH;
+    SYSTEMTIME t;
+    ::GetLocalTime(&t);
+    void* address = info->ExceptionRecord->ExceptionAddress;
+    HMODULE module = nullptr;
+    ::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         static_cast<LPCWSTR>(address), &module);
+    char moduleName[MAX_PATH] = "?";
+    if (module)
+        ::GetModuleFileNameA(module, moduleName, MAX_PATH);
+    char line[512];
+    const int n = wsprintfA(line, "%04d-%02d-%02d %02d:%02d:%02d crash 0x%08lX at %p (%s+0x%lX)\r\n", t.wYear,
+                            t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond,
+                            static_cast<unsigned long>(info->ExceptionRecord->ExceptionCode), address, moduleName,
+                            static_cast<unsigned long>(reinterpret_cast<const char*>(address)
+                                                       - reinterpret_cast<const char*>(module)));
+    DWORD written = 0;
+    ::WriteFile(file, line, static_cast<DWORD>(n), &written, nullptr);
+    ::CloseHandle(file);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void installCrashLog()
+{
+    wchar_t base[MAX_PATH] = {};
+    const DWORD len = ::GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+    if (len == 0 || len > MAX_PATH - 32)
+        return;
+    wsprintfW(g_crashLog, L"%s\\StarFish", base);
+    ::CreateDirectoryW(g_crashLog, nullptr);
+    lstrcatW(g_crashLog, L"\\crash.log");
+    ::SetUnhandledExceptionFilter(writeCrashLine);
+}
+#endif
+
 int main(int argc, char* argv[])
 {
 #if defined(_WIN32)
     attachParentConsole();
+    installCrashLog();
 #endif
 
     QApplication app(argc, argv);
