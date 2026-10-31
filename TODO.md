@@ -28,8 +28,6 @@
 | T-098 | **Zone translucide, icônes nettes** : **fait session 63**. Sur le bureau dessiné, une zone = **une fenêtre opaque composée** (bureau dessous + couleur à sa transparence + titre/icônes opaques avec ombre du bureau) ; plus de fenêtre d'icônes. Bureau natif : ancien mode (ADR-15/17). Curseurs chiffrés : défaut (Réglages → Zones) + par zone (menu → Transparence...). | 5 (v0.2) | P1 | ✅ |
 | T-100 | **Superposition des zones** (s64) : fait - ordre fenêtres = ordre des zones, clic = au premier plan, réglage « Autoriser la superposition des zones » (oui par défaut), grille centrée. Reste à décider : défaut à terme (Non ?) et résolution douce des anciennes superpositions. | 5 (v0.2) | P2 | ✅ |
 | T-101 | **Renommer une icône dans une zone** (s65) : « Renommer » du menu d'une tuile n'édite rien encore (journalisé) | 5 | P1 | ⬜ |
-| T-102 | **Survol : variantes** (demande s65 « transparence ou matériau, voire couleurs ») : aujourd'hui un léger éclaircissement (oui par défaut, Réglages → Zones) | 5 (v0.2) | P2 | ⬜ |
-| T-103 | **Modèles de zone : gérer** (renommer, supprimer, page Réglages) ; aujourd'hui enregistrer / appliquer / pour les nouvelles | 5 (v0.2) | P2 | ⬜ |
 | T-104 | **Peek : retirer l'API du conteneur** (`setPeekActive`, `peekChanged`) et ce que `--nav-demo` en mesure | 5 | P3 | ⬜ |
 | T-105 | **Acrylique / texturé : validation à l'œil** ; hors mode composé (bureau non dessiné) l'effet n'existe pas | 5 (v0.2) | P2 | ⬜ |
 | T-115 | **Barre de titre : titre déplaçable à la main** (demande s66) ; l'onglet (longueur du titre) est livré en s69 (clé `titleBarShape`), reste le glisser du titre dans sa barre | 5 (v0.2) | P2 | ? |
@@ -37,6 +35,7 @@
 | T-117 | **Barre de titre sur le côté : à l'œil** (s68) : bas / gauche / droite livrés (texte vertical, renommage posé en travers) ; à valider sur le vrai bureau, enroulé = barre en haut | 5 | P2 | ⬜ |
 | T-118 | **Texte vertical en lettres debout** (s69) : barre à gauche / droite, lettres empilées de haut en bas (aujourd'hui texte tourné) - plus tard | 5 | P3 | ? |
 | T-119 | **Survol qui change de modèle** (s69) : effet « passer à un autre modèle » au survol ; livrés : aucun / plus clair / opacité / couleur / sans bordure / halo (clé `hoverEffect`) - onglet et halo à valider à l'oeil sur le vrai bureau | 5 | P3 | ? |
+| T-120 | **Matériau sur les icônes** (s70) : remarque de l'utilisateur à détailler ; déjà fait : le grain acrylique / texturé ne couvre plus icônes, libellés, titre ni bordure | 5 | P1 | ? |
 | T-106 | **Menu du tray à refaire** (demande s65 : « on le refera à la fin », trop d'options) - ne plus rien y ajouter d'ici là | 6 | P2 | ⬜ |
 
 ## Tâches ouvertes — détail
