@@ -727,6 +727,7 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
         border = QColor(0x3B, 0x82, 0xF6);
     fence.view->setBorder(fence.style.borderWidth >= 0 ? fence.style.borderWidth : m_defaultBorderWidth, border);
     fence.view->setHoverHighlight(m_hoverHighlight);
+    fence.view->setFixedCellWidth(fence.style.cellWidth);
 }
 
 void FenceContainer::setDefaultBorder(int width, const QString& color)
@@ -931,12 +932,52 @@ void FenceContainer::composeFence(FenceWindow& fence)
             painter.drawImage(target, other.frame);
             painter.restore();
         }
+        const qreal radius = fence.view ? fence.view->cornerRadius() * dpr : 0;
+        QPainterPath panelShape;
+        panelShape.addRoundedRect(QRectF(QPointF(0, 0), QSizeF(visible.size())), radius, radius);
+        // T-099 (session 65): acrylic -- what is behind, blurred (down then up,
+        // smooth: a cheap wide blur), under the translucent panel.
+        if (fence.style.effect == QLatin1String("acrylic") && visible.width() > 16 && visible.height() > 16) {
+            painter.end();
+            const QImage small = frame.scaled(qMax(1, visible.width() / 12), qMax(1, visible.height() / 12),
+                                              Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            const QImage blurred = small.scaled(visible.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            painter.begin(&frame);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.save();
+            painter.setClipPath(panelShape);
+            painter.drawImage(QPoint(0, 0), blurred);
+            painter.restore();
+        }
         // The fence itself: panel at its transparency, title and icons opaque --
         // or all of it at the panel's transparency when the fence asks
         // (`fadeIcons`, rendered with an opaque panel for that).
         if (fence.style.fadeIcons)
             painter.setOpacity(effectiveAlpha(fence.style) / 255.0);
         painter.drawImage(QRect(QPoint(0, 0), visible.size()), fence.content);
+        painter.setOpacity(1.0);
+        // Acrylic and textured: a fine grain on the panel.
+        if (fence.style.effect == QLatin1String("acrylic") || fence.style.effect == QLatin1String("textured")) {
+            static const QImage grain = [] {
+                QImage tile(128, 128, QImage::Format_ARGB32_Premultiplied);
+                quint32 seed = 0x5EED1234u;
+                for (int y = 0; y < tile.height(); ++y) {
+                    auto* line = reinterpret_cast<QRgb*>(tile.scanLine(y));
+                    for (int x = 0; x < tile.width(); ++x) {
+                        seed = seed * 1664525u + 1013904223u;
+                        const int v = (seed >> 24) & 0xFF;
+                        const int a = 10 + ((seed >> 16) & 0x0F); // 10..25 of 255
+                        line[x] = qPremultiply(qRgba(v, v, v, a));
+                    }
+                }
+                return tile;
+            }();
+            painter.save();
+            painter.setClipPath(panelShape);
+            painter.setOpacity(fence.style.effect == QLatin1String("textured") ? 1.0 : 0.6);
+            painter.fillRect(QRect(QPoint(0, 0), visible.size()), QBrush(grain));
+            painter.restore();
+        }
     }
     frame.setDevicePixelRatio(dpr);
     fence.frame = frame;
@@ -1272,7 +1313,9 @@ QList<QRect> FenceContainer::otherRects(const QString& excludeId) const
 QString FenceContainer::createFence(const QString& title, const QRect& rect,
                                     const QList<core::DesktopItem>& items)
 {
-    const core::FenceStyle style; // schema v1 defaults (docs/technique.md §5)
+    // Schema v1 defaults (docs/technique.md §5), or the template chosen for
+    // new fences (session 65).
+    const core::FenceStyle style = m_newFenceStyle;
     // Session 60: a new fence's order is the user's unless he asked for the alphabet.
     return addFence(QString(), title, rect, style,
                     m_sortOnAdd ? QStringLiteral("name") : QStringLiteral("manual"), true, false, items);

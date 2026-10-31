@@ -3,6 +3,7 @@
 #include <QWinEventNotifier>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QSettings>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
@@ -1180,7 +1181,12 @@ int main(int argc, char* argv[])
     // catalogue really ships (--product-probe).
     {
         QString languageError;
-        if (!starfish::core::i18n::install(parser.value(langOption), &languageError))
+        // Session 65: the setting (Settings > General) when no --lang is given.
+        QString language = parser.value(langOption);
+        if (!parser.isSet(langOption))
+            language = QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+                           .value(QStringLiteral("language")).toString();
+        if (!starfish::core::i18n::install(language, &languageError))
             qCWarning(lc).noquote() << languageError;
     }
 
@@ -5480,7 +5486,9 @@ int main(int argc, char* argv[])
                 // menu editor's list), but still no list of *fences* and no combo:
                 // no list row may name a fence, and only those two lists exist.
                 const QList<QListWidget*> lists = settings->findChildren<QListWidget*>();
-                const QList<QComboBox*> combos = settings->findChildren<QComboBox*>();
+                // Session 65: the one combo allowed is the language's.
+                QList<QComboBox*> combos = settings->findChildren<QComboBox*>();
+                combos.removeIf([](QComboBox* c) { return c->objectName() == QLatin1String("languageCombo"); });
                 const QStringList fenceTitles = [&] {
                     QStringList titles;
                     for (const QString& fid : product.container()->fenceIds())

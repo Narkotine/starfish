@@ -78,6 +78,32 @@ class TestLayoutStore : public QObject
     Q_OBJECT
 
 private slots:
+    void aFenceLookRoundTripsAloneAndKeepsItsNewKeys()
+    {
+        // Session 65: templates store one style; T-094 / T-085 keys survive.
+        starfish::core::FenceStyle style;
+        style.radius = 30;
+        style.background = QStringLiteral("#CC102030");
+        style.titleBarColor = QStringLiteral("#FF405060");
+        style.borderWidth = 3;
+        style.borderColor = QStringLiteral("#FFFF0000");
+        style.cellWidth = 100;
+        const starfish::core::FenceStyle back =
+            starfish::core::JsonStore::styleFromBytes(starfish::core::JsonStore::styleToBytes(style));
+        QCOMPARE(back.radius, 30);
+        QCOMPARE(back.background, style.background);
+        QCOMPARE(back.titleBarColor, style.titleBarColor);
+        QCOMPARE(back.borderWidth, 3);
+        QCOMPARE(back.borderColor, style.borderColor);
+        QCOMPARE(back.cellWidth, 100);
+        // Absent keys: the defaults (no migration).
+        const starfish::core::FenceStyle plain =
+            starfish::core::JsonStore::styleFromBytes(starfish::core::JsonStore::styleToBytes({}));
+        QCOMPARE(plain.borderWidth, -1);
+        QVERIFY(plain.borderColor.isEmpty());
+        QCOMPARE(plain.cellWidth, 0);
+    }
+
     void jsonRoundTripsEveryField();
     // T-080: a fence with no title bar colour of its own must not gain a key.
     void anEmptyTitleBarColourWritesNoKey();

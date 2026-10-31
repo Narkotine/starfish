@@ -74,6 +74,9 @@ public:
     // between 1.5x and 2x the icon. Derived from the items rather than stored,
     // so the two cannot drift apart.
     int cellWidth() const;
+    // T-085: a width chosen by hand (0: automatic).
+    void setFixedCellWidth(int px) { m_fixedCellWidth = qMax(0, px); }
+    int fixedCellWidth() const { return m_fixedCellWidth; }
     int gap() const { return m_gap; }
     int padding() const { return m_padding; }
     int labelHeight() const { return m_labelHeight; }
@@ -147,6 +150,7 @@ public:
 private:
     QList<core::DesktopItem> m_items;
     QString m_sortBy = QStringLiteral("name");
+    int m_fixedCellWidth = 0;
     bool m_ascending = true;
 
     int m_iconSize = 48;

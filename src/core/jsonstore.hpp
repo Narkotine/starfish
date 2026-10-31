@@ -64,6 +64,11 @@ struct FenceStyle {
     // T-094 (session 65): the border. -1 / empty = the default (Settings).
     int borderWidth = -1;
     QString borderColor;
+    // T-085 (session 65): the width of an icon's cell, 0 = automatic (T-078).
+    int cellWidth = 0;
+    // T-099 (session 65): "" none, "acrylic" (the desktop blurred behind a
+    // translucent panel), "textured" (a fine grain on the panel).
+    QString effect;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.
@@ -101,6 +106,9 @@ public:
     // sorts its keys), so the bytes can be compared to tell whether two layouts
     // are identical -- LayoutStore relies on that to skip pointless writes.
     static QByteArray toJson(const Layout& layout);
+    // Session 65: one fence's look, alone (fence templates).
+    static QByteArray styleToBytes(const FenceStyle& style);
+    static FenceStyle styleFromBytes(const QByteArray& data);
 
     // Parses a document. Returns nullopt with an error message on failure,
     // including an unsupported schema version.

@@ -30,6 +30,19 @@ class TestIconGrid : public QObject
     Q_OBJECT
 
 private slots:
+    void aFixedCellWidthWinsOverTheAutomaticOne()
+    {
+        // T-085 (session 65): a width chosen by hand, never narrower than the icon.
+        starfish::ui::IconGrid grid;
+        const int automatic = grid.cellWidth();
+        grid.setFixedCellWidth(112);
+        QCOMPARE(grid.cellWidth(), 112);
+        grid.setFixedCellWidth(10);
+        QVERIFY(grid.cellWidth() > grid.iconSize());
+        grid.setFixedCellWidth(0);
+        QCOMPARE(grid.cellWidth(), automatic);
+    }
+
     void aDropGoesWhereItFellAndTheOrderStaysManual();
     void aDropIsSortedOnlyWhenTheUserAskedForIt();
     void columnsFitTheWidth();

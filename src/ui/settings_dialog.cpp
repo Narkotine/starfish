@@ -1,6 +1,7 @@
 #include "ui/settings_dialog.hpp"
 
 #include <QSpinBox>
+#include <QComboBox>
 #include "ui/recent_colours.hpp"
 
 #include "ui/percent_slider.hpp"
@@ -221,6 +222,19 @@ QWidget* SettingsDialog::buildGeneral()
         }
     }
     l->addWidget(startRow);
+
+    // Session 65: the interface language, applied at the next start.
+    m_language = new QComboBox;
+    m_language->setObjectName(QStringLiteral("languageCombo"));
+    m_language->addItem(tr("Automatic (Windows)"), QString());
+    m_language->addItem(QStringLiteral("Français"), QStringLiteral("fr"));
+    m_language->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    connect(m_language, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_updating)
+            emit languageChosen(m_language->currentData().toString());
+    });
+    l->addWidget(row(QString(QChar(0xF2B7)), tr("Language"), tr("Applied the next time StarFish starts."),
+                     m_language, p));
 
     l->addWidget(sectionTitle(tr("Actions"), p));
     auto* create = new QPushButton(tr("Create"));
@@ -469,6 +483,13 @@ void SettingsDialog::setFencesVisible(bool visible)
 void SettingsDialog::setFenceMaterial(const QString& material)
 {
     Q_UNUSED(material); // T-098: shown as the transparency slider now
+}
+
+void SettingsDialog::setLanguage(const QString& code)
+{
+    m_updating = true;
+    m_language->setCurrentIndex(qMax(0, m_language->findData(code)));
+    m_updating = false;
 }
 
 void SettingsDialog::setHoverHighlight(bool on)

@@ -37,6 +37,10 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["borderWidth"] = s.borderWidth;
     if (!s.borderColor.isEmpty())
         o["borderColor"] = s.borderColor;
+    if (s.cellWidth > 0)
+        o["cellWidth"] = s.cellWidth;
+    if (!s.effect.isEmpty())
+        o["effect"] = s.effect;
     return o;
 }
 
@@ -92,6 +96,8 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.titleBarColor = o["titleBarColor"].toString();
     s.borderWidth = o["borderWidth"].toInt(-1);
     s.borderColor = o["borderColor"].toString();
+    s.cellWidth = o["cellWidth"].toInt(0);
+    s.effect = o["effect"].toString();
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {
@@ -260,6 +266,16 @@ std::optional<Layout> JsonStore::load(const QString& filePath, QString* error)
         return std::nullopt;
     }
     return fromJson(file.readAll(), error);
+}
+
+QByteArray JsonStore::styleToBytes(const FenceStyle& style)
+{
+    return QJsonDocument(styleToJson(style)).toJson(QJsonDocument::Compact);
+}
+
+FenceStyle JsonStore::styleFromBytes(const QByteArray& data)
+{
+    return styleFromJson(QJsonDocument::fromJson(data).object());
 }
 
 } // namespace starfish::core

@@ -239,6 +239,8 @@ public:
     QString defaultBorderColor() const { return m_defaultBorderColor; }
     // Session 65: the hover highlight, for every fence.
     void setHoverHighlight(bool on);
+    // Session 65 (T-081): the look a new fence is born with (a template).
+    void setNewFenceStyle(const core::FenceStyle& style) { m_newFenceStyle = style; }
     bool hoverHighlight() const { return m_hoverHighlight; }
     void setDefaultFenceAlpha(int alpha);
     int defaultFenceAlpha() const { return m_defaultAlpha; }
@@ -631,6 +633,7 @@ private:
     int m_defaultBorderWidth = 1;
     QString m_defaultBorderColor = QStringLiteral("#FF3B82F6");
     bool m_hoverHighlight = true;
+    core::FenceStyle m_newFenceStyle;
     bool m_allowOverlap = true;
     bool m_composed = false;
     int m_composeCount = 0;

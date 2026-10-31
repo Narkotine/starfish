@@ -13,6 +13,8 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QSlider>
@@ -26,6 +28,7 @@
 #include "ui/fence_menu.hpp"
 #include "ui/percent_slider.hpp"
 #include "ui/recent_colours.hpp"
+#include "ui/fence_templates.hpp"
 
 namespace starfish::ui {
 
@@ -73,6 +76,15 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     transparency->addWidget(sliderRow);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Transparency"), transparency);
 
+    // T-099 (session 65): what the panel is made of beyond its colour.
+    auto* effect = new QComboBox(dialog);
+    effect->setObjectName(QStringLiteral("effect"));
+    effect->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Plain"), QString());
+    effect->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Acrylic (blurred desktop behind)"), QStringLiteral("acrylic"));
+    effect->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Textured (fine grain)"), QStringLiteral("textured"));
+    effect->setToolTip(QCoreApplication::translate("FenceAppearanceDialog", "Acrylic shows through a transparent fence."));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Effect"), effect);
+
     auto* fadeIcons = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "The material on the icons too"), dialog);
     fadeIcons->setObjectName(QStringLiteral("fadeIcons"));
     form->addRow(QString(), fadeIcons);
@@ -96,6 +108,14 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     barRow->addWidget(sameAsPanel);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar colour"), barRow);
 
+    // T-085: the room each icon gets.
+    auto* cell = new QComboBox(dialog);
+    cell->setObjectName(QStringLiteral("cellWidth"));
+    cell->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Automatic (fits the names)"), 0);
+    for (int px : {64, 76, 88, 100, 112, 128})
+        cell->addItem(QStringLiteral("%1 px").arg(px), px);
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Icon width"), cell);
+
     // T-094: the border, the default's or its own.
     auto* borderWidth = new QComboBox(dialog);
     borderWidth->setObjectName(QStringLiteral("borderWidth"));
@@ -114,17 +134,61 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     borderRow->addWidget(borderDefault);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Border"), borderRow);
 
+    // Session 65: templates -- apply one, save this look as one, and the one
+    // new fences get.
+    auto* templates = new QComboBox(dialog);
+    templates->setObjectName(QStringLiteral("templates"));
+    auto* saveTemplate = new QPushButton(QCoreApplication::translate("FenceAppearanceDialog", "Save as template..."), dialog);
+    saveTemplate->setObjectName(QStringLiteral("saveTemplate"));
+    auto* forNew = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "For new fences"), dialog);
+    forNew->setObjectName(QStringLiteral("templateForNewFences"));
+    auto* templateRow = new QHBoxLayout;
+    templateRow->addWidget(templates, 1);
+    templateRow->addWidget(forNew);
+    templateRow->addWidget(saveTemplate);
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Template"), templateRow);
+    auto fillTemplates = [templates, forNew](const QString& select) {
+        const QSignalBlocker b1(templates), b2(forNew);
+        templates->clear();
+        templates->addItem(QCoreApplication::translate("FenceAppearanceDialog", "(none)"), QString());
+        for (const QString& name : FenceTemplates::names())
+            templates->addItem(name, name);
+        templates->setCurrentIndex(qMax(0, templates->findData(select)));
+        forNew->setEnabled(!select.isEmpty());
+        forNew->setChecked(!select.isEmpty() && FenceTemplates::defaultName() == select);
+    };
+    fillTemplates(QString());
+    QObject::connect(forNew, &QCheckBox::toggled, dialog, [templates](bool on) {
+        const QString name = templates->currentData().toString();
+        if (on)
+            FenceTemplates::setDefaultName(name);
+        else if (FenceTemplates::defaultName() == name)
+            FenceTemplates::setDefaultName(QString());
+    });
+    QObject::connect(saveTemplate, &QPushButton::clicked, dialog, [dialog, safe, id, fillTemplates] {
+        if (!safe)
+            return;
+        bool ok = false;
+        const QString name = QInputDialog::getText(dialog, QCoreApplication::translate("FenceAppearanceDialog", "Save as template"),
+                                                   QCoreApplication::translate("FenceAppearanceDialog", "Name:"),
+                                                   QLineEdit::Normal, QString(), &ok).trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        FenceTemplates::save(name, safe->fenceStyle(id));
+        fillTemplates(name);
+    });
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
     layout->addWidget(buttons);
 
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -145,6 +209,13 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         paintSwatch(bar, style.titleBarColor.isEmpty() ? style.background : style.titleBarColor);
         borderWidth->setCurrentIndex(qMax(0, borderWidth->findData(style.borderWidth < 0 ? -1 : qMin(style.borderWidth, 6))));
         borderDefault->setChecked(style.borderColor.isEmpty());
+        int c = cell->findData(style.cellWidth);
+        if (c < 0) {
+            cell->addItem(QStringLiteral("%1 px").arg(style.cellWidth), style.cellWidth);
+            c = cell->count() - 1;
+        }
+        cell->setCurrentIndex(c);
+        effect->setCurrentIndex(qMax(0, effect->findData(style.effect)));
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -157,6 +228,18 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     };
     refresh();
 
+    QObject::connect(templates, &QComboBox::currentIndexChanged, dialog, [templates, forNew, safe, id, refresh](int) {
+        const QString name = templates->currentData().toString();
+        {
+            const QSignalBlocker b(forNew);
+            forNew->setEnabled(!name.isEmpty());
+            forNew->setChecked(!name.isEmpty() && FenceTemplates::defaultName() == name);
+        }
+        if (name.isEmpty() || !safe)
+            return;
+        safe->setFenceStyle(id, FenceTemplates::style(name));
+        refresh();
+    });
     QObject::connect(material, &QComboBox::currentIndexChanged, dialog, [safe, id, material, refresh](int) {
         const QString preset = material->currentData().toString();
         if (safe && !preset.isEmpty())
@@ -208,6 +291,14 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
             else if (style.titleBarColor.isEmpty())
                 style.titleBarColor = style.background; // a band of its own, to be coloured
         });
+    });
+    QObject::connect(effect, &QComboBox::currentIndexChanged, dialog, [effect, restyle](int) {
+        const QString chosen = effect->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.effect = chosen; });
+    });
+    QObject::connect(cell, &QComboBox::currentIndexChanged, dialog, [cell, restyle](int) {
+        const int px = cell->currentData().toInt();
+        restyle([px](core::FenceStyle& style) { style.cellWidth = px; });
     });
     QObject::connect(borderWidth, &QComboBox::currentIndexChanged, dialog, [borderWidth, restyle](int) {
         const int px = borderWidth->currentData().toInt();

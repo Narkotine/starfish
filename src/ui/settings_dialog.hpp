@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSpinBox>
+#include <QComboBox>
 
 #include <QDialog>
 #include <QHash>
@@ -51,6 +52,7 @@ public:
     void setDefaultTransparency(int percent);
     void setFenceOverlapAllowed(bool allowed);
     void setHoverHighlight(bool on);
+    void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
     // Session 60.
@@ -74,6 +76,7 @@ signals:
     void allFencesToDefaultRequested();
     void fenceOverlapToggled(bool allowed);
     void hoverHighlightToggled(bool on);
+    void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
@@ -104,6 +107,7 @@ private:
     QCheckBox* m_overlap = nullptr;
     QCheckBox* m_fenceOverlap = nullptr;
     QCheckBox* m_hover = nullptr;
+    QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;
     QPushButton* m_borderColour = nullptr;
     QString m_borderColor = QStringLiteral("#FF3B82F6");

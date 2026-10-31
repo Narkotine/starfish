@@ -50,6 +50,7 @@
 #include "ui/fence_material.hpp"
 #include "ui/fence_transparency_dialog.hpp"
 #include "ui/fence_appearance_dialog.hpp"
+#include "ui/fence_templates.hpp"
 #include "ui/recent_colours.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/percent_slider.hpp"
@@ -233,6 +234,7 @@ bool ProductApp::start(const Options& options, QString* error)
     {
         const QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
         m_container->setHoverHighlight(settings.value(QStringLiteral("fenceHoverHighlight"), true).toBool());
+        m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle());
         m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
                                       settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
     }
@@ -553,6 +555,10 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::defaultTransparencyChanged, this,
             &ProductApp::setDefaultFenceTransparency);
     connect(m_settings, &ui::SettingsDialog::fenceOverlapToggled, this, &ProductApp::setAllowFenceOverlap);
+    connect(m_settings, &ui::SettingsDialog::languageChosen, this, [](const QString& code) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("language"), code);
+    });
     connect(m_settings, &ui::SettingsDialog::hoverHighlightToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat).setValue(QStringLiteral("fenceHoverHighlight"), on);
         if (m_container)
@@ -1163,6 +1169,7 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         QDialog* dialog = ui::createFenceAppearanceDialog(m_container, id, nullptr);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->exec();
+        m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle()); // it may have changed
         break;
     }
     case ui::FenceMenu::Action::Sort: // carried by the submenu's own entries
@@ -1545,6 +1552,8 @@ void ProductApp::refreshStatus()
     }
     m_settings->setDefaultTransparency(defaultTransparencySetting());
     m_settings->setFenceOverlapAllowed(allowFenceOverlapSetting());
+    m_settings->setLanguage(QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+                                .value(QStringLiteral("language")).toString());
     if (m_container) {
         m_settings->setHoverHighlight(m_container->hoverHighlight());
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());

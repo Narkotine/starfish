@@ -48,6 +48,8 @@ int IconGrid::cellWidth() const
     // it gets the room it needs, up to twice the icon (T-078). Nothing else
     // changes: short names keep the exact cell they had.
     const int floorWidth = IconLayout::cellWidthFor(m_iconSize);
+    if (m_fixedCellWidth > 0)
+        return qMax(m_fixedCellWidth, m_iconSize + 8);
     if (!m_hasBaseFont || m_items.isEmpty())
         return floorWidth;
 

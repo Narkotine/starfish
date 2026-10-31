@@ -105,6 +105,7 @@ public:
     // reading the painted bands, most of all -- asks the layout instead of
     // copying the formula and drifting away from it.
     int cellWidth() const { return m_grid.cellWidth(); }
+    void setFixedCellWidth(int px);
 
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;

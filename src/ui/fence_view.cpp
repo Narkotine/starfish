@@ -916,3 +916,15 @@ void FenceView::leaveEvent(QEvent* event)
 }
 
 } // namespace starfish::ui
+
+namespace starfish::ui {
+
+void FenceView::setFixedCellWidth(int px)
+{
+    if (m_grid.fixedCellWidth() == px)
+        return;
+    m_grid.setFixedCellWidth(px);
+    update();
+}
+
+} // namespace starfish::ui

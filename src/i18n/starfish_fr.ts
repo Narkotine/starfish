@@ -22,7 +22,7 @@
 <context>
     <name>FenceAppearanceDialog</name>
     <message>
-        <location filename="../ui/fence_appearance_dialog.hpp" line="+50"/>
+        <location filename="../ui/fence_appearance_dialog.hpp" line="+53"/>
         <source>Fence appearance</source>
         <translation>Apparence de la fence</translation>
     </message>
@@ -47,6 +47,31 @@
         <translation>Transparence</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Plain</source>
+        <translation>Uni</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Acrylic (blurred desktop behind)</source>
+        <translation>Acrylique (bureau flouté derrière)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Textured (fine grain)</source>
+        <translation>Texturé (grain fin)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Acrylic shows through a transparent fence.</source>
+        <translation>L&apos;acrylique se voit à travers une fence transparente.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Effect</source>
+        <translation>Effet</translation>
+    </message>
+    <message>
         <location line="+2"/>
         <source>The material on the icons too</source>
         <translation>Le matériau aussi sur les icônes</translation>
@@ -58,23 +83,33 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+102"/>
+        <location line="+173"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-98"/>
+        <location line="-169"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+103"/>
+        <location line="+174"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-98"/>
+        <location line="-169"/>
+        <source>Automatic (fits the names)</source>
+        <translation>Automatique (selon les noms)</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Icon width</source>
+        <translation>Largeur des icônes</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Default (%1 px)</source>
         <translation>Par défaut (%1 px)</translation>
     </message>
@@ -94,7 +129,37 @@
         <translation>Bordure</translation>
     </message>
     <message>
-        <location line="+107"/>
+        <location line="+6"/>
+        <source>Save as template...</source>
+        <translation>Enregistrer comme modèle…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>For new fences</source>
+        <translation>Pour les nouvelles fences</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Template</source>
+        <translation>Modèle</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>(none)</source>
+        <translation>(aucun)</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Save as template</source>
+        <translation>Enregistrer comme modèle</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Name:</source>
+        <translation>Nom :</translation>
+    </message>
+    <message>
+        <location line="+140"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -231,7 +296,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2308"/>
+        <location filename="../app/product_app.cpp" line="+2317"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -239,7 +304,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5793"/>
+        <location filename="../main.cpp" line="+5799"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -257,12 +322,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2494"/>
+        <location line="-2502"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+417"/>
+        <location line="+422"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -306,7 +371,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+441"/>
+        <location line="+444"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -664,7 +729,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+108"/>
+        <location filename="../ui/settings_dialog.cpp" line="+109"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -676,24 +741,24 @@
     </message>
     <message>
         <location line="-23"/>
-        <location line="+92"/>
+        <location line="+105"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="-91"/>
-        <location line="+245"/>
+        <location line="-104"/>
+        <location line="+258"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-244"/>
-        <location line="+263"/>
+        <location line="-257"/>
+        <location line="+276"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-235"/>
+        <location line="-248"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -705,12 +770,27 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+306"/>
+        <location line="+326"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-299"/>
+        <location line="-316"/>
+        <source>Automatic (Windows)</source>
+        <translation>Automatique (Windows)</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Language</source>
+        <translation>Langue</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Applied the next time StarFish starts.</source>
+        <translation>Appliquée au prochain démarrage de StarFish.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -895,7 +975,7 @@
         <translation>Des zones pour ranger le bureau de Windows. Vos fichiers ne bougent jamais : une zone les montre, le dossier du bureau les garde.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+93"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
