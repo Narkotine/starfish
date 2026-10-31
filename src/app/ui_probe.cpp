@@ -661,6 +661,126 @@ int runUiProbe(QApplication& app)
               ok, detail);
     }
 
+    // --- session 69: the title bar as a tab, hover effects -------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Zone 11"), QRect(0, 0, 320, 220));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s69/a.txt")),
+                                core::itemFromPathOnly(QStringLiteral("C:/s69/b.txt"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(320, 220);
+        const auto shot = [&](const QString& name) {
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/%1_%2.png").arg(name, theme));
+            return img;
+        };
+        core::FenceStyle style = container.fenceStyle(id);
+        const bool fullByDefault = !view->tabbed();
+        style.titleBarShape = QStringLiteral("tab");
+        style.radius = 14;
+        style.borderWidth = 2;
+        style.borderColor = QStringLiteral("#FFE5E7EB");
+        style.background = QStringLiteral("#B31F2937");
+        style.defaultOpacity = false;
+        style.titleBarColor = QStringLiteral("#FF2563EB");
+        style.titleAlign.clear();
+        container.setFenceStyle(id, style);
+        const QRect band = view->titleBandRect();
+        const QPair<int, int> span = view->tabSpan(320);
+        const QPainterPath outline = view->outlinePath(QSizeF(320, 220));
+        const QPoint inTab(span.first + span.second / 2, band.height() / 2);
+        const QPoint pastTab(qMin(319, span.first + span.second + 30), band.height() / 2);
+        const bool left = view->tabbed() && span.first == 0 && span.second < 200 && span.second > 30;
+        const bool shape = outline.contains(QPointF(inTab)) && !outline.contains(QPointF(pastTab))
+                           && outline.contains(QPointF(160, 120));
+        const bool hits = view->handleAt(inTab) == ui::FenceHandle::TitleBar
+                          && view->handleAt(pastTab) == ui::FenceHandle::None
+                          && view->handleAt(QPoint(318, 120)) != ui::FenceHandle::None
+                          && view->handleAt(QPoint(160, 218)) != ui::FenceHandle::None;
+        const QImage leftImg = shot(QStringLiteral("s69_tab_left"));
+        const bool clear = qAlpha(leftImg.pixel(pastTab)) == 255
+                           && leftImg.pixelColor(pastTab) == QColor(0x9A, 0xC8, 0x2A);
+        style.titleAlign = QStringLiteral("center");
+        container.setFenceStyle(id, style);
+        const QPair<int, int> mid = view->tabSpan(320);
+        const bool centred = qAbs(mid.first + mid.second / 2 - 160) <= 1
+                             && view->handleAt(QPoint(5, band.height() / 2)) != ui::FenceHandle::TitleBar;
+        shot(QStringLiteral("s69_tab_centred"));
+        style.titleAlign = QStringLiteral("right");
+        container.setFenceStyle(id, style);
+        const bool right = view->tabSpan(320).first + view->tabSpan(320).second == 320;
+        // The tab on the other sides: one sheet.
+        QImage sheet(3 * 330 + 10, 230, QImage::Format_ARGB32_Premultiplied);
+        sheet.fill(QColor(0x9A, 0xC8, 0x2A));
+        QPainter sp(&sheet);
+        bool sides = true;
+        const QStringList names{QStringLiteral("bottom"), QStringLiteral("left"), QStringLiteral("right")};
+        for (int i = 0; i < names.size(); ++i) {
+            style.titleSide = names.at(i);
+            style.titleAlign = i == 0 ? QStringLiteral("center") : QString();
+            container.setFenceStyle(id, style);
+            const QRect b = view->titleBandRect();
+            const QRect t = view->titleTextRect();
+            sides = sides && b.contains(t) && view->handleAt(t.center()) == ui::FenceHandle::TitleBar;
+            sp.save();
+            sp.translate(10 + i * 330, 5);
+            view->render(&sp, QPoint(), QRegion(), QWidget::DrawChildren);
+            sp.restore();
+        }
+        sp.end();
+        sheet.save(captures + QStringLiteral("/s69_tab_sides_%1.png").arg(theme));
+        style.titleSide.clear();
+        style.titleAlign.clear();
+        container.setFenceStyle(id, style);
+        // Rolled up: the tab alone.
+        const QRectF rolled = view->outlinePath(QSizeF(320, band.height())).boundingRect();
+        const bool rolledTab = rolled.width() < 200;
+        check(QStringLiteral("a tab title bar: as long as the title, left / centred / right, click-through beside it (session 69)"),
+              fullByDefault && left && shape && hits && clear && centred && right && sides && rolledTab,
+              QStringLiteral("default full %1, left %2, shape %3, hits %4, clear %5, centred %6, right %7, sides %8, rolled %9")
+                  .arg(fullByDefault).arg(left).arg(shape).arg(hits).arg(clear).arg(centred).arg(right).arg(sides)
+                  .arg(rolledTab));
+
+        // Hover effects: each changes the picture, "nothing" does not.
+        style.titleBarShape.clear();
+        style.hoverEffect = QStringLiteral("none");
+        container.setFenceStyle(id, style);
+        const QImage still = shot(QStringLiteral("s69_hover_still"));
+        QEnterEvent enter(QPointF(160, 120), QPointF(160, 120), QPointF(160, 120));
+        QCoreApplication::sendEvent(view, &enter);
+        const bool noneSame = shot(QStringLiteral("s69_hover_none")) == still;
+        QString hoverDetail;
+        bool allDiffer = true;
+        QImage hoverSheet(5 * 330 + 10, 230, QImage::Format_ARGB32_Premultiplied);
+        hoverSheet.fill(QColor(0x9A, 0xC8, 0x2A));
+        QPainter hp(&hoverSheet);
+        const QStringList effects{QStringLiteral("lighter"), QStringLiteral("opacity"), QStringLiteral("colour"),
+                                  QStringLiteral("noborder"), QStringLiteral("glow")};
+        for (int i = 0; i < effects.size(); ++i) {
+            style.hoverEffect = effects.at(i);
+            container.setFenceStyle(id, style);
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            const bool differs = img != still;
+            allDiffer = allDiffer && differs;
+            hoverDetail += QStringLiteral("%1 %2  ").arg(effects.at(i)).arg(differs);
+            hp.drawImage(10 + i * 330, 5, img);
+        }
+        hp.end();
+        hoverSheet.save(captures + QStringLiteral("/s69_hover_effects_%1.png").arg(theme));
+        check(QStringLiteral("hover effects: lighter, opacity, colour, no border, glow change the fence, none does not (session 69)"),
+              noneSame && allDiffer, QStringLiteral("none same %1; ").arg(noneSame) + hoverDetail);
+        check(QStringLiteral("Settings has the desktop double-click switch (off by default, session 69)"),
+              settings.findChild<QWidget*>(QStringLiteral("desktopDoubleClickSwitch")) != nullptr, QString());
+    }
+
     // --- session 67: the title clears the rounded corner -----------------------
     {
         ui::FenceContainer container;

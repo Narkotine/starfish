@@ -132,24 +132,79 @@
         <translation>Barre de titre</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Full width</source>
+        <translation>Pleine largeur</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tab (as long as the title)</source>
+        <translation>Onglet (longueur du titre)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Title bar shape</source>
+        <translation>Forme de la barre de titre</translation>
+    </message>
+    <message>
         <location line="+4"/>
-        <location line="+177"/>
+        <source>Default (Settings)</source>
+        <translation>Par défaut (Réglages)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing</source>
+        <translation>Aucun</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lighter</source>
+        <translation>Plus clair</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Less transparent</source>
+        <translation>Moins transparent</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tinted with the border colour</source>
+        <translation>Teinté de la couleur de bordure</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Border hidden</source>
+        <translation>Bordure masquée</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Glow</source>
+        <translation>Halo lumineux</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>On hover</source>
+        <translation>Au survol</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+180"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-173"/>
+        <location line="-176"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+178"/>
+        <location line="+181"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-173"/>
+        <location line="-176"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -209,7 +264,7 @@
         <translation>Nom :</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+167"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -351,7 +406,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2347"/>
+        <location filename="../app/product_app.cpp" line="+2373"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -377,12 +432,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2532"/>
+        <location line="-2558"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+422"/>
+        <location line="+429"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -416,7 +471,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+386"/>
+        <location filename="../app/product_app.cpp" line="+392"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -426,7 +481,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+445"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -771,13 +826,14 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+286"/>
-        <location line="+122"/>
+        <location filename="../ui/fence_view.cpp" line="+301"/>
+        <location line="+118"/>
+        <location line="+179"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -808,18 +864,18 @@
     </message>
     <message>
         <location line="-105"/>
-        <location line="+259"/>
+        <location line="+270"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-258"/>
-        <location line="+277"/>
+        <location line="-269"/>
+        <location line="+288"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-249"/>
+        <location line="-260"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -831,12 +887,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+356"/>
+        <location line="+374"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-346"/>
+        <location line="-364"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -872,12 +928,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+231"/>
+        <location line="+242"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-235"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -955,6 +1011,16 @@
         <location line="+1"/>
         <source>A touch lighter, its border brighter.</source>
         <translation>Un peu plus claire, sa bordure plus vive.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Double-click the desktop to hide fences and icons</source>
+        <translation>Double-clic sur le bureau pour masquer zones et icônes</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Again to bring everything back. Your files never move.</source>
+        <translation>Encore une fois pour tout réafficher. Vos fichiers ne bougent jamais.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1057,7 +1123,7 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+88"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
