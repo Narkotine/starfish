@@ -32,10 +32,11 @@
 | T-105 | **Acrylique / texturé : validation à l'œil** ; hors mode composé (bureau non dessiné) l'effet n'existe pas | 5 (v0.2) | P2 | ⬜ |
 | T-115 | **Barre de titre : titre déplaçable à la main** (demande s66) ; l'onglet (longueur du titre) est livré en s69 (clé `titleBarShape`), reste le glisser du titre dans sa barre | 5 (v0.2) | P2 | ? |
 | T-116 | **Arrêt sans trace (s66)** : StarFish trouvé arrêté à 13:09, aucun rapport WER ; `crash.log` (`%LOCALAPPDATA%\StarFish`) depuis la s66 - à relire au prochain arrêt | 5 | P1 | ⬜ |
-| T-117 | **Barre de titre sur le côté : à l'œil** (s68) : bas / gauche / droite livrés (texte vertical, renommage posé en travers) ; à valider sur le vrai bureau, enroulé = barre en haut | 5 | P2 | ⬜ |
+| T-117 | **Barre de titre sur le côté : à l'œil** (s68) : bas / gauche / droite livrés (texte vertical, renommage posé en travers) ; à valider sur le vrai bureau ; depuis s73 une barre latérale s'enroule en bande verticale de son côté (option : côté opposé) | 5 | P2 | ⬜ |
 | T-118 | **Texte vertical en lettres debout** (s69) : barre à gauche / droite, lettres empilées de haut en bas (aujourd'hui texte tourné) - plus tard | 5 | P3 | ? |
 | T-119 | **Survol qui change de modèle** (s69) : effet « passer à un autre modèle » au survol ; livrés : aucun / plus clair / opacité / couleur / sans bordure / halo (clé `hoverEffect`) - onglet et halo à valider à l'oeil sur le vrai bureau | 5 | P3 | ? |
 | T-121 | **Bordures à motif** (chaîne, pointillés, corde ; s71, faisable) : une tuile de motif répétée le long du `QPainterPath` du contour (`pointAtPercent` / `angleAtPercent`, longueur d'arc), pas ajusté pour que le nombre de tuiles boucle exactement le tour ; tuiles spéciales aux coins et aux raccords de l'onglet ; option point de début / fin (ex. sous l'onglet) ; rendu dans la couche de fond, épaisseur = celle de la bordure | 5 (v0.2) | P3 | ? |
+| T-122 | **s73** : Suppr / Maj+Suppr sur la sélection d'une zone (corbeille / définitif, via le shell ; jamais Ce PC & co) ; enroulement vers la barre ou le côté opposé (Réglages + par zone, clé `rollToward`) ; animation 150 ms ; taille en icônes entières (Réglages + par zone, clé `snapToCells`) | 5 (v0.2) | P1 | ✅ |
 | T-106 | **Menu du tray à refaire** (demande s65 : « on le refera à la fin », trop d'options) - ne plus rien y ajouter d'ici là | 6 | P2 | ⬜ |
 
 ## Tâches ouvertes — détail
