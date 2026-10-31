@@ -35,7 +35,7 @@
 | T-117 | **Barre de titre sur le côté : à l'œil** (s68) : bas / gauche / droite livrés (texte vertical, renommage posé en travers) ; à valider sur le vrai bureau, enroulé = barre en haut | 5 | P2 | ⬜ |
 | T-118 | **Texte vertical en lettres debout** (s69) : barre à gauche / droite, lettres empilées de haut en bas (aujourd'hui texte tourné) - plus tard | 5 | P3 | ? |
 | T-119 | **Survol qui change de modèle** (s69) : effet « passer à un autre modèle » au survol ; livrés : aucun / plus clair / opacité / couleur / sans bordure / halo (clé `hoverEffect`) - onglet et halo à valider à l'oeil sur le vrai bureau | 5 | P3 | ? |
-| T-120 | **Matériau sur les icônes** (s70) : remarque de l'utilisateur à détailler ; déjà fait : le grain acrylique / texturé ne couvre plus icônes, libellés, titre ni bordure | 5 | P1 | ? |
+| T-121 | **Bordures à motif** (chaîne, pointillés, corde ; s71, faisable) : une tuile de motif répétée le long du `QPainterPath` du contour (`pointAtPercent` / `angleAtPercent`, longueur d'arc), pas ajusté pour que le nombre de tuiles boucle exactement le tour ; tuiles spéciales aux coins et aux raccords de l'onglet ; option point de début / fin (ex. sous l'onglet) ; rendu dans la couche de fond, épaisseur = celle de la bordure | 5 (v0.2) | P3 | ? |
 | T-106 | **Menu du tray à refaire** (demande s65 : « on le refera à la fin », trop d'options) - ne plus rien y ajouter d'ici là | 6 | P2 | ⬜ |
 
 ## Tâches ouvertes — détail
