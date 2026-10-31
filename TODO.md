@@ -38,6 +38,7 @@
 | T-119 | **Survol qui change de modèle** (s69) : effet « passer à un autre modèle » au survol ; livrés : aucun / plus clair / opacité / couleur / sans bordure / halo (clé `hoverEffect`) - onglet et halo à valider à l'oeil sur le vrai bureau | 5 | P3 | ? |
 | T-121 | **Bordures à motif** (chaîne, pointillés, corde ; s71, faisable) : une tuile de motif répétée le long du `QPainterPath` du contour (`pointAtPercent` / `angleAtPercent`, longueur d'arc), pas ajusté pour que le nombre de tuiles boucle exactement le tour ; tuiles spéciales aux coins et aux raccords de l'onglet ; option point de début / fin (ex. sous l'onglet) ; rendu dans la couche de fond, épaisseur = celle de la bordure | 5 (v0.2) | P3 | ? |
 | T-122 | **s73** : Suppr / Maj+Suppr sur la sélection d'une zone (corbeille / définitif, via le shell ; jamais Ce PC & co) ; enroulement vers la barre ou le côté opposé (Réglages + par zone, clé `rollToward`) ; animation 150 ms ; taille en icônes entières (Réglages + par zone, clé `snapToCells`) | 5 (v0.2) | P1 | ✅ |
+| T-124 | **s75 : raccourcis conservés** : copie de chaque .lnk/.url rangé (`%APPDATA%\StarFish\shortcuts`, `index.json`), tuile « restaurable » (badge bleu, menu « Restaurer le raccourci »), remise au démarrage en option (non par défaut) ; jamais d'autres fichiers. Raccourci sans fichier cible (app Store, StoreApp) n'est plus « introuvable » | 5 | P1 | ✅ |
 | T-106 | **Menu du tray à refaire** (demande s65 : « on le refera à la fin », trop d'options) - ne plus rien y ajouter d'ici là | 6 | P2 | ⬜ |
 
 ## Tâches ouvertes — détail
