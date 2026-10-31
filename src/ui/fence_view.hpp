@@ -64,6 +64,11 @@ public:
     // what was chosen; the geometry decides what is possible, here, in the one
     // place both the paint and the window's region ask.
     void setCornerRadius(int px);
+    // T-094 (session 65): the border, 0 = none.
+    void setBorder(int width, const QColor& color);
+    // Session 65: a light highlight while the pointer is over the fence.
+    void setHoverHighlight(bool on) { m_hoverHighlight = on; }
+    bool hovered() const { return m_hovered; }
     int cornerRadius() const;
 
     // Roll-up (F-020). A rolled-up fence is only its title bar: the grid is not
@@ -211,6 +216,8 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void enterEvent(QEnterEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -249,6 +256,10 @@ private:
     QColor m_panelColor{0x1F, 0x29, 0x37};
     // T-080: invalid until someone picks one (see setTitleBarColor).
     QColor m_titleBarColor;
+    int m_borderWidth = 1;
+    QColor m_borderColor = QColor(0x3B, 0x82, 0xF6);
+    bool m_hoverHighlight = true;
+    bool m_hovered = false;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;
     IconGrid m_grid;

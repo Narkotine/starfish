@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QSpinBox>
+
 #include <QDialog>
 #include <QHash>
 #include <QSlider>
@@ -48,6 +50,8 @@ public:
     void setFenceMaterial(const QString& material);
     void setDefaultTransparency(int percent);
     void setFenceOverlapAllowed(bool allowed);
+    void setHoverHighlight(bool on);
+    void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
     // Session 60.
     void setSortOnAdd(bool sorted);
@@ -69,6 +73,8 @@ signals:
     void defaultTransparencyChanged(int percent);
     void allFencesToDefaultRequested();
     void fenceOverlapToggled(bool allowed);
+    void hoverHighlightToggled(bool on);
+    void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
     void startWithWindowsToggled(bool on);
@@ -97,6 +103,10 @@ private:
     QCheckBox* m_desktopArrows = nullptr;
     QCheckBox* m_overlap = nullptr;
     QCheckBox* m_fenceOverlap = nullptr;
+    QCheckBox* m_hover = nullptr;
+    QSpinBox* m_borderWidth = nullptr;
+    QPushButton* m_borderColour = nullptr;
+    QString m_borderColor = QStringLiteral("#FF3B82F6");
     QHash<QString, QRadioButton*> m_materials;
     QSlider* m_transparency = nullptr;
     QWidget* m_restoreRow = nullptr;

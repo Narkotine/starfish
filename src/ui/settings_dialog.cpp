@@ -1,5 +1,8 @@
 #include "ui/settings_dialog.hpp"
 
+#include <QSpinBox>
+#include "ui/recent_colours.hpp"
+
 #include "ui/percent_slider.hpp"
 
 #include <QButtonGroup>
@@ -300,6 +303,57 @@ QWidget* SettingsDialog::buildFences()
                         "overlap stay as they are."),
                      m_fenceOverlap, p));
 
+    // Session 65: hover.
+    m_hover = new ToggleSwitch;
+    m_hover->setObjectName(QStringLiteral("fenceHoverSwitch"));
+    m_hover->setChecked(true);
+    connect(m_hover, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit hoverHighlightToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE7C9)), tr("Highlight the fence under the pointer"),
+                     tr("A touch lighter, its border brighter."), m_hover, p));
+
+    // T-094 (session 65): the border of every fence without its own.
+    l->addWidget(sectionTitle(tr("Fence border"), p));
+    QFrame* borderCard = card(p);
+    auto* borderLayout = new QHBoxLayout(borderCard);
+    borderLayout->setContentsMargins(18, 12, 18, 12);
+    borderLayout->addWidget(new QLabel(tr("Thickness"), borderCard));
+    m_borderWidth = new QSpinBox(borderCard);
+    m_borderWidth->setObjectName(QStringLiteral("borderWidth"));
+    m_borderWidth->setRange(0, 8);
+    m_borderWidth->setSuffix(QStringLiteral(" px"));
+    m_borderWidth->setValue(1);
+    borderLayout->addWidget(m_borderWidth);
+    borderLayout->addSpacing(16);
+    borderLayout->addWidget(new QLabel(tr("Colour"), borderCard));
+    m_borderColour = new QPushButton(borderCard);
+    m_borderColour->setObjectName(QStringLiteral("borderColour"));
+    m_borderColour->setMinimumWidth(90);
+    borderLayout->addWidget(m_borderColour);
+    borderLayout->addStretch(1);
+    auto paintButton = [this] {
+        const QColor c(m_borderColor);
+        m_borderColour->setText(c.name().toUpper());
+        m_borderColour->setStyleSheet(QStringLiteral("QPushButton { background: %1; color: %2; }")
+                                          .arg(c.name(), c.lightness() > 128 ? QStringLiteral("#000") : QStringLiteral("#FFF")));
+    };
+    paintButton();
+    connect(m_borderWidth, &QSpinBox::valueChanged, this, [this](int width) {
+        if (!m_updating)
+            emit defaultBorderChanged(width, m_borderColor);
+    });
+    connect(m_borderColour, &QPushButton::clicked, this, [this, paintButton] {
+        const QColor picked = RecentColours::pick(QColor(m_borderColor), tr("Border colour"), this);
+        if (!picked.isValid())
+            return;
+        m_borderColor = picked.name(QColor::HexArgb).toUpper();
+        paintButton();
+        emit defaultBorderChanged(m_borderWidth->value(), m_borderColor);
+    });
+    l->addWidget(borderCard);
+
     l->addWidget(sectionTitle(tr("Desktop"), p));
     m_desktopArrows = new ToggleSwitch;
     m_desktopArrows->setObjectName(QStringLiteral("desktopArrowsSwitch"));
@@ -334,7 +388,7 @@ QWidget* SettingsDialog::buildFences()
     transparencyLayout->addWidget(sliderRow);
     auto* transparencyHint = new QLabel(
         tr("Background and title bar. Icons and their names stay opaque. 0 % = opaque. "
-           "A fence's menu (Transparency...) can set its own value."),
+           "A fence's menu (Appearance...) can set its own value."),
         transparency);
     transparencyHint->setObjectName(QStringLiteral("hint"));
     transparencyHint->setWordWrap(true);
@@ -415,6 +469,25 @@ void SettingsDialog::setFencesVisible(bool visible)
 void SettingsDialog::setFenceMaterial(const QString& material)
 {
     Q_UNUSED(material); // T-098: shown as the transparency slider now
+}
+
+void SettingsDialog::setHoverHighlight(bool on)
+{
+    m_updating = true;
+    m_hover->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setDefaultBorder(int width, const QString& color)
+{
+    m_updating = true;
+    m_borderWidth->setValue(width);
+    m_borderColor = color;
+    const QColor c(color);
+    m_borderColour->setText(c.name().toUpper());
+    m_borderColour->setStyleSheet(QStringLiteral("QPushButton { background: %1; color: %2; }")
+                                      .arg(c.name(), c.lightness() > 128 ? QStringLiteral("#000") : QStringLiteral("#FFF")));
+    m_updating = false;
 }
 
 void SettingsDialog::setFenceOverlapAllowed(bool allowed)

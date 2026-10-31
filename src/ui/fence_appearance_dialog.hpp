@@ -96,16 +96,35 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     barRow->addWidget(sameAsPanel);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar colour"), barRow);
 
+    // T-094: the border, the default's or its own.
+    auto* borderWidth = new QComboBox(dialog);
+    borderWidth->setObjectName(QStringLiteral("borderWidth"));
+    borderWidth->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (%1 px)")
+                             .arg(container->defaultBorderWidth()), -1);
+    for (int px = 0; px <= 6; ++px)
+        borderWidth->addItem(px == 0 ? QCoreApplication::translate("FenceAppearanceDialog", "None")
+                                     : QStringLiteral("%1 px").arg(px), px);
+    auto* borderColour = new QPushButton(dialog);
+    borderColour->setObjectName(QStringLiteral("borderColour"));
+    auto* borderDefault = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "Default"), dialog);
+    borderDefault->setObjectName(QStringLiteral("borderColourDefault"));
+    auto* borderRow = new QHBoxLayout;
+    borderRow->addWidget(borderWidth);
+    borderRow->addWidget(borderColour, 1);
+    borderRow->addWidget(borderDefault);
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Border"), borderRow);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
     layout->addWidget(buttons);
 
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent] {
+                    defaultPercent, borderWidth, borderColour, borderDefault] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
-        const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel);
+        const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
+            b7(borderWidth), b8(borderDefault);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -124,6 +143,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         paintSwatch(panel, style.background);
         sameAsPanel->setChecked(style.titleBarColor.isEmpty());
         paintSwatch(bar, style.titleBarColor.isEmpty() ? style.background : style.titleBarColor);
+        borderWidth->setCurrentIndex(qMax(0, borderWidth->findData(style.borderWidth < 0 ? -1 : qMin(style.borderWidth, 6))));
+        borderDefault->setChecked(style.borderColor.isEmpty());
+        paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
         if (!safe || !safe->fenceIds().contains(id))
@@ -186,6 +208,24 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
             else if (style.titleBarColor.isEmpty())
                 style.titleBarColor = style.background; // a band of its own, to be coloured
         });
+    });
+    QObject::connect(borderWidth, &QComboBox::currentIndexChanged, dialog, [borderWidth, restyle](int) {
+        const int px = borderWidth->currentData().toInt();
+        restyle([px](core::FenceStyle& style) { style.borderWidth = px; });
+    });
+    QObject::connect(borderColour, &QPushButton::clicked, dialog, [safe, id, dialog, restyle] {
+        if (!safe)
+            return;
+        const core::FenceStyle style = safe->fenceStyle(id);
+        const QColor picked = RecentColours::pick(
+            QColor(style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor),
+            QCoreApplication::translate("FenceAppearanceDialog", "Border colour"), dialog);
+        if (picked.isValid())
+            restyle([&picked](core::FenceStyle& s) { s.borderColor = picked.name(QColor::HexArgb).toUpper(); });
+    });
+    QObject::connect(borderDefault, &QCheckBox::toggled, dialog, [safe, restyle](bool same) {
+        const QString fallback = safe ? safe->defaultBorderColor() : QString();
+        restyle([same, fallback](core::FenceStyle& style) { style.borderColor = same ? QString() : fallback; });
     });
     QObject::connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);

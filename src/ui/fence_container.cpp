@@ -721,6 +721,31 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setTitleBarColor(band);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
     fence.view->setTextShadow(m_composed && alpha < 255);
+    // T-094: the border, the fence's own or the default.
+    QColor border(fence.style.borderColor.isEmpty() ? m_defaultBorderColor : fence.style.borderColor);
+    if (!border.isValid())
+        border = QColor(0x3B, 0x82, 0xF6);
+    fence.view->setBorder(fence.style.borderWidth >= 0 ? fence.style.borderWidth : m_defaultBorderWidth, border);
+    fence.view->setHoverHighlight(m_hoverHighlight);
+}
+
+void FenceContainer::setDefaultBorder(int width, const QString& color)
+{
+    m_defaultBorderWidth = qMax(0, width);
+    m_defaultBorderColor = color;
+    for (FenceWindow& fence : m_fences) {
+        applyStyleToView(fence);
+        renderFence(fence.id);
+    }
+}
+
+void FenceContainer::setHoverHighlight(bool on)
+{
+    m_hoverHighlight = on;
+    for (FenceWindow& fence : m_fences) {
+        if (fence.view)
+            fence.view->setHoverHighlight(on);
+    }
 }
 
 void FenceContainer::setDefaultFenceAlpha(int alpha)

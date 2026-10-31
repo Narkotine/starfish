@@ -233,16 +233,27 @@ void FenceView::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
 
-    const QColor panelBorder(0x3B, 0x82, 0xF6);
     const QColor titleText(0xE5, 0xE7, 0xEB);
     const QColor hintText(0x9C, 0xA3, 0xAF);
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    painter.setPen(QPen(panelBorder, 1.0));
-    painter.setBrush(m_panelColor);
-    const QRectF panelRect = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    // T-094: the border's own width and colour (0: none); session 65 hover:
+    // a touch lighter, the border brighter.
+    QColor border = m_borderColor;
+    QColor fill = m_panelColor;
+    if (m_hovered && m_hoverHighlight) {
+        border = border.lighter(140);
+        fill = QColor::fromHsv(fill.hsvHue(), fill.hsvSaturation(), qMin(255, fill.value() + 14), fill.alpha());
+    }
+    if (m_borderWidth > 0)
+        painter.setPen(QPen(border, m_borderWidth));
+    else
+        painter.setPen(Qt::NoPen);
+    painter.setBrush(fill);
+    const qreal half = qMax(0.5, m_borderWidth / 2.0);
+    const QRectF panelRect = QRectF(rect()).adjusted(half, half, -half, -half);
     const int radius = cornerRadius();
     painter.drawRoundedRect(panelRect, radius, radius);
 
@@ -347,7 +358,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     // before the icon grid so a fence gesture never disturbs the icon selection
     // -- which is also what keeps the two drags mutually exclusive.
     const FenceHandle handle =
-        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight);
+        FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius());
     if (handle != FenceHandle::None) {
         m_geometryHandle = handle;
         m_geometryStartScreen = event->globalPosition();
@@ -408,7 +419,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         // the fence can be grabbed.
         if (!(event->buttons() & Qt::LeftButton))
             setCursor(cursorForHandle(
-                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight)));
+                FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius())));
         return;
     }
 
@@ -544,7 +555,7 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
 {
     // F-020: a double-click on the title bar rolls the fence up or down. Checked
     // before the grid so a double-click on an icon still launches it.
-    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight)
+    if (FenceGeometry::hitTest(rect(), event->pos(), kResizeBorder, kTitleBarHeight, cornerRadius())
         == FenceHandle::TitleBar) {
         // Session 60: on the title's text, a double-click renames in place (as a
         // file's name in Explorer); anywhere else on the band it still rolls up.
@@ -574,7 +585,7 @@ void FenceView::wheelEvent(QWheelEvent* event)
     // F-020: the wheel over the title bar rolls the fence up (away from the
     // user) or down (towards them). Only the title bar reacts, so scrolling over
     // the icon grid is never hijacked.
-    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, kTitleBarHeight)
+    if (FenceGeometry::hitTest(rect(), event->position().toPoint(), kResizeBorder, kTitleBarHeight, cornerRadius())
         != FenceHandle::TitleBar) {
         QWidget::wheelEvent(event);
         return;
@@ -869,6 +880,39 @@ void FenceView::setDragOverOtherFence(bool over)
     m_dragOverOtherFence = over;
     update();
     emit contentChanged();
+}
+
+} // namespace starfish::ui
+
+namespace starfish::ui {
+
+void FenceView::setBorder(int width, const QColor& color)
+{
+    if (m_borderWidth == width && m_borderColor == color)
+        return;
+    m_borderWidth = qMax(0, width);
+    m_borderColor = color;
+    update();
+}
+
+void FenceView::enterEvent(QEnterEvent* event)
+{
+    QWidget::enterEvent(event);
+    m_hovered = true;
+    if (m_hoverHighlight) {
+        update();
+        emit contentChanged();
+    }
+}
+
+void FenceView::leaveEvent(QEvent* event)
+{
+    QWidget::leaveEvent(event);
+    m_hovered = false;
+    if (m_hoverHighlight) {
+        update();
+        emit contentChanged();
+    }
 }
 
 } // namespace starfish::ui

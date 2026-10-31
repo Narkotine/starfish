@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 #include <climits>
 
 #include <QList>
@@ -58,16 +60,39 @@ public:
     // `titleBarHeight` the height of the drag band at the top. Corners win over
     // edges: a point in the top-left corner square is TopLeft, never Left or
     // Top, so a diagonal resize stays reachable on a small fence.
+    //
+    // Session 65 (the user: "réévaluation positions curseur pour resize en
+    // diagonale selon arrondi des coins"): with a rounded corner of
+    // `cornerRadius`, the diagonal grip is the band along the *arc* -- the whole
+    // corner square of side max(border, radius), minus what lies deeper inside
+    // than `border` from the arc.
     static FenceHandle hitTest(const QRect& rect, const QPoint& point, int border,
-                               int titleBarHeight)
+                               int titleBarHeight, int cornerRadius = 0)
     {
         if (!rect.contains(point))
             return FenceHandle::None;
 
-        const bool left = point.x() - rect.left() < border;
-        const bool right = rect.right() - point.x() < border;
-        const bool top = point.y() - rect.top() < border;
-        const bool bottom = rect.bottom() - point.y() < border;
+        bool left = point.x() - rect.left() < border;
+        bool right = rect.right() - point.x() < border;
+        bool top = point.y() - rect.top() < border;
+        bool bottom = rect.bottom() - point.y() < border;
+
+        const int corner = qMin(qMax(border, cornerRadius), qMin(rect.width(), rect.height()) / 2);
+        if (corner > border) {
+            const int dx = qMin(point.x() - rect.left(), rect.right() - point.x());
+            const int dy = qMin(point.y() - rect.top(), rect.bottom() - point.y());
+            if (dx < corner && dy < corner) {
+                const qreal fromCentre = std::hypot(qreal(corner - dx), qreal(corner - dy));
+                if (fromCentre >= corner - border) {
+                    const bool west = point.x() - rect.left() < rect.right() - point.x();
+                    const bool north = point.y() - rect.top() < rect.bottom() - point.y();
+                    left = west;
+                    right = !west;
+                    top = north;
+                    bottom = !north;
+                }
+            }
+        }
 
         if (top && left)
             return FenceHandle::TopLeft;

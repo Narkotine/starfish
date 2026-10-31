@@ -58,20 +58,45 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+80"/>
+        <location line="+102"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-76"/>
+        <location line="-98"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+81"/>
+        <location line="+103"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
+    </message>
+    <message>
+        <location line="-98"/>
+        <source>Default (%1 px)</source>
+        <translation>Par défaut (%1 px)</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>None</source>
+        <translation>Aucune</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Default</source>
+        <translation>Par défaut</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Border</source>
+        <translation>Bordure</translation>
+    </message>
+    <message>
+        <location line="+107"/>
+        <source>Border colour</source>
+        <translation>Couleur de bordure</translation>
     </message>
 </context>
 <context>
@@ -206,7 +231,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2286"/>
+        <location filename="../app/product_app.cpp" line="+2308"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -214,7 +239,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5791"/>
+        <location filename="../main.cpp" line="+5793"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -232,12 +257,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2472"/>
+        <location line="-2494"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+399"/>
+        <location line="+417"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -281,7 +306,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+437"/>
+        <location line="+441"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -626,7 +651,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+286"/>
+        <location filename="../ui/fence_view.cpp" line="+297"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -639,7 +664,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+105"/>
+        <location filename="../ui/settings_dialog.cpp" line="+108"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -657,18 +682,18 @@
     </message>
     <message>
         <location line="-91"/>
-        <location line="+194"/>
+        <location line="+245"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-193"/>
-        <location line="+212"/>
+        <location line="-244"/>
+        <location line="+263"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-184"/>
+        <location line="-235"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -680,12 +705,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+236"/>
+        <location line="+306"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-229"/>
+        <location line="-299"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -780,7 +805,37 @@
         <translation>Désactivé : une zone déplacée ou redimensionnée s&apos;arrête contre les autres. Les zones déjà superposées restent telles quelles.</translation>
     </message>
     <message>
+        <location line="+12"/>
+        <source>Highlight the fence under the pointer</source>
+        <translation>Mettre en évidence la fence sous le pointeur</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A touch lighter, its border brighter.</source>
+        <translation>Un peu plus claire, sa bordure plus vive.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fence border</source>
+        <translation>Bordure des fences</translation>
+    </message>
+    <message>
         <location line="+4"/>
+        <source>Thickness</source>
+        <translation>Épaisseur</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Colour</source>
+        <translation>Couleur</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Border colour</source>
+        <translation>Couleur de bordure</translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Desktop</source>
         <translation>Bureau</translation>
     </message>
@@ -816,8 +871,8 @@
     </message>
     <message>
         <location line="+8"/>
-        <source>Background and title bar. Icons and their names stay opaque. 0 % = opaque. A fence&apos;s menu (Transparency...) can set its own value.</source>
-        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques. 0 % = opaque. Le menu d&apos;une zone (Transparence...) lui donne sa propre valeur.</translation>
+        <source>Background and title bar. Icons and their names stay opaque. 0 % = opaque. A fence&apos;s menu (Appearance...) can set its own value.</source>
+        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques. 0 % = opaque. Le menu d&apos;une fence (Apparence…) peut fixer sa propre valeur.</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -840,7 +895,7 @@
         <translation>Des zones pour ranger le bureau de Windows. Vos fichiers ne bougent jamais : une zone les montre, le dossier du bureau les garde.</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+86"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

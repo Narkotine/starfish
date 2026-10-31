@@ -61,6 +61,9 @@ struct FenceStyle {
     // before this key: a fence that was never made translucent (alpha 255)
     // follows the default, one whose material was chosen keeps it.
     bool defaultOpacity = true;
+    // T-094 (session 65): the border. -1 / empty = the default (Settings).
+    int borderWidth = -1;
+    QString borderColor;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

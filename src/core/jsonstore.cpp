@@ -32,6 +32,11 @@ static QJsonObject styleToJson(const FenceStyle& s)
     if (!s.titleBarColor.isEmpty())
         o["titleBarColor"] = s.titleBarColor;
     o["defaultOpacity"] = s.defaultOpacity;
+    // T-094: written only when the fence has its own (no change for the rest).
+    if (s.borderWidth >= 0)
+        o["borderWidth"] = s.borderWidth;
+    if (!s.borderColor.isEmpty())
+        o["borderColor"] = s.borderColor;
     return o;
 }
 
@@ -85,6 +90,8 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     // T-080: absent -- or empty, which is the same thing -- is "no band of its
     // own", i.e. the title drawn on the panel, exactly as before this key existed.
     s.titleBarColor = o["titleBarColor"].toString();
+    s.borderWidth = o["borderWidth"].toInt(-1);
+    s.borderColor = o["borderColor"].toString();
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {

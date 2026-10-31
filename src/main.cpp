@@ -5525,6 +5525,7 @@ int main(int argc, char* argv[])
                                                   QStringLiteral("desktopArrowsSwitch"),
                                                   QStringLiteral("overlapSwitch"),
                                                   QStringLiteral("fenceOverlapSwitch"),
+                                                  QStringLiteral("fenceHoverSwitch"),
                                                   QStringLiteral("startWithWindowsSwitch")};
                 int strangeSwitches = 0;
                 for (QCheckBox* box : boxes) {
@@ -5536,7 +5537,7 @@ int main(int argc, char* argv[])
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
                 check(QLatin1String("... it has its four pages, the status line and only the global switches"),
-                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 8 /* session 64: fenceOverlapSwitch */
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 9 /* session 64: fenceOverlapSwitch, 65: fenceHoverSwitch */
                           && statusLabel != nullptr && !statusShown.isEmpty()
                           && settings->menuEditor() != nullptr,
                       QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
@@ -5705,6 +5706,7 @@ int main(int argc, char* argv[])
                         && box->objectName() != QLatin1String("desktopArrowsSwitch")
                         && box->objectName() != QLatin1String("overlapSwitch")
                         && box->objectName() != QLatin1String("fenceOverlapSwitch")
+                        && box->objectName() != QLatin1String("fenceHoverSwitch")
                         && box->objectName() != QLatin1String("startWithWindowsSwitch"))
                         ++secondBoxes;
                 }

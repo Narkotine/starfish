@@ -17,6 +17,19 @@ class TestFenceGeometry : public QObject
     Q_OBJECT
 
 private slots:
+    void theDiagonalGripFollowsARoundedCorner()
+    {
+        // Session 65: with corners of 40 px the diagonal grip runs along the arc.
+        const QRect r(0, 0, 300, 200);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(10, 3), 6, 30, 40), FenceHandle::TopLeft);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(3, 10), 6, 30, 40), FenceHandle::TopLeft);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(14, 14), 6, 30, 40), FenceHandle::TopLeft);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(20, 20), 6, 30, 40), FenceHandle::TitleBar);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(286, 190), 6, 30, 40), FenceHandle::BottomRight);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(150, 3), 6, 30, 40), FenceHandle::Top);
+        QCOMPARE(FenceGeometry::hitTest(r, QPoint(10, 3), 6, 30, 0), FenceHandle::Top); // square: as before
+    }
+
     // Session 64: overlaps off.
     void aMoveStopsAgainstAnotherFence();
     void aResizeStopsAgainstAnotherFence();

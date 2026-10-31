@@ -230,6 +230,12 @@ bool ProductApp::start(const Options& options, QString* error)
     m_container->setSortOnAdd(m_sortOnAdd);
     m_container->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(defaultTransparencySetting()));
     m_container->setAllowFenceOverlap(allowFenceOverlapSetting());
+    {
+        const QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
+        m_container->setHoverHighlight(settings.value(QStringLiteral("fenceHoverHighlight"), true).toBool());
+        m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
+                                      settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
+    }
     m_allowDesktopOverlap = allowDesktopOverlapSetting();
     // The Shell resolves a restored path exactly as it resolves a dropped one, so
     // a tile means the same thing wherever it came from (ADR-7).
@@ -547,6 +553,18 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::defaultTransparencyChanged, this,
             &ProductApp::setDefaultFenceTransparency);
     connect(m_settings, &ui::SettingsDialog::fenceOverlapToggled, this, &ProductApp::setAllowFenceOverlap);
+    connect(m_settings, &ui::SettingsDialog::hoverHighlightToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat).setValue(QStringLiteral("fenceHoverHighlight"), on);
+        if (m_container)
+            m_container->setHoverHighlight(on);
+    });
+    connect(m_settings, &ui::SettingsDialog::defaultBorderChanged, this, [this](int width, const QString& color) {
+        QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
+        settings.setValue(QStringLiteral("fenceBorderWidth"), width);
+        settings.setValue(QStringLiteral("fenceBorderColor"), color);
+        if (m_container)
+            m_container->setDefaultBorder(width, color);
+    });
     connect(m_settings, &ui::SettingsDialog::allFencesToDefaultRequested, this, [this] {
         m_container->resetFencesToDefaultOpacity();
         qCInfo(lc) << "every fence follows the default transparency";
@@ -1527,6 +1545,10 @@ void ProductApp::refreshStatus()
     }
     m_settings->setDefaultTransparency(defaultTransparencySetting());
     m_settings->setFenceOverlapAllowed(allowFenceOverlapSetting());
+    if (m_container) {
+        m_settings->setHoverHighlight(m_container->hoverHighlight());
+        m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
+    }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
     m_settings->setSortOnAdd(m_sortOnAdd);
     {

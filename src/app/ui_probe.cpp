@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QEnterEvent>
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
@@ -436,6 +437,32 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("two tiles dragged into another fence land where let go (session 65)"),
               moved == 2 && va->items().size() == 1 && firstIsA,
               QStringLiteral("moved %1, A %2, B %3").arg(moved).arg(va->items().size()).arg(vb->items().size()));
+    }
+
+    // --- session 65: border (T-094) and hover --------------------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Bord"), QRect(0, 0, 320, 240));
+        ui::FenceView* view = container.view(id);
+        container.setDefaultBorder(3, QStringLiteral("#FFFF0000"));
+        view->resize(320, 240);
+        const QImage plain = view->grab().toImage();
+        const QColor edge = plain.pixelColor(1, 120);
+        QEnterEvent enter(QPointF(100, 100), QPointF(100, 100), QPointF(100, 100));
+        QCoreApplication::sendEvent(view, &enter);
+        const QImage hovered = view->grab().toImage();
+        hovered.save(captures + QStringLiteral("/ui_fence_border_hover_%1.png").arg(theme));
+        plain.save(captures + QStringLiteral("/ui_fence_border_%1.png").arg(theme));
+        const bool lighter = hovered.pixelColor(160, 160).value() > plain.pixelColor(160, 160).value();
+        QEvent leave(QEvent::Leave);
+        QCoreApplication::sendEvent(view, &leave);
+        core::FenceStyle style = container.fenceStyle(id);
+        style.borderWidth = 0;
+        container.setFenceStyle(id, style);
+        const QColor none = view->grab().toImage().pixelColor(1, 120);
+        check(QStringLiteral("a 3 px red default border, none of its own, a lighter fence on hover (session 65)"),
+              edge.red() > 200 && edge.green() < 80 && lighter && none.red() < 120 && !view->hovered(),
+              QStringLiteral("edge %1, none %2, hover %3").arg(edge.name(), none.name(), lighter ? QLatin1String("lighter") : QLatin1String("same")));
     }
 
     // --- session 65: the fence's look in one dialog --------------------------

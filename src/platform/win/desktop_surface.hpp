@@ -382,6 +382,10 @@ private:
 
     QVector<QRect> m_nativeIconRects;
     QObject* m_inputTarget = nullptr;
+    bool m_trackingLeave = false; // session 65: WM_MOUSELEAVE asked for
+    // Session 65: SetCursor from the target widget's cursor shape; false when
+    // the target is not a widget.
+    bool applyTargetCursor();
     bool m_leftDown = false;
     bool m_rightDown = false;
     // Last position seen from this surface's own messages, so a gesture lost to

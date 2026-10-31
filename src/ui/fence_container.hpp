@@ -233,6 +233,13 @@ public:
     // T-098 (session 63): transparency. A fence either follows the general
     // default (`defaultOpacity`, the default) or has its own alpha (that of its
     // `background`). Alphas are 0-255; the interface speaks percent.
+    // T-094 (session 65): the border of a fence without its own.
+    void setDefaultBorder(int width, const QString& color);
+    int defaultBorderWidth() const { return m_defaultBorderWidth; }
+    QString defaultBorderColor() const { return m_defaultBorderColor; }
+    // Session 65: the hover highlight, for every fence.
+    void setHoverHighlight(bool on);
+    bool hoverHighlight() const { return m_hoverHighlight; }
     void setDefaultFenceAlpha(int alpha);
     int defaultFenceAlpha() const { return m_defaultAlpha; }
     // `alpha` < 0: follow the default again.
@@ -621,6 +628,9 @@ private:
     // about the render, and the surface no longer pushes anything to count.
     int m_frameRenders = 0;
     int m_defaultAlpha = 255;
+    int m_defaultBorderWidth = 1;
+    QString m_defaultBorderColor = QStringLiteral("#FF3B82F6");
+    bool m_hoverHighlight = true;
     bool m_allowOverlap = true;
     bool m_composed = false;
     int m_composeCount = 0;

@@ -6,6 +6,8 @@
 #include <QLoggingCategory>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QEnterEvent>
+#include <QWidget>
 #include <QPointF>
 
 #include "platform/win/shell_drop_target.hpp"
@@ -1403,9 +1405,41 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
         forwardMouse(message, lParam);
         return false;
 
+    case WM_SETCURSOR:
+        // Session 65 (the user: "flèches d'indication de resizement"): a fence
+        // shows the cursor its widget asks for (resize arrows on the edges and
+        // corners, the move cross on the title bar).
+        if (m_layer != Layer::Backdrop && LOWORD(lParam) == HTCLIENT && applyTargetCursor()) {
+            *result = TRUE;
+            return true;
+        }
+        return false;
+
+    case WM_MOUSELEAVE:
+        m_trackingLeave = false;
+        if (m_inputTarget && m_layer != Layer::Backdrop) {
+            QEvent leave(QEvent::Leave);
+            QCoreApplication::sendEvent(m_inputTarget, &leave);
+        }
+        *result = 0;
+        return true;
+
+    case WM_MOUSEMOVE:
+        if (m_layer != Layer::Backdrop && m_inputTarget && !m_trackingLeave) {
+            TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, toHwnd(m_hwnd), 0};
+            m_trackingLeave = ::TrackMouseEvent(&track) != FALSE;
+            const QPointF at(GET_X_LPARAM(lParam) / (m_dpr > 0.0 ? m_dpr : 1.0),
+                             GET_Y_LPARAM(lParam) / (m_dpr > 0.0 ? m_dpr : 1.0));
+            QEnterEvent enter(at, at, at);
+            QCoreApplication::sendEvent(m_inputTarget, &enter);
+        }
+        forwardMouse(message, lParam);
+        if (m_layer != Layer::Backdrop)
+            applyTargetCursor();
+        return false;
+
     case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDBLCLK:
-    case WM_MOUSEMOVE:
         // Input is owned by the surface's WndProc; it is forwarded to the Qt
         // widget rendered into this surface so selection, double-click and the
         // right-click shell context menu (T-006) work on the live desktop. The
@@ -1455,6 +1489,29 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
     default:
         return false;
     }
+}
+
+} // namespace starfish::platform::win
+
+namespace starfish::platform::win {
+
+bool DesktopSurface::applyTargetCursor()
+{
+    auto* widget = qobject_cast<QWidget*>(m_inputTarget);
+    if (!widget)
+        return false;
+    LPCWSTR id = IDC_ARROW;
+    switch (widget->cursor().shape()) {
+    case Qt::SizeHorCursor: id = IDC_SIZEWE; break;
+    case Qt::SizeVerCursor: id = IDC_SIZENS; break;
+    case Qt::SizeFDiagCursor: id = IDC_SIZENWSE; break;
+    case Qt::SizeBDiagCursor: id = IDC_SIZENESW; break;
+    case Qt::SizeAllCursor: id = IDC_SIZEALL; break;
+    case Qt::PointingHandCursor: id = IDC_HAND; break;
+    default: break;
+    }
+    ::SetCursor(::LoadCursorW(nullptr, id));
+    return true;
 }
 
 } // namespace starfish::platform::win
