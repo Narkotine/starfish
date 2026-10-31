@@ -32,9 +32,11 @@
 | T-103 | **Modèles de zone : gérer** (renommer, supprimer, page Réglages) ; aujourd'hui enregistrer / appliquer / pour les nouvelles | 5 (v0.2) | P2 | ⬜ |
 | T-104 | **Peek : retirer l'API du conteneur** (`setPeekActive`, `peekChanged`) et ce que `--nav-demo` en mesure | 5 | P3 | ⬜ |
 | T-105 | **Acrylique / texturé : validation à l'œil** ; hors mode composé (bureau non dessiné) l'effet n'existe pas | 5 (v0.2) | P2 | ⬜ |
-| T-115 | **Titre déplaçable à la main et barre en onglet** (demande s66) : glisser le titre dans sa barre ; barre de titre réduite à la longueur du titre (lié aux formes spéciales) ; aujourd'hui alignement gauche / centre / droite | 5 (v0.2) | P2 | ⬜ |
+| T-115 | **Barre de titre : titre déplaçable à la main** (demande s66) ; l'onglet (longueur du titre) est livré en s69 (clé `titleBarShape`), reste le glisser du titre dans sa barre | 5 (v0.2) | P2 | ? |
 | T-116 | **Arrêt sans trace (s66)** : StarFish trouvé arrêté à 13:09, aucun rapport WER ; `crash.log` (`%LOCALAPPDATA%\StarFish`) depuis la s66 - à relire au prochain arrêt | 5 | P1 | ⬜ |
 | T-117 | **Barre de titre sur le côté : à l'œil** (s68) : bas / gauche / droite livrés (texte vertical, renommage posé en travers) ; à valider sur le vrai bureau, enroulé = barre en haut | 5 | P2 | ⬜ |
+| T-118 | **Texte vertical en lettres debout** (s69) : barre à gauche / droite, lettres empilées de haut en bas (aujourd'hui texte tourné) - plus tard | 5 | P3 | ? |
+| T-119 | **Survol qui change de modèle** (s69) : effet « passer à un autre modèle » au survol ; livrés : aucun / plus clair / opacité / couleur / sans bordure / halo (clé `hoverEffect`) - onglet et halo à valider à l'oeil sur le vrai bureau | 5 | P3 | ? |
 | T-106 | **Menu du tray à refaire** (demande s65 : « on le refera à la fin », trop d'options) - ne plus rien y ajouter d'ici là | 6 | P2 | ⬜ |
 
 ## Tâches ouvertes — détail
