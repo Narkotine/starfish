@@ -145,6 +145,8 @@ core::DesktopItem itemFromFileInfo(const QFileInfo& info, bool isPublicDesktop)
         item.targetPath = resolveInternetShortcutTarget(item.path);
 
     item.isHidden = hasHiddenAttribute(nativePath) || core::isDotHiddenName(fileName);
+    if (info.exists())
+        item.fileId = fileIdOf(item.path);
     return item;
 }
 
@@ -260,6 +262,28 @@ core::DesktopItem DesktopScanner::itemForPath(const QString& path)
     // useful once the file appears (a drop can race with a copy completing).
     const QFileInfo info(path);
     return itemFromFileInfo(info, false);
+}
+
+QString fileIdOf(const QString& path)
+{
+    if (path.isEmpty() || path.startsWith(QLatin1String("::")))
+        return {};
+    const QString native = QDir::toNativeSeparators(path);
+    // Attributes only, every sharing mode: never in the way of anyone.
+    HANDLE handle = ::CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), FILE_READ_ATTRIBUTES,
+                                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return {};
+    BY_HANDLE_FILE_INFORMATION info{};
+    QString id;
+    if (::GetFileInformationByHandle(handle, &info)) {
+        const quint64 index = (quint64(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        id = QStringLiteral("%1-%2").arg(quint32(info.dwVolumeSerialNumber), 8, 16, QLatin1Char('0'))
+                 .arg(index, 16, 16, QLatin1Char('0'));
+    }
+    ::CloseHandle(handle);
+    return id;
 }
 
 bool openShellItem(const QString& path)

@@ -861,6 +861,101 @@ int FenceContainer::forgetMissingItems(const QString& id, const QStringList& pat
     return removed;
 }
 
+int FenceContainer::reconcileMissingItems(const QList<core::DesktopItem>& desktopItems)
+{
+    // Session 74 (the user: a file renamed on the plain Windows desktop, StarFish
+    // closed, came back as a dark square). The fence held the old name; the
+    // file, under its new one, was free on the desktop.
+    const QSet<QString> filed = filedPathKeys();
+    QList<core::DesktopItem> free;
+    for (const core::DesktopItem& item : desktopItems) {
+        if (!item.path.isEmpty() && !item.path.startsWith(QLatin1String("::"))
+            && !filed.contains(BackdropLayout::pathKey(item.path)))
+            free.append(item);
+    }
+    const auto folderOf = [](const QString& path) { return QFileInfo(path).absolutePath(); };
+    int changed = 0;
+    for (FenceWindow& fence : m_fences) {
+        if (!fence.view)
+            continue;
+        const QSet<QString> provided = portalProvided(fence.portals);
+        const QList<core::DesktopItem> items = fence.view->items();
+        for (const core::DesktopItem& item : items) {
+            if (item.path.isEmpty() || item.path.startsWith(QLatin1String("::"))
+                || provided.contains(item.path.toLower()))
+                continue;
+            if (QFileInfo::exists(item.path)) {
+                if (item.missing) { // back where it was
+                    core::DesktopItem found = resolveItem(item.path);
+                    if (found.path.isEmpty())
+                        found = item;
+                    found.missing = false;
+                    changed += fence.view->replaceItem(item.path, found) ? 1 : 0;
+                }
+                continue;
+            }
+            int match = -1;
+            if (!item.fileId.isEmpty()) {
+                for (int i = 0; i < free.size() && match < 0; ++i) {
+                    if (free.at(i).fileId == item.fileId)
+                        match = i;
+                }
+            }
+            if (match < 0 && !item.targetPath.isEmpty()) {
+                const QString suffix = QFileInfo(item.path).suffix();
+                int count = 0;
+                for (int i = 0; i < free.size(); ++i) {
+                    const core::DesktopItem& c = free.at(i);
+                    if (c.targetPath.compare(item.targetPath, Qt::CaseInsensitive) == 0
+                        && QFileInfo(c.path).suffix().compare(suffix, Qt::CaseInsensitive) == 0
+                        && folderOf(c.path).compare(folderOf(item.path), Qt::CaseInsensitive) == 0) {
+                        match = i;
+                        ++count;
+                    }
+                }
+                if (count != 1)
+                    match = -1;
+            }
+            if (match >= 0) {
+                core::DesktopItem renamed = free.takeAt(match);
+                renamed.missing = false;
+                qCInfo(lc).noquote() << QStringLiteral("fence %1: \"%2\" was renamed \"%3\" -- the tile follows")
+                                            .arg(fence.id, item.path, renamed.path);
+                changed += fence.view->replaceItem(item.path, renamed) ? 1 : 0;
+                continue;
+            }
+            if (!item.missing) {
+                core::DesktopItem lost = item;
+                lost.missing = true;
+                qCInfo(lc).noquote() << QStringLiteral("fence %1: \"%2\" not found -- shown as missing")
+                                            .arg(fence.id, item.path);
+                changed += fence.view->replaceItem(item.path, lost) ? 1 : 0;
+            }
+        }
+    }
+    return changed;
+}
+
+bool FenceContainer::replaceFenceItem(const QString& id, const QString& oldPath, const core::DesktopItem& item)
+{
+    FenceWindow* fence = find(id);
+    return fence && fence->view && fence->view->replaceItem(oldPath, item);
+}
+
+QRect FenceContainer::fenceItemLabelRect(const QString& id, const QString& path) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence || !fence->view || fence->rolledUp)
+        return {};
+    const QRect local = fence->view->labelRectOf(path);
+    if (local.isEmpty())
+        return {};
+    const QRect visible = visibleRectOf(*fence);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
+    return QRect(visible.topLeft() + QPoint(qRound(local.x() * dpr), qRound(local.y() * dpr)),
+                 QSize(qRound(local.width() * dpr), qRound(local.height() * dpr)));
+}
+
 void FenceContainer::setFenceTitle(const QString& id, const QString& title)
 {
     FenceWindow* fence = find(id);
@@ -1835,6 +1930,8 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
     connect(view, &FenceView::deleteRequested, this,
             [this, id](const QStringList& paths, bool permanent) { emit fenceDeleteRequested(id, paths, permanent); });
+    connect(view, &FenceView::renameRequested, this,
+            [this, id](const QString& path) { emit fenceRenameRequested(id, path); });
     connect(view, &FenceView::hoverChanged, this, [this, id](bool hovered) { onFenceHover(id, hovered); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
@@ -1940,7 +2037,10 @@ core::Layout FenceContainer::toLayout() const
                 // stop following its folder (T-011).
                 if (provided.contains(item.path.toLower()))
                     continue;
-                out.items.append({QStringLiteral("file"), item.path});
+                core::FenceItem entry{QStringLiteral("file"), item.path};
+                entry.fileId = item.fileId; // session 74
+                entry.target = item.isLink ? item.targetPath : QString();
+                out.items.append(entry);
             }
             // The folder path is the whole entry: the listing is read back from
             // the folder, so a portal stays a mirror across restarts.
@@ -1983,9 +2083,19 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
                     portalPaths.append(entry.path);
                 continue;
             }
-            const core::DesktopItem item = resolveItem(entry.path);
-            if (!item.path.isEmpty())
+            core::DesktopItem item = resolveItem(entry.path);
+            if (!item.path.isEmpty()) {
+                // Session 74: what the document knows of the file, for when it
+                // was renamed while StarFish was not running.
+                if (item.fileId.isEmpty())
+                    item.fileId = entry.fileId;
+                if (item.targetPath.isEmpty() && !entry.target.isEmpty()) {
+                    item.targetPath = entry.target;
+                    item.isLink = true;
+                }
+                item.missing = !entry.path.startsWith(QLatin1String("::")) && !QFileInfo::exists(entry.path);
                 items.append(item);
+            }
         }
         addFence(stored.id, stored.title, stored.rect, stored.style, stored.sortBy,
                  stored.sortAscending, stored.rolledUp, items, portalPaths, stored.monitor);

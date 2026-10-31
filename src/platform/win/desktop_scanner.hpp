@@ -42,4 +42,8 @@ public:
 // SEE_MASK_IDLIST), which is what lets a fence hold one (ADR-21). True when
 // the shell accepted it.
 bool openShellItem(const QString& path);
+
+// Session 74: a file's identity -- "volume serial-file index" (hex), which a
+// rename or a move on the same volume keeps. Empty when it cannot be read.
+QString fileIdOf(const QString& path);
 } // namespace starfish::platform::win

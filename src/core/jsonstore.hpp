@@ -92,6 +92,8 @@ struct FenceStyle {
 struct FenceItem {
     QString kind;  // "file" | "portal"
     QString path;
+    QString fileId; // session 74: identity kept by a rename (empty: unknown)
+    QString target; // session 74: a shortcut's target, the fallback match
 };
 
 struct Fence {

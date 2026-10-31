@@ -196,6 +196,10 @@ public:
     // *whether* a tile may go -- that is FenceContainer's call (a tile a portal
     // mirrors is the folder's, not the fence's).
     int removeItemsByPath(const QStringList& paths);
+    // Session 74: a tile follows its file (rename), or says it is missing.
+    bool replaceItem(const QString& oldPath, const core::DesktopItem& item);
+    // Session 74: where a tile's caption is, in widget coordinates (the rename edit).
+    QRect labelRectOf(const QString& path) const;
     // Session 65: global selection -- cleared from outside (another fence or
     // the desktop was clicked). Repaints only when something was selected.
     void clearSelection();
@@ -220,6 +224,8 @@ signals:
     // Session 73: Delete (Shift+Delete) on the selection; special items such as
     // This PC or the Recycle Bin are left out.
     void deleteRequested(const QStringList& paths, bool permanent);
+    // Session 74: F2 on the selection.
+    void renameRequested(const QString& path);
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the
@@ -323,6 +329,8 @@ private:
     bool m_hoverHighlight = true;
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
+    int m_tipIndex = -1; // session 74: the missing tile whose tooltip is up
+    void updateMissingTip(const QPoint& localPoint);
     bool m_titleBarShown = true;
     PaintLayers m_paintLayers = PaintLayers::All;
     Qt::Alignment m_titleAlign = Qt::AlignLeft;

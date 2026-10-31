@@ -63,6 +63,10 @@ static QJsonObject itemToJson(const FenceItem& i)
     QJsonObject o;
     o["kind"] = i.kind;
     o["path"] = i.path;
+    if (!i.fileId.isEmpty())
+        o["fileId"] = i.fileId;
+    if (!i.target.isEmpty())
+        o["target"] = i.target;
     return o;
 }
 
@@ -148,7 +152,10 @@ static Fence fenceFromJson(const QJsonObject& o)
     const auto items = o["items"].toArray();
     for (const auto& v : items) {
         const auto io = v.toObject();
-        f.items.append({io["kind"].toString(), io["path"].toString()});
+        FenceItem item{io["kind"].toString(), io["path"].toString()};
+        item.fileId = io["fileId"].toString();
+        item.target = io["target"].toString();
+        f.items.append(item);
     }
     return f;
 }

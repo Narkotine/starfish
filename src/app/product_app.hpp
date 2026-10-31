@@ -184,7 +184,7 @@ public:
     // ADR-21 lot 3 (T-091) -- the drawn desktop's gestures, handed to the shell.
     // Public so the probe drives them in this process (no input is injected).
     // F2: our own edit over the caption; the rename itself is IFileOperation.
-    void startRename(const QString& path);
+    void startRename(const QString& path, const QString& fenceId = QString()); // session 74: or a fence tile
     void finishRename(bool commit);
     QLineEdit* renameEditor() const { return m_renameEdit; }
     QString renamePath() const { return m_renameEdit ? m_renamePath : QString(); }
@@ -410,6 +410,7 @@ private:
     void armNewItemRename();
     QLineEdit* m_renameEdit = nullptr;
     QString m_renamePath;
+    QString m_renameFenceId; // session 74: the fence of the tile being renamed
     QHash<QString, QPoint> m_itemPositions;   // by the shell's parsing name
     QHash<QString, QString> m_shellNames;     // BackdropLayout::pathKey -> parsing name
     bool m_shellSnap = false;

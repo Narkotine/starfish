@@ -48,6 +48,7 @@
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 #include "platform/win/shell_operations.hpp"
+#include "platform/win/desktop_scanner.hpp"
 #include <QKeyEvent>
 
 namespace starfish::app {
@@ -1108,6 +1109,115 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 74: a file renamed outside StarFish; rename inside a fence ---
+    {
+        // Dummy files in a temp folder only.
+        QTemporaryDir temp;
+        const QString dir = QDir::fromNativeSeparators(temp.path());
+        const auto make = [&](const QString& name) {
+            QFile file(dir + QLatin1Char('/') + name);
+            file.open(QIODevice::WriteOnly);
+            file.write("starfish probe s74");
+            return dir + QLatin1Char('/') + name;
+        };
+        const auto resolve = [](const QString& path) { return platform::win::DesktopScanner::itemForPath(path); };
+        const QString a = make(QStringLiteral("a s74.txt"));
+        const QString b = make(QStringLiteral("b s74.txt"));
+        const QString c = make(QStringLiteral("c s74.txt"));
+        core::Layout layout;
+        bool idsSaved = false;
+        {
+            ui::FenceContainer first;
+            first.setItemResolver(resolve);
+            const QString id = first.createFence(QStringLiteral("Games"), QRect(0, 0, 360, 200));
+            first.fileInto(id, {resolve(a), resolve(b), resolve(c)});
+            const QByteArray json = core::JsonStore::toJson(first.toLayout());
+            layout = core::JsonStore::fromJson(json).value_or(core::Layout{});
+            const QList<core::FenceItem> stored = layout.fences.value(0).items;
+            idsSaved = stored.size() == 3 && std::all_of(stored.begin(), stored.end(),
+                                                         [](const core::FenceItem& i) { return !i.fileId.isEmpty(); });
+        }
+        // StarFish closed: b is renamed, c deleted, on the "normal" desktop.
+        const QString bRenamed = dir + QStringLiteral("/b renamed s74.txt");
+        const bool renamedOutside = QFile::rename(b, bRenamed);
+        QFile::remove(c);
+        ui::FenceContainer next;
+        next.setItemResolver(resolve);
+        next.applyLayout(layout);
+        const QString id = next.fenceIds().value(0);
+        ui::FenceView* view = next.view(id);
+        const auto missingOf = [view](const QString& path) {
+            for (const core::DesktopItem& item : view->items())
+                if (item.path.compare(path, Qt::CaseInsensitive) == 0)
+                    return item.missing ? 1 : 0;
+            return -1;
+        };
+        const bool flagged = missingOf(b) == 1 && missingOf(c) == 1 && missingOf(a) == 0;
+        // The desktop as the shell lists it after the restart.
+        const int changed = next.reconcileMissingItems({resolve(a), resolve(bRenamed)});
+        const QList<core::DesktopItem> after = view->items();
+        const bool followed = changed == 1 && after.size() == 3 && missingOf(bRenamed) == 0 && missingOf(b) == -1
+                              && missingOf(c) == 1 && after.value(1).path == bRenamed;
+        {
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/s74_missing_tile_%1.png").arg(theme));
+        }
+        const bool keptInDocument = next.toLayout().fences.value(0).items.size() == 3;
+        // c comes back: no longer missing.
+        make(QStringLiteral("c s74.txt"));
+        next.reconcileMissingItems({resolve(a), resolve(bRenamed), resolve(c)});
+        const bool back = missingOf(c) == 0;
+        // A live rename (StarFish running) follows the same way.
+        const QString aRenamed = dir + QStringLiteral("/a live s74.txt");
+        QFile::rename(a, aRenamed);
+        next.reconcileMissingItems({resolve(aRenamed), resolve(bRenamed), resolve(c)});
+        const bool live = missingOf(aRenamed) == 0 && view->items().size() == 3;
+        // Nothing free matches: never another file's tile.
+        const QString stranger = make(QStringLiteral("z s74.txt"));
+        QFile::remove(c);
+        next.reconcileMissingItems({resolve(aRenamed), resolve(bRenamed), resolve(stranger)});
+        const bool noGuess = missingOf(c) == 1 && missingOf(stranger) == -1;
+        check(QStringLiteral("a file renamed outside StarFish: the tile follows it (file id), a lost one shows as missing, kept (session 74)"),
+              renamedOutside && idsSaved && flagged && followed && keptInDocument && back && live && noGuess,
+              QStringLiteral("ids %1, flagged %2, changed %3, followed %4, kept %5, back %6, live %7, no guess %8")
+                  .arg(idsSaved).arg(flagged).arg(changed).arg(followed).arg(keptInDocument).arg(back).arg(live).arg(noGuess));
+
+        // Rename inside a fence: F2 asks, the shell renames, the tile follows in place.
+        QString askedId, askedPath;
+        QObject::connect(&next, &ui::FenceContainer::fenceRenameRequested, &next,
+                         [&](const QString& fid, const QString& path) { askedId = fid; askedPath = path; });
+        const QVector<QRect> tiles = view->tileRects();
+        if (tiles.size() == 3) {
+            const QPoint at = tiles.at(1).center();
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(view->mapToGlobal(at)), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), QPointF(view->mapToGlobal(at)), Qt::LeftButton,
+                                Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &release);
+        }
+        QKeyEvent f2(QEvent::KeyPress, Qt::Key_F2, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &f2);
+        const QRect label = next.fenceItemLabelRect(id, askedPath);
+        const bool asked = askedId == id && askedPath == bRenamed && !label.isEmpty()
+                           && next.fenceVisibleRect(id).contains(label);
+        QString newPath;
+        const bool renamed = platform::win::renameShellItem(bRenamed, QStringLiteral("b by F2 s74.txt"), 0, &newPath);
+        const QString cleanNew = QDir::fromNativeSeparators(newPath);
+        const bool replaced = next.replaceFenceItem(id, bRenamed, resolve(cleanNew));
+        const bool inPlace = view->items().size() == 3 && view->items().value(1).path == cleanNew
+                             && QFileInfo::exists(cleanNew) && !QFileInfo::exists(bRenamed);
+        check(QStringLiteral("rename inside a fence: F2 asks with the caption's place, the shell renames, the tile follows in place (session 74)"),
+              asked && renamed && replaced && inPlace,
+              QStringLiteral("asked %1 (%2), label %3,%4 %5x%6, renamed %7 -> %8, in place %9")
+                  .arg(asked).arg(askedPath).arg(label.x()).arg(label.y()).arg(label.width()).arg(label.height())
+                  .arg(renamed).arg(cleanNew).arg(inPlace));
     }
 
     // --- session 73: Delete in a fence; roll edge; roll animation; whole icons --

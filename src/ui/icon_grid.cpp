@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QRect>
 #include <QStringList>
@@ -81,6 +82,45 @@ void IconGrid::setSort(const QString& by, bool ascending)
     m_anchor = 0;
 }
 
+// Session 74: a tile whose file is not found -- a plain page with a warning
+// badge instead of the old dark square that said nothing.
+static void paintMissingIcon(QPainter& painter, const QRect& box)
+{
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const qreal w = box.width(), h = box.height();
+    const QRectF page(box.x() + w * 0.2, box.y() + h * 0.08, w * 0.6, h * 0.8);
+    const qreal fold = page.width() * 0.32;
+    QPainterPath sheet;
+    sheet.moveTo(page.topLeft());
+    sheet.lineTo(page.right() - fold, page.top());
+    sheet.lineTo(page.right(), page.top() + fold);
+    sheet.lineTo(page.bottomRight());
+    sheet.lineTo(page.bottomLeft());
+    sheet.closeSubpath();
+    painter.setPen(QPen(QColor(0x6B, 0x72, 0x80), qMax(1.0, w / 40.0)));
+    painter.setBrush(QColor(0xE5, 0xE7, 0xEB, 0xD8));
+    painter.drawPath(sheet);
+    QPainterPath corner;
+    corner.moveTo(page.right() - fold, page.top());
+    corner.lineTo(page.right() - fold, page.top() + fold);
+    corner.lineTo(page.right(), page.top() + fold);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPath(corner);
+    const qreal d = w * 0.46;
+    const QRectF badge(box.x() + w - d - w * 0.04, box.y() + h - d - h * 0.02, d, d);
+    painter.setPen(QPen(QColor(0xFF, 0xFF, 0xFF), qMax(1.0, w / 36.0)));
+    painter.setBrush(QColor(0xF5, 0x9E, 0x0B));
+    painter.drawEllipse(badge);
+    QFont bang = painter.font();
+    bang.setBold(true);
+    bang.setPixelSize(qMax(6, qRound(d * 0.72)));
+    painter.setFont(bang);
+    painter.setPen(QColor(0xFF, 0xFF, 0xFF));
+    painter.drawText(badge, Qt::AlignCenter, QStringLiteral("!"));
+    painter.restore();
+}
+
 void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider iconFor) const
 {
     if (m_items.isEmpty())
@@ -124,8 +164,10 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
         }
 
         // Icon.
-        const QPixmap icon = iconFor ? iconFor(item, m_iconSize) : QPixmap();
-        if (icon.isNull()) {
+        const QPixmap icon = item.missing ? QPixmap() : (iconFor ? iconFor(item, m_iconSize) : QPixmap());
+        if (item.missing) {
+            paintMissingIcon(painter, cell.icon);
+        } else if (icon.isNull()) {
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(kIconPlaceholder, kIconPlaceholder, kIconPlaceholder));
             painter.drawRect(cell.icon);
@@ -319,6 +361,37 @@ int IconGrid::appendItems(const QList<core::DesktopItem>& items)
         m_anchor = 0;
     }
     return added;
+}
+
+bool IconGrid::replaceItem(const QString& oldPath, const core::DesktopItem& item)
+{
+    int index = -1;
+    int other = -1;
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (m_items.at(i).path.compare(oldPath, Qt::CaseInsensitive) == 0)
+            index = i;
+        else if (m_items.at(i).path.compare(item.path, Qt::CaseInsensitive) == 0)
+            other = i;
+    }
+    if (index < 0 || item.path.isEmpty())
+        return false;
+    if (other >= 0) // already shown under its new name: one tile is enough
+        return removeItemsByPath({oldPath}) > 0;
+    QStringList selected;
+    for (int i : std::as_const(m_selected))
+        selected << m_items.at(i).path;
+    if (selected.contains(oldPath, Qt::CaseInsensitive))
+        selected << item.path;
+    m_items[index] = item;
+    if (m_sortBy != QLatin1String("manual")) {
+        core::sortForDisplay(m_items, m_sortBy, m_ascending);
+        m_selected.clear();
+        for (int i = 0; i < m_items.size(); ++i) {
+            if (selected.contains(m_items.at(i).path, Qt::CaseInsensitive))
+                m_selected.insert(i);
+        }
+    }
+    return true;
 }
 
 int IconGrid::removeItemsByPath(const QStringList& paths)

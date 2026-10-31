@@ -28,6 +28,9 @@
 #include <QPoint>
 #include <QRect>
 #include <QUrl>
+#include <QToolTip>
+#include <QCursor>
+#include <QDir>
 #include <QWheelEvent>
 
 #if defined(_WIN32)
@@ -779,6 +782,8 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         if (!(event->buttons() & Qt::LeftButton))
             setCursor(cursorForHandle(
                 handleAt(event->pos())));
+        if (!(event->buttons() & Qt::LeftButton))
+            updateMissingTip(event->position().toPoint());
         return;
     }
 
@@ -988,6 +993,45 @@ int FenceView::replaceItems(const QStringList& previousPaths, const QList<core::
         emit contentChanged();
     }
     return added;
+}
+
+bool FenceView::replaceItem(const QString& oldPath, const core::DesktopItem& item)
+{
+    if (!m_grid.replaceItem(oldPath, item))
+        return false;
+    m_tipIndex = -1;
+    update();
+    emit contentChanged();
+    return true;
+}
+
+QRect FenceView::labelRectOf(const QString& path) const
+{
+    const QList<core::DesktopItem>& items = m_grid.items();
+    const QRect content = contentRect();
+    const QVector<IconCell> cells = m_grid.cells(content.size());
+    for (int i = 0; i < items.size() && i < cells.size(); ++i) {
+        if (items.at(i).path.compare(path, Qt::CaseInsensitive) == 0)
+            return cells.at(i).label.translated(content.topLeft()).intersected(content);
+    }
+    return {};
+}
+
+void FenceView::updateMissingTip(const QPoint& localPoint)
+{
+    const int index = itemAt(localPoint);
+    if (index == m_tipIndex)
+        return;
+    m_tipIndex = index;
+    const QList<core::DesktopItem>& items = m_grid.items();
+    if (index >= 0 && index < items.size() && items.at(index).missing) {
+        QToolTip::showText(QCursor::pos(),
+                           tr("Not found: %1").arg(QDir::toNativeSeparators(items.at(index).path))
+                               + QLatin1Char('\n') + tr("Renamed, moved or deleted outside StarFish.")
+                               + QLatin1Char('\n') + tr("Right-click to remove it from the fence."));
+    } else {
+        QToolTip::hideText();
+    }
 }
 
 int FenceView::removeItemsByPath(const QStringList& paths)
@@ -1267,6 +1311,14 @@ void FenceView::enterEvent(QEnterEvent* event)
 
 void FenceView::keyPressEvent(QKeyEvent* event)
 {
+    if (event->key() == Qt::Key_F2) {
+        // Session 74: rename the selected icon (the edit is the product's).
+        const QStringList selected = selectedPaths();
+        if (!selected.isEmpty())
+            emit renameRequested(selected.first());
+        event->accept();
+        return;
+    }
     if (event->key() != Qt::Key_Delete) {
         QWidget::keyPressEvent(event);
         return;

@@ -140,6 +140,9 @@ public:
     // portal is not the user selecting something else. Returns the number
     // removed.
     int removeItemsByPath(const QStringList& paths);
+    // Session 74: the tile of `oldPath` becomes `item`, in place (a rename);
+    // false when there is no such tile.
+    bool replaceItem(const QString& oldPath, const core::DesktopItem& item);
     // Session 65: the user placed icons by hand -- the order is now his.
     void setManualOrder() { m_sortBy = QStringLiteral("manual"); }
 

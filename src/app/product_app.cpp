@@ -65,6 +65,7 @@ QLoggingCategory lc("starfish.product");
 namespace starfish::app {
 
 namespace {
+QPoint logicalFromPhysical(const QPoint& physical); // defined below
 
 // F2's edit: Escape cancels, Return and leaving it commit (as Explorer's own).
 class RenameEdit : public QLineEdit
@@ -1030,6 +1031,9 @@ void ProductApp::wireFenceMenu()
     // Session 73: Delete on a fence's selection -- the Shell's own delete (Recycle
     // Bin and undo; Shift: its permanent delete with its confirmation). The
     // tiles whose file is gone leave the fence; a cancelled delete leaves all.
+    // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
+    connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
+            [this](const QString& id, const QString& path) { startRename(path, id); });
     connect(m_container, &ui::FenceContainer::fenceDeleteRequested, this,
             [this](const QString& id, const QStringList& paths, bool permanent) {
                 using platform::win::DeleteMode;
@@ -1572,6 +1576,7 @@ void ProductApp::refreshDesktopItems()
     // the shell itself (syncNativeIcons -> the backdrop's native rectangles), and
     // the icons on screen are the native ones, in the order the user put them.
     core::sortForDisplay(items, QStringLiteral("name"), true);
+    m_container->reconcileMissingItems(items); // session 74: renamed while we were away
     m_container->setDesktopItems(std::move(items));
 }
 
@@ -2362,6 +2367,10 @@ void ProductApp::syncShellView()
         }
     }
     backdrop->setNativeIconBoxes(boxes);
+    // Session 74: a fenced file renamed (here or while StarFish was closed)
+    // is found again before the desktop draws it as a free icon.
+    if (!items.isEmpty())
+        m_container->reconcileMissingItems(items);
     m_container->setDesktopItems(std::move(items));
 }
 
@@ -2412,6 +2421,24 @@ void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& path
 {
     if (paths.isEmpty() || !m_container)
         return;
+    // Session 74: a tile whose file is not found has no shell menu -- it gets
+    // the one thing to do with it (its file is never touched).
+    QStringList missing;
+    for (const QString& path : paths) {
+        if (!path.startsWith(QLatin1String("::")) && !QFileInfo::exists(path))
+            missing << path;
+    }
+    if (!missing.isEmpty()) {
+        QMenu menu;
+        ui::styleModernMenu(&menu, ui::ModernMenuStyle::current());
+        QAction* info = menu.addAction(QCoreApplication::translate("ProductApp", "Not found: %1")
+                                           .arg(QFileInfo(missing.first()).fileName()));
+        info->setEnabled(false);
+        QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove from the fence"));
+        if (menu.exec(logicalFromPhysical(point)) == remove)
+            m_container->releaseItems(fenceId, missing);
+        return;
+    }
     // The shell's selection menu needs items of the desktop's view; a tile of
     // a portal (a folder elsewhere) gets its own file's classic menu.
     bool onDesktop = drawnDesktop() && m_shellView;
@@ -2439,8 +2466,8 @@ void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& path
     }
     if (chosen == kPutBack)
         m_container->releaseItems(fenceId, paths);
-    if (rename)
-        qCInfo(lc).noquote() << QStringLiteral("rename inside a fence: not yet (T-102)");
+    if (rename && !paths.isEmpty())
+        startRename(paths.first(), fenceId); // session 74: the shell's own edit would be in the hidden list
     m_shellResync.start();
 }
 
@@ -2462,12 +2489,20 @@ void ProductApp::openDesktopItem(const QString& path)
 }
 
 
-void ProductApp::startRename(const QString& path)
+void ProductApp::startRename(const QString& path, const QString& fenceId)
 {
     ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
-    if (!backdrop || !drawnDesktop())
-        return;
-    const QRect label = backdrop->labelRectOf(path);
+    QRect label;
+    if (!fenceId.isEmpty()) {
+        // Session 74 (T-101): a fence's tile -- its caption on screen.
+        if (!m_container)
+            return;
+        label = m_container->fenceItemLabelRect(fenceId, path);
+    } else {
+        if (!backdrop || !drawnDesktop())
+            return;
+        label = backdrop->labelRectOf(path);
+    }
     const QString name = platform::win::editingNameOf(path);
     if (label.isNull() || name.isEmpty()) {
         qCInfo(lc).noquote() << QStringLiteral("\"%1\" cannot be renamed here").arg(path);
@@ -2491,8 +2526,9 @@ void ProductApp::startRename(const QString& path)
     else
         edit->selectAll();
     // The caption is in physical pixels; a Qt window is placed in logical ones.
-    const ui::ScreenInfo* primary = backdrop->screens().primary();
-    const qreal dpr = primary ? qMax(1.0, primary->devicePixelRatio) : 1.0;
+    const ui::ScreenInfo* primary = backdrop ? backdrop->screens().primary() : nullptr;
+    const qreal dpr = primary ? qMax(1.0, primary->devicePixelRatio)
+                              : qMax(1.0, QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->devicePixelRatio() : 1.0);
     const int width = qMax(qRound(label.width() / dpr) + 24, 140);
     const QPoint centre(qRound(label.center().x() / dpr), qRound(label.top() / dpr));
     edit->setGeometry(centre.x() - width / 2, centre.y(), width, 24);
@@ -2500,6 +2536,7 @@ void ProductApp::startRename(const QString& path)
     connect(edit, &QLineEdit::editingFinished, this, [this] { finishRename(true); });
     m_renameEdit = edit;
     m_renamePath = path;
+    m_renameFenceId = fenceId;
     edit->show();
     edit->raise();
     edit->activateWindow();
@@ -2514,11 +2551,22 @@ void ProductApp::finishRename(bool commit)
     QLineEdit* edit = m_renameEdit;
     m_renameEdit = nullptr; // editingFinished fires again on hide: once is enough
     const QString path = m_renamePath;
+    const QString fenceId = m_renameFenceId;
+    m_renameFenceId.clear();
     const QString text = edit->text().trimmed();
     edit->hide();
     edit->deleteLater();
-    if (commit && !text.isEmpty() && text != platform::win::editingNameOf(path))
-        renameDesktopItem(path, text);
+    if (commit && !text.isEmpty() && text != platform::win::editingNameOf(path)) {
+        QString newPath;
+        if (renameDesktopItem(path, text, &newPath) && !fenceId.isEmpty() && m_container) {
+            // Session 74: the tile follows at once, where it was -- the desktop
+            // must not see the new name as a free icon in between.
+            core::DesktopItem renamed = platform::win::DesktopScanner::itemForPath(
+                newPath.isEmpty() ? path : QDir::fromNativeSeparators(newPath));
+            if (!renamed.path.isEmpty())
+                m_container->replaceFenceItem(fenceId, path, renamed);
+        }
+    }
 }
 
 bool ProductApp::renameDesktopItem(const QString& path, const QString& newName, QString* newPath)

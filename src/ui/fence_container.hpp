@@ -277,6 +277,14 @@ public:
     void resizeFenceBy(const QString& id, FenceHandle handle, const QPoint& delta);
     // Session 73: Delete from a fence -- tiles whose file is gone leave it.
     int forgetMissingItems(const QString& id, const QStringList& paths);
+    // Session 74: tiles whose file is gone find it again among the desktop's
+    // free items (same file id; else the one shortcut of the same folder with the
+    // same target) and follow it, in place; the others show as missing --
+    // never dropped, nothing deleted. Returns how many tiles changed.
+    int reconcileMissingItems(const QList<core::DesktopItem>& desktopItems);
+    bool replaceFenceItem(const QString& id, const QString& oldPath, const core::DesktopItem& item);
+    // Session 74: a tile's caption on screen, physical pixels (the rename edit).
+    QRect fenceItemLabelRect(const QString& id, const QString& path) const;
     // The acrylic / textured grain tile (session 71: public for the probe).
     static const QImage& grainTile();
     // Session 65 (T-081): the look a new fence is born with (a template).
@@ -541,6 +549,7 @@ signals:
     void fenceRemoved(const QString& id);
     // Session 73: Delete pressed on a fence's selection.
     void fenceDeleteRequested(const QString& id, const QStringList& paths, bool permanent);
+    void fenceRenameRequested(const QString& id, const QString& path); // session 74: F2
     void fenceRectChanged(const QString& id, const QRect& rect);
     void fenceContentChanged(const QString& id);
     // T-009. Roll-up is persisted (it is part of the document), so the product

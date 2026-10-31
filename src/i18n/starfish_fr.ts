@@ -500,7 +500,17 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2426"/>
+        <location filename="../app/product_app.cpp" line="+2434"/>
+        <source>Not found: %1</source>
+        <translation>Introuvable : %1</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Remove from the fence</source>
+        <translation>Retirer de la zone</translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -516,7 +526,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+373"/>
+        <location filename="../app/product_app.cpp" line="+394"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -526,7 +536,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2611"/>
+        <location line="-2658"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -565,7 +575,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+409"/>
+        <location filename="../app/product_app.cpp" line="+412"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -575,7 +585,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+458"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -920,7 +930,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+305"/>
+        <location filename="../ui/fence_view.cpp" line="+308"/>
         <location line="+134"/>
         <location line="+183"/>
         <source>Fence</source>
@@ -932,7 +942,22 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+373"/>
+        <source>Not found: %1</source>
+        <translation>Introuvable : %1</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Renamed, moved or deleted outside StarFish.</source>
+        <translation>Renommé, déplacé ou supprimé hors de StarFish.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Right-click to remove it from the fence.</source>
+        <translation>Clic droit pour le retirer de la zone.</translation>
+    </message>
+    <message>
+        <location line="+123"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>

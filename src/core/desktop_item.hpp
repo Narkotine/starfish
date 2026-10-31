@@ -28,6 +28,13 @@ struct DesktopItem {
     bool fromPublicDesktop = false; // C:\Users\Public\Desktop (FOLDERID_PublicDesktop)
     qint64 sizeBytes = -1;          // -1 = unknown (folders, unreadable entries)
     QDateTime modified;
+    // Session 74: the file's identity (volume serial + NTFS file index), which a
+    // rename keeps -- how a tile finds its file again after a rename made while
+    // StarFish was not running. Empty when unknown.
+    QString fileId;
+    // Session 74: the file is not where the tile says (renamed, moved or deleted
+    // elsewhere and not found again). Shown as such, never dropped silently.
+    bool missing = false;
 };
 
 // ---------------------------------------------------------------------------
