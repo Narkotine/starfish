@@ -200,7 +200,10 @@ int runDrawnDesktopProbe(QApplication& app)
             check(QStringLiteral("the native list is hidden, the marker written (T-046)"),
                   !listVisible() && marker.isPresent(), marker.path());
 
-            const platform::win::ShellViewState state = product.shellView()->read();
+            // Session 66: no shell view (the drawn desktop could not be set up)
+            // is a FAIL here, not a crash of the probe.
+            const platform::win::ShellViewState state =
+                product.shellView() ? product.shellView()->read() : platform::win::ShellViewState{};
             check(QStringLiteral("every item of the shell's view is drawn"),
                   state.ok && backdrop->cells().size() == state.items.size(),
                   QStringLiteral("%1 in the view, %2 drawn")

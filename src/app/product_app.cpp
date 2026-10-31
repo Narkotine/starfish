@@ -2253,14 +2253,6 @@ void ProductApp::syncShellView()
     if (state.iconsShown) {
         items.reserve(state.items.size());
         for (const platform::win::ShellViewItem& view : state.items) {
-            // Session 66: a file the view still lists but the disk no longer
-            // has (renamed, deleted a moment ago) is not drawn -- it was a
-            // caption without an icon ("starfish - Raccourci").
-            if (!view.parsingName.startsWith(QLatin1String("::")) && !QFileInfo::exists(view.parsingName)) {
-                m_itemCache.remove(view.parsingName);
-                m_shellSignature.clear(); // looked at again on the next tick
-                continue;
-            }
             core::DesktopItem item;
             const auto cached = m_itemCache.constFind(view.parsingName);
             if (cached != m_itemCache.constEnd()) {
