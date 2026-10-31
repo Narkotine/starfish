@@ -22,7 +22,7 @@
 <context>
     <name>FenceAppearanceDialog</name>
     <message>
-        <location filename="../ui/fence_appearance_dialog.hpp" line="+53"/>
+        <location filename="../ui/fence_appearance_dialog.hpp" line="+56"/>
         <source>Fence appearance</source>
         <translation>Apparence de la fence</translation>
     </message>
@@ -188,23 +188,23 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+180"/>
+        <location line="+221"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-176"/>
+        <location line="-217"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+181"/>
+        <location line="+222"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-176"/>
+        <location line="-217"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -244,12 +244,27 @@
         <translation>Pour les nouvelles fences</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
+        <source>Manage</source>
+        <translation>Gérer</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Rename...</source>
+        <translation>Renommer...</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Delete</source>
+        <translation>Supprimer</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Template</source>
         <translation>Modèle</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>(none)</source>
         <translation>(aucun)</translation>
     </message>
@@ -260,8 +275,30 @@
     </message>
     <message>
         <location line="+1"/>
+        <location line="+13"/>
         <source>Name:</source>
         <translation>Nom :</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <location line="+6"/>
+        <source>Rename template</source>
+        <translation>Renommer le modèle</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A template with that name already exists.</source>
+        <translation>Un modèle porte déjà ce nom.</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Delete template</source>
+        <translation>Supprimer le modèle</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Delete the template &quot;%1&quot;? Fences keep their look.</source>
+        <translation>Supprimer le modèle « %1 » ? Les zones gardent leur apparence.</translation>
     </message>
     <message>
         <location line="+167"/>
@@ -414,7 +451,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5851"/>
+        <location filename="../main.cpp" line="+5853"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -827,7 +864,7 @@
     <name>starfish::ui::FenceView</name>
     <message>
         <location filename="../ui/fence_view.cpp" line="+301"/>
-        <location line="+118"/>
+        <location line="+134"/>
         <location line="+179"/>
         <source>Fence</source>
         <translation>Zone</translation>

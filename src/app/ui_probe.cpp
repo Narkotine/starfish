@@ -1,5 +1,9 @@
 #include "app/ui_probe.hpp"
 
+#include <cmath>
+#include <QToolButton>
+#include <QMenu>
+#include <QPainterPath>
 #include <QApplication>
 #include <QCheckBox>
 #include <QDialog>
@@ -515,6 +519,9 @@ int runUiProbe(QApplication& app)
             slider->setValue(50);
         const bool live = container.fenceStyle(id).radius == 30
                           && container.fenceEffectiveAlpha(id) == ui::PercentSlider::alphaFromPercent(50);
+        auto* manage = dialog->findChild<QToolButton*>(QStringLiteral("manageTemplate"));
+        check(QStringLiteral("Appearance...: templates can be renamed or deleted, once one is chosen (session 70)"),
+              manage && manage->menu() && manage->menu()->actions().size() == 2 && !manage->isEnabled(), QString());
         dialog->grab().save(captures + QStringLiteral("/ui_fence_appearance_dialog_%1.png").arg(theme));
         dialog->reject();
         const core::FenceStyle after = container.fenceStyle(id);
@@ -779,6 +786,147 @@ int runUiProbe(QApplication& app)
               noneSame && allDiffer, QStringLiteral("none same %1; ").arg(noneSame) + hoverDetail);
         check(QStringLiteral("Settings has the desktop double-click switch (off by default, session 69)"),
               settings.findChild<QWidget*>(QStringLiteral("desktopDoubleClickSwitch")) != nullptr, QString());
+    }
+
+    // --- session 70: one outline, one border thickness; roll-up keeps the width -
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Games"), QRect(0, 0, 420, 200));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s70/a.txt")),
+                                core::itemFromPathOnly(QStringLiteral("C:/s70/b.txt"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(420, 200);
+        const QColor red(255, 0, 0);
+        // Renders at a device pixel ratio, over a transparent ground.
+        const auto renderAt = [&](qreal dpr) {
+            QImage img((QSizeF(view->size()) * dpr).toSize(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(Qt::transparent);
+            img.setDevicePixelRatio(dpr);
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.setDevicePixelRatio(1.0);
+            return img;
+        };
+        // The border's thickness along a ray (physical pixels).
+        const auto thickness = [&](const QImage& img, QPointF from, QPointF dir, qreal length) {
+            const qreal n = std::hypot(dir.x(), dir.y());
+            dir /= n;
+            int hits = 0;
+            for (qreal t = 0; t < length; t += 0.25) {
+                const QPoint px = (from + dir * t).toPoint();
+                if (!img.rect().contains(px))
+                    continue;
+                const QColor c = QColor::fromRgba(qUnpremultiply(img.pixel(px)));
+                if (c.alpha() > 100 && c.red() - qMax(c.green(), c.blue()) > 110)
+                    ++hits;
+            }
+            return hits * 0.25;
+        };
+        QString detail;
+        bool uniform = true;
+        bool uncut = true;
+        int combos = 0;
+        for (qreal dpr : {1.0, 1.5}) {
+            for (int bw : {1, 4, 8}) {
+                for (int radius : {0, 12, 30, 40}) {
+                    core::FenceStyle style = container.fenceStyle(id);
+                    style.titleBarShape = QStringLiteral("tab");
+                    style.titleAlign = QStringLiteral("center");
+                    style.radius = radius;
+                    style.borderWidth = bw;
+                    style.borderColor = QStringLiteral("#FFFF0000");
+                    style.background = QStringLiteral("#FF1F2937");
+                    style.defaultOpacity = false;
+                    style.titleBarColor.clear();
+                    container.setFenceStyle(id, style);
+                    const QImage img = renderAt(dpr);
+                    const qreal L = 420, T = 200, b = view->titleBarHeight();
+                    const QPair<int, int> span = view->tabSpan(420);
+                    const qreal x0 = span.first, x1 = span.first + span.second;
+                    const qreal r = qMin<qreal>(radius, T / 2);
+                    const qreal rt = qMin<qreal>(r, b / 2);
+                    const qreal rb = qMin<qreal>(r, (T - b) / 2);
+                    const qreal want = bw * dpr;
+                    QList<QPair<QString, qreal>> rays;
+                    const auto ray = [&](const QString& name, QPointF from, QPointF dir, qreal len) {
+                        rays.append({name, thickness(img, from * dpr, dir, len * dpr)});
+                    };
+                    ray(QStringLiteral("tab top"), QPointF((x0 + x1) / 2, b / 2), QPointF(0, -1), b / 2 + 2);
+                    ray(QStringLiteral("side"), QPointF(30, (b + T) / 2), QPointF(-1, 0), 32);
+                    ray(QStringLiteral("bottom"), QPointF(L / 2, T - 30), QPointF(0, 1), 32);
+                    if (x0 - rt - rb > 20)
+                        ray(QStringLiteral("body top"), QPointF((rb + x0 - rt) / 2, b + 20), QPointF(0, -1), 22);
+                    if (rb >= 2 * bw + 2)
+                        ray(QStringLiteral("body corner"), QPointF(L - rb, T - rb), QPointF(1, 1), rb + 3);
+                    if (rt >= 2 * bw + 2)
+                        ray(QStringLiteral("tab corner"), QPointF(x0 + rt, rt), QPointF(-1, -1), rt + 3);
+                    if (rt >= 2 && x0 - rt >= rb)
+                        ray(QStringLiteral("junction"), QPointF(x0 - rt, b - rt) + QPointF(-1, -1),
+                            QPointF(1, 1), rt + bw + 4);
+                    for (const auto& [name, t] : rays) {
+                        if (qAbs(t - want) > 1.5) {
+                            uniform = false;
+                            detail += QStringLiteral("dpr %1 b%2 r%3 %4: %5 (want %6)  ")
+                                          .arg(dpr).arg(bw).arg(radius).arg(name).arg(t).arg(want);
+                        }
+                    }
+                    // Nothing painted outside the window's shape (outline + 1 px).
+                    QPainterPath shape = QTransform::fromScale(dpr, dpr).map(view->outlinePath(QSizeF(420, 200)));
+                    QPainterPathStroker stroker;
+                    stroker.setWidth(2.0);
+                    shape = shape.united(stroker.createStroke(shape));
+                    int outside = 0;
+                    for (int y = 0; y < img.height(); y += 1)
+                        for (int x = 0; x < img.width(); x += 1)
+                            if (qAlpha(img.pixel(x, y)) > 8 && !shape.contains(QPointF(x + 0.5, y + 0.5)))
+                                ++outside;
+                    if (outside > 0) {
+                        uncut = false;
+                        detail += QStringLiteral("dpr %1 b%2 r%3: %4 px outside  ").arg(dpr).arg(bw).arg(radius).arg(outside);
+                    }
+                    ++combos;
+                    if (bw == 4 && radius == 40) {
+                        QImage shot(img.size(), QImage::Format_ARGB32_Premultiplied);
+                        shot.fill(QColor(0x9A, 0xC8, 0x2A));
+                        QPainter sp(&shot);
+                        sp.drawImage(0, 0, img);
+                        sp.end();
+                        shot.save(captures + QStringLiteral("/s70_tab_b4_r40_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme));
+                        const QRect zoom = QRect(int((x0 - rt - 14) * dpr), 0, int((x1 - x0 + 2 * rt + 28) * dpr),
+                                                 int((b + 30) * dpr)).intersected(shot.rect());
+                        shot.copy(zoom).scaled(zoom.size() * 4, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+                            .save(captures + QStringLiteral("/s70_tab_b4_r40_zoom_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme));
+                    }
+                }
+            }
+        }
+        check(QStringLiteral("the tab outline: one border thickness on edges, corners and junctions, nothing cut, "
+                             "b 1/4/8 x r 0/12/30/40 at 100/150 % (session 70)"),
+              uniform && uncut && combos == 24, detail.isEmpty() ? QStringLiteral("%1 combos").arg(combos) : detail);
+
+        // Roll up, nudge (the first click of the double-click), roll down: the same size.
+        core::FenceStyle style = container.fenceStyle(id);
+        style.titleBarShape.clear();
+        container.setFenceStyle(id, style);
+        QString rollDetail;
+        bool same = true;
+        for (const QString& shape : {QString(), QStringLiteral("tab")}) {
+            style.titleBarShape = shape;
+            container.setFenceStyle(id, style);
+            const QRect before = container.setFenceRect(id, QRect(100, 100, 300, 220), false);
+            container.setFenceRolledUp(id, true);
+            container.setFenceRect(id, container.fenceRect(id), true);
+            container.setFenceRect(id, container.fenceRect(id).translated(1, 0), false);
+            container.setFenceRect(id, container.fenceRect(id).translated(-1, 0), false);
+            container.setFenceRolledUp(id, false);
+            const QRect after = container.fenceRect(id);
+            same = same && after.size() == before.size();
+            rollDetail += QStringLiteral("%1: %2x%3 -> %4x%5  ").arg(shape.isEmpty() ? QStringLiteral("full") : shape)
+                              .arg(before.width()).arg(before.height()).arg(after.width()).arg(after.height());
+        }
+        check(QStringLiteral("rolling up then down gives back the very same size, full bar and tab (session 70)"),
+              same, rollDetail);
     }
 
     // --- session 67: the title clears the rounded corner -----------------------
