@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QtMath>
 
 #include "platform/win/desktop_surface.hpp"
 #include "ui/desktop_backdrop.hpp"
@@ -715,10 +716,18 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     // T-080: an empty string is "no band of its own" -- QColor() is invalid,
     // which is exactly what FenceView means by it. T-098: composed, the band is
     // chrome too and takes the fence's transparency.
+    // Session 66: the band takes the fence's transparency, exactly like the
+    // panel -- its own colour, never its own alpha (it used to be multiplied
+    // by it, then laid over the panel: near opaque).
     QColor band(fence.style.titleBarColor);
-    if (band.isValid() && m_composed)
-        band.setAlpha(band.alpha() * alpha / 255);
+    if (band.isValid())
+        band.setAlpha(alpha);
     fence.view->setTitleBarColor(band);
+    fence.view->setTitleAlignment(fence.style.titleAlign == QLatin1String("center") ? Qt::AlignHCenter
+                                  : fence.style.titleAlign == QLatin1String("right") ? Qt::AlignRight
+                                                                                       : Qt::AlignLeft);
+    // fadeIcons, composed: the icons alone at the fence's transparency.
+    fence.view->setIconOpacity(m_composed && fence.style.fadeIcons ? alpha / 255.0 : 1.0);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
     fence.view->setTextShadow(m_composed && alpha < 255);
     // T-094: the border, the fence's own or the default.
@@ -960,10 +969,9 @@ void FenceContainer::composeFence(FenceWindow& fence)
         // The fence itself: panel at its transparency, title and icons opaque --
         // or all of it at the panel's transparency when the fence asks
         // (`fadeIcons`, rendered with an opaque panel for that).
-        if (fence.style.fadeIcons)
-            painter.setOpacity(effectiveAlpha(fence.style) / 255.0);
+        // Session 66: fadeIcons is applied to the icons in the view itself, so
+        // the border and the title stay as they are.
         painter.drawImage(QRect(QPoint(0, 0), visible.size()), fence.content);
-        painter.setOpacity(1.0);
         // Acrylic and textured: a fine grain on the panel.
         if (fence.style.effect == QLatin1String("acrylic") || fence.style.effect == QLatin1String("textured")) {
             static const QImage grain = [] {
@@ -1739,6 +1747,16 @@ bool FenceContainer::removeFence(const QString& id)
     return false;
 }
 
+QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
+{
+    if (!fence.view || fence.view->items().isEmpty())
+        return m_minSize;
+    const FenceMetrics& m = fence.view->metrics();
+    const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+    const int logical = 2 * (m.inset + m.gridPadding) + fence.view->cellWidth();
+    return QSize(qMax(64, qCeil(logical * dpr)), m_minSize.height());
+}
+
 QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool snap)
 {
     FenceWindow* fence = find(id);
@@ -1752,7 +1770,7 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
     // monitors of different sizes, where it would be invisible and unreachable.
     const QRect target = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, rect,
                                                      otherRects(id), m_screens.frames(),
-                                                     m_screens.clampRectFor(rect), m_minSize,
+                                                     m_screens.clampRectFor(rect), minSizeFor(*fence),
                                                      m_snapThreshold, snap);
     fence->rect = target;
     // Moving a fence to another monitor updates the monitor it is recorded on.
@@ -1926,25 +1944,12 @@ void FenceContainer::renderFence(const QString& id)
         QImage content(visible.size(), QImage::Format_ARGB32_Premultiplied);
         content.setDevicePixelRatio(dpr);
         content.fill(Qt::transparent);
-        const QColor panel = fence->view->panelColor();
-        const QColor band = fence->view->titleBarColor();
-        // The swap below must not be heard: setPanelColor emits contentChanged,
-        // which renders the fence -- here, again, forever (a stack overflow
-        // found on a real layout, session 63).
+        // Session 66: no colour swap any more (fadeIcons fades the icons in the
+        // view); render must still not be heard (session 63's recursion).
         const QSignalBlocker quiet(fence->view);
-        if (fence->style.fadeIcons) {
-            // Faded as one, like a window alpha: drawn opaque, faded on compose.
-            fence->view->setPanelColor(QColor(panel.red(), panel.green(), panel.blue()));
-            if (band.isValid())
-                fence->view->setTitleBarColor(QColor(band.red(), band.green(), band.blue()));
-        }
         {
             QPainter painter(&content);
             fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
-        }
-        if (fence->style.fadeIcons) {
-            fence->view->setPanelColor(panel);
-            fence->view->setTitleBarColor(band);
         }
         ++m_frameRenders;
         const QRect before = fence->composedAt;
@@ -2057,7 +2062,7 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
             return;
         }
         const QRect snapped = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, moved, otherRects(id),
-                                                          m_screens.frames(), m_screens.clampRectFor(moved), m_minSize,
+                                                          m_screens.frames(), m_screens.clampRectFor(moved), minSizeFor(*fence),
                                                           m_snapThreshold, true);
         const QRect target = keepClear(snapped, false);
         if (target == fence->rect)
@@ -2070,10 +2075,10 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
     }
     // T-086: a resize moves the grabbed edges only (applyResize), never the
     // fence -- the top-left corner stays put unless the left/top edge is held.
-    const QRect requested = FenceGeometry::resize(fence->dragStartRect, handle, delta, m_minSize);
+    const QRect requested = FenceGeometry::resize(fence->dragStartRect, handle, delta, minSizeFor(*fence));
     const QRect target = FenceGeometry::applyResize(fence->dragStartRect, fence->rolledUp, handle, requested,
                                                     otherRects(id), m_screens.frames(),
-                                                    m_screens.clampRectFor(fence->dragStartRect), m_minSize,
+                                                    m_screens.clampRectFor(fence->dragStartRect), minSizeFor(*fence),
                                                     m_snapThreshold, true);
     const QRect kept = keepClear(target, true);
     if (kept == fence->rect)

@@ -1,6 +1,8 @@
 #include "ui/fence_view.hpp"
 
 #include <QMetaMethod>
+#include <QtMath>
+#include <cmath>
 #include <algorithm>
 
 #include <QApplication>
@@ -83,6 +85,10 @@ FenceView::FenceView(QWidget* parent)
     // path used when the fence is a real Qt window; the desktop-hosted surface
     // takes the OLE IDropTarget path in DesktopSurface instead.
     setAcceptDrops(true);
+    // Session 66: the resize arrows follow the pointer with no button held --
+    // without tracking, Qt drops those moves and the cursor only changed on a
+    // fence that had been grabbed once.
+    setMouseTracking(true);
 }
 
 void FenceView::setTitle(const QString& title)
@@ -195,10 +201,46 @@ QRect FenceView::titleTextRect() const
     titleFont.setBold(true);
     const QFontMetrics fm(titleFont);
     const QString text = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
-    const int available = qMax(0, width() - 2 * m_metrics.titleInset);
+    const int inset = titleInset();
+    const int available = qMax(0, width() - 2 * inset);
     const int w = qMin(available, fm.horizontalAdvance(text) + 2);
     const int h = fm.height();
-    return QRect(m_metrics.titleInset, (m_metrics.titleBarHeight - h) / 2, w, h);
+    int x = inset;
+    if (m_titleAlign & Qt::AlignHCenter)
+        x = inset + (available - w) / 2;
+    else if (m_titleAlign & Qt::AlignRight)
+        x = inset + available - w;
+    return QRect(x, (m_metrics.titleBarHeight - h) / 2, w, h);
+}
+
+int FenceView::titleInset() const
+{
+    // Session 66: a strong rounding eats the corner the title starts in -- the
+    // text moves in as far as the curve reaches at the top of its capitals.
+    QFont titleFont = font();
+    titleFont.setBold(true);
+    const QFontMetrics fm(titleFont);
+    const qreal r = cornerRadius();
+    const qreal capTop = (m_metrics.titleBarHeight - fm.height()) / 2.0 + fm.ascent() - fm.capHeight();
+    if (r <= capTop)
+        return m_metrics.titleInset;
+    const qreal dy = r - capTop;
+    const int curve = qCeil(r - std::sqrt(qMax<qreal>(0, r * r - dy * dy)));
+    return qMax(m_metrics.titleInset, curve + 6);
+}
+
+void FenceView::setTitleAlignment(Qt::Alignment align)
+{
+    if (m_titleAlign == align)
+        return;
+    m_titleAlign = align;
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setIconOpacity(qreal opacity)
+{
+    m_iconOpacity = qBound<qreal>(0.0, opacity, 1.0);
 }
 
 int FenceView::insertItems(const QList<core::DesktopItem>& items, int index)
@@ -247,42 +289,50 @@ void FenceView::paintEvent(QPaintEvent* event)
         border = border.lighter(140);
         fill = QColor::fromHsv(fill.hsvHue(), fill.hsvSaturation(), qMin(255, fill.value() + 14), fill.alpha());
     }
-    if (m_borderWidth > 0)
-        painter.setPen(QPen(border, m_borderWidth));
-    else
-        painter.setPen(Qt::NoPen);
-    painter.setBrush(fill);
     const qreal half = qMax(0.5, m_borderWidth / 2.0);
     const QRectF panelRect = QRectF(rect()).adjusted(half, half, -half, -half);
     const int radius = cornerRadius();
-    painter.drawRoundedRect(panelRect, radius, radius);
-
-    // T-080: the title bar's own colour, when one was chosen. It is filled inside
-    // the panel's own path and clipped to the band, so its top corners follow the
-    // panel's rounding instead of squaring them off -- and drawing it *after* the
-    // panel keeps the band inside the border, which is drawn with the panel.
+    QPainterPath panel;
+    panel.addRoundedRect(panelRect, radius, radius);
+    // T-080, session 66: the title bar's own colour is *not* laid over the
+    // panel (two translucent layers made it near opaque): the panel fills
+    // below the band, the band fills the band, the border goes over both.
     if (m_titleBarColor.isValid()) {
-        QPainterPath panel;
-        panel.addRoundedRect(panelRect, radius, radius);
+        const int band = titleBarHeight();
         painter.save();
-        painter.setClipRect(QRect(0, 0, width(), titleBarHeight()));
-        painter.fillPath(panel, m_titleBarColor);
+        painter.setClipRect(QRect(0, band, width(), height() - band));
+        painter.fillPath(panel, fill);
+        painter.setClipRect(QRect(0, 0, width(), band));
+        QColor bandFill = m_titleBarColor;
+        if (m_hovered && m_hoverHighlight)
+            bandFill = QColor::fromHsv(bandFill.hsvHue(), bandFill.hsvSaturation(),
+                                       qMin(255, bandFill.value() + 14), bandFill.alpha());
+        painter.fillPath(panel, bandFill);
         painter.restore();
+    } else {
+        painter.fillPath(panel, fill);
+    }
+    if (m_borderWidth > 0) {
+        painter.setPen(QPen(border, m_borderWidth));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(panel);
     }
 
     if (titleShown()) {
         QFont titleFont = font();
         titleFont.setBold(true);
         painter.setFont(titleFont);
-        const QRect titleRect(m_metrics.titleInset, 0, qMax(0, width() - 2 * m_metrics.titleInset),
-                              m_metrics.titleBarHeight);
-        const QString titleText_ = m_title.isEmpty() ? QStringLiteral("Fence") : m_title;
+        const int inset = titleInset();
+        const QRect titleRect(inset, 0, qMax(0, width() - 2 * inset), m_metrics.titleBarHeight);
+        const QString titleText_ = painter.fontMetrics().elidedText(
+            m_title.isEmpty() ? QStringLiteral("Fence") : m_title, Qt::ElideRight, titleRect.width());
+        const Qt::Alignment align = Qt::AlignVCenter | (m_titleAlign ? m_titleAlign : Qt::AlignLeft);
         if (m_grid.textShadow()) {
             painter.setPen(QColor(0, 0, 0, 0xA0));
-            painter.drawText(titleRect.translated(1, 1), Qt::AlignVCenter | Qt::AlignLeft, titleText_);
+            painter.drawText(titleRect.translated(1, 1), align, titleText_);
         }
         painter.setPen(titleText);
-        painter.drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft, titleText_);
+        painter.drawText(titleRect, align, titleText_);
     } else if (m_hovered) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
         painter.setPen(QPen(QColor(255, 255, 255, 0x70), 2, Qt::SolidLine, Qt::RoundCap));
@@ -305,7 +355,10 @@ void FenceView::paintEvent(QPaintEvent* event)
         return;
     }
 
+    // Session 66: "the material on the icons too" fades the icons, and only them.
+    painter.setOpacity(m_iconOpacity);
     m_grid.paint(painter, content, m_iconProvider);
+    painter.setOpacity(1.0);
     if (m_dragging) {
         // Either the grid is about to receive the tile, or the desktop is:
         // never both, so the two hints are mutually exclusive by construction.

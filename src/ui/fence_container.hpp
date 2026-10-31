@@ -618,6 +618,9 @@ private:
     // screen, so a caller that only knows a size behaves exactly as before.
     ScreenLayout m_screens = ScreenLayout::single(QSize(1920, 1080));
     QSize m_minSize{160, 120};
+    // Session 66: a fence with icons can shrink to one column with the same
+    // room on both sides (physical pixels); an empty one keeps m_minSize.
+    QSize minSizeFor(const FenceWindow& fence) const;
     int m_snapThreshold = 8;
     bool m_host = false;
     int m_nextId = 1;

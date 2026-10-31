@@ -37,12 +37,13 @@ inline QStringList load()
 
 // QColorDialog::getColor, with the recent colours in its custom slots, and the
 // picked one remembered. Invalid when cancelled.
-inline QColor pick(const QColor& initial, const QString& title, QWidget* parent = nullptr)
+inline QColor pick(const QColor& initial, const QString& title, QWidget* parent = nullptr, bool alpha = true)
 {
     const QStringList recent = load();
     for (int i = 0; i < QColorDialog::customCount(); ++i)
         QColorDialog::setCustomColor(i, i < recent.size() ? QColor(recent.at(i)) : QColor(Qt::white));
-    const QColor picked = QColorDialog::getColor(initial, parent, title, QColorDialog::ShowAlphaChannel);
+    const QColor picked = QColorDialog::getColor(initial, parent, title,
+                                                alpha ? QColorDialog::ShowAlphaChannel : QColorDialog::ColorDialogOptions());
     if (picked.isValid())
         store().setValue(QStringLiteral("recentColours"), pushed(recent, picked.name(QColor::HexArgb)));
     return picked;

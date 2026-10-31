@@ -95,10 +95,20 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         radius->addItem(FenceMenu::radiusLabel(px), px);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Corners"), radius);
 
+    // Session 66: the title bar has its own row -- shown or not, and where the
+    // title sits in it.
     auto* titleBar = new QCheckBox(QCoreApplication::translate("FenceAppearanceDialog", "Show the title bar"), dialog);
     titleBar->setObjectName(QStringLiteral("titleBarShown"));
     titleBar->setToolTip(QCoreApplication::translate("FenceAppearanceDialog", "Hidden: the fence moves by the thin band at its top."));
-    form->addRow(QString(), titleBar);
+    auto* titleAlign = new QComboBox(dialog);
+    titleAlign->setObjectName(QStringLiteral("titleAlign"));
+    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title on the left"), QString());
+    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title centred"), QStringLiteral("center"));
+    titleAlign->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Title on the right"), QStringLiteral("right"));
+    auto* titleRow = new QHBoxLayout;
+    titleRow->addWidget(titleBar);
+    titleRow->addWidget(titleAlign, 1);
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar"), titleRow);
 
     auto* panel = new QPushButton(dialog);
     panel->setObjectName(QStringLiteral("panelColour"));
@@ -189,11 +199,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -222,6 +232,8 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         cell->setCurrentIndex(c);
         effect->setCurrentIndex(qMax(0, effect->findData(style.effect)));
         titleBar->setChecked(style.titleBar);
+        titleAlign->setCurrentIndex(qMax(0, titleAlign->findData(style.titleAlign)));
+        titleAlign->setEnabled(style.titleBar);
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -286,7 +298,8 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         const core::FenceStyle style = safe->fenceStyle(id);
         const QColor picked = RecentColours::pick(
             QColor(style.titleBarColor.isEmpty() ? style.background : style.titleBarColor),
-            QCoreApplication::translate("FenceAppearanceDialog", "Title bar colour"), dialog);
+            QCoreApplication::translate("FenceAppearanceDialog", "Title bar colour"), dialog,
+            /*alpha=*/false); // session 66: the band takes the fence's transparency
         if (picked.isValid())
             restyle([&picked](core::FenceStyle& s) { s.titleBarColor = picked.name(QColor::HexArgb).toUpper(); });
     });
@@ -300,6 +313,10 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     });
     QObject::connect(titleBar, &QCheckBox::toggled, dialog, [restyle](bool shown) {
         restyle([shown](core::FenceStyle& style) { style.titleBar = shown; });
+    });
+    QObject::connect(titleAlign, &QComboBox::currentIndexChanged, dialog, [titleAlign, restyle](int) {
+        const QString chosen = titleAlign->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.titleAlign = chosen; });
     });
     QObject::connect(effect, &QComboBox::currentIndexChanged, dialog, [effect, restyle](int) {
         const QString chosen = effect->currentData().toString();

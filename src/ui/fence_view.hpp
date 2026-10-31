@@ -113,6 +113,14 @@ public:
     bool titleShown() const { return m_titleBarShown || m_rolledUp; }
     int titleBarHeight() const { return titleShown() ? m_metrics.titleBarHeight : kHiddenTitleBand; }
     static constexpr int kHiddenTitleBand = 12;
+    // Session 66: the title's alignment in its bar (Qt::AlignLeft / HCenter /
+    // Right), its inset (wider under a strong rounding), and the opacity the
+    // icons alone are painted with (fadeIcons, composed).
+    void setTitleAlignment(Qt::Alignment align);
+    Qt::Alignment titleAlignment() const { return m_titleAlign; }
+    int titleInset() const;
+    void setIconOpacity(qreal opacity);
+    qreal iconOpacity() const { return m_iconOpacity; }
 
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
@@ -269,6 +277,8 @@ private:
     bool m_hoverHighlight = true;
     bool m_hovered = false;
     bool m_titleBarShown = true;
+    Qt::Alignment m_titleAlign = Qt::AlignLeft;
+    qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;
     IconGrid m_grid;

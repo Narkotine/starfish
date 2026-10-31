@@ -69,6 +69,8 @@ struct FenceStyle {
     // T-099 (session 65): "" none, "acrylic" (the desktop blurred behind a
     // translucent panel), "textured" (a fine grain on the panel).
     QString effect;
+    // Session 66: the title in its bar: "" left, "center", "right".
+    QString titleAlign;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

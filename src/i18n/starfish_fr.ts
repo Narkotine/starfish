@@ -82,7 +82,7 @@
         <translation>Coins</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+4"/>
         <source>Show the title bar</source>
         <translation>Afficher la barre de titre</translation>
     </message>
@@ -92,24 +92,44 @@
         <translation>Masquée : la fence se déplace par la fine bande du haut.</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+174"/>
+        <location line="+3"/>
+        <source>Title on the left</source>
+        <translation>Titre à gauche</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Title centred</source>
+        <translation>Titre centré</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Title on the right</source>
+        <translation>Titre à droite</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Title bar</source>
+        <translation>Barre de titre</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+176"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-170"/>
+        <location line="-172"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+175"/>
+        <location line="+177"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-170"/>
+        <location line="-172"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -169,7 +189,7 @@
         <translation>Nom :</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+151"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -306,7 +326,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2317"/>
+        <location filename="../app/product_app.cpp" line="+2340"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -314,7 +334,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5801"/>
+        <location filename="../main.cpp" line="+5851"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -332,7 +352,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2502"/>
+        <location line="-2525"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -371,7 +391,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+364"/>
+        <location filename="../app/product_app.cpp" line="+379"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -726,12 +746,12 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+304"/>
+        <location filename="../ui/fence_view.cpp" line="+354"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+454"/>
+        <location line="+457"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>

@@ -515,6 +515,93 @@ int runUiProbe(QApplication& app)
               QStringLiteral("live %1, radius back %2").arg(live ? QLatin1String("yes") : QLatin1String("no")).arg(after.radius));
     }
 
+    // --- session 66: title bar, icons-only fade, single column, cursor -------
+    {
+        auto renderOf = [](ui::FenceView* v) {
+            QImage img(v->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(Qt::transparent);
+            QPainter p(&img);
+            v->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            return img;
+        };
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Perso"), QRect(0, 0, 400, 300));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s66/ResourcesMonitor.lnk"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(320, 240);
+        core::FenceStyle style = container.fenceStyle(id);
+        style.background = QStringLiteral("#801F2937");
+        style.defaultOpacity = false;
+        style.titleBarColor = QStringLiteral("#FF1F2937"); // same colour, opaque: takes the fence's alpha
+        style.borderWidth = 0;
+        container.setFenceStyle(id, style);
+        const QImage img = renderOf(view);
+        const int bandAlpha = img.pixelColor(200, 4).alpha();
+        const int panelAlpha = img.pixelColor(200, 230).alpha();
+        img.save(captures + QStringLiteral("/s66_band_transparency_%1.png").arg(theme));
+        check(QStringLiteral("the title bar has the fence's transparency, not its own (session 66)"),
+              qAbs(bandAlpha - panelAlpha) <= 2 && panelAlpha < 200,
+              QStringLiteral("band %1, panel %2").arg(bandAlpha).arg(panelAlpha));
+
+        style.titleAlign = QStringLiteral("center");
+        container.setFenceStyle(id, style);
+        const QRect centred = view->titleTextRect();
+        style.titleAlign = QStringLiteral("right");
+        container.setFenceStyle(id, style);
+        const QRect right = view->titleTextRect();
+        view->grab().save(captures + QStringLiteral("/s66_title_right_%1.png").arg(theme));
+        style.titleAlign = QStringLiteral("center");
+        style.radius = 40;
+        container.setFenceStyle(id, style);
+        const int inset40 = view->titleInset();
+        view->grab().save(captures + QStringLiteral("/s66_title_centred_r40_%1.png").arg(theme));
+        style.radius = 0;
+        container.setFenceStyle(id, style);
+        const int inset0 = view->titleInset();
+        check(QStringLiteral("title centred / right, pushed in by a strong rounding (session 66)"),
+              qAbs(centred.center().x() - 160) <= 2 && qAbs(right.right() - (320 - inset0)) <= 2 && inset40 > inset0,
+              QStringLiteral("centre %1, right %2, inset r0 %3 r40 %4").arg(centred.center().x()).arg(right.right())
+                  .arg(inset0).arg(inset40));
+
+        // fadeIcons: the icons alone.
+        style.titleAlign.clear();
+        style.borderWidth = 3;
+        style.borderColor = QStringLiteral("#FFFF0000");
+        container.setFenceStyle(id, style);
+        const QImage full = renderOf(view);
+        view->setIconOpacity(0.3);
+        const QImage faded = renderOf(view);
+        view->setIconOpacity(1.0);
+        const QRect tile = view->tileRects().value(0);
+        const bool borderSame = full.pixel(1, 120) == faded.pixel(1, 120);
+        const QRect title = view->titleTextRect();
+        bool titleSame = true;
+        for (int x = title.left(); x <= title.right(); ++x)
+            for (int y = title.top(); y <= title.bottom(); ++y)
+                titleSame = titleSame && full.pixel(x, y) == faded.pixel(x, y);
+        bool iconDiffers = false;
+        for (int x = tile.left(); x <= tile.right() && !iconDiffers; ++x)
+            for (int y = tile.top(); y <= tile.bottom() && !iconDiffers; ++y)
+                iconDiffers = full.pixel(x, y) != faded.pixel(x, y);
+        faded.save(captures + QStringLiteral("/s66_icons_faded_%1.png").arg(theme));
+        check(QStringLiteral("\"the material on the icons too\": icons only, border and title kept (session 66)"),
+              borderSame && titleSame && iconDiffers,
+              QStringLiteral("border %1, title %2, icon %3").arg(borderSame).arg(titleSame).arg(iconDiffers));
+
+        // One column at the minimum width: the same room left and right.
+        const QRect shrunk = container.setFenceRect(id, QRect(0, 0, 40, 300), false);
+        view->resize(shrunk.size());
+        const QRect cell = view->tileRects().value(0);
+        const int leftRoom = cell.left();
+        const int rightRoom = view->width() - 1 - cell.right();
+        view->grab().save(captures + QStringLiteral("/s66_single_column_min_%1.png").arg(theme));
+        check(QStringLiteral("one column at the minimum width sits in the middle (session 66)"),
+              shrunk.width() < 160 && qAbs(leftRoom - rightRoom) <= 1,
+              QStringLiteral("width %1, room %2 / %3").arg(shrunk.width()).arg(leftRoom).arg(rightRoom));
+        check(QStringLiteral("a fence follows the pointer with no button held (resize arrows, session 66)"),
+              view->hasMouseTracking(), QString());
+    }
+
     // --- T-098: a fence's own transparency -----------------------------------
     {
         ui::FenceContainer container;
