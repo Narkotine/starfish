@@ -49,11 +49,26 @@ public:
     // The rect a fence actually shows. A rolled-up fence (F-020) is reduced to
     // its title bar; the *stored* rect keeps the expanded size, so rolling back
     // down restores the fence exactly as it was. Pure.
-    static QRect visibleRect(const QRect& stored, bool rolledUp)
+    // Session 73: the edge a rolled-up fence keeps -- the strip lies along it
+    // (a horizontal strip for Top / Bottom, a vertical one for Left / Right).
+    enum class RollEdge { Top, Bottom, Left, Right };
+
+    static QRect visibleRect(const QRect& stored, bool rolledUp, RollEdge edge = RollEdge::Top)
     {
         if (!rolledUp)
             return stored;
-        return QRect(stored.x(), stored.y(), stored.width(), kTitleBarHeight);
+        const int t = kTitleBarHeight;
+        switch (edge) {
+        case RollEdge::Bottom:
+            return QRect(stored.x(), stored.y() + stored.height() - t, stored.width(), t);
+        case RollEdge::Left:
+            return QRect(stored.x(), stored.y(), t, stored.height());
+        case RollEdge::Right:
+            return QRect(stored.x() + stored.width() - t, stored.y(), t, stored.height());
+        case RollEdge::Top:
+            break;
+        }
+        return QRect(stored.x(), stored.y(), stored.width(), t);
     }
 
     // `border` is the resize grip width measured inwards from each edge,
@@ -281,26 +296,36 @@ public:
     static QRect applyRequest(const QRect& stored, bool rolledUp, const QRect& requested,
                               const QList<QRect>& others, const QList<QRect>& frames,
                               const QRect& clampTo, const QSize& minSize, int snapThreshold,
-                              bool snap)
+                              bool snap, RollEdge edge = RollEdge::Top)
     {
         QRect target = requested;
 
         if (rolledUp) {
-            target.setHeight(stored.height()); // the hidden body keeps its size
-            if (target.width() < minSize.width())
-                target.setWidth(minSize.width());
+            // The hidden body keeps its size; the strip's own length may change.
+            const bool vertical = edge == RollEdge::Left || edge == RollEdge::Right;
+            if (vertical) {
+                target.setWidth(stored.width());
+                if (target.height() < minSize.height())
+                    target.setHeight(minSize.height());
+            } else {
+                target.setHeight(stored.height());
+                if (target.width() < minSize.width())
+                    target.setWidth(minSize.width());
+            }
 
             if (snap) {
-                const QRect visible = visibleRect(target, true);
+                const QRect visible = visibleRect(target, true, edge);
                 const QRect snapped = FenceGeometry::snap(visible, others, frames, snapThreshold);
                 target.translate(snapped.topLeft() - visible.topLeft());
             }
 
-            const QRect visible = visibleRect(target, true);
+            const QRect visible = visibleRect(target, true, edge);
             const QRect clamped = clampIntoRect(visible, clampTo);
-            target.setWidth(clamped.width());
-            target.moveTopLeft(target.topLeft() + clamped.topLeft() - visible.topLeft());
-            target.setHeight(stored.height());
+            if (vertical)
+                target.setHeight(clamped.height());
+            else
+                target.setWidth(clamped.width());
+            target.translate(clamped.topLeft() - visible.topLeft());
             return target;
         }
 
@@ -324,16 +349,23 @@ public:
     static QRect applyResize(const QRect& stored, bool rolledUp, FenceHandle handle,
                              const QRect& requested, const QList<QRect>& others,
                              const QList<QRect>& frames, const QRect& clampTo,
-                             const QSize& minSize, int snapThreshold, bool snap)
+                             const QSize& minSize, int snapThreshold, bool snap,
+                             RollEdge edge = RollEdge::Top)
     {
-        const bool west = handle == FenceHandle::Left || handle == FenceHandle::TopLeft
-                          || handle == FenceHandle::BottomLeft;
-        const bool east = handle == FenceHandle::Right || handle == FenceHandle::TopRight
-                          || handle == FenceHandle::BottomRight;
-        const bool north = !rolledUp
+        // Session 73: rolled up, only the strip's length resizes -- its width
+        // for a horizontal strip, its height for a vertical one.
+        const bool lockW = rolledUp && (edge == RollEdge::Left || edge == RollEdge::Right);
+        const bool lockH = rolledUp && !lockW;
+        const bool west = !lockW
+                          && (handle == FenceHandle::Left || handle == FenceHandle::TopLeft
+                              || handle == FenceHandle::BottomLeft);
+        const bool east = !lockW
+                          && (handle == FenceHandle::Right || handle == FenceHandle::TopRight
+                              || handle == FenceHandle::BottomRight);
+        const bool north = !lockH
                            && (handle == FenceHandle::Top || handle == FenceHandle::TopLeft
                                || handle == FenceHandle::TopRight);
-        const bool south = !rolledUp
+        const bool south = !lockH
                            && (handle == FenceHandle::Bottom || handle == FenceHandle::BottomLeft
                                || handle == FenceHandle::BottomRight);
         // Edges as exclusive coordinates (right = x + width).
@@ -380,19 +412,19 @@ public:
         }
         const int minW = qMax(1, minSize.width());
         const int minH = qMax(1, minSize.height());
-        if (right - left < minW) {
+        if (!lockW && right - left < minW) {
             if (west)
                 left = right - minW;
             else
                 right = left + minW;
         }
-        if (!rolledUp && bottom - top < minH) {
+        if (!lockH && bottom - top < minH) {
             if (north)
                 top = bottom - minH;
             else
                 bottom = top + minH;
         }
-        return QRect(left, top, right - left, rolledUp ? stored.height() : bottom - top);
+        return QRect(left, top, lockW ? stored.width() : right - left, lockH ? stored.height() : bottom - top);
     }
 
     // The single-screen case: one screen at (0,0), which is both the snapping

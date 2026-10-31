@@ -81,6 +81,11 @@ struct FenceStyle {
     // Session 71: unroll a rolled-up fence under the pointer: "" the default
     // (Settings), "on", "off".
     QString hoverUnroll;
+    // Session 73: "" the default (Settings), "bar" (the strip stays on the title
+    // bar's edge), "opposite" (on the other edge).
+    QString rollToward;
+    // Session 73: resize in whole icon cells: "" the default, "on", "off".
+    QString snapToCells;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

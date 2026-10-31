@@ -5586,6 +5586,9 @@ int main(int argc, char* argv[])
                                                   QStringLiteral("fenceHoverSwitch"),
                                                   QStringLiteral("desktopDoubleClickSwitch"),
                                                   QStringLiteral("hoverUnrollSwitch"),
+                                                  QStringLiteral("rollOppositeSwitch"),
+                                                  QStringLiteral("rollAnimationSwitch"),
+                                                  QStringLiteral("snapToCellsSwitch"),
                                                   QStringLiteral("startWithWindowsSwitch")};
                 int strangeSwitches = 0;
                 for (QCheckBox* box : boxes) {
@@ -5597,7 +5600,7 @@ int main(int argc, char* argv[])
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
                 check(QLatin1String("... it has its four pages, the status line and only the global switches"),
-                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 11 /* session 64: fenceOverlapSwitch, 65: fenceHoverSwitch, 69: desktopDoubleClickSwitch, 71: hoverUnrollSwitch */
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 14 /* session 64: fenceOverlapSwitch, 65: fenceHoverSwitch, 69: desktopDoubleClickSwitch, 71: hoverUnrollSwitch, 73: roll x2 + snap */
                           && statusLabel != nullptr && !statusShown.isEmpty()
                           && settings->menuEditor() != nullptr,
                       QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
@@ -5769,6 +5772,9 @@ int main(int argc, char* argv[])
                         && box->objectName() != QLatin1String("fenceHoverSwitch")
                         && box->objectName() != QLatin1String("desktopDoubleClickSwitch")
                         && box->objectName() != QLatin1String("hoverUnrollSwitch")
+                        && box->objectName() != QLatin1String("rollOppositeSwitch")
+                        && box->objectName() != QLatin1String("rollAnimationSwitch")
+                        && box->objectName() != QLatin1String("snapToCellsSwitch")
                         && box->objectName() != QLatin1String("startWithWindowsSwitch"))
                         ++secondBoxes;
                 }

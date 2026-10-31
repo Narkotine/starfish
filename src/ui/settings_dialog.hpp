@@ -54,6 +54,9 @@ public:
     void setHoverHighlight(bool on);
     void setDesktopDoubleClickHides(bool on); // session 69
     void setHoverUnroll(bool on);             // session 71
+    void setRollOpposite(bool on);            // session 73
+    void setRollAnimated(bool on);            // session 73
+    void setSnapToCells(bool on);             // session 73
     void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
@@ -80,6 +83,9 @@ signals:
     void hoverHighlightToggled(bool on);
     void desktopDoubleClickHidesToggled(bool on); // session 69
     void hoverUnrollToggled(bool on);             // session 71
+    void rollOppositeToggled(bool on);            // session 73
+    void rollAnimatedToggled(bool on);            // session 73
+    void snapToCellsToggled(bool on);             // session 73
     void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
@@ -113,6 +119,9 @@ private:
     QCheckBox* m_hover = nullptr;
     QCheckBox* m_doubleClickHides = nullptr;
     QCheckBox* m_hoverUnroll = nullptr;
+    QCheckBox* m_rollOpposite = nullptr;
+    QCheckBox* m_rollAnimated = nullptr;
+    QCheckBox* m_snapToCells = nullptr;
     QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;
     QPushButton* m_borderColour = nullptr;

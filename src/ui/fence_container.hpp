@@ -19,6 +19,8 @@
 #include "ui/icon_grid.hpp"
 #include "ui/screen_layout.hpp"
 
+class QVariantAnimation;
+
 namespace starfish::platform::win {
 class DesktopSurface;
 }
@@ -50,6 +52,11 @@ struct FenceWindow {
     // Session 71: rolled up in the document, shown unrolled while the pointer is
     // over it ("unroll on hover"); never saved as unrolled.
     bool hoverUnrolled = false;
+    // Session 73: while rolling / unrolling, the rect shown (the stored rect and
+    // `rolledUp` already say where it is going and are never animated).
+    QRect animatedVisible;
+    bool animating = false;
+    QVariantAnimation* rollAnimation = nullptr;
     int hoverSerial = 0;
     // T-011: the folder portals this fence mirrors, in declaration order. Each
     // one carries its last listing, which is how the tiles a portal
@@ -254,6 +261,22 @@ public:
     bool fenceHoverUnrolled(const QString& id) const;
     static constexpr int kHoverUnrollDelayMs = 250;
     static constexpr int kHoverRerollDelayMs = 700;
+    // Session 73: which edge a rolled-up fence keeps (default: the title bar's;
+    // a fence's style.rollToward overrides), the roll animation, and resizing
+    // in whole icon cells (style.snapToCells overrides; off by default).
+    void setRollOppositeDefault(bool on) { m_rollOppositeDefault = on; }
+    bool rollOppositeDefault() const { return m_rollOppositeDefault; }
+    void setAnimateRoll(bool on) { m_animateRoll = on; }
+    bool animateRoll() const { return m_animateRoll; }
+    void setSnapToCellsDefault(bool on) { m_snapToCellsDefault = on; }
+    bool snapToCellsDefault() const { return m_snapToCellsDefault; }
+    bool fenceSnapsToCells(const QString& id) const;
+    bool fenceAnimating(const QString& id) const;
+    static constexpr int kRollAnimationMs = 150;
+    // Session 73: resize gesture entry points, public for the probe.
+    void resizeFenceBy(const QString& id, FenceHandle handle, const QPoint& delta);
+    // Session 73: Delete from a fence -- tiles whose file is gone leave it.
+    int forgetMissingItems(const QString& id, const QStringList& paths);
     // The acrylic / textured grain tile (session 71: public for the probe).
     static const QImage& grainTile();
     // Session 65 (T-081): the look a new fence is born with (a template).
@@ -516,6 +539,8 @@ signals:
     void fenceStackChanged(const QString& id);
     void fenceCreated(const QString& id);
     void fenceRemoved(const QString& id);
+    // Session 73: Delete pressed on a fence's selection.
+    void fenceDeleteRequested(const QString& id, const QStringList& paths, bool permanent);
     void fenceRectChanged(const QString& id, const QRect& rect);
     void fenceContentChanged(const QString& id);
     // T-009. Roll-up is persisted (it is part of the document), so the product
@@ -659,6 +684,14 @@ private:
     QString m_defaultBorderColor = QStringLiteral("#FF3B82F6");
     bool m_hoverHighlight = true;
     bool m_hoverUnrollDefault = false;
+    bool m_rollOppositeDefault = false;
+    bool m_animateRoll = false; // the product turns it on (Settings); off headless
+    bool m_snapToCellsDefault = false;
+    QRect visibleRectOf(const FenceWindow& fence) const;
+    FenceGeometry::RollEdge rollEdgeOf(const FenceWindow& fence) const;
+    void animateRollFrom(FenceWindow& fence, const QRect& from);
+    void finishRollAnimation(FenceWindow& fence);
+    QRect snapToCells(const FenceWindow& fence, FenceHandle handle, const QRect& rect) const;
     void onFenceHover(const QString& id, bool hovered);
     void hoverReroll(const QString& id, int serial);
     core::FenceStyle m_newFenceStyle;

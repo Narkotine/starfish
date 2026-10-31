@@ -47,6 +47,8 @@
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
+#include "platform/win/shell_operations.hpp"
+#include <QKeyEvent>
 
 namespace starfish::app {
 
@@ -1106,6 +1108,215 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 73: Delete in a fence; roll edge; roll animation; whole icons --
+    {
+        // Delete: a dummy file in a temp folder only, never a real one.
+        QTemporaryDir temp;
+        const QString dummy = QDir::fromNativeSeparators(temp.path()) + QStringLiteral("/s73 dummy.txt");
+        {
+            QFile file(dummy);
+            file.open(QIODevice::WriteOnly);
+            file.write("starfish probe s73");
+        }
+        const QString thisPc = QStringLiteral("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}");
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Suppr"), QRect(0, 0, 300, 200));
+        container.fileInto(id, {core::itemFromPathOnly(dummy), core::itemFromPathOnly(thisPc)});
+        ui::FenceView* view = container.view(id);
+        QStringList asked;
+        bool permanent = false;
+        int requests = 0;
+        QObject::connect(&container, &ui::FenceContainer::fenceDeleteRequested, &container,
+                         [&](const QString&, const QStringList& paths, bool shift) {
+                             asked = paths;
+                             permanent = shift;
+                             ++requests;
+                         });
+        const QVector<QRect> tiles = view->tileRects();
+        const auto click = [view](const QPoint& at, Qt::KeyboardModifiers mods) {
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(view->mapToGlobal(at)), Qt::LeftButton,
+                              Qt::LeftButton, mods);
+            QCoreApplication::sendEvent(view, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), QPointF(view->mapToGlobal(at)), Qt::LeftButton,
+                                Qt::NoButton, mods);
+            QCoreApplication::sendEvent(view, &release);
+        };
+        const auto key = [view](Qt::KeyboardModifiers mods) {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Delete, mods);
+            QCoreApplication::sendEvent(view, &press);
+        };
+        if (tiles.size() == 2) {
+            click(tiles.at(0).center(), Qt::NoModifier);
+            click(tiles.at(1).center(), Qt::ControlModifier);
+        }
+        const QStringList selected = view->selectedPaths();
+        key(Qt::ShiftModifier);
+        const bool shiftAsked = requests == 1 && permanent && asked == QStringList{dummy};
+        key(Qt::NoModifier);
+        const bool plainAsked = requests == 2 && !permanent && asked == QStringList{dummy};
+        const int beforeForget = container.forgetMissingItems(id, asked); // file still there: nothing goes
+        const bool deleted = platform::win::deleteShellItems(asked, platform::win::DeleteMode::PermanentSilent, 0);
+        const int removed = container.forgetMissingItems(id, asked);
+        const QList<core::DesktopItem> left = view->items();
+        check(QStringLiteral("Delete on a fence's selection: the file only (never This PC), Shift = permanent; the tile leaves once the file is gone (session 73)"),
+              selected.size() == 2 && shiftAsked && plainAsked && beforeForget == 0 && deleted && removed == 1
+                  && left.size() == 1 && left.value(0).path == thisPc && !QFileInfo::exists(dummy),
+              QStringLiteral("selected %1, requests %2, before %3, deleted %4, removed %5, left %6")
+                  .arg(selected.size()).arg(requests).arg(beforeForget).arg(deleted).arg(removed).arg(left.size()));
+    }
+    {
+        // Which edge a rolled-up fence keeps: its title bar's, or the opposite.
+        struct Case {
+            QString side;
+            QString toward;
+            int edge; // 0 top, 1 bottom, 2 left, 3 right
+        };
+        const QList<Case> cases{
+            {QString(), QString(), 0},           {QString(), QStringLiteral("opposite"), 1},
+            {QStringLiteral("bottom"), QString(), 1}, {QStringLiteral("bottom"), QStringLiteral("opposite"), 0},
+            {QStringLiteral("left"), QString(), 2},   {QStringLiteral("left"), QStringLiteral("opposite"), 3},
+            {QStringLiteral("right"), QStringLiteral("bar"), 3}, {QStringLiteral("right"), QStringLiteral("opposite"), 2},
+        };
+        QString detail;
+        bool ok = true;
+        const QRect stored(200, 150, 320, 260);
+        for (const Case& c : cases) {
+            for (bool tab : {false, true}) {
+                ui::FenceContainer container;
+                const QString id = container.createFence(QStringLiteral("Roll"), stored);
+                container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/Windows/notepad.exe"))});
+                core::FenceStyle style = container.fenceStyle(id);
+                style.titleSide = c.side;
+                style.rollToward = c.toward;
+                if (tab)
+                    style.titleBarShape = QStringLiteral("tab");
+                container.setFenceStyle(id, style);
+                const QRect before = container.fenceRect(id);
+                container.setFenceRolledUp(id, true);
+                const QRect v = container.fenceVisibleRect(id);
+                bool edgeOk = false;
+                switch (c.edge) {
+                case 0: edgeOk = v.top() == before.top() && v.width() == before.width() && v.height() < before.height(); break;
+                case 1: edgeOk = v.bottom() == before.bottom() && v.width() == before.width() && v.height() < before.height(); break;
+                case 2: edgeOk = v.left() == before.left() && v.height() == before.height() && v.width() < before.width(); break;
+                default: edgeOk = v.right() == before.right() && v.height() == before.height() && v.width() < before.width(); break;
+                }
+                ui::FenceContainer next;
+                next.applyLayout(container.toLayout());
+                const QString nid = next.fenceIds().value(0);
+                const bool roundTrip = next.fenceRect(nid) == before && next.fenceVisibleRect(nid) == v
+                                       && next.fenceRolledUp(nid);
+                container.setFenceRolledUp(id, false);
+                const bool back = container.fenceRect(id) == before && container.fenceVisibleRect(id) == before;
+                if (!(edgeOk && roundTrip && back)) {
+                    ok = false;
+                    detail += QStringLiteral("[%1/%2%3: v=%4,%5 %6x%7 rt=%8 back=%9] ")
+                                  .arg(c.side.isEmpty() ? QStringLiteral("top") : c.side, c.toward.isEmpty() ? QStringLiteral("default") : c.toward,
+                                       tab ? QStringLiteral(" tab") : QString())
+                                  .arg(v.x()).arg(v.y()).arg(v.width()).arg(v.height()).arg(roundTrip).arg(back);
+                }
+                if (!tab && (c.edge == 2 || c.edge == 1) && c.toward.isEmpty()) {
+                    container.setFenceRolledUp(id, true);
+                    ui::FenceView* view = container.view(id);
+                    QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+                    img.fill(QColor(0x9A, 0xC8, 0x2A));
+                    QPainter p(&img);
+                    view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+                    p.end();
+                    img.save(captures + QStringLiteral("/s73_rolled_%1_%2.png").arg(c.side, theme));
+                }
+            }
+        }
+        // The Settings default flips the fences that follow it.
+        ui::FenceContainer flipped;
+        flipped.setRollOppositeDefault(true);
+        const QString fid = flipped.createFence(QStringLiteral("Roll"), stored);
+        flipped.setFenceRolledUp(fid, true);
+        const QRect fv = flipped.fenceVisibleRect(fid);
+        ok = ok && fv.bottom() == stored.bottom() && fv.height() < stored.height();
+        check(QStringLiteral("roll up toward the title bar or the opposite side, 4 sides, bar and tab, round trip (session 73)"),
+              ok, detail.isEmpty() ? QStringLiteral("16 cases + default flip") : detail);
+    }
+    {
+        // The animation only moves what is shown; the document holds the end.
+        ui::FenceContainer container;
+        container.setAnimateRoll(true);
+        const QRect stored(100, 100, 300, 260);
+        const QString id = container.createFence(QStringLiteral("Anim"), stored);
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/Windows/notepad.exe"))});
+        container.setFenceRolledUp(id, true);
+        const bool started = container.fenceAnimating(id);
+        wait(60);
+        const QRect mid = container.fenceVisibleRect(id);
+        const bool midSaved = container.toLayout().fences.value(0).rolledUp && container.fenceRect(id) == stored;
+        wait(300);
+        const QRect end = container.fenceVisibleRect(id);
+        const QRect strip = ui::FenceGeometry::visibleRect(stored, true);
+        const bool rolled = !container.fenceAnimating(id) && end == strip && container.fenceRect(id) == stored;
+        container.setFenceRolledUp(id, false);
+        wait(60);
+        const QRect midOpen = container.fenceVisibleRect(id);
+        // A second toggle mid-way turns back from where it is.
+        container.setFenceRolledUp(id, true);
+        wait(300);
+        const QRect back = container.fenceVisibleRect(id);
+        container.setFenceRolledUp(id, false);
+        wait(300);
+        const bool open = container.fenceVisibleRect(id) == stored && container.fenceRect(id) == stored;
+        check(QStringLiteral("roll / unroll animate in ~150 ms; the stored rect never moves (session 73)"),
+              started && mid.height() < stored.height() && mid.height() > strip.height() && midSaved && rolled
+                  && midOpen.height() > strip.height() && midOpen.height() < stored.height() && back == strip && open,
+              QStringLiteral("mid %1, end %2, mid open %3, back %4").arg(mid.height()).arg(end.height())
+                  .arg(midOpen.height()).arg(back.height()));
+    }
+    {
+        // Whole icons: a resize lands on whole columns and rows; restore keeps it.
+        ui::FenceContainer container;
+        container.setSnapToCellsDefault(true);
+        const QString id = container.createFence(QStringLiteral("Cells"), QRect(100, 100, 300, 260));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/Windows/notepad.exe")),
+                                core::itemFromPathOnly(QStringLiteral("C:/Windows/regedit.exe"))});
+        ui::FenceView* view = container.view(id);
+        const auto fits = [view](int size, bool horizontal) {
+            const QRect content = view->contentRect();
+            const int chrome = horizontal ? view->width() - content.width() : view->height() - content.height();
+            const int cell = horizontal ? qMax(view->iconSize(), view->cellWidth()) : view->iconSize() + view->labelHeight();
+            const int rest = size - chrome - 2 * view->gridPadding() + view->gridGap();
+            return rest > 0 && rest % (cell + view->gridGap()) == 0;
+        };
+        QString detail;
+        bool ok = true;
+        for (const QPoint& delta : {QPoint(37, 0), QPoint(-61, 23), QPoint(140, 97)}) {
+            container.resizeFenceBy(id, ui::FenceHandle::BottomRight, delta);
+            const QRect r = container.fenceRect(id);
+            const bool w = fits(r.width(), true), h = fits(r.height(), false);
+            ok = ok && w && h && r.topLeft() == QPoint(100, 100);
+            detail += QStringLiteral("%1x%2 ").arg(r.width()).arg(r.height());
+        }
+        const int eastEdge = container.fenceRect(id).right();
+        container.resizeFenceBy(id, ui::FenceHandle::Left, QPoint(-45, 0));
+        const QRect west = container.fenceRect(id);
+        ok = ok && fits(west.width(), true) && west.right() == eastEdge;
+        ui::FenceContainer next;
+        next.applyLayout(container.toLayout());
+        const bool roundTrip = next.fenceRect(next.fenceIds().value(0)) == west;
+        // A fence saying "off" stays free.
+        core::FenceStyle style = container.fenceStyle(id);
+        style.snapToCells = QStringLiteral("off");
+        container.setFenceStyle(id, style);
+        const QRect free0 = container.fenceRect(id);
+        container.resizeFenceBy(id, ui::FenceHandle::Right, QPoint(13, 0));
+        const bool free = container.fenceRect(id).width() == free0.width() + 13;
+        QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+        img.fill(QColor(0x9A, 0xC8, 0x2A));
+        QPainter p(&img);
+        view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+        p.end();
+        img.save(captures + QStringLiteral("/s73_whole_icons_%1.png").arg(theme));
+        check(QStringLiteral("resize in whole icon cells (default or per fence), restore exact, 'off' stays free (session 73)"),
+              ok && roundTrip && free, detail + QStringLiteral(" west %1, rt %2, free %3").arg(west.width()).arg(roundTrip).arg(free));
     }
 
     // --- session 72: quit + relaunch keeps a narrow fence's size --------------

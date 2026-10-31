@@ -133,6 +133,11 @@ public:
     TitleSide storedTitleSide() const { return m_titleSide; }
     bool titleBarShown() const { return m_titleBarShown; }
     int borderWidth() const { return m_borderWidth; }
+    // Session 73: the grid's numbers, for sizing a fence in whole cells.
+    int iconSize() const { return m_grid.iconSize(); }
+    int gridGap() const { return m_grid.gap(); }
+    int gridPadding() const { return m_grid.padding(); }
+    int labelHeight() const { return m_grid.labelHeight(); }
     // Session 71: what paintEvent draws. Background = panel, band, border;
     // Foreground = title text, icons, labels, hints. The composed desktop puts a
     // material's grain between the two, so it lies *behind* the icons.
@@ -212,6 +217,9 @@ signals:
     // owner can re-render the offscreen frame and push it to the surface.
     void contentChanged();
     void hoverChanged(bool hovered); // session 71: enter / leave
+    // Session 73: Delete (Shift+Delete) on the selection; special items such as
+    // This PC or the Recycle Bin are left out.
+    void deleteRequested(const QStringList& paths, bool permanent);
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the
@@ -271,6 +279,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void enterEvent(QEnterEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override; // session 73
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;

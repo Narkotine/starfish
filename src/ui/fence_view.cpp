@@ -1,5 +1,6 @@
 #include "ui/fence_view.hpp"
 
+#include <QKeyEvent>
 #include <QMetaMethod>
 #include <QtMath>
 #include <cmath>
@@ -202,8 +203,11 @@ QRect FenceView::contentRect() const
 
 FenceView::TitleSide FenceView::titleSide() const
 {
-    // A rolled-up fence is its title bar, laid along the top.
-    return m_rolledUp ? TitleSide::Top : m_titleSide;
+    // A rolled-up fence is its title bar: a horizontal strip reads as a top
+    // bar; session 73: a side bar rolls into a vertical strip and keeps its side.
+    if (m_rolledUp && (m_titleSide == TitleSide::Top || m_titleSide == TitleSide::Bottom))
+        return TitleSide::Top;
+    return m_titleSide;
 }
 
 void FenceView::setTitleSide(TitleSide side)
@@ -1259,6 +1263,26 @@ void FenceView::enterEvent(QEnterEvent* event)
         emit contentChanged();
     }
     emit hoverChanged(true);
+}
+
+void FenceView::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() != Qt::Key_Delete) {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    // Session 73: Delete sends the selection to the Recycle Bin (Shift: the
+    // Shell's permanent delete, with its own confirmation). Shell folders that
+    // are not files (This PC, the Recycle Bin, ...) are never deleted.
+    QStringList paths;
+    for (const QString& path : selectedPaths()) {
+        if (path.isEmpty() || path.startsWith(QLatin1String("::")) || path.startsWith(QLatin1String("shell:"), Qt::CaseInsensitive))
+            continue;
+        paths.append(path);
+    }
+    if (!paths.isEmpty())
+        emit deleteRequested(paths, event->modifiers().testFlag(Qt::ShiftModifier));
+    event->accept();
 }
 
 void FenceView::leaveEvent(QEvent* event)

@@ -138,6 +138,19 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Border hidden"), QStringLiteral("noborder"));
     hoverCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Glow"), QStringLiteral("glow"));
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "On hover"), hoverCombo);
+    // Session 73: behaviour this fence may decide for itself.
+    auto* rollCombo = new QComboBox(dialog);
+    rollCombo->setObjectName(QStringLiteral("rollToward"));
+    rollCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
+    rollCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Toward the title bar"), QStringLiteral("bar"));
+    rollCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Toward the opposite side"), QStringLiteral("opposite"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Roll up"), rollCombo);
+    auto* snapCombo = new QComboBox(dialog);
+    snapCombo->setObjectName(QStringLiteral("snapToCells"));
+    snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
+    snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Whole icons"), QStringLiteral("on"));
+    snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Free"), QStringLiteral("off"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Resize"), snapCombo);
 
     auto* panel = new QPushButton(dialog);
     panel->setObjectName(QStringLiteral("panelColour"));
@@ -268,7 +281,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
@@ -307,6 +320,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleShape->setCurrentIndex(qMax(0, titleShape->findData(style.titleBarShape)));
         titleShape->setEnabled(style.titleBar);
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
+        {
+            const QSignalBlocker r(rollCombo), n(snapCombo);
+            rollCombo->setCurrentIndex(qMax(0, rollCombo->findData(style.rollToward)));
+            snapCombo->setCurrentIndex(qMax(0, snapCombo->findData(style.snapToCells)));
+        }
         paintSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor);
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -395,6 +413,14 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     QObject::connect(hoverCombo, &QComboBox::currentIndexChanged, dialog, [hoverCombo, restyle](int) {
         const QString chosen = hoverCombo->currentData().toString();
         restyle([chosen](core::FenceStyle& style) { style.hoverEffect = chosen; });
+    });
+    QObject::connect(rollCombo, &QComboBox::currentIndexChanged, dialog, [rollCombo, restyle](int) {
+        const QString chosen = rollCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.rollToward = chosen; });
+    });
+    QObject::connect(snapCombo, &QComboBox::currentIndexChanged, dialog, [snapCombo, restyle](int) {
+        const QString chosen = snapCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.snapToCells = chosen; });
     });
     QObject::connect(titleSide, &QComboBox::currentIndexChanged, dialog, [titleSide, restyle](int) {
         const QString chosen = titleSide->currentData().toString();

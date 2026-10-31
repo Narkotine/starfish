@@ -342,6 +342,27 @@ QWidget* SettingsDialog::buildFences()
                      tr("It rolls back up when the pointer leaves. A fence can say yes or no itself (its menu)."),
                      m_hoverUnroll, p));
 
+    // Session 73: rolling and resizing.
+    const auto toggle = [&](QCheckBox*& box, const char* name, bool on, void (SettingsDialog::*signal)(bool),
+                            QChar glyph, const QString& title, const QString& hint) {
+        box = new ToggleSwitch;
+        box->setObjectName(QString::fromLatin1(name));
+        box->setChecked(on);
+        connect(box, &QCheckBox::toggled, this, [this, signal](bool value) {
+            if (!m_updating)
+                emit (this->*signal)(value);
+        });
+        l->addWidget(row(QString(glyph), title, hint, box, p));
+    };
+    toggle(m_rollOpposite, "rollOppositeSwitch", false, &SettingsDialog::rollOppositeToggled, QChar(0xE74B),
+           tr("Roll fences up toward the opposite side"),
+           tr("Off: a rolled-up fence keeps its title bar's edge. A fence can choose for itself (Appearance)."));
+    toggle(m_rollAnimated, "rollAnimationSwitch", true, &SettingsDialog::rollAnimatedToggled, QChar(0xE916),
+           tr("Animate rolling up and down"), tr("A short slide; off: at once."));
+    toggle(m_snapToCells, "snapToCellsSwitch", false, &SettingsDialog::snapToCellsToggled, QChar(0xE80A),
+           tr("Resize fences in whole icons"),
+           tr("Width and height land on whole columns and rows. A fence can choose for itself (Appearance)."));
+
     // Session 69: optional, off by default.
     m_doubleClickHides = new ToggleSwitch;
     m_doubleClickHides->setObjectName(QStringLiteral("desktopDoubleClickSwitch"));
@@ -543,6 +564,27 @@ void SettingsDialog::setLanguage(const QString& code)
 {
     m_updating = true;
     m_language->setCurrentIndex(qMax(0, m_language->findData(code)));
+    m_updating = false;
+}
+
+void SettingsDialog::setRollOpposite(bool on)
+{
+    m_updating = true;
+    m_rollOpposite->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setRollAnimated(bool on)
+{
+    m_updating = true;
+    m_rollAnimated->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setSnapToCells(bool on)
+{
+    m_updating = true;
+    m_snapToCells->setChecked(on);
     m_updating = false;
 }
 

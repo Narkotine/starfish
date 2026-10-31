@@ -6,6 +6,9 @@
 #include <QDebug>
 #include <QDir>
 #include <QApplication>
+#include <QVariantAnimation>
+#include <QEasingCurve>
+#include <QFileInfo>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QPainterPath>
@@ -169,7 +172,7 @@ QRect FenceContainer::fenceTitleScreenRect(const QString& id) const
     for (const FenceWindow& fence : m_fences) {
         if (fence.id != id || !fence.view)
             continue;
-        const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+        const QRect visible = visibleRectOf(fence);
         const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
         const QRect local = fence.view->titleTextRect();
         const QPoint origin(qRound(visible.x() / dpr), qRound(visible.y() / dpr));
@@ -191,7 +194,7 @@ QPoint FenceContainer::physicalFromFenceLocal(const QString& id, const QPoint& l
     const FenceWindow* fence = find(id);
     if (!fence)
         return local;
-    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    const QRect visible = visibleRectOf(*fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
     return visible.topLeft() + QPoint(qRound(local.x() * dpr), qRound(local.y() * dpr));
 }
@@ -215,7 +218,7 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         source->view->setDragOverOtherFence(!dropped && into);
     if (!dropped) {
         if (into && into->view) {
-            const QRect visible = FenceGeometry::visibleRect(into->rect, into->rolledUp);
+            const QRect visible = visibleRectOf(*into);
             const qreal dpr = m_screens.devicePixelRatioFor(into->rect);
             const QPoint local(qRound((screenPoint.x() - visible.x()) / dpr),
                                qRound((screenPoint.y() - visible.y()) / dpr));
@@ -262,7 +265,7 @@ int FenceContainer::fileIntoAt(const QString& fenceId, const QList<core::Desktop
     FenceWindow* fence = find(fenceId);
     if (!fence || !fence->view)
         return 0;
-    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    const QRect visible = visibleRectOf(*fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
     const QPoint local((screenPoint.x() - visible.x()) / dpr, (screenPoint.y() - visible.y()) / dpr);
     QList<core::DesktopItem> fresh;
@@ -406,7 +409,7 @@ QString FenceContainer::fenceAt(const QPoint& point) const
     // any overlap, so it is the one the user is aiming at when they let go.
     for (int i = m_fences.size() - 1; i >= 0; --i) {
         const FenceWindow& fence = m_fences.at(i);
-        if (FenceGeometry::visibleRect(fence.rect, fence.rolledUp).contains(point))
+        if (visibleRectOf(fence).contains(point))
             return fence.id;
     }
     return QString();
@@ -561,7 +564,7 @@ QList<QRect> FenceContainer::fenceObstacleRects() const
     if (!m_fencesVisible)
         return rects;
     for (const FenceWindow& fence : m_fences)
-        rects.append(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
+        rects.append(visibleRectOf(fence));
     return rects;
 }
 
@@ -665,9 +668,10 @@ void FenceContainer::onFenceHover(const QString& id, bool hovered)
             FenceWindow* f = find(id);
             if (!f || f->hoverSerial != serial || !f->rolledUp || !f->view || !f->view->hovered() || f->dragging)
                 return;
+            const QRect from = visibleRectOf(*f);
             f->rolledUp = false;
             f->hoverUnrolled = true;
-            applyVisibleGeometry(*f);
+            animateRollFrom(*f, from);
             qCInfo(lc).noquote() << QStringLiteral("fence %1 unrolled under the pointer").arg(id);
         });
         return;
@@ -687,9 +691,174 @@ void FenceContainer::hoverReroll(const QString& id, int serial)
         QTimer::singleShot(kHoverRerollDelayMs, this, [this, id, serial] { hoverReroll(id, serial); });
         return;
     }
+    const QRect from = visibleRectOf(*f);
     f->hoverUnrolled = false;
     f->rolledUp = true;
-    applyVisibleGeometry(*f);
+    animateRollFrom(*f, from);
+}
+
+QRect FenceContainer::visibleRectOf(const FenceWindow& fence) const
+{
+    if (fence.animating && fence.animatedVisible.isValid())
+        return fence.animatedVisible;
+    return FenceGeometry::visibleRect(fence.rect, fence.rolledUp, rollEdgeOf(fence));
+}
+
+FenceGeometry::RollEdge FenceContainer::rollEdgeOf(const FenceWindow& fence) const
+{
+    using Edge = FenceGeometry::RollEdge;
+    const QString side = fence.style.titleSide;
+    Edge edge = side == QLatin1String("bottom") ? Edge::Bottom
+              : side == QLatin1String("left")   ? Edge::Left
+              : side == QLatin1String("right")  ? Edge::Right
+                                                : Edge::Top;
+    const QString pref = fence.style.rollToward;
+    const bool opposite = pref == QLatin1String("opposite") || (pref.isEmpty() && m_rollOppositeDefault);
+    if (opposite) {
+        switch (edge) {
+        case Edge::Top: edge = Edge::Bottom; break;
+        case Edge::Bottom: edge = Edge::Top; break;
+        case Edge::Left: edge = Edge::Right; break;
+        case Edge::Right: edge = Edge::Left; break;
+        }
+    }
+    return edge;
+}
+
+bool FenceContainer::fenceAnimating(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->animating;
+}
+
+void FenceContainer::finishRollAnimation(FenceWindow& fence)
+{
+    if (!fence.animating)
+        return;
+    if (fence.rollAnimation)
+        fence.rollAnimation->stop();
+    fence.animating = false;
+    fence.animatedVisible = QRect();
+    applyVisibleGeometry(fence);
+}
+
+void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
+{
+    // Session 73: roll / unroll in ~150 ms, ease-out. Only the rect shown moves;
+    // the document (rect, rolledUp) already holds the end state.
+    if (fence.rollAnimation)
+        fence.rollAnimation->stop();
+    fence.animating = false;
+    fence.animatedVisible = QRect();
+    const QRect to = visibleRectOf(fence);
+    if (!m_animateRoll || !from.isValid() || from == to) {
+        applyVisibleGeometry(fence);
+        return;
+    }
+    if (!fence.rollAnimation) {
+        const QString id = fence.id;
+        auto* animation = new QVariantAnimation(this);
+        animation->setDuration(kRollAnimationMs);
+        animation->setEasingCurve(QEasingCurve::OutCubic);
+        connect(animation, &QVariantAnimation::valueChanged, this, [this, id](const QVariant& value) {
+            FenceWindow* f = find(id);
+            if (!f || !f->animating)
+                return;
+            f->animatedVisible = value.toRect();
+            applyVisibleGeometry(*f);
+        });
+        connect(animation, &QVariantAnimation::finished, this, [this, id] {
+            FenceWindow* f = find(id);
+            if (!f || !f->animating)
+                return;
+            f->animating = false;
+            f->animatedVisible = QRect();
+            applyVisibleGeometry(*f);
+        });
+        fence.rollAnimation = animation;
+    }
+    fence.animating = true;
+    fence.animatedVisible = from;
+    fence.rollAnimation->setStartValue(from);
+    fence.rollAnimation->setEndValue(to);
+    fence.rollAnimation->start();
+}
+
+bool FenceContainer::fenceSnapsToCells(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence)
+        return false;
+    const QString pref = fence->style.snapToCells;
+    return pref == QLatin1String("on") || (pref.isEmpty() && m_snapToCellsDefault);
+}
+
+QRect FenceContainer::snapToCells(const FenceWindow& fence, FenceHandle handle, const QRect& rect) const
+{
+    // Session 73: whole columns and rows -- the sizes at which the grid's
+    // padding is the same on both sides (IconLayout::columnsForWidth).
+    if (!fence.view || fence.rolledUp || fence.view->rolledUp() || !fenceSnapsToCells(fence.id))
+        return rect;
+    const FenceView* view = fence.view;
+    const QRect content = view->contentRect();
+    if (content.isEmpty())
+        return rect;
+    const qreal dpr = m_screens.devicePixelRatioFor(rect);
+    const int chromeW = view->width() - content.width();
+    const int chromeH = view->height() - content.height();
+    const int pad = view->gridPadding();
+    const int gap = view->gridGap();
+    const int cellW = qMax(view->iconSize(), view->cellWidth());
+    const int cellH = view->iconSize() + view->labelHeight();
+    const auto whole = [&](int physical, int chrome, int cell) {
+        const qreal logical = physical / dpr - chrome - 2 * pad + gap;
+        const int n = qMax(1, qRound(logical / (cell + gap)));
+        return qCeil((chrome + 2 * pad + n * cell + (n - 1) * gap) * dpr);
+    };
+    const bool west = handle == FenceHandle::Left || handle == FenceHandle::TopLeft || handle == FenceHandle::BottomLeft;
+    const bool east = handle == FenceHandle::Right || handle == FenceHandle::TopRight || handle == FenceHandle::BottomRight;
+    const bool north = handle == FenceHandle::Top || handle == FenceHandle::TopLeft || handle == FenceHandle::TopRight;
+    const bool south = handle == FenceHandle::Bottom || handle == FenceHandle::BottomLeft || handle == FenceHandle::BottomRight;
+    QRect out = rect;
+    if (west || east) {
+        const int w = whole(rect.width(), chromeW, cellW);
+        if (west)
+            out.setLeft(rect.left() + rect.width() - w);
+        else
+            out.setWidth(w);
+    }
+    if (north || south) {
+        const int h = whole(rect.height(), chromeH, cellH);
+        if (north)
+            out.setTop(rect.top() + rect.height() - h);
+        else
+            out.setHeight(h);
+    }
+    return out;
+}
+
+void FenceContainer::resizeFenceBy(const QString& id, FenceHandle handle, const QPoint& delta)
+{
+    beginGeometryDrag(id);
+    applyGeometryDrag(id, handle, delta);
+    endGeometryDrag(id);
+}
+
+int FenceContainer::forgetMissingItems(const QString& id, const QStringList& paths)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !fence->view)
+        return 0;
+    QStringList gone;
+    for (const QString& path : paths) {
+        if (!path.isEmpty() && !QFileInfo::exists(path))
+            gone.append(path);
+    }
+    if (gone.isEmpty())
+        return 0;
+    const int removed = fence->view->removeItemsByPath(gone);
+    qCInfo(lc).noquote() << QStringLiteral("fence %1: %2 deleted icon(s) removed").arg(id).arg(removed);
+    return removed;
 }
 
 void FenceContainer::setFenceTitle(const QString& id, const QString& title)
@@ -909,7 +1078,7 @@ void FenceContainer::raiseFence(const QString& id)
         fence.surface->raiseToTop();
     if (!moved)
         return;
-    recompose(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
+    recompose(visibleRectOf(fence));
     emit fenceStackChanged(id);
 }
 
@@ -980,7 +1149,7 @@ void FenceContainer::recompose(const QRect& dirty)
     for (FenceWindow& fence : m_fences) {
         if (!fence.surface || fence.content.isNull())
             continue;
-        const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+        const QRect visible = visibleRectOf(fence);
         if (!changed.intersects(visible))
             continue;
         composeFence(fence);
@@ -1013,7 +1182,7 @@ void FenceContainer::composeFence(FenceWindow& fence)
         return;
     QElapsedTimer timer;
     timer.start();
-    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const QRect visible = visibleRectOf(fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     // Physical pixels throughout: the desktop's frame is the virtual screen 1:1,
     // the fence's window is its visible rect 1:1, on any monitor (T-014).
@@ -1033,7 +1202,7 @@ void FenceContainer::composeFence(FenceWindow& fence)
             const FenceWindow& other = m_fences.at(i);
             if (!other.surface || other.frame.isNull())
                 continue;
-            const QRect ov = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            const QRect ov = visibleRectOf(other);
             if (!ov.intersects(visible))
                 continue;
             const QRect target = ov.translated(-visible.topLeft());
@@ -1217,7 +1386,7 @@ void FenceContainer::rehostLostFences()
         // The overlay died with the panel; it is rebuilt from scratch, above
         // the new panel, by renderFence() -> syncIconOverlay().
         destroyIconOverlay(fence);
-        if (!fence.surface->attach(FenceGeometry::visibleRect(fence.rect, fence.rolledUp)))
+        if (!fence.surface->attach(visibleRectOf(fence)))
             continue;
         ++back;
         ++m_rehosted;
@@ -1246,7 +1415,7 @@ bool FenceContainer::attachIconOverlay(FenceWindow& fence)
     if (fence.iconOverlay || !fence.surface || !fence.view)
         return false;
 
-    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const QRect visible = visibleRectOf(fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
 
     auto* overlay = new starfish::platform::win::DesktopSurface(this);
@@ -1317,7 +1486,7 @@ void FenceContainer::syncIconOverlay(FenceWindow& fence)
     if (!fence.iconOverlay && !attachIconOverlay(fence))
         return;
 
-    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const QRect visible = visibleRectOf(fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     fence.iconOverlay->setDevicePixelRatio(dpr);
     // ⚠️ The tiles are measured once per *size*, never per move: the shape is a
@@ -1412,7 +1581,7 @@ QList<QRect> FenceContainer::otherRects(const QString& excludeId) const
     rects.reserve(m_fences.size());
     for (const FenceWindow& fence : m_fences) {
         if (fence.id != excludeId)
-            rects.append(FenceGeometry::visibleRect(fence.rect, fence.rolledUp));
+            rects.append(visibleRectOf(fence));
     }
     return rects;
 }
@@ -1617,7 +1786,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // back as a title bar, not as a full panel. Logical pixels -- the stored
     // rect is physical, so on a scaled monitor the widget is smaller than the
     // rect it fills (T-014).
-    fence.view->resize(logicalSize(FenceGeometry::visibleRect(fence.rect, fence.rolledUp).size(),
+    fence.view->resize(logicalSize(visibleRectOf(fence).size(),
                                    m_screens.devicePixelRatioFor(fence.rect)));
     fence.view->setSort(sortBy, sortAscending);
     fence.view->setItems(items);
@@ -1664,6 +1833,8 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     connect(view, &FenceView::contentChanged, this, [this, id] { renderFence(id); });
     connect(view, &FenceView::itemReleaseRequested, this,
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
+    connect(view, &FenceView::deleteRequested, this,
+            [this, id](const QStringList& paths, bool permanent) { emit fenceDeleteRequested(id, paths, permanent); });
     connect(view, &FenceView::hoverChanged, this, [this, id](bool hovered) { onFenceHover(id, hovered); });
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
@@ -1677,6 +1848,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     if (m_host) {
         auto* surface = new starfish::platform::win::DesktopSurface(this);
         surface->setInputTarget(view);
+        surface->setForwardsKeys(true); // session 73: Delete on the selection
 #if defined(_WIN32)
         // The hosted surface is an image on screen, so Qt's own drag-and-drop
         // never runs there: files dropped by the Explorer arrive through the
@@ -1706,7 +1878,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         // the path that does not reach the screen on a child of Progman.
         surface->setUniformAlpha(m_composed ? 255 : qMax(13, effectiveAlpha(style)));
         surface->setCornerRadius(style.radius);
-        if (!surface->attach(FenceGeometry::visibleRect(m_fences.last().rect, rolledUp))) {
+        if (!surface->attach(visibleRectOf(m_fences.last()))) {
             qCWarning(lc).noquote()
                 << QStringLiteral("fence %1: could not host the surface (no desktop?)").arg(id);
             delete surface;
@@ -1834,6 +2006,7 @@ bool FenceContainer::removeFence(const QString& id)
         // (AGENTS.md golden rule).
         const QRect was = m_fences.at(i).composedAt;
         delete m_fences.at(i).iconOverlay; // T-082: above the panel, so first
+        delete m_fences.at(i).rollAnimation; // session 73
         delete m_fences.at(i).surface;
         delete m_fences.at(i).view;
         m_fences.removeAt(i);
@@ -1884,7 +2057,7 @@ void FenceContainer::applyOutline(FenceWindow& fence)
         fence.surface->setShapePolygon(QPolygon());
         return;
     }
-    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const QRect visible = visibleRectOf(fence);
     fence.surface->setShapePolygon(windowShape(fence, visible.size()).toFillPolygon().toPolygon());
 }
 
@@ -1925,7 +2098,7 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
     const QRect target = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, rect,
                                                      otherRects(id), m_screens.frames(),
                                                      m_screens.clampRectFor(rect), minSizeFor(*fence),
-                                                     m_snapThreshold, snap);
+                                                     m_snapThreshold, snap, rollEdgeOf(*fence));
     fence->rect = target;
     // Moving a fence to another monitor updates the monitor it is recorded on.
     fence->monitor = m_screens.nameFor(target);
@@ -1937,13 +2110,13 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
 
 void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
 {
-    const QRect visible = FenceGeometry::visibleRect(fence.rect, fence.rolledUp);
+    const QRect visible = visibleRectOf(fence);
     // The stored rect is physical; the widget is logical. On a 100 % monitor the
     // two are the same size, which is why this conversion can be added without
     // changing a single pixel of the v1 behaviour (T-014).
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     if (fence.view) {
-        fence.view->setRolledUp(fence.rolledUp);
+        fence.view->setRolledUp(fence.rolledUp && !fence.animating); // session 73: unrolled while it moves
         fence.view->resize(logicalSize(visible.size(), dpr));
     }
     // T-082: the overlay is placed *first*. It is the window that goes to the top
@@ -1990,7 +2163,7 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
         for (FenceWindow& other : m_fences) {
             if (!other.surface || other.content.isNull())
                 continue;
-            const QRect v = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            const QRect v = visibleRectOf(other);
             if (!changed.intersects(v))
                 continue;
             composeFence(other);
@@ -2006,7 +2179,7 @@ QRect FenceContainer::fenceVisibleRect(const QString& id) const
     const FenceWindow* fence = find(id);
     if (!fence)
         return {};
-    return FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    return visibleRectOf(*fence);
 }
 
 bool FenceContainer::setFenceRolledUp(const QString& id, bool rolledUp)
@@ -2027,8 +2200,9 @@ bool FenceContainer::setFenceRolledUp(const QString& id, bool rolledUp)
     if (fence->rolledUp == rolledUp)
         return true;
 
+    const QRect from = visibleRectOf(*fence);
     fence->rolledUp = rolledUp;
-    applyVisibleGeometry(*fence);
+    animateRollFrom(*fence, from);
     qCInfo(lc).noquote() << QStringLiteral("fence %1 %2")
                                 .arg(id, rolledUp ? QStringLiteral("rolled up")
                                                   : QStringLiteral("rolled down"));
@@ -2103,7 +2277,7 @@ void FenceContainer::renderFence(const QString& id)
     // any monitor. The device pixel ratio is what makes Qt paint the logical
     // widget into those physical pixels, so a fence keeps the same apparent size
     // (and the same icon density) on a 150 % monitor as on a 100 % one.
-    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    const QRect visible = visibleRectOf(*fence);
     applyOutline(*fence); // session 69: the tab follows the title and the style
     if (m_composed && fence->surface) {
         // T-098: the fence's own pixels over transparency, then composed.
@@ -2147,7 +2321,7 @@ void FenceContainer::renderFence(const QString& id)
         for (FenceWindow& other : m_fences) {
             if (!other.surface || other.content.isNull())
                 continue;
-            const QRect v = FenceGeometry::visibleRect(other.rect, other.rolledUp);
+            const QRect v = visibleRectOf(other);
             if (!changed.intersects(v))
                 continue;
             composeFence(other);
@@ -2209,6 +2383,7 @@ void FenceContainer::beginGeometryDrag(const QString& id)
     FenceWindow* fence = find(id);
     if (!fence)
         return;
+    finishRollAnimation(*fence); // session 73: a gesture starts from where the fence really is
     fence->dragStartRect = fence->rect;
     fence->dragging = true;
 }
@@ -2230,8 +2405,8 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
     const auto keepClear = [&](const QRect& target, bool resizing) {
         if (m_allowOverlap)
             return target;
-        const QRect from = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
-        const QRect to = FenceGeometry::visibleRect(target, fence->rolledUp);
+        const QRect from = visibleRectOf(*fence);
+        const QRect to = FenceGeometry::visibleRect(target, fence->rolledUp, rollEdgeOf(*fence));
         const QRect clear = FenceGeometry::avoidOverlap(from, to, otherRects(id), resizing);
         if (clear == from)
             return fence->rect;
@@ -2249,7 +2424,7 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
         }
         const QRect snapped = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, moved, otherRects(id),
                                                           m_screens.frames(), m_screens.clampRectFor(moved), minSizeFor(*fence),
-                                                          m_snapThreshold, true);
+                                                          m_snapThreshold, true, rollEdgeOf(*fence));
         const QRect target = keepClear(snapped, false);
         if (target == fence->rect)
             return;
@@ -2262,10 +2437,10 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
     // T-086: a resize moves the grabbed edges only (applyResize), never the
     // fence -- the top-left corner stays put unless the left/top edge is held.
     const QRect requested = FenceGeometry::resize(fence->dragStartRect, handle, delta, minSizeFor(*fence));
-    const QRect target = FenceGeometry::applyResize(fence->dragStartRect, fence->rolledUp, handle, requested,
+    const QRect target = snapToCells(*fence, handle, FenceGeometry::applyResize(fence->dragStartRect, fence->rolledUp, handle, requested,
                                                     otherRects(id), m_screens.frames(),
                                                     m_screens.clampRectFor(fence->dragStartRect), minSizeFor(*fence),
-                                                    m_snapThreshold, true);
+                                                    m_snapThreshold, true, rollEdgeOf(*fence)));
     const QRect kept = keepClear(target, true);
     if (kept == fence->rect)
         return;

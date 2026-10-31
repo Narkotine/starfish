@@ -235,6 +235,9 @@ bool ProductApp::start(const Options& options, QString* error)
         const QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
         m_container->setHoverHighlight(settings.value(QStringLiteral("fenceHoverHighlight"), true).toBool());
         m_container->setHoverUnrollDefault(settings.value(QStringLiteral("fenceHoverUnroll"), false).toBool());
+        m_container->setRollOppositeDefault(settings.value(QStringLiteral("fenceRollOpposite"), false).toBool());
+        m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
+        m_container->setSnapToCellsDefault(settings.value(QStringLiteral("fenceSnapToCells"), false).toBool());
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle());
         m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
                                       settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
@@ -566,6 +569,20 @@ void ProductApp::wireSettings()
         m_doubleClickHides = on;
         if (!on)
             setDesktopHiddenByUser(false); // nothing stays hidden behind a switched-off gesture
+    });
+    const auto saveSwitch = [this](const QString& key, bool on, void (ui::FenceContainer::*apply)(bool)) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat).setValue(key, on);
+        if (m_container)
+            (m_container->*apply)(on);
+    };
+    connect(m_settings, &ui::SettingsDialog::rollOppositeToggled, this, [saveSwitch](bool on) {
+        saveSwitch(QStringLiteral("fenceRollOpposite"), on, &ui::FenceContainer::setRollOppositeDefault);
+    });
+    connect(m_settings, &ui::SettingsDialog::rollAnimatedToggled, this, [saveSwitch](bool on) {
+        saveSwitch(QStringLiteral("fenceRollAnimated"), on, &ui::FenceContainer::setAnimateRoll);
+    });
+    connect(m_settings, &ui::SettingsDialog::snapToCellsToggled, this, [saveSwitch](bool on) {
+        saveSwitch(QStringLiteral("fenceSnapToCells"), on, &ui::FenceContainer::setSnapToCellsDefault);
     });
     connect(m_settings, &ui::SettingsDialog::hoverUnrollToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
@@ -1010,6 +1027,18 @@ void ProductApp::wireFenceMenu()
             &ProductApp::showFenceMenu);
     connect(m_container, &ui::FenceContainer::fenceItemMenuRequested, this,
             &ProductApp::onFenceItemMenu);
+    // Session 73: Delete on a fence's selection -- the Shell's own delete (Recycle
+    // Bin and undo; Shift: its permanent delete with its confirmation). The
+    // tiles whose file is gone leave the fence; a cancelled delete leaves all.
+    connect(m_container, &ui::FenceContainer::fenceDeleteRequested, this,
+            [this](const QString& id, const QStringList& paths, bool permanent) {
+                using platform::win::DeleteMode;
+                platform::win::deleteShellItems(paths, permanent ? DeleteMode::Permanent : DeleteMode::RecycleBin,
+                                                backdropOwner());
+                if (m_container)
+                    m_container->forgetMissingItems(id, paths);
+                m_shellResync.start();
+            });
 }
 
 void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
@@ -1613,6 +1642,9 @@ void ProductApp::refreshStatus()
         m_settings->setHoverHighlight(m_container->hoverHighlight());
         m_settings->setDesktopDoubleClickHides(m_doubleClickHides);
         m_settings->setHoverUnroll(m_container->hoverUnrollDefault());
+        m_settings->setRollOpposite(m_container->rollOppositeDefault());
+        m_settings->setRollAnimated(m_container->animateRoll());
+        m_settings->setSnapToCells(m_container->snapToCellsDefault());
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);

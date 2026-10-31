@@ -31,6 +31,7 @@ private slots:
     }
 
     // Session 64: overlaps off.
+    void aRolledUpFenceKeepsItsEdge();
     void aMoveStopsAgainstAnotherFence();
     void aResizeStopsAgainstAnotherFence();
     void anOldOverlapNeitherBlocksNorMoves();
@@ -472,6 +473,19 @@ void TestFenceGeometry::aDrawnFenceGoesToTheNearestFreePlace()
     QCOMPARE(placed.size(), drawn.size());
     QVERIFY((placed.center() - drawn.center()).manhattanLength() <= 160);
     QCOMPARE(FenceGeometry::nearestFree(QRect(0, 0, 100, 100), {other}, bounds), QRect(0, 0, 100, 100));
+}
+
+void TestFenceGeometry::aRolledUpFenceKeepsItsEdge()
+{
+    // Session 73: the strip sits on the kept edge; unrolled, the stored rect.
+    using E = FenceGeometry::RollEdge;
+    const QRect stored(100, 50, 300, 200);
+    const int t = FenceGeometry::visibleRect(stored, true).height();
+    QCOMPARE(FenceGeometry::visibleRect(stored, true, E::Top), QRect(100, 50, 300, t));
+    QCOMPARE(FenceGeometry::visibleRect(stored, true, E::Bottom), QRect(100, 250 - t, 300, t));
+    QCOMPARE(FenceGeometry::visibleRect(stored, true, E::Left), QRect(100, 50, t, 200));
+    QCOMPARE(FenceGeometry::visibleRect(stored, true, E::Right), QRect(400 - t, 50, t, 200));
+    QCOMPARE(FenceGeometry::visibleRect(stored, false, E::Right), stored);
 }
 
 QTEST_MAIN(TestFenceGeometry)

@@ -51,6 +51,10 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["hoverEffect"] = s.hoverEffect;
     if (!s.hoverUnroll.isEmpty())
         o["hoverUnroll"] = s.hoverUnroll;
+    if (!s.rollToward.isEmpty())
+        o["rollToward"] = s.rollToward;
+    if (!s.snapToCells.isEmpty())
+        o["snapToCells"] = s.snapToCells;
     return o;
 }
 
@@ -113,6 +117,8 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.titleBarShape = o["titleBarShape"].toString();
     s.hoverEffect = o["hoverEffect"].toString();
     s.hoverUnroll = o["hoverUnroll"].toString();
+    s.rollToward = o["rollToward"].toString();
+    s.snapToCells = o["snapToCells"].toString();
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {

@@ -1409,7 +1409,7 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
 
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
-        if (m_ownsAllInput && forwardKey(wParam)) {
+        if ((m_ownsAllInput || m_forwardsKeys) && forwardKey(wParam)) {
             *result = 0;
             return true;
         }
@@ -1419,7 +1419,7 @@ bool DesktopSurface::handleMessage(quintptr hwnd, unsigned message, quintptr wPa
     case WM_RBUTTONDOWN:
         // ADR-21 lot 3: a click on the drawn desktop gives it the keyboard, as
         // a click on the real one does (F2, Delete, Ctrl+A).
-        if (m_ownsAllInput && ::GetFocus() != toHwnd(m_hwnd))
+        if ((m_ownsAllInput || m_forwardsKeys) && ::GetFocus() != toHwnd(m_hwnd))
             ::SetFocus(toHwnd(m_hwnd));
         // Take the mouse capture. Without it Windows stops delivering
         // WM_MOUSEMOVE to this window the moment the cursor steps outside its

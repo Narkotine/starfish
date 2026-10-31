@@ -148,6 +148,9 @@ public:
     // focus, and its keys (F2, Delete, Ctrl+C...) are posted to the input target
     // as QKeyEvents.
     void setOwnsAllInput(bool owns) { m_ownsAllInput = owns; }
+    // Session 73: a fence takes the keyboard on a click and hands its keys to
+    // the widget (Delete on its selection), without owning every click.
+    void setForwardsKeys(bool forwards) { m_forwardsKeys = forwards; }
     // ADR-21 lot 3: a drop target of the caller's own (an IDropTarget*, the
     // surface takes the reference it is given), built once the window exists.
     // Takes precedence over the drop handler.
@@ -385,6 +388,7 @@ private:
     Layer m_layer = Layer::BelowIconLayer;
     bool m_clickThrough = false;
     bool m_ownsAllInput = false;
+    bool m_forwardsKeys = false;
 
     QVector<QRect> m_nativeIconRects;
     QObject* m_inputTarget = nullptr;

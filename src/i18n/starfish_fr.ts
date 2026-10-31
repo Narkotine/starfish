@@ -148,11 +148,13 @@
     </message>
     <message>
         <location line="+4"/>
+        <location line="+11"/>
+        <location line="+6"/>
         <source>Default (Settings)</source>
         <translation>Par défaut (Réglages)</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-16"/>
         <source>Nothing</source>
         <translation>Aucun</translation>
     </message>
@@ -187,24 +189,54 @@
         <translation>Au survol</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Toward the title bar</source>
+        <translation>Vers la barre de titre</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Toward the opposite side</source>
+        <translation>Vers le côté opposé</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Roll up</source>
+        <translation>Enroulement</translation>
+    </message>
+    <message>
         <location line="+4"/>
-        <location line="+221"/>
+        <source>Whole icons</source>
+        <translation>Icônes entières</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Free</source>
+        <translation>Libre</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Resize</source>
+        <translation>Redimensionnement</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+226"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-217"/>
+        <location line="-222"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+222"/>
+        <location line="+227"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-217"/>
+        <location line="-222"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -301,7 +333,7 @@
         <translation>Supprimer le modèle « %1 » ? Les zones gardent leur apparence.</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+180"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -468,7 +500,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2394"/>
+        <location filename="../app/product_app.cpp" line="+2426"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -476,7 +508,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5855"/>
+        <location filename="../main.cpp" line="+5861"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -494,12 +526,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2579"/>
+        <location line="-2611"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+436"/>
+        <location line="+453"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -533,7 +565,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+397"/>
+        <location filename="../app/product_app.cpp" line="+409"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -543,7 +575,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+454"/>
+        <location line="+457"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -888,7 +920,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+301"/>
+        <location filename="../ui/fence_view.cpp" line="+305"/>
         <location line="+134"/>
         <location line="+183"/>
         <source>Fence</source>
@@ -926,18 +958,18 @@
     </message>
     <message>
         <location line="-105"/>
-        <location line="+282"/>
+        <location line="+303"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-281"/>
-        <location line="+300"/>
+        <location line="-302"/>
+        <location line="+321"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-272"/>
+        <location line="-293"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -949,12 +981,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+393"/>
+        <location line="+435"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-383"/>
+        <location line="-425"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -990,12 +1022,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+254"/>
+        <location line="+275"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-247"/>
+        <location line="-268"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1082,10 +1114,40 @@
     <message>
         <location line="+1"/>
         <source>It rolls back up when the pointer leaves. A fence can say yes or no itself (its menu).</source>
-        <translation>Elle se réenroule quand le pointeur s'en va. Chaque zone peut dire oui ou non (son menu).</translation>
+        <translation>Elle se réenroule quand le pointeur s&apos;en va. Chaque zone peut dire oui ou non (son menu).</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+16"/>
+        <source>Roll fences up toward the opposite side</source>
+        <translation>Enrouler les zones vers le côté opposé</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Off: a rolled-up fence keeps its title bar&apos;s edge. A fence can choose for itself (Appearance).</source>
+        <translation>Désactivé : une zone enroulée garde le bord de sa barre de titre. Chaque zone peut choisir (Apparence).</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Animate rolling up and down</source>
+        <translation>Animer l&apos;enroulement</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>A short slide; off: at once.</source>
+        <translation>Un glissement bref ; désactivé : immédiat.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Resize fences in whole icons</source>
+        <translation>Redimensionner les zones par icônes entières</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Width and height land on whole columns and rows. A fence can choose for itself (Appearance).</source>
+        <translation>Largeur et hauteur tombent sur des colonnes et rangées entières. Chaque zone peut choisir (Apparence).</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Double-click the desktop to hide fences and icons</source>
         <translation>Double-clic sur le bureau pour masquer zones et icônes</translation>
     </message>
@@ -1195,7 +1257,7 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+116"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
