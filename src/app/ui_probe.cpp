@@ -1,5 +1,7 @@
 #include "app/ui_probe.hpp"
 
+#include <algorithm>
+#include <functional>
 #include <cmath>
 #include <QLinearGradient>
 #include <QToolButton>
@@ -1104,6 +1106,80 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 72: quit + relaunch keeps a narrow fence's size --------------
+    {
+        struct Variant {
+            QString name;
+            int items;
+            std::function<void(core::FenceStyle&)> apply;
+        };
+        const QList<Variant> variants{
+            {QStringLiteral("full"), 1, [](core::FenceStyle&) {}},
+            {QStringLiteral("border6 r30"), 1, [](core::FenceStyle& s) { s.borderWidth = 6; s.radius = 30; }},
+            {QStringLiteral("tab"), 1, [](core::FenceStyle& s) { s.titleBarShape = QStringLiteral("tab"); s.borderWidth = 4; s.radius = 40; }},
+            {QStringLiteral("left bar"), 1, [](core::FenceStyle& s) { s.titleSide = QStringLiteral("left"); }},
+            {QStringLiteral("right tab"), 1, [](core::FenceStyle& s) { s.titleSide = QStringLiteral("right"); s.titleBarShape = QStringLiteral("tab"); }},
+            {QStringLiteral("no title"), 1, [](core::FenceStyle& s) { s.titleBar = false; }},
+            {QStringLiteral("one column x5"), 5, [](core::FenceStyle&) {}},
+            {QStringLiteral("two items"), 2, [](core::FenceStyle& s) { s.borderWidth = 12; }},
+        };
+        const QStringList files{QStringLiteral("C:/Windows/explorer.exe"), QStringLiteral("C:/Windows/regedit.exe"),
+                                QStringLiteral("C:/Windows/notepad.exe"), QStringLiteral("C:/Windows/write.exe"),
+                                QStringLiteral("C:/Windows/hh.exe")};
+        QString detail;
+        bool stable = true;
+        bool centred = true;
+        for (const Variant& variant : variants) {
+            ui::FenceContainer first;
+            first.setMinimumFenceSize(QSize(160, 120));
+            const QString id = first.createFence(QStringLiteral("Zone A"), QRect(100, 100, 300, 140 + 100 * variant.items));
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < variant.items; ++i)
+                items.append(core::itemFromPathOnly(files.at(i)));
+            first.fileInto(id, items);
+            core::FenceStyle style = first.fenceStyle(id);
+            variant.apply(style);
+            first.setFenceStyle(id, style);
+            // As narrow as it goes (the user's one-column fence).
+            const QRect narrow = first.setFenceRect(id, QRect(100, 100, 40, 140 + 100 * variant.items), false);
+            core::Layout layout = first.toLayout();
+            QList<QRect> seen{narrow};
+            for (int run = 0; run < 3; ++run) {
+                ui::FenceContainer next;
+                next.setMinimumFenceSize(QSize(160, 120));
+                next.applyLayout(layout);
+                const QString nid = next.fenceIds().value(0);
+                seen.append(next.fenceRect(nid));
+                if (variant.items == 1 && run == 2) {
+                    ui::FenceView* view = next.view(nid);
+                    const QRect cell = view->tileRects().value(0);
+                    const QRect content = view->contentRect();
+                    const int leftRoom = cell.left() - content.left();
+                    const int rightRoom = content.right() - cell.right();
+                    if (qAbs(leftRoom - rightRoom) > 1) {
+                        centred = false;
+                        detail += QStringLiteral("%1 off-centre %2/%3  ").arg(variant.name).arg(leftRoom).arg(rightRoom);
+                    }
+                    if (variant.name == QLatin1String("border6 r30")) {
+                        QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+                        img.fill(QColor(0x9A, 0xC8, 0x2A));
+                        QPainter p(&img);
+                        view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+                        p.end();
+                        img.save(captures + QStringLiteral("/s72_narrow_after_3_restarts_%1.png").arg(theme));
+                    }
+                }
+                layout = next.toLayout();
+            }
+            const bool same = std::all_of(seen.begin(), seen.end(), [&](const QRect& r) { return r == narrow; });
+            stable = stable && same && narrow.width() < 160;
+            detail += QStringLiteral("%1: %2 -> %3  ").arg(variant.name).arg(narrow.width())
+                          .arg(seen.last().width());
+        }
+        check(QStringLiteral("save -> restart -> save keeps a narrow fence's exact size, one column centred (session 72)"),
+              stable && centred, detail);
     }
 
     // --- session 67: the title clears the rounded corner -----------------------
