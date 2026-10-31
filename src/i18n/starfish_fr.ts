@@ -332,7 +332,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+193"/>
+        <location filename="../ui/fence_menu.hpp" line="+223"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -377,7 +377,27 @@
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="-131"/>
+        <location line="-156"/>
+        <source>Default (yes)</source>
+        <translation>Par défaut (oui)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Default (no)</source>
+        <translation>Par défaut (non)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Yes</source>
+        <translation>Oui</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>No</source>
+        <translation>Non</translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>Type</source>
         <translation>Type</translation>
     </message>
@@ -408,6 +428,11 @@
     </message>
     <message>
         <location line="+8"/>
+        <source>Unroll on hover</source>
+        <translation>Dérouler au survol</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Sort by</source>
         <translation>Trier par</translation>
     </message>
@@ -443,7 +468,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2373"/>
+        <location filename="../app/product_app.cpp" line="+2394"/>
         <source>Put back on the desktop</source>
         <translation>Remettre sur le bureau</translation>
     </message>
@@ -451,7 +476,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5853"/>
+        <location filename="../main.cpp" line="+5855"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -469,12 +494,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2558"/>
+        <location line="-2579"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+429"/>
+        <location line="+436"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -508,7 +533,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+392"/>
+        <location filename="../app/product_app.cpp" line="+397"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -518,7 +543,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+445"/>
+        <location line="+454"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -865,7 +890,7 @@
     <message>
         <location filename="../ui/fence_view.cpp" line="+301"/>
         <location line="+134"/>
-        <location line="+179"/>
+        <location line="+183"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
@@ -901,18 +926,18 @@
     </message>
     <message>
         <location line="-105"/>
-        <location line="+270"/>
+        <location line="+282"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-269"/>
-        <location line="+288"/>
+        <location line="-281"/>
+        <location line="+300"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-260"/>
+        <location line="-272"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -924,12 +949,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+374"/>
+        <location line="+393"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-364"/>
+        <location line="-383"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -965,12 +990,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+242"/>
+        <location line="+254"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-235"/>
+        <location line="-247"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1051,6 +1076,16 @@
     </message>
     <message>
         <location line="+10"/>
+        <source>Unroll a rolled-up fence under the pointer</source>
+        <translation>Dérouler une zone enroulée sous le pointeur</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>It rolls back up when the pointer leaves. A fence can say yes or no itself (its menu).</source>
+        <translation>Elle se réenroule quand le pointeur s'en va. Chaque zone peut dire oui ou non (son menu).</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Double-click the desktop to hide fences and icons</source>
         <translation>Double-clic sur le bureau pour masquer zones et icônes</translation>
     </message>
@@ -1160,7 +1195,7 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+95"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

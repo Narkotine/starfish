@@ -1,6 +1,7 @@
 #include "app/ui_probe.hpp"
 
 #include <cmath>
+#include <QLinearGradient>
 #include <QToolButton>
 #include <QMenu>
 #include <QPainterPath>
@@ -519,6 +520,9 @@ int runUiProbe(QApplication& app)
             slider->setValue(50);
         const bool live = container.fenceStyle(id).radius == 30
                           && container.fenceEffectiveAlpha(id) == ui::PercentSlider::alphaFromPercent(50);
+        auto* borderCombo = dialog->findChild<QComboBox*>(QStringLiteral("borderWidth"));
+        check(QStringLiteral("Appearance...: borders up to 12 px (session 71)"),
+              borderCombo && borderCombo->findData(12) >= 0 && borderCombo->findData(13) < 0, QString());
         auto* manage = dialog->findChild<QToolButton*>(QStringLiteral("manageTemplate"));
         check(QStringLiteral("Appearance...: templates can be renamed or deleted, once one is chosen (session 70)"),
               manage && manage->menu() && manage->menu()->actions().size() == 2 && !manage->isEnabled(), QString());
@@ -828,7 +832,7 @@ int runUiProbe(QApplication& app)
         bool uncut = true;
         int combos = 0;
         for (qreal dpr : {1.0, 1.5}) {
-            for (int bw : {1, 4, 8}) {
+            for (int bw : {1, 4, 8, 12}) { // session 71: up to 12
                 for (int radius : {0, 12, 30, 40}) {
                     core::FenceStyle style = container.fenceStyle(id);
                     style.titleBarShape = QStringLiteral("tab");
@@ -886,24 +890,32 @@ int runUiProbe(QApplication& app)
                         detail += QStringLiteral("dpr %1 b%2 r%3: %4 px outside  ").arg(dpr).arg(bw).arg(radius).arg(outside);
                     }
                     ++combos;
-                    if (bw == 4 && radius == 40) {
+                    if (bw == 12) {
+                        const QRect text = view->titleTextRect();
+                        if (text.left() < x0 + bw || text.right() > x1 - bw) {
+                            uniform = false;
+                            detail += QStringLiteral("dpr %1 b12 r%2: title %3..%4 in tab %5..%6  ").arg(dpr).arg(radius)
+                                          .arg(text.left()).arg(text.right()).arg(x0).arg(x1);
+                        }
+                    }
+                    if ((bw == 4 || bw == 12) && radius == 40) {
                         QImage shot(img.size(), QImage::Format_ARGB32_Premultiplied);
                         shot.fill(QColor(0x9A, 0xC8, 0x2A));
                         QPainter sp(&shot);
                         sp.drawImage(0, 0, img);
                         sp.end();
-                        shot.save(captures + QStringLiteral("/s70_tab_b4_r40_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme));
+                        shot.save(captures + QStringLiteral("/s70_tab_b%3_r40_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme).arg(bw));
                         const QRect zoom = QRect(int((x0 - rt - 14) * dpr), 0, int((x1 - x0 + 2 * rt + 28) * dpr),
                                                  int((b + 30) * dpr)).intersected(shot.rect());
                         shot.copy(zoom).scaled(zoom.size() * 4, Qt::IgnoreAspectRatio, Qt::FastTransformation)
-                            .save(captures + QStringLiteral("/s70_tab_b4_r40_zoom_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme));
+                            .save(captures + QStringLiteral("/s70_tab_b%3_r40_zoom_dpr%1_%2.png").arg(int(dpr * 100)).arg(theme).arg(bw));
                     }
                 }
             }
         }
         check(QStringLiteral("the tab outline: one border thickness on edges, corners and junctions, nothing cut, "
-                             "b 1/4/8 x r 0/12/30/40 at 100/150 % (session 70)"),
-              uniform && uncut && combos == 24, detail.isEmpty() ? QStringLiteral("%1 combos").arg(combos) : detail);
+                             "b 1/4/8/12 x r 0/12/30/40 at 100/150 %, title inside the tab at 12 (sessions 70-71)"),
+              uniform && uncut && combos == 32, detail.isEmpty() ? QStringLiteral("%1 combos").arg(combos) : detail);
 
         // Roll up, nudge (the first click of the double-click), roll down: the same size.
         core::FenceStyle style = container.fenceStyle(id);
@@ -927,6 +939,171 @@ int runUiProbe(QApplication& app)
         }
         check(QStringLiteral("rolling up then down gives back the very same size, full bar and tab (session 70)"),
               same, rollDetail);
+    }
+
+    // --- session 71: the grain behind the icons; unroll on hover -------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Grain"), QRect(0, 0, 300, 170));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/Windows/explorer.exe")),
+                                core::itemFromPathOnly(QStringLiteral("C:/Windows/regedit.exe"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(300, 170);
+        wait(400);
+        const auto layer = [&](ui::FenceView::PaintLayers layers) {
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(Qt::transparent);
+            view->setPaintLayers(layers);
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(),
+                         layers == ui::FenceView::PaintLayers::Background ? QWidget::RenderFlags() : QWidget::DrawChildren);
+            p.end();
+            view->setPaintLayers(ui::FenceView::PaintLayers::All);
+            return img;
+        };
+        QString detail;
+        bool crisp = true;
+        bool wasOver = true;
+        for (const QString& effect : {QStringLiteral("textured"), QStringLiteral("acrylic")}) {
+            core::FenceStyle style = container.fenceStyle(id);
+            style.effect = effect;
+            style.background = QStringLiteral("#991F2937");
+            style.defaultOpacity = false;
+            style.borderWidth = 3;
+            style.borderColor = QStringLiteral("#FF000000");
+            style.radius = 20;
+            container.setFenceStyle(id, style);
+            const QImage all = layer(ui::FenceView::PaintLayers::All);
+            const QImage back = layer(ui::FenceView::PaintLayers::Background);
+            const QImage front = layer(ui::FenceView::PaintLayers::Foreground);
+            const QRect tile = view->tileRects().value(0);
+            // The desktop under it: a gradient, as a wallpaper.
+            QImage desk(view->size(), QImage::Format_ARGB32_Premultiplied);
+            {
+                QPainter dp(&desk);
+                QLinearGradient g(0, 0, 300, 170);
+                g.setColorAt(0, QColor(0x4D, 0x8A, 0x1E));
+                g.setColorAt(1, QColor(0xB5, 0xD8, 0x2C));
+                dp.fillRect(desk.rect(), g);
+            }
+            const qreal grainOpacity = effect == QLatin1String("textured") ? 1.0 : 0.6;
+            const auto grainOver = [&](QImage& img, const QPainterPath& area) {
+                QPainter gp(&img);
+                gp.setClipPath(area);
+                gp.setOpacity(grainOpacity);
+                gp.fillRect(img.rect(), QBrush(ui::FenceContainer::grainTile()));
+            };
+            // Before (sessions 65-69): the fence, then the grain over all of it.
+            QImage before = desk;
+            {
+                QPainter bp(&before);
+                bp.drawImage(0, 0, all);
+            }
+            grainOver(before, view->outlinePath(QSizeF(view->size())));
+            // Now: the background, the grain inside the border, the icons and title on top.
+            QImage after = desk;
+            {
+                QPainter ap(&after);
+                ap.drawImage(0, 0, back);
+            }
+            grainOver(after, view->outlinePath(QSizeF(view->size()), 3));
+            {
+                QPainter ap(&after);
+                ap.drawImage(0, 0, front);
+            }
+            // The icon's opaque pixels: exactly the icon now, grain-speckled before.
+            int opaque = 0, same = 0, overBefore = 0;
+            for (int y = tile.top(); y <= tile.bottom(); ++y)
+                for (int x = tile.left(); x <= tile.right(); ++x) {
+                    const QRgb f = front.pixel(x, y);
+                    if (qAlpha(f) < 255)
+                        continue;
+                    ++opaque;
+                    if (after.pixel(x, y) == f)
+                        ++same;
+                    if (before.pixel(x, y) != f)
+                        ++overBefore;
+                }
+            const bool backHasNoIcon = back.pixel(tile.center()) == back.pixel(QPoint(tile.center().x(), 160));
+            const bool frontHasNoPanel = qAlpha(front.pixel(QPoint(250, 150))) == 0;
+            crisp = crisp && opaque > 50 && same == opaque && backHasNoIcon && frontHasNoPanel;
+            wasOver = wasOver && overBefore > opaque / 2;
+            detail += QStringLiteral("%1: icon px %2, untouched now %3, grained before %4, layers %5/%6  ")
+                          .arg(effect).arg(opaque).arg(same).arg(overBefore).arg(backHasNoIcon).arg(frontHasNoPanel);
+            const QRect zoom = tile.adjusted(-6, -6, 6, 6).intersected(desk.rect());
+            QImage pair(zoom.width() * 6 * 2 + 12, zoom.height() * 6, QImage::Format_ARGB32_Premultiplied);
+            pair.fill(Qt::white);
+            {
+                QPainter pp(&pair);
+                pp.drawImage(0, 0, before.copy(zoom).scaled(zoom.size() * 6, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+                pp.drawImage(zoom.width() * 6 + 12, 0,
+                             after.copy(zoom).scaled(zoom.size() * 6, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+            }
+            pair.save(captures + QStringLiteral("/s71_icon_%1_before_after_%2.png").arg(effect, theme));
+            after.save(captures + QStringLiteral("/s71_fence_%1_after_%2.png").arg(effect, theme));
+        }
+        check(QStringLiteral("acrylic / textured: the grain behind the icons, not over them, no cut-outs (session 71)"),
+              crisp && wasOver, detail);
+
+        // Unroll on hover: off by default; on, after a short delay; back up after leaving.
+        core::FenceStyle style = container.fenceStyle(id);
+        style.effect.clear();
+        container.setFenceStyle(id, style);
+        const QRect stored = container.setFenceRect(id, QRect(50, 50, 300, 170), false);
+        container.setFenceRolledUp(id, true);
+        const bool offByDefault = !container.hoverUnrollDefault();
+        const auto enter = [&] {
+            QEnterEvent e(QPointF(20, 10), QPointF(20, 10), QPointF(20, 10));
+            QCoreApplication::sendEvent(view, &e);
+        };
+        const auto leave = [&] {
+            QEvent e(QEvent::Leave);
+            QCoreApplication::sendEvent(view, &e);
+        };
+        enter();
+        wait(ui::FenceContainer::kHoverUnrollDelayMs + 150);
+        const bool unrolledWhenOff = !view->rolledUp();
+        leave();
+        container.setHoverUnrollDefault(true);
+        enter();
+        wait(ui::FenceContainer::kHoverUnrollDelayMs + 150);
+        const bool unrolled = !view->rolledUp() && container.fenceHoverUnrolled(id) && container.fenceRolledUp(id)
+                              && container.fenceRect(id) == stored;
+        leave();
+        wait(ui::FenceContainer::kHoverRerollDelayMs / 2);
+        const bool lingers = !view->rolledUp();
+        enter(); // back before the delay: stays down
+        wait(ui::FenceContainer::kHoverRerollDelayMs + 150);
+        const bool kept = !view->rolledUp();
+        leave();
+        wait(ui::FenceContainer::kHoverRerollDelayMs + 200);
+        const bool rerolled = view->rolledUp() && !container.fenceHoverUnrolled(id) && container.fenceRect(id) == stored;
+        // This fence says no.
+        style = container.fenceStyle(id);
+        style.hoverUnroll = QStringLiteral("off");
+        container.setFenceStyle(id, style);
+        enter();
+        wait(ui::FenceContainer::kHoverUnrollDelayMs + 150);
+        const bool fenceSaysNo = view->rolledUp();
+        leave();
+        // "Roll down" while unrolled by the pointer keeps it down.
+        style.hoverUnroll = QStringLiteral("on");
+        container.setHoverUnrollDefault(false);
+        container.setFenceStyle(id, style);
+        enter();
+        wait(ui::FenceContainer::kHoverUnrollDelayMs + 150);
+        container.setFenceRolledUp(id, false);
+        leave();
+        wait(ui::FenceContainer::kHoverRerollDelayMs + 200);
+        const bool explicitDown = !view->rolledUp() && !container.fenceRolledUp(id);
+        check(QStringLiteral("unroll on hover: off by default, delay, lingers, rolls back, per fence, geometry kept (session 71)"),
+              offByDefault && !unrolledWhenOff && unrolled && lingers && kept && rerolled && fenceSaysNo && explicitDown,
+              QStringLiteral("default off %1, untouched when off %2, unrolled %3, lingers %4, kept %5, rerolled %6, fence no %7, "
+                             "explicit down %8")
+                  .arg(offByDefault).arg(!unrolledWhenOff).arg(unrolled).arg(lingers).arg(kept).arg(rerolled).arg(fenceSaysNo)
+                  .arg(explicitDown));
+        check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
+              settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
     }
 
     // --- session 67: the title clears the rounded corner -----------------------
