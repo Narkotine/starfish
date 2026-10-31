@@ -253,6 +253,15 @@ public:
     // fenceAt, the composition and the document follow); the windows are kept
     // in that order. A fence the user presses comes to the top.
     void raiseFence(const QString& id);
+    // Session 65: one selection for the whole desktop, as in Explorer -- every
+    // fence but `keepId` (empty: all of them) drops its selection.
+    void clearFenceSelections(const QString& keepId = QString());
+    // Session 65: tiles of `sourceId` dragged to `screenPoint` (physical); on
+    // `dropped`, moved into the fence under it, or put back on the desktop.
+    // Returns how many tiles another fence took.
+    int dragTilesOutside(const QString& sourceId, const QStringList& paths, const QPoint& screenPoint,
+                         bool dropped);
+    QPoint physicalFromFenceLocal(const QString& id, const QPoint& local) const;
     // Session 64: "Autoriser la superposition des zones". Off, a fence moved or
     // resized by the user stops against the others (FenceGeometry::avoidOverlap).
     void setAllowFenceOverlap(bool allowed) { m_allowOverlap = allowed; }
@@ -493,6 +502,8 @@ signals:
     // stays the Shell's menu). The container only says *which* fence and *where*:
     // the content is ui::FenceMenu's, the actions are the product's.
     void fenceMenuRequested(const QString& id, const QPoint& globalPos);
+    // Session 65: a right-click on tiles of a fence (`point` physical).
+    void fenceItemMenuRequested(const QString& id, const QStringList& paths, const QPoint& point);
     // Session 60: a double-click on a fence's title text (inline rename).
     void fenceTitleEditRequested(const QString& id);
     // T-010. The rule list is persisted, so the product wires this to the same
@@ -503,6 +514,7 @@ signals:
     void ruleApplied(const QString& path, const QString& fenceId);
 
 private:
+    QString m_tileDropTarget; // session 65: the fence showing an insertion mark
     void onFenceSurfaceLost();
     void rehostLostFences();
     QTimer m_rehostTimer;

@@ -134,6 +134,15 @@ public:
     // *whether* a tile may go -- that is FenceContainer's call (a tile a portal
     // mirrors is the folder's, not the fence's).
     int removeItemsByPath(const QStringList& paths);
+    // Session 65: global selection -- cleared from outside (another fence or
+    // the desktop was clicked). Repaints only when something was selected.
+    void clearSelection();
+    QStringList selectedPaths() const;
+    // Session 65: where tiles dragged from another fence would land (-1: none);
+    // and whether this fence's own drag is over another fence (no "back to
+    // the desktop" hint then).
+    void setExternalDropIndex(int index);
+    void setDragOverOtherFence(bool over);
 
 public:
     // Session 62: the picture a drag of tile `index` carries (device pixels at
@@ -186,6 +195,17 @@ signals:
     void fenceMenuRequested(const QPoint& globalPos);
     // Session 64: any press on the fence -- it comes to the front.
     void pressed();
+    // Session 65: the user selected (or cleared) icons here -- the selection is
+    // global, so the container clears every other fence and the desktop.
+    void selectionGesture();
+    // Session 65: a right-click on an icon. `paths` is the selection it acts on;
+    // `localPos` is in this widget's coordinates (the container makes it
+    // physical: the product shows StarFish's menu there).
+    void itemMenuRequested(const QStringList& paths, const QPoint& localPos);
+    // Session 65: a tile drag (`paths`, the selection) at `localPos`; the same
+    // with `dropped` when the button came up outside the fence. The container
+    // decides: another fence (insertion mark, move) or the desktop.
+    void itemsDraggedOutside(const QStringList& paths, const QPoint& localPos, bool dropped);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -250,6 +270,9 @@ private:
     // (dragging back in disarms it again), which is why it is not a one-way
     // flag set when the cursor leaves.
     bool m_releaseArmed = false;
+    QStringList m_dragPaths;
+    int m_externalDropIndex = -1;
+    bool m_dragOverOtherFence = false;
 
     // Fence geometry drag state (T-007), mutually exclusive with the icon drag
     // above: a press that lands on the title bar or a border grip never arms an

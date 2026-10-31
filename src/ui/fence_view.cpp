@@ -1,5 +1,8 @@
 #include "ui/fence_view.hpp"
 
+#include <QMetaMethod>
+#include <algorithm>
+
 #include <QApplication>
 #include <QColor>
 #include <QCursor>
@@ -288,11 +291,16 @@ void FenceView::paintEvent(QPaintEvent* event)
     if (m_dragging) {
         // Either the grid is about to receive the tile, or the desktop is:
         // never both, so the two hints are mutually exclusive by construction.
-        if (m_releaseArmed)
-            paintReleaseHint(painter);
-        else
+        if (m_releaseArmed) {
+            if (!m_dragOverOtherFence)
+                paintReleaseHint(painter);
+        } else {
             paintDropIndicator(m_dropTargetIndex, painter);
+        }
     }
+    // Session 65: tiles from another fence would land here.
+    if (m_externalDropIndex >= 0)
+        paintDropIndicator(m_externalDropIndex, painter);
 }
 
 void FenceView::mousePressEvent(QMouseEvent* event)
@@ -311,10 +319,17 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         // right-click on empty space is not a statement about the icons, and the
         // tile path below is unchanged, so an icon keeps the Shell's own menu.
         if (index >= 0) {
-            m_grid.selectOnly(index);
+            // As on the desktop: the clicked icon joins the selection it acts
+            // on, or becomes it.
+            if (!m_grid.isSelected(index))
+                m_grid.selectOnly(index);
             update();
             emit contentChanged();
-            showContextMenuForIndex(index, event->globalPosition().toPoint());
+            emit selectionGesture();
+            if (isSignalConnected(QMetaMethod::fromSignal(&FenceView::itemMenuRequested)))
+                emit itemMenuRequested(selectedPaths(), event->pos());
+            else
+                showContextMenuForIndex(index, event->globalPosition().toPoint());
             return;
         }
         emit fenceMenuRequested(event->globalPosition().toPoint());
@@ -353,9 +368,12 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         m_grid.toggle(index);
     } else if (mods & Qt::ShiftModifier) {
         m_grid.selectRangeTo(index);
-    } else {
+    } else if (!m_grid.isSelected(index)) {
+        // Session 65: a press on an icon already selected keeps the selection,
+        // so a multi-selection can be dragged; the release narrows it.
         m_grid.selectOnly(index);
     }
+    emit selectionGesture();
 
     // Arm a possible drag (T-006-2). The move enters drag mode only once the
     // cursor leaves the system threshold -- a click in place never reorders.
@@ -401,10 +419,11 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         if (QApplication::startDragDistance() >=
             (event->pos() - m_dragStartPos).manhattanLength())
             return;
-        // Lock the selection on the dragged item so the visual highlight
-        // matches what's being moved, not whatever the user had selected
-        // before (e.g. a Ctrl-click selection on another cell).
-        m_grid.selectOnly(m_dragOriginIndex);
+        // Session 65: the selection is what moves (the dragged icon always
+        // belongs to it -- see the press).
+        if (!m_grid.isSelected(m_dragOriginIndex))
+            m_grid.selectOnly(m_dragOriginIndex);
+        m_dragPaths = selectedPaths();
         m_dragging = true;
     }
     updateDragGhost(true);
@@ -419,6 +438,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         m_releaseArmed = outside;
         update();
     }
+    emit itemsDraggedOutside(m_dragPaths, event->pos(), false);
 }
 
 void FenceView::mouseReleaseEvent(QMouseEvent* event)
@@ -446,15 +466,53 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         // the desktop layer draws it again, with no restore step in between.
         if (!rect().contains(event->pos()) && from >= 0 && from < m_grid.items().size()
             && !m_grid.items().at(from).path.isEmpty()) {
-            const QString path = m_grid.items().at(from).path;
+            const QStringList paths = m_dragPaths.isEmpty() ? QStringList{m_grid.items().at(from).path} : m_dragPaths;
             m_dragging = false;
             updateDragGhost(false);
             m_dragOriginIndex = -1;
             m_dragStartPos = QPoint();
             m_dropTargetIndex = -1;
             m_releaseArmed = false;
+            m_dragPaths.clear();
+            m_dragOverOtherFence = false;
             update();
-            emit itemReleaseRequested({path});
+            // Session 65: the container decides -- another fence under the
+            // cursor takes them, otherwise the desktop does (F-011).
+            if (isSignalConnected(QMetaMethod::fromSignal(&FenceView::itemsDraggedOutside)))
+                emit itemsDraggedOutside(paths, event->pos(), true);
+            else
+                emit itemReleaseRequested(paths);
+            return;
+        }
+        if (m_dragPaths.size() > 1) {
+            // Session 65: a multi-selection moves as a block, in its order, to
+            // where the cursor is.
+            int to = itemAt(event->pos());
+            QString anchor = to >= 0 ? m_grid.items().at(to).path : QString();
+            QList<core::DesktopItem> moving;
+            for (const core::DesktopItem& item : m_grid.items()) {
+                if (m_dragPaths.contains(item.path))
+                    moving.append(item);
+            }
+            if (!m_dragPaths.contains(anchor)) {
+                m_grid.removeItemsByPath(m_dragPaths);
+                int at = -1;
+                for (int i = 0; i < m_grid.items().size() && !anchor.isEmpty(); ++i) {
+                    if (m_grid.items().at(i).path == anchor)
+                        at = i;
+                }
+                m_grid.insertItems(moving, at, false);
+                m_grid.setManualOrder();
+            }
+            m_dragging = false;
+            updateDragGhost(false);
+            m_dragOriginIndex = -1;
+            m_dragStartPos = QPoint();
+            m_dropTargetIndex = -1;
+            m_releaseArmed = false;
+            m_dragPaths.clear();
+            update();
+            emit contentChanged();
             return;
         }
         // The drop target is the cell under the cursor; if the cursor is in
@@ -464,6 +522,7 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
             to = m_grid.items().size() - 1;
         if (to >= 0 && from >= 0 && from != to)
             m_grid.moveItem(from, to);
+        m_dragPaths.clear();
         m_dragging = false;
         updateDragGhost(false);
         m_dragOriginIndex = -1;
@@ -635,14 +694,15 @@ void FenceView::dropEvent(QDropEvent* event)
 
 void FenceView::paintDropIndicator(int index, QPainter& painter)
 {
-    if (index < 0 || index >= m_grid.items().size())
+    // `size()` is the free cell after the last one (an append).
+    if (index < 0 || index > m_grid.items().size())
         return;
 
     // Recompute the layout in content-local coordinates (matches paint()).
     const QRect content = contentRect();
     const QVector<ui::IconCell> cells = ui::IconLayout::compute(
         content.size(), m_grid.iconSize(), m_grid.cellWidth(), m_grid.labelHeight(), m_grid.gap(),
-        m_grid.padding(), m_grid.items().size());
+        m_grid.padding(), m_grid.items().size() + 1);
     if (index >= cells.size())
         return;
 
@@ -766,6 +826,49 @@ void FenceView::setTextShadow(bool on)
         return;
     m_grid.setTextShadow(on);
     update();
+}
+
+} // namespace starfish::ui
+
+namespace starfish::ui {
+
+void FenceView::clearSelection()
+{
+    if (m_grid.selectedIndices().isEmpty())
+        return;
+    m_grid.clearSelection();
+    update();
+    emit contentChanged();
+}
+
+QStringList FenceView::selectedPaths() const
+{
+    QList<int> indices = m_grid.selectedIndices().values();
+    std::sort(indices.begin(), indices.end());
+    QStringList paths;
+    for (int i : indices) {
+        if (i >= 0 && i < m_grid.items().size() && !m_grid.items().at(i).path.isEmpty())
+            paths.append(m_grid.items().at(i).path);
+    }
+    return paths;
+}
+
+void FenceView::setExternalDropIndex(int index)
+{
+    if (m_externalDropIndex == index)
+        return;
+    m_externalDropIndex = index;
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setDragOverOtherFence(bool over)
+{
+    if (m_dragOverOtherFence == over)
+        return;
+    m_dragOverOtherFence = over;
+    update();
+    emit contentChanged();
 }
 
 } // namespace starfish::ui

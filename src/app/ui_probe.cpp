@@ -31,6 +31,8 @@
 #include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
 #include "ui/icon_layout.hpp"
+#include "core/desktop_item.hpp"
+#include "ui/desktop_backdrop.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -378,6 +380,60 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("a fence's grid starts top-left, the rest on the right (session 65)"),
               left >= 0 && left <= 26 && right >= left && right - left < ui::IconLayout::maxCellWidthFor(48) + 8,
               QStringLiteral("left %1 px, right %2 px (735 px wide, 8 icons)").arg(left).arg(right));
+    }
+
+    // --- session 65: one selection, a tile menu, tiles from fence to fence ----
+    {
+        ui::FenceContainer container;
+        const QString a = container.createFence(QStringLiteral("A"), QRect(0, 0, 320, 240));
+        const QString b = container.createFence(QStringLiteral("B"), QRect(400, 0, 320, 240));
+        auto item = [](const QString& name) { return core::itemFromPathOnly(QStringLiteral("C:/s65/") + name); };
+        container.fileInto(a, {item(QStringLiteral("a.txt")), item(QStringLiteral("b.txt")), item(QStringLiteral("c.txt"))});
+        container.fileInto(b, {item(QStringLiteral("d.txt"))});
+        ui::FenceView* va = container.view(a);
+        ui::FenceView* vb = container.view(b);
+        auto tileAt = [](ui::FenceView* v, int index) {
+            for (int y = 0; y < 240; y += 4)
+                for (int x = 0; x < 320; x += 4)
+                    if (v->itemAt(QPoint(x, y)) == index)
+                        return QPoint(x + 2, y + 2);
+            return QPoint(-1, -1);
+        };
+        auto click = [](ui::FenceView* v, const QPoint& at, Qt::MouseButton button) {
+            QMouseEvent press(QEvent::MouseButtonPress, at, v->mapToGlobal(at), button, button, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, v->mapToGlobal(at), button, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &release);
+        };
+        click(va, tileAt(va, 0), Qt::LeftButton);
+        const bool aSelected = va->selectedPaths().size() == 1;
+        click(vb, tileAt(vb, 0), Qt::LeftButton);
+        const bool global = aSelected && va->selectedPaths().isEmpty() && vb->selectedPaths().size() == 1;
+        emit container.backdrop()->pressed();
+        const bool cleared = vb->selectedPaths().isEmpty();
+        check(QStringLiteral("one selection: a click in a fence clears the others, the desktop clears all (session 65)"),
+              global && cleared,
+              QStringLiteral("A then B %1, desktop %2").arg(global ? QLatin1String("ok") : QLatin1String("KO"),
+                                                           cleared ? QLatin1String("ok") : QLatin1String("KO")));
+        QStringList menuPaths;
+        QPoint menuPoint;
+        QObject::connect(&container, &ui::FenceContainer::fenceItemMenuRequested,
+                         [&](const QString&, const QStringList& paths, const QPoint& point) {
+                             menuPaths = paths;
+                             menuPoint = point;
+                         });
+        click(vb, tileAt(vb, 0), Qt::RightButton);
+        check(QStringLiteral("a right-click on a tile asks StarFish's menu, at a screen point (session 65)"),
+              menuPaths.size() == 1 && menuPaths.first().endsWith(QLatin1String("d.txt")) && menuPoint.x() >= 400,
+              QStringLiteral("%1 at %2,%3").arg(menuPaths.join(QLatin1Char(','))).arg(menuPoint.x()).arg(menuPoint.y()));
+        const QPoint intoB(400 + tileAt(vb, 0).x(), tileAt(vb, 0).y());
+        container.dragTilesOutside(a, {QStringLiteral("C:/s65/a.txt"), QStringLiteral("C:/s65/b.txt")}, intoB, false);
+        const int moved = container.dragTilesOutside(
+            a, {QStringLiteral("C:/s65/a.txt"), QStringLiteral("C:/s65/b.txt")}, intoB, true);
+        const bool firstIsA = vb->items().size() == 3 && vb->items().first().path.endsWith(QLatin1String("a.txt"));
+        check(QStringLiteral("two tiles dragged into another fence land where let go (session 65)"),
+              moved == 2 && va->items().size() == 1 && firstIsA,
+              QStringLiteral("moved %1, A %2, B %3").arg(moved).arg(va->items().size()).arg(vb->items().size()));
     }
 
     // --- T-098: a fence's own transparency -----------------------------------

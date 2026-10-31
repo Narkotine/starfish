@@ -78,6 +78,7 @@ FenceContainer::FenceContainer(QObject* parent)
     // every caller -- headless probes included -- can ask it what the desktop
     // would show without owning a window.
     m_backdrop = new DesktopBackdrop(this);
+    connect(m_backdrop, &DesktopBackdrop::pressed, this, [this] { clearFenceSelections(); });
     // The backdrop is a *view* of the fences, so it follows the same signals the
     // document does: whatever changes which icons a fence holds changes what the
     // desktop shows. A self-connection keeps the call sites free of bookkeeping
@@ -172,6 +173,84 @@ QRect FenceContainer::fenceTitleScreenRect(const QString& id) const
         return local.translated(origin);
     }
     return {};
+}
+
+void FenceContainer::clearFenceSelections(const QString& keepId)
+{
+    for (FenceWindow& fence : m_fences) {
+        if (fence.view && fence.id != keepId)
+            fence.view->clearSelection();
+    }
+}
+
+QPoint FenceContainer::physicalFromFenceLocal(const QString& id, const QPoint& local) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence)
+        return local;
+    const QRect visible = FenceGeometry::visibleRect(fence->rect, fence->rolledUp);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
+    return visible.topLeft() + QPoint(qRound(local.x() * dpr), qRound(local.y() * dpr));
+}
+
+int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList& paths,
+                                     const QPoint& screenPoint, bool dropped)
+{
+    QString target = fenceAt(screenPoint);
+    if (target == sourceId)
+        target.clear();
+    FenceWindow* source = find(sourceId);
+    FenceWindow* into = target.isEmpty() ? nullptr : find(target);
+
+    // The insertion mark follows the cursor from fence to fence.
+    if (m_tileDropTarget != target) {
+        if (FenceWindow* old = find(m_tileDropTarget); old && old->view)
+            old->view->setExternalDropIndex(-1);
+        m_tileDropTarget = target;
+    }
+    if (source && source->view)
+        source->view->setDragOverOtherFence(!dropped && into);
+    if (!dropped) {
+        if (into && into->view) {
+            const QRect visible = FenceGeometry::visibleRect(into->rect, into->rolledUp);
+            const qreal dpr = m_screens.devicePixelRatioFor(into->rect);
+            const QPoint local(qRound((screenPoint.x() - visible.x()) / dpr),
+                               qRound((screenPoint.y() - visible.y()) / dpr));
+            const int at = into->view->itemAt(local);
+            into->view->setExternalDropIndex(at >= 0 ? at : into->view->items().size());
+        }
+        return 0;
+    }
+    if (into && into->view)
+        into->view->setExternalDropIndex(-1);
+    m_tileDropTarget.clear();
+    if (!into || !source || !source->view) {
+        releaseItems(sourceId, paths); // F-011: back on the desktop
+        return 0;
+    }
+    // Session 65: into another fence -- the tiles keep their resolved item;
+    // a portal's own tiles stay where the folder puts them.
+    const QSet<QString> provided = portalProvided(source->portals);
+    QList<core::DesktopItem> moving;
+    QStringList moved;
+    for (const core::DesktopItem& item : source->view->items()) {
+        if (!paths.contains(item.path) || item.path.isEmpty())
+            continue;
+        if (provided.contains(item.path.toLower()))
+            continue;
+        moving.append(item);
+        moved.append(item.path);
+    }
+    const int filed = moving.isEmpty() ? 0 : fileIntoAt(target, moving, screenPoint);
+    // Already in the target (a duplicate) or filed: either way it leaves here.
+    if (!moved.isEmpty())
+        source->view->removeItemsByPath(moved);
+    raiseFence(target);
+    qCInfo(lc).noquote() << QStringLiteral("moved %1 tile(s) from %2 to %3")
+                                .arg(moved.size()).arg(sourceId, target);
+    emit fenceContentChanged(sourceId);
+    emit fenceContentChanged(target);
+    return filed;
 }
 
 int FenceContainer::fileIntoAt(const QString& fenceId, const QList<core::DesktopItem>& items,
@@ -1374,6 +1453,19 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
 
     FenceView* view = m_fences.last().view;
     connect(view, &FenceView::pressed, this, [this, id] { raiseFence(id); });
+    connect(view, &FenceView::selectionGesture, this, [this, id] {
+        clearFenceSelections(id);
+        if (m_backdrop)
+            m_backdrop->setSelection({});
+    });
+    connect(view, &FenceView::itemMenuRequested, this,
+            [this, id](const QStringList& paths, const QPoint& local) {
+                emit fenceItemMenuRequested(id, paths, physicalFromFenceLocal(id, local));
+            });
+    connect(view, &FenceView::itemsDraggedOutside, this,
+            [this, id](const QStringList& paths, const QPoint& local, bool dropped) {
+                dragTilesOutside(id, paths, physicalFromFenceLocal(id, local), dropped);
+            });
     connect(view, &FenceView::geometryDragStarted, this,
             [this, id] { beginGeometryDrag(id); });
     connect(view, &FenceView::geometryDragDelta, this,

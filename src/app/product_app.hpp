@@ -335,6 +335,9 @@ private:
     // re-attached at the new size, so the wallpaper is captured again.
     void refreshDrawnDesktopForScreens();
     void onIconMenu(const QStringList& paths, const QPoint& point);
+    // Session 65: the menu of tiles in a fence -- the desktop's (Windows 11
+    // style, real shell commands) plus "Put back on the desktop".
+    void onFenceItemMenu(const QString& fenceId, const QStringList& paths, const QPoint& point);
     void openDesktopItem(const QString& path);
 
     // The fallback ADR-13 needs and does not want: an icon a fence holds has to

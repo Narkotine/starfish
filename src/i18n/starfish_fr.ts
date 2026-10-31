@@ -139,6 +139,14 @@
     </message>
 </context>
 <context>
+    <name>ProductApp</name>
+    <message>
+        <location filename="../app/product_app.cpp" line="+2285"/>
+        <source>Put back on the desktop</source>
+        <translation>Remettre sur le bureau</translation>
+    </message>
+</context>
+<context>
     <name>QPlatformTheme</name>
     <message>
         <location filename="../main.cpp" line="+5791"/>
@@ -149,7 +157,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2620"/>
+        <location filename="../app/product_app.cpp" line="+373"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -159,7 +167,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2433"/>
+        <location line="-2471"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -198,7 +206,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+358"/>
+        <location filename="../app/product_app.cpp" line="+360"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -535,7 +543,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1143"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1145"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -558,12 +566,12 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+283"/>
+        <location filename="../ui/fence_view.cpp" line="+286"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+454"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>

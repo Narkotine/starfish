@@ -958,6 +958,8 @@ void ProductApp::wireFenceMenu()
 {
     connect(m_container, &ui::FenceContainer::fenceMenuRequested, this,
             &ProductApp::showFenceMenu);
+    connect(m_container, &ui::FenceContainer::fenceItemMenuRequested, this,
+            &ProductApp::onFenceItemMenu);
 }
 
 void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
@@ -2262,6 +2264,42 @@ void ProductApp::onIconMenu(const QStringList& paths, const QPoint& point)
         m_shellView->showSelectionMenu(paths, point, backdropOwner(), {}, &rename);
     if (rename && paths.size() >= 1)
         startRename(paths.first()); // the shell's edit would happen in the hidden list
+    m_shellResync.start();
+}
+
+void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& paths, const QPoint& point)
+{
+    if (paths.isEmpty() || !m_container)
+        return;
+    // The shell's selection menu needs items of the desktop's view; a tile of
+    // a portal (a folder elsewhere) gets its own file's classic menu.
+    bool onDesktop = drawnDesktop() && m_shellView;
+    for (const QString& path : paths)
+        onDesktop = onDesktop && !shellNameOf(path).isEmpty();
+    if (!onDesktop) {
+        platform::win::ShellContextMenu::showForPath(paths.first(), point,
+                                                     reinterpret_cast<void*>(backdropOwner()));
+        return;
+    }
+    constexpr int kPutBack = 1;
+    const QString label = QCoreApplication::translate("ProductApp", "Put back on the desktop");
+    bool rename = false;
+    int chosen = -1;
+    if (modernContextMenuWanted()) {
+        core::ContextMenuItem back;
+        back.key = QStringLiteral("starfish:put-back");
+        back.label = label;
+        back.glyph = QString(QChar(0xE8A7)); // OpenInNewWindow
+        back.ownId = kPutBack;
+        chosen = showModernContextMenu(core::ContextMenuKind::Selection, paths, point, {back}, &rename);
+    } else {
+        chosen = m_shellView->showSelectionMenu(paths, point, backdropOwner(),
+                                                {{kPutBack, label, true, false, {}}}, &rename);
+    }
+    if (chosen == kPutBack)
+        m_container->releaseItems(fenceId, paths);
+    if (rename)
+        qCInfo(lc).noquote() << QStringLiteral("rename inside a fence: not yet (T-102)");
     m_shellResync.start();
 }
 

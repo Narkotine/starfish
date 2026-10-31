@@ -137,6 +137,8 @@ public:
     // portal is not the user selecting something else. Returns the number
     // removed.
     int removeItemsByPath(const QStringList& paths);
+    // Session 65: the user placed icons by hand -- the order is now his.
+    void setManualOrder() { m_sortBy = QStringLiteral("manual"); }
 
     // The path QDesktopServices should open for a double-click (F-005 / T-005).
     // A .lnk/.url opens its resolved target, everything else opens itself.

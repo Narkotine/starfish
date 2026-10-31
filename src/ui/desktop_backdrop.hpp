@@ -269,6 +269,9 @@ signals:
     // desktop); `point` is where the button came up, in screen pixels.
     void iconMenuRequested(const QStringList& paths, const QPoint& point);
     void selectionChanged(const QStringList& paths);
+    // Session 65: any button press on the drawn desktop -- the selection is
+    // global, so the fences drop theirs.
+    void pressed();
     // ADR-21 lot 3 (T-091). A key the drawn desktop does not answer itself
     // (F2, Delete, Return, Ctrl+C/X/V/Z/Y, F5, the menu key): the product maps
     // it to the shell. Ctrl+A, Escape and the arrows are answered here.

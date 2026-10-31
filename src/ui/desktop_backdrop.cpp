@@ -594,6 +594,8 @@ bool DesktopBackdrop::event(QEvent* event)
 {
     switch (event->type()) {
     case QEvent::MouseButtonPress:
+        emit pressed();
+        return handleMouse(static_cast<QMouseEvent*>(event));
     case QEvent::MouseButtonRelease:
     case QEvent::MouseButtonDblClick:
     case QEvent::MouseMove:
