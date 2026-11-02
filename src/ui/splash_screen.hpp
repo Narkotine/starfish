@@ -34,8 +34,10 @@ public:
     explicit SplashScreen(QObject* parent = nullptr);
     ~SplashScreen() override;
 
-    // One full-monitor pane per screen, painted at once.
-    void showAll();
+    // One full-monitor pane per screen where the desktop is in sight (not
+    // under a maximised / full-screen window), painted AND composited (DWM)
+    // before it returns. False when no screen needed one.
+    bool showAll();
     // Starts watching: closes (and deletes itself) once all is drawn.
     void finishWhenPainted(const QList<QWidget*>& fences);
     QList<QWidget*> panes() const;
@@ -46,7 +48,9 @@ public:
     static void paintScene(class QPainter& painter, const QRect& rect, qreal phase, const QImage& background,
                            const QString& subtitle);
     // The wallpaper, cover-fitted to `size`, blurred and dimmed (null if none).
-    static QImage blurredWallpaper(const QSize& size);
+    // `cacheDir` (session 78): a small blurred copy is kept there, keyed by the
+    // wallpaper's path, size and date, so the next start shows it at once.
+    static QImage blurredWallpaper(const QSize& size, const QString& cacheDir = QString());
     // The square the animated part lives in (only it repaints).
     static QRect animatedRect(const QRect& rect);
 

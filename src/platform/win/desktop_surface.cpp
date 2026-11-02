@@ -1,5 +1,6 @@
 #include "platform/win/desktop_surface.hpp"
 #include <atomic>
+#include "platform/win/startup_timeline.hpp"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -265,6 +266,8 @@ bool DesktopSurface::attach(const QRect& rect)
     m_rect = rect;
 
     ::ShowWindow(hwnd, m_visible ? SW_SHOW : SW_HIDE);
+    if (m_visible)
+        StartupTimeline::markOnce("first desktop surface shown (fence or drawn desktop)");
     ::UpdateWindow(hwnd);
 
     // 2. Reparent to the icon host and become a child window.
@@ -642,6 +645,7 @@ void DesktopSurface::setVisible(bool visible)
         // SW_SHOWNA: show without stealing focus -- the desktop must not
         // activate when a fence comes back.
         ::ShowWindow(toHwnd(m_hwnd), SW_SHOWNA);
+        StartupTimeline::markOnce("first desktop surface shown (fence or drawn desktop)");
         place();
     } else {
         ::ShowWindow(toHwnd(m_hwnd), SW_HIDE);
@@ -1056,6 +1060,7 @@ bool DesktopSurface::setDesktopIconsHidden(bool hidden)
     }
 
     ::ShowWindow(iconWindow, hidden ? SW_HIDE : SW_SHOW);
+    StartupTimeline::markOnce(hidden ? "native desktop icons hidden" : "native desktop icons shown");
 
     // On the way out the order is the mirror image: the record must outlive the
     // state it describes, so it is removed only once the layer is really back. A

@@ -14,6 +14,11 @@
 #include <QtMath>
 
 #include "platform/win/desktop_surface.hpp"
+#include "platform/win/startup_timeline.hpp"
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <dwmapi.h>
 #include <windows.h>
 
 namespace starfish::ui {
@@ -74,7 +79,9 @@ public:
         setFocusPolicy(Qt::NoFocus);
         setScreen(screen);
         setGeometry(screen->geometry());
-        m_background = SplashScreen::blurredWallpaper(screen->geometry().size() * screen->devicePixelRatio());
+        m_background = SplashScreen::blurredWallpaper(
+            screen->geometry().size() * screen->devicePixelRatio(),
+            QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/StarFish/splash"));
         if (!m_background.isNull())
             m_background.setDevicePixelRatio(screen->devicePixelRatio());
     }
@@ -111,15 +118,78 @@ SplashScreen::~SplashScreen()
         delete pane.data();
 }
 
-void SplashScreen::showAll()
+namespace {
+
+// The desktop is out of sight on a monitor a maximised or full-screen window
+// (not the shell's own) fills: no cover there -- never over someone's game.
+bool desktopHiddenOn(const QRect& monitorPx)
 {
+    HWND foreground = ::GetForegroundWindow();
+    if (!foreground || !::IsWindowVisible(foreground))
+        return false;
+    wchar_t klass[64] = {};
+    ::GetClassNameW(foreground, klass, 64);
+    const QString name = QString::fromWCharArray(klass);
+    if (name == QLatin1String("Progman") || name == QLatin1String("WorkerW") || name == QLatin1String("Shell_TrayWnd")
+        || name == QLatin1String("Shell_SecondaryTrayWnd"))
+        return false;
+    RECT r{};
+    if (!::GetWindowRect(foreground, &r))
+        return false;
+    const QRect window(QPoint(r.left, r.top), QPoint(r.right - 1, r.bottom - 1));
+    if (!window.intersects(monitorPx))
+        return false;
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    ::GetMonitorInfoW(::MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST), &info);
+    const QRect work(QPoint(info.rcWork.left, info.rcWork.top), QPoint(info.rcWork.right - 1, info.rcWork.bottom - 1));
+    const QRect monitor(QPoint(info.rcMonitor.left, info.rcMonitor.top),
+                        QPoint(info.rcMonitor.right - 1, info.rcMonitor.bottom - 1));
+    if (monitor != monitorPx)
+        return false;
+    return ::IsZoomed(foreground) || window.contains(work);
+}
+
+// The monitor a (created, not yet shown) pane sits on, in physical pixels.
+QRect monitorPixelsOf(QWidget* pane)
+{
+    HMONITOR monitor = ::MonitorFromWindow(reinterpret_cast<HWND>(pane->winId()), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return {};
+    return QRect(QPoint(info.rcMonitor.left, info.rcMonitor.top),
+                 QPoint(info.rcMonitor.right - 1, info.rcMonitor.bottom - 1));
+}
+
+} // namespace
+
+bool SplashScreen::showAll()
+{
+    platform::win::StartupTimeline::mark("splash: building panes");
     for (QScreen* screen : QGuiApplication::screens()) {
         auto* pane = new SplashPane(screen);
+        if (desktopHiddenOn(monitorPixelsOf(pane))) {
+            delete pane;
+            continue;
+        }
         m_panes << pane;
-        pane->show();
-        pane->repaint();
     }
+    if (m_panes.isEmpty()) {
+        platform::win::StartupTimeline::mark("splash: skipped (desktop out of sight)");
+        return false;
+    }
+    for (const QPointer<QWidget>& pane : std::as_const(m_panes)) {
+        pane->show();
+        pane->repaint(); // painted and flushed to the window now
+    }
+    // On screen for real: DWM composes the next frame with the panes in it.
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    ::DwmFlush();
+    ::DwmFlush();
+    platform::win::StartupTimeline::mark("splash composited (on screen)");
     m_tick.start();
+    return true;
 }
 
 QList<QWidget*> SplashScreen::panes() const
@@ -212,12 +282,30 @@ void SplashScreen::startFade()
     fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
-QImage SplashScreen::blurredWallpaper(const QSize& size)
+QImage SplashScreen::blurredWallpaper(const QSize& size, const QString& cacheDir)
 {
     if (size.isEmpty())
         return {};
     const QString path = wallpaperPath();
-    QImage source = path.isEmpty() ? QImage() : QImage(path);
+    if (path.isEmpty())
+        return {};
+    const QFileInfo info(path);
+    QString cached;
+    if (!cacheDir.isEmpty()) {
+        const QByteArray key = QStringLiteral("%1|%2|%3|%4x%5")
+                                   .arg(path).arg(info.size()).arg(info.lastModified().toMSecsSinceEpoch())
+                                   .arg(size.width()).arg(size.height()).toUtf8();
+        cached = cacheDir + QStringLiteral("/%1x%2-").arg(size.width()).arg(size.height())
+                 + QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(16))
+                 + QStringLiteral(".png");
+        const QImage small(cached);
+        if (!small.isNull()) {
+            QImage full = small.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                              .convertToFormat(QImage::Format_RGB32);
+            return full;
+        }
+    }
+    QImage source(path);
     if (source.isNull())
         return {};
     // Cover-fit, then a cheap wide blur: down to a few dozen pixels and back.
@@ -225,15 +313,23 @@ QImage SplashScreen::blurredWallpaper(const QSize& size)
     const QImage fitted = cover.copy((cover.width() - size.width()) / 2, (cover.height() - size.height()) / 2,
                                      size.width(), size.height());
     const QSize tiny(qMax(8, size.width() / 40), qMax(6, size.height() / 40));
-    QImage blurred = fitted.scaled(tiny, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                         .scaled(tiny * 2, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                         .scaled(tiny * 4, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                         .scaled(tiny * 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                         .scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                         .convertToFormat(QImage::Format_RGB32);
-    QPainter dim(&blurred);
-    dim.fillRect(blurred.rect(), QColor(0x06, 0x12, 0x22, 150));
-    return blurred;
+    QImage small = fitted.scaled(tiny, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                       .scaled(tiny * 2, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                       .scaled(tiny * 4, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                       .scaled(tiny * 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                       .convertToFormat(QImage::Format_RGB32);
+    {
+        QPainter dim(&small);
+        dim.fillRect(small.rect(), QColor(0x06, 0x12, 0x22, 150));
+    }
+    if (!cached.isEmpty() && QDir().mkpath(cacheDir)) {
+        // One copy per wallpaper and size: the old ones go.
+        const QString sameSize = QStringLiteral("%1x%2-*.png").arg(size.width()).arg(size.height());
+        for (const QFileInfo& old : QDir(cacheDir).entryInfoList({sameSize}, QDir::Files))
+            QFile::remove(old.absoluteFilePath());
+        small.save(cached);
+    }
+    return small.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
 }
 
 QRect SplashScreen::animatedRect(const QRect& rect)

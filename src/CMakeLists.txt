@@ -22,6 +22,7 @@ qt_add_executable(starfish WIN32
     core/zorder.cpp
     platform/win/desktop_host.cpp
     platform/win/desktop_surface.cpp
+    platform/win/startup_timeline.cpp
     platform/win/desktop_icons.cpp
     platform/win/desktop_menu.cpp
     platform/win/desktop_shell_view.cpp

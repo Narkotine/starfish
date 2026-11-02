@@ -59,6 +59,7 @@
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/splash_screen.hpp"
+#include "platform/win/startup_timeline.hpp"
 #include "ui/tray_icon.hpp"
 
 QLoggingCategory lc("starfish.product");
@@ -176,6 +177,21 @@ bool ProductApp::start(const Options& options, QString* error)
         return true;
 
     m_options = options;
+    if (m_options.splash) {
+        platform::win::StartupTimeline::enable();
+        platform::win::StartupTimeline::mark("ProductApp::start");
+    }
+    if (m_options.splash
+        && QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+               .value(QStringLiteral("showSplash"), true).toBool()) {
+        // Session 78: FIRST, before anything of the desktop changes (the icon
+        // repair below, the fences, the icon list hidden, the drawn desktop):
+        // every monitor where the desktop shows is covered, and the cover is
+        // on screen (painted, composited) before the next line runs.
+        m_splash = new ui::SplashScreen(this);
+        if (!m_splash->showAll()) // nothing to cover: the desktop is not in sight
+            delete m_splash.data();
+    }
     if (m_options.refreshAutostart
         && platform::win::Autostart().refresh(QCoreApplication::applicationFilePath()))
         qCInfo(lc) << "the start-with-Windows entry now points to" << QCoreApplication::applicationFilePath();
@@ -187,14 +203,6 @@ bool ProductApp::start(const Options& options, QString* error)
     // the mode: the icons being gone is a fact about the machine, not about this
     // document or this options set.
     repairIconHidingFromPreviousRun();
-    if (m_options.splash
-        && QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
-               .value(QStringLiteral("showSplash"), true).toBool()) {
-        // Session 77: every monitor covered while the desktop and the fences
-        // draw (never focused); gone once all of it painted.
-        m_splash = new ui::SplashScreen(this);
-        m_splash->showAll();
-    }
 
     if (m_options.hostOnDesktop && !platform::win::DesktopSurface::isDesktopAvailable()) {
         if (error)
@@ -363,6 +371,7 @@ bool ProductApp::start(const Options& options, QString* error)
 
     refreshStatus();
     m_started = true;
+    platform::win::StartupTimeline::mark("startup done (fences and drawn desktop set up)");
     if (m_splash) {
         QList<QWidget*> views;
         for (const QString& fid : m_container->fenceIds())
