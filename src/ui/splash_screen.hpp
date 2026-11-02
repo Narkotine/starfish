@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QImage>
 #include <QList>
+#include <QObject>
 #include <QPointer>
 #include <QSet>
 #include <QTimer>
@@ -9,38 +11,59 @@
 
 namespace starfish::ui {
 
-// Session 76: a short card while the fences draw themselves at startup -- the
-// user saw them pop in one by one. Never takes focus (no activation, a tool
-// window), stays at least kMinimumMs, closes once every watched fence has
-// painted (or after kMaximumMs whatever happens), with a short fade.
-class SplashScreen : public QWidget
+// Session 76/77: the startup splash. Session 77 (the user: "l'écran entier,
+// pour cacher le moment du dessin des zones") -- one pane per monitor, each
+// covering the whole monitor, so the fences drawing themselves one by one are
+// never seen; it fades once everything painted.
+//
+// - Never takes focus (tool windows, shown without activation).
+// - At least kMinimumMs; "everything painted" = every watched widget painted
+//   once AND the desktop surfaces (drawn desktop, composed fences) stopped
+//   pushing frames for kSettleMs; whatever happens, gone at kMaximumMs.
+// - Topmost only for that time; input-transparent from the fade on, deleted
+//   after it. Same process: a crash takes it with it.
+class SplashScreen : public QObject
 {
     Q_OBJECT
 public:
     static constexpr int kMinimumMs = 600;
-    static constexpr int kMaximumMs = 4000;
+    static constexpr int kMaximumMs = 6000;
+    static constexpr int kSettleMs = 350;
+    static constexpr int kFadeMs = 220;
 
-    explicit SplashScreen(QWidget* parent = nullptr);
+    explicit SplashScreen(QObject* parent = nullptr);
+    ~SplashScreen() override;
 
-    // Closes (and deletes itself) once every one of `fences` painted once.
+    // One full-monitor pane per screen, painted at once.
+    void showAll();
+    // Starts watching: closes (and deletes itself) once all is drawn.
     void finishWhenPainted(const QList<QWidget*>& fences);
+    QList<QWidget*> panes() const;
     bool finishing() const { return m_finishing; }
 
-    // The identity, drawn: also used by the probe for a capture.
-    static void paintCard(class QPainter& painter, const QRect& rect, qreal phase, const QString& subtitle);
+    // The scene, drawn: the wallpaper blurred and dimmed (or a dark sea when
+    // there is none), the coral starfish in the middle, the name under it.
+    static void paintScene(class QPainter& painter, const QRect& rect, qreal phase, const QImage& background,
+                           const QString& subtitle);
+    // The wallpaper, cover-fitted to `size`, blurred and dimmed (null if none).
+    static QImage blurredWallpaper(const QSize& size);
+    // The square the animated part lives in (only it repaints).
+    static QRect animatedRect(const QRect& rect);
 
 protected:
-    void paintEvent(class QPaintEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    void tryFinish();
+    void tick();
+    void startFade();
     QElapsedTimer m_clock;
+    QElapsedTimer m_settled; // since the desktop surfaces' last frame
+    quint64 m_lastFrames = 0;
     QTimer m_tick;
     QSet<QObject*> m_waiting;
+    QList<QPointer<QWidget>> m_panes;
     bool m_watching = false;
     bool m_finishing = false;
-    qreal m_phase = 0.0;
 };
 
 } // namespace starfish::ui

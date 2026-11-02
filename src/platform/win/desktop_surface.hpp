@@ -56,6 +56,9 @@ public:
 
     // True when Progman and SHELLDLL_DefView are found (i.e. Explorer is up).
     static bool isDesktopAvailable();
+    // Session 77: frames handed to any surface so far (the splash waits for
+    // this to stop moving: the drawn desktop and the fences are painted).
+    static quint64 framesPushed();
 
     // The lowest alpha any pixel of a per-pixel frame may carry, and the reason
     // it is not zero (T-060, ADR-11). It is a property of the layered window

@@ -1276,31 +1276,38 @@ int runUiProbe(QApplication& app)
                       .arg(rows).arg(cols).arg(right).arg(bottom).arg(byDefault).arg(fenceWins).arg(flowKept));
         }
 
-        // The splash: never focused, closes once the fences painted.
+        // The splash (session 77): full monitor, never focused, closes once the
+        // fences painted and the surfaces settled; rendered here, never shown.
         {
-            QImage card(340 * 2, 150 * 2, QImage::Format_ARGB32_Premultiplied);
-            card.setDevicePixelRatio(2.0);
-            card.fill(QColor(0x9A, 0xC8, 0x2A));
-            QPainter p(&card);
-            ui::SplashScreen::paintCard(p, QRect(0, 0, 340, 150), 0.4, QStringLiteral("Setting out your fences..."));
+            const QSize size(1600, 900);
+            QImage scene(size, QImage::Format_RGB32);
+            QPainter p(&scene);
+            ui::SplashScreen::paintScene(p, QRect(QPoint(0, 0), size), 0.4, ui::SplashScreen::blurredWallpaper(size),
+                                         QStringLiteral("Setting out your fences..."));
             p.end();
-            card.save(captures + QStringLiteral("/s76_splash.png"));
+            scene.save(captures + QStringLiteral("/s77_splash.png"));
             QPointer<ui::SplashScreen> splash = new ui::SplashScreen;
-            const bool noFocus = splash->testAttribute(Qt::WA_ShowWithoutActivating)
-                                 && (splash->windowFlags() & Qt::WindowDoesNotAcceptFocus);
             QWidget fence; // never on screen: its paint is sent here
             fence.setAttribute(Qt::WA_DontShowOnScreen);
             fence.resize(120, 80);
+            fence.setUpdatesEnabled(false); // no paint of its own: the one sent below
             fence.show();
             splash->finishWhenPainted({&fence});
+            QElapsedTimer clock;
+            clock.start();
+            wait(ui::SplashScreen::kMinimumMs + 100);
+            const bool waitsForPaint = !splash.isNull() && !splash->finishing();
             {
                 QPaintEvent paint(fence.rect());
                 QApplication::sendEvent(&fence, &paint);
             }
-            wait(ui::SplashScreen::kMinimumMs + 500);
+            for (int i = 0; i < 40 && !splash.isNull(); ++i)
+                wait(50);
             const bool gone = splash.isNull();
-            check(QStringLiteral("splash: never focused, closes once the fences painted (session 76)"), noFocus && gone,
-                  QStringLiteral("no focus %1, gone %2").arg(noFocus).arg(gone));
+            const qint64 took = clock.elapsed();
+            check(QStringLiteral("splash: waits for the fences' paint, then goes well before its 6 s net (session 77)"),
+                  waitsForPaint && gone && took < ui::SplashScreen::kMaximumMs,
+                  QStringLiteral("waits %1, gone %2, %3 ms").arg(waitsForPaint).arg(gone).arg(took));
         }
 
         // The fence's menu: resize mode and templates, one click away.

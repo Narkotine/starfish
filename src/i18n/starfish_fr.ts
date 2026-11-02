@@ -618,9 +618,17 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5867"/>
+        <location filename="../main.cpp" line="+5871"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
+    </message>
+</context>
+<context>
+    <name>SplashScreen</name>
+    <message>
+        <location filename="../ui/splash_screen.cpp" line="+88"/>
+        <source>Setting out your fences...</source>
+        <translation>Mise en place de vos zones…</translation>
     </message>
 </context>
 <context>
@@ -1430,14 +1438,6 @@
         <location line="+144"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
-    </message>
-</context>
-<context>
-    <name>starfish::ui::SplashScreen</name>
-    <message>
-        <location filename="../ui/splash_screen.cpp" line="+162"/>
-        <source>Setting out your fences...</source>
-        <translation>Mise en place de vos zones…</translation>
     </message>
 </context>
 <context>

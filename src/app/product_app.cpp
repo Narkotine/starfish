@@ -190,10 +190,10 @@ bool ProductApp::start(const Options& options, QString* error)
     if (m_options.splash
         && QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
                .value(QStringLiteral("showSplash"), true).toBool()) {
-        // Session 76: a short card while the fences draw (never focused).
-        m_splash = new ui::SplashScreen;
-        m_splash->show();
-        m_splash->repaint();
+        // Session 77: every monitor covered while the desktop and the fences
+        // draw (never focused); gone once all of it painted.
+        m_splash = new ui::SplashScreen(this);
+        m_splash->showAll();
     }
 
     if (m_options.hostOnDesktop && !platform::win::DesktopSurface::isDesktopAvailable()) {

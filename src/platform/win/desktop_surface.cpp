@@ -1,4 +1,5 @@
 #include "platform/win/desktop_surface.hpp"
+#include <atomic>
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -432,8 +433,18 @@ QRect DesktopSurface::geometry() const
     return m_rect;
 }
 
+namespace {
+std::atomic<quint64> g_framesPushed{0};
+} // namespace
+
+quint64 DesktopSurface::framesPushed()
+{
+    return g_framesPushed.load();
+}
+
 void DesktopSurface::updateFrame(const QImage& frame, const QRect& dirty)
 {
+    ++g_framesPushed;
     const QRect rect = dirty.intersected(frame.rect());
     if (m_perPixelAlpha || m_frame.isNull() || m_frame.size() != frame.size()
         || m_frame.format() != QImage::Format_ARGB32 || frame.depth() != 32) {
@@ -482,6 +493,7 @@ void DesktopSurface::repaintNow()
 
 void DesktopSurface::setFrame(const QImage& frame)
 {
+    ++g_framesPushed;
     m_frame = frame.convertToFormat(m_perPixelAlpha ? QImage::Format_ARGB32_Premultiplied
                                                     : QImage::Format_ARGB32);
     if (!m_hwnd || !::IsWindow(toHwnd(m_hwnd)))
