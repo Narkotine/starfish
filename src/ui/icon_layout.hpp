@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 
+#include <QCoreApplication>
 #include <QPoint>
 #include <QRect>
 #include <QSize>
@@ -43,6 +44,31 @@ struct IconCell {
 class IconLayout
 {
 public:
+    // Session 76: the order icons flow in. Bit 0: from the right; bit 1: from
+    // the bottom; bit 2: columns first (down, then the next column) instead of
+    // rows first. 0 is the classic order: rows, from the top left.
+    enum Flow { FromRight = 1, FromBottom = 2, ColumnsFirst = 4 };
+    static QStringList flowKeys()
+    {
+        return {QStringLiteral("tl-rows"), QStringLiteral("tr-rows"), QStringLiteral("bl-rows"),
+                QStringLiteral("br-rows"), QStringLiteral("tl-cols"), QStringLiteral("tr-cols"),
+                QStringLiteral("bl-cols"), QStringLiteral("br-cols")};
+    }
+    static int flowFromKey(const QString& key) { return qMax(0, flowKeys().indexOf(key)); }
+    static QString flowLabel(int flow)
+    {
+        switch (flow) {
+        case 1: return QCoreApplication::translate("IconFlow", "Rows, from the top right");
+        case 2: return QCoreApplication::translate("IconFlow", "Rows, from the bottom left");
+        case 3: return QCoreApplication::translate("IconFlow", "Rows, from the bottom right");
+        case 4: return QCoreApplication::translate("IconFlow", "Columns, from the top left");
+        case 5: return QCoreApplication::translate("IconFlow", "Columns, from the top right");
+        case 6: return QCoreApplication::translate("IconFlow", "Columns, from the bottom left");
+        case 7: return QCoreApplication::translate("IconFlow", "Columns, from the bottom right");
+        default: return QCoreApplication::translate("IconFlow", "Rows, from the top left");
+        }
+    }
+
     // How wide a cell is for a given icon size: 1.5x, i.e. 72 px for the default
     // 48 px icon. That is the room a two-line caption needs, and the same order
     // as the Windows desktop (~75 px for 48 px icons). Since T-078 this is the
@@ -79,7 +105,7 @@ public:
     // the bottom are still computed (the caller clips / scrolls), so the vector
     // length always equals `itemCount`.
     static QVector<IconCell> compute(const QSize& viewport, int iconSize, int cellWidth,
-                                     int labelHeight, int gap, int padding, int itemCount)
+                                     int labelHeight, int gap, int padding, int itemCount, int flow = 0)
     {
         QVector<IconCell> cells;
         cells.reserve(qMax(0, itemCount));
@@ -98,10 +124,15 @@ public:
         const int offset = 0;
 
         for (int i = 0; i < itemCount; ++i) {
-            const int col = i % columns;
-            const int row = i / columns;
-            const int x = padding + offset + col * (cellW + gap);
-            const int y = padding + row * (cellH + gap);
+            // Session 76: the flow (corner, rows or columns first).
+            const int rows = qMax(1, (viewport.height() - 2 * padding + gap) / qMax(1, cellH + gap));
+            const bool byColumns = flow & ColumnsFirst;
+            const int col = byColumns ? i / rows : i % columns;
+            const int row = byColumns ? i % rows : i / columns;
+            const int x = (flow & FromRight) ? viewport.width() - padding - cellW - col * (cellW + gap)
+                                             : padding + offset + col * (cellW + gap);
+            const int y = (flow & FromBottom) ? viewport.height() - padding - cellH - row * (cellH + gap)
+                                              : padding + row * (cellH + gap);
 
             IconCell cell;
             cell.icon = QRect(x + (cellW - icon) / 2, y, icon, icon);

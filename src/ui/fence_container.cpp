@@ -231,6 +231,7 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         into->view->setExternalDropIndex(-1);
     m_tileDropTarget.clear();
     if (!into || !source || !source->view) {
+        emit tilesDroppedOnDesktop(paths, screenPoint); // session 76: where they were let go
         releaseItems(sourceId, paths); // F-011: back on the desktop
         return 0;
     }
@@ -1117,6 +1118,10 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setHoverHighlight(effect != FenceView::HoverEffect::None);
     fence.view->setFixedCellWidth(fence.style.cellWidth);
     fence.view->setTitleBarShown(fence.style.titleBar);
+    fence.view->setLabelsShown(fence.style.showLabels == QLatin1String("on")
+                               || (fence.style.showLabels.isEmpty() && m_showLabelsDefault));
+    fence.view->setIconFlow(fence.style.iconFlow.isEmpty() ? m_iconFlowDefault
+                                                           : IconLayout::flowFromKey(fence.style.iconFlow));
 }
 
 void FenceContainer::setDefaultBorder(int width, const QString& color)
@@ -1134,6 +1139,26 @@ void FenceContainer::setNewFenceStyle(const core::FenceStyle& style)
     m_newFenceStyle = style;
     if (m_backdrop)
         m_backdrop->setFencePreviewStyle(style.radius, QColor(style.background));
+}
+
+void FenceContainer::setShowLabelsDefault(bool on)
+{
+    m_showLabelsDefault = on;
+    for (FenceWindow& fence : m_fences)
+        applyStyleToView(fence);
+}
+
+void FenceContainer::setIconFlowDefault(int flow)
+{
+    m_iconFlowDefault = flow;
+    for (FenceWindow& fence : m_fences)
+        applyStyleToView(fence);
+}
+
+void FenceContainer::setFenceTitleLocked(const QString& id, bool locked)
+{
+    if (FenceWindow* fence = find(id); fence && fence->view)
+        fence->view->setTitleGesturesLocked(locked);
 }
 
 void FenceContainer::setHoverHighlight(bool on)

@@ -198,6 +198,18 @@ public:
     int removeItemsByPath(const QStringList& paths);
     // Session 74: a tile follows its file (rename), or says it is missing.
     bool replaceItem(const QString& oldPath, const core::DesktopItem& item);
+    // Session 76: the icons' names shown or not; the title's double-click
+    // (rename / roll) off while the fence's Appearance dialog is open; how many
+    // icons the fence is too small to show (the "+N" badge opens them).
+    void setLabelsShown(bool shown);
+    void setIconFlow(int flow); // IconLayout::Flow bits
+    int iconFlow() const { return m_grid.flow(); }
+    bool labelsShown() const { return m_grid.labelsShown(); }
+    void setTitleGesturesLocked(bool locked) { m_titleLocked = locked; }
+    bool titleGesturesLocked() const { return m_titleLocked; }
+    int hiddenItemCount() const;
+    QRect hiddenBadgeRect() const;
+    QStringList hiddenItemPaths() const;
     // Session 74: where a tile's caption is, in widget coordinates (the rename edit).
     QRect labelRectOf(const QString& path) const;
     // Session 65: global selection -- cleared from outside (another fence or
@@ -329,6 +341,8 @@ private:
     bool m_hoverHighlight = true;
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
+    bool m_titleLocked = false; // session 76
+    void showHiddenItemsMenu();
     int m_tipIndex = -1; // session 74: the missing tile whose tooltip is up
     void updateMissingTip(const QPoint& localPoint);
     bool m_titleBarShown = true;

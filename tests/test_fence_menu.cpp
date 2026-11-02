@@ -67,10 +67,12 @@ private slots:
         for (const FenceMenu::Entry& entry : entries) {
             if (entry.kind == FenceMenu::Kind::Submenu) {
                 ++submenus;
-                QVERIFY(entry.action == FenceMenu::Action::Sort || entry.action == FenceMenu::Action::HoverUnroll);
+                QVERIFY(entry.action == FenceMenu::Action::Sort || entry.action == FenceMenu::Action::HoverUnroll
+                        || entry.action == FenceMenu::Action::Resize || entry.action == FenceMenu::Action::Template);
             }
         }
-        QCOMPARE(submenus, 2); // session 71: + "Unroll on hover"
+        QCOMPARE(submenus, 3); // session 76: + "Resize" (templates only when saved)
+        // session 71: + "Unroll on hover"
     }
 
     void theHoverUnrollSubmenuMarksTheFencesChoice()

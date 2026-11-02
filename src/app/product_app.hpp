@@ -5,6 +5,7 @@
 #include <QPoint>
 #include <QSet>
 #include <QObject>
+#include <QPointer>
 #include <QRect>
 #include <QTimer>
 #include <QSize>
@@ -39,6 +40,7 @@ struct NativeDesktopIcon;
 namespace starfish::ui {
 class FenceContainer;
 class SettingsDialog;
+class SplashScreen;
 class TrayIcon;
 } // namespace starfish::ui
 
@@ -92,6 +94,7 @@ public:
         // Session 62: an existing "start with Windows" entry follows the exe
         // if it moved -- the real launch only, never a probe.
         bool refreshAutostart = false;
+        bool splash = false; // session 76: the real launch only (Settings may turn it off)
 
     };
 
@@ -476,6 +479,7 @@ private:
 
     ui::TrayIcon* m_tray = nullptr;
     ui::SettingsDialog* m_settings = nullptr;
+    QPointer<ui::SplashScreen> m_splash; // session 76
     // Not a QObject: owned here, and it must outlive every fence that asks it
     // for an icon.
     std::unique_ptr<platform::win::ShellIconCache> m_icons;

@@ -86,6 +86,8 @@ struct FenceStyle {
     QString rollToward;
     // Session 73: resize in whole icon cells: "" the default, "on", "off".
     QString snapToCells;
+    QString iconFlow;   // session 76: "" (Settings) or an IconLayout::flowKeys() key
+    QString showLabels; // session 76: "" (Settings) | "on" | "off" -- the icons' names
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

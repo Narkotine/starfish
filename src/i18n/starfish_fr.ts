@@ -150,11 +150,13 @@
         <location line="+4"/>
         <location line="+11"/>
         <location line="+6"/>
+        <location line="+6"/>
+        <location line="+6"/>
         <source>Default (Settings)</source>
         <translation>Par défaut (Réglages)</translation>
     </message>
     <message>
-        <location line="-16"/>
+        <location line="-28"/>
         <source>Nothing</source>
         <translation>Aucun</translation>
     </message>
@@ -220,23 +222,43 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+226"/>
+        <source>Shown</source>
+        <translation>Affichés</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Hidden</source>
+        <translation>Masqués</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Icon names</source>
+        <translation>Noms des icônes</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Icon order</source>
+        <translation>Ordre des icônes</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+228"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-222"/>
+        <location line="-224"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+227"/>
+        <location line="+229"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-222"/>
+        <location line="-224"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -333,7 +355,7 @@
         <translation>Supprimer le modèle « %1 » ? Les zones gardent leur apparence.</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+190"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -364,7 +386,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+223"/>
+        <location filename="../ui/fence_menu.hpp" line="+270"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -409,7 +431,27 @@
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="-156"/>
+        <location line="-196"/>
+        <source>Default (whole icons)</source>
+        <translation>Par défaut (icônes entières)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Default (free)</source>
+        <translation>Par défaut (libre)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Whole icons</source>
+        <translation>Icônes entières</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Free</source>
+        <translation>Libre</translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <source>Default (yes)</source>
         <translation>Par défaut (oui)</translation>
     </message>
@@ -469,12 +511,22 @@
         <translation>Trier par</translation>
     </message>
     <message>
+        <location line="+6"/>
+        <source>Resize</source>
+        <translation>Redimensionnement</translation>
+    </message>
+    <message>
         <location line="+7"/>
         <source>Appearance...</source>
         <translation>Apparence…</translation>
     </message>
     <message>
         <location line="+7"/>
+        <source>Apply a template</source>
+        <translation>Appliquer un modèle</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Remove this fence</source>
         <translation>Supprimer cette zone</translation>
     </message>
@@ -498,9 +550,52 @@
     </message>
 </context>
 <context>
+    <name>IconFlow</name>
+    <message>
+        <location filename="../ui/icon_layout.hpp" line="+61"/>
+        <source>Rows, from the top right</source>
+        <translation>Lignes, depuis le haut à droite</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Rows, from the bottom left</source>
+        <translation>Lignes, depuis le bas à gauche</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Rows, from the bottom right</source>
+        <translation>Lignes, depuis le bas à droite</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Columns, from the top left</source>
+        <translation>Colonnes, depuis le haut à gauche</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Columns, from the top right</source>
+        <translation>Colonnes, depuis le haut à droite</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Columns, from the bottom left</source>
+        <translation>Colonnes, depuis le bas à gauche</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Columns, from the bottom right</source>
+        <translation>Colonnes, depuis le bas à droite</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Rows, from the top left</source>
+        <translation>Lignes, depuis le haut à gauche</translation>
+    </message>
+</context>
+<context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2478"/>
+        <location filename="../app/product_app.cpp" line="+2559"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -523,7 +618,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5863"/>
+        <location filename="../main.cpp" line="+5867"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -541,12 +636,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2722"/>
+        <location line="-2794"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+468"/>
+        <location line="+489"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -580,7 +675,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+412"/>
+        <location filename="../app/product_app.cpp" line="+443"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -590,7 +685,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+460"/>
+        <location line="+480"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -935,7 +1030,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+308"/>
+        <location filename="../ui/fence_view.cpp" line="+309"/>
         <location line="+134"/>
         <location line="+183"/>
         <source>Fence</source>
@@ -947,7 +1042,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+373"/>
+        <location line="+473"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -967,7 +1062,7 @@
         <translation>Clic droit pour le retirer de la zone.</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+127"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
@@ -975,7 +1070,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+110"/>
+        <location filename="../ui/settings_dialog.cpp" line="+111"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -993,18 +1088,18 @@
     </message>
     <message>
         <location line="-105"/>
-        <location line="+306"/>
+        <location line="+322"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-305"/>
-        <location line="+324"/>
+        <location line="-321"/>
+        <location line="+340"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-296"/>
+        <location line="-312"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -1016,12 +1111,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+445"/>
+        <location line="+482"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-435"/>
+        <location line="-472"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1057,12 +1152,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+278"/>
+        <location line="+294"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-271"/>
+        <location line="-287"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1180,6 +1275,36 @@
         <location line="+1"/>
         <source>Width and height land on whole columns and rows. A fence can choose for itself (Appearance).</source>
         <translation>Largeur et hauteur tombent sur des colonnes et rangées entières. Chaque zone peut choisir (Apparence).</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show the icons&apos; names in fences</source>
+        <translation>Afficher les noms des icônes dans les zones</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Off: icons only, the name on hover. A fence can choose for itself (Appearance).</source>
+        <translation>Désactivé : icônes seules, le nom au survol. Une zone peut choisir pour elle-même (Apparence).</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Icon order in fences</source>
+        <translation>Ordre des icônes dans les zones</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Where the first icon sits and which way the next ones go. A fence can choose for itself (Appearance).</source>
+        <translation>Où se place la première icône et dans quel sens vont les suivantes. Une zone peut choisir pour elle-même (Apparence).</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Splash screen at startup</source>
+        <translation>Écran de démarrage</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>A short card while the fences draw.</source>
+        <translation>Une courte carte pendant que les zones se dessinent.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -1302,9 +1427,17 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+144"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
+    </message>
+</context>
+<context>
+    <name>starfish::ui::SplashScreen</name>
+    <message>
+        <location filename="../ui/splash_screen.cpp" line="+162"/>
+        <source>Setting out your fences...</source>
+        <translation>Mise en place de vos zones…</translation>
     </message>
 </context>
 <context>

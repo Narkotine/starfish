@@ -49,6 +49,8 @@ int IconGrid::cellWidth() const
     // it gets the room it needs, up to twice the icon (T-078). Nothing else
     // changes: short names keep the exact cell they had.
     const int floorWidth = IconLayout::cellWidthFor(m_iconSize);
+    if (!m_labelsShown) // session 76: no name to make room for
+        return m_fixedCellWidth > 0 ? qMax(m_fixedCellWidth, m_iconSize + 8) : m_iconSize + 12;
     if (m_fixedCellWidth > 0)
         return qMax(m_fixedCellWidth, m_iconSize + 8);
     if (!m_hasBaseFont || m_items.isEmpty())
@@ -141,8 +143,8 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
         return;
 
     const QVector<IconCell> cells =
-        IconLayout::compute(contentRect.size(), m_iconSize, cellWidth(), m_labelHeight, m_gap,
-                            m_padding, m_items.size());
+        IconLayout::compute(contentRect.size(), m_iconSize, cellWidth(), labelHeight(), m_gap,
+                            m_padding, m_items.size(), m_flow);
 
     painter.save();
     // The cells are in *content-local* coordinates -- the same space hitTest()
@@ -193,6 +195,8 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
                 cell.icon.y() + (cell.icon.height() - scaled.height()) / 2, scaled);
         }
 
+        if (!m_labelsShown)
+            continue; // session 76: names hidden (the tooltip says it)
         // Caption: at most two lines, elided on the *right* when it still does
         // not fit (T-049). Windows labels a desktop icon the same way; eliding
         // in the middle turned "Epic Games Launcher" into "Epi...her", which is
@@ -223,8 +227,8 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
 int IconGrid::hitTest(const QPoint& contentLocalPoint, const QSize& contentSize) const
 {
     const QVector<IconCell> cells =
-        IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
-                            m_items.size());
+        IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
+                            m_items.size(), m_flow);
     return IconLayout::hitTest(cells, contentLocalPoint);
 }
 
@@ -236,8 +240,8 @@ QVector<QRect> IconGrid::cellRects(const QSize& contentSize) const
     // The same call hitTest() and paint() make, with the same arguments: the cell
     // a tile is drawn in is the cell its region is built from.
     const QVector<IconCell> cells =
-        IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
-                            m_items.size());
+        IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
+                            m_items.size(), m_flow);
     const QRect area(QPoint(0, 0), contentSize);
     rects.reserve(cells.size());
     for (const IconCell& cell : cells) {

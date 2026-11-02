@@ -2,6 +2,7 @@
 
 #include <QSpinBox>
 #include <QComboBox>
+#include "ui/icon_layout.hpp"
 #include "ui/recent_colours.hpp"
 
 #include "ui/percent_slider.hpp"
@@ -362,6 +363,22 @@ QWidget* SettingsDialog::buildFences()
     toggle(m_snapToCells, "snapToCellsSwitch", false, &SettingsDialog::snapToCellsToggled, QChar(0xE80A),
            tr("Resize fences in whole icons"),
            tr("Width and height land on whole columns and rows. A fence can choose for itself (Appearance)."));
+    toggle(m_showLabels, "showLabelsSwitch", true, &SettingsDialog::showLabelsToggled, QChar(0xE8D2),
+           tr("Show the icons' names in fences"),
+           tr("Off: icons only, the name on hover. A fence can choose for itself (Appearance)."));
+    m_iconFlow = new QComboBox; // session 76
+    m_iconFlow->setObjectName(QStringLiteral("iconFlowCombo"));
+    for (int f = 0; f < IconLayout::flowKeys().size(); ++f)
+        m_iconFlow->addItem(IconLayout::flowLabel(f), IconLayout::flowKeys().at(f));
+    connect(m_iconFlow, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_updating)
+            emit iconFlowChosen(m_iconFlow->currentData().toString());
+    });
+    l->addWidget(row(QString(QChar(0xE8CB)), tr("Icon order in fences"),
+                     tr("Where the first icon sits and which way the next ones go. A fence can choose for itself (Appearance)."),
+                     m_iconFlow, p));
+    toggle(m_splash, "splashSwitch", true, &SettingsDialog::splashToggled, QChar(0xE7B5),
+           tr("Splash screen at startup"), tr("A short card while the fences draw."));
     toggle(m_autoRestoreShortcuts, "autoRestoreShortcutsSwitch", false, &SettingsDialog::autoRestoreShortcutsToggled,
            QChar(0xE777), tr("Put back deleted fence shortcuts at startup"),
            tr("StarFish keeps a copy of the shortcuts in your fences. Off: a missing one can still be restored from its menu."));
@@ -581,6 +598,27 @@ void SettingsDialog::setRollAnimated(bool on)
 {
     m_updating = true;
     m_rollAnimated->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setIconFlow(const QString& key)
+{
+    m_updating = true;
+    m_iconFlow->setCurrentIndex(qMax(0, m_iconFlow->findData(key)));
+    m_updating = false;
+}
+
+void SettingsDialog::setSplash(bool on)
+{
+    m_updating = true;
+    m_splash->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setShowLabels(bool on)
+{
+    m_updating = true;
+    m_showLabels->setChecked(on);
     m_updating = false;
 }
 

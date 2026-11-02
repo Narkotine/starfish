@@ -51,6 +51,12 @@
 #include "platform/win/desktop_scanner.hpp"
 #include "core/shortcut_vault.hpp"
 #include <QKeyEvent>
+#include <QPointer>
+#include <QPaintEvent>
+#include "ui/fence_menu.hpp"
+#include "ui/splash_screen.hpp"
+#include <windows.h>
+#include <shobjidl.h>
 
 namespace starfish::app {
 
@@ -1110,6 +1116,209 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 76: launch through the shell, names hidden, title lock, "+N", menu ---
+    {
+        QTemporaryDir temp;
+        const QString dir = QDir::fromNativeSeparators(temp.path());
+        // A shortcut with arguments to a script that writes them down: nothing
+        // shows on screen (wscript, no window), only a file in the temp folder.
+        const QString script = dir + QStringLiteral("/args s76.vbs");
+        const QString out = dir + QStringLiteral("/args s76.txt");
+        {
+            QFile file(script);
+            file.open(QIODevice::WriteOnly);
+            file.write("Set f = CreateObject(\"Scripting.FileSystemObject\").CreateTextFile(WScript.Arguments(0), True)\r\n"
+                       "f.Write WScript.Arguments(1)\r\nf.Close\r\n");
+        }
+        const QString link = dir + QStringLiteral("/web app s76.lnk");
+        bool made = false;
+        {
+            IShellLinkW* shellLink = nullptr;
+            if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+                                           reinterpret_cast<void**>(&shellLink)))) {
+                const QString wscript = QStandardPaths::findExecutable(QStringLiteral("wscript.exe"));
+                const QString args = QStringLiteral("\"%1\" \"%2\" --app-id=s76probe")
+                                         .arg(QDir::toNativeSeparators(script), QDir::toNativeSeparators(out));
+                shellLink->SetPath(reinterpret_cast<const wchar_t*>(QDir::toNativeSeparators(wscript).utf16()));
+                shellLink->SetArguments(reinterpret_cast<const wchar_t*>(args.utf16()));
+                IPersistFile* persist = nullptr;
+                if (SUCCEEDED(shellLink->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&persist)))) {
+                    made = SUCCEEDED(persist->Save(reinterpret_cast<const wchar_t*>(QDir::toNativeSeparators(link).utf16()), TRUE));
+                    persist->Release();
+                }
+                shellLink->Release();
+            }
+        }
+        ui::FenceContainer container;
+        container.setItemResolver([](const QString& path) { return platform::win::DesktopScanner::itemForPath(path); });
+        const QString id = container.createFence(QStringLiteral("Web apps"), QRect(0, 0, 300, 200));
+        container.fileInto(id, {platform::win::DesktopScanner::itemForPath(link)});
+        ui::FenceView* view = container.view(id);
+        const QPoint tile = view->contentRect().topLeft() + QPoint(view->gridPadding() + view->iconSize() / 2,
+                                                                     view->gridPadding() + view->iconSize() / 2);
+        auto dbl = [view](const QPoint& at) {
+            QMouseEvent e(QEvent::MouseButtonDblClick, QPointF(at), view->mapToGlobal(QPointF(at)), Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(view, &e);
+        };
+        dbl(tile);
+        QString written;
+        for (int i = 0; i < 60 && written.isEmpty(); ++i) {
+            wait(100);
+            QFile file(out);
+            if (file.open(QIODevice::ReadOnly))
+                written = QString::fromUtf8(file.readAll()).trimmed();
+        }
+        check(QStringLiteral("double-click opens the shortcut itself: its arguments reach the program (session 76)"),
+              made && written == QLatin1String("--app-id=s76probe"),
+              QStringLiteral("made %1, written \"%2\"").arg(made).arg(written));
+
+        // Names hidden: cells shrink to the icon; per fence beats the default.
+        const int withNames = view->labelHeight();
+        container.setShowLabelsDefault(false);
+        const bool hiddenByDefault = !view->labelsShown() && view->labelHeight() == 0 && withNames > 0;
+        core::FenceStyle style = container.fenceStyle(id);
+        style.showLabels = QStringLiteral("on");
+        container.setFenceStyle(id, style);
+        const bool fenceWins = view->labelsShown();
+        ui::FenceContainer next;
+        next.applyLayout(container.toLayout());
+        const bool kept = next.fenceStyle(next.fenceIds().value(0)).showLabels == QLatin1String("on");
+        style.showLabels = QStringLiteral("off");
+        container.setFenceStyle(id, style);
+        container.setShowLabelsDefault(true);
+        check(QStringLiteral("icon names: hidden by default or per fence, the cell shrinks, saved (session 76)"),
+              hiddenByDefault && fenceWins && kept && !view->labelsShown() && view->cellWidth() == view->iconSize() + 12,
+              QStringLiteral("default hides %1, fence wins %2, kept %3, cell %4").arg(hiddenByDefault).arg(fenceWins).arg(kept)
+                  .arg(view->cellWidth()));
+
+        // The title's double-click does nothing while Appearance is open.
+        int edits = 0, rolls = 0;
+        QObject::connect(view, &ui::FenceView::titleEditRequested, view, [&] { ++edits; });
+        QObject::connect(view, &ui::FenceView::rollUpRequested, view, [&](bool) { ++rolls; });
+        container.setFenceTitleLocked(id, true);
+        dbl(view->titleTextRect().center());
+        dbl(QPoint(view->width() - 20, view->metrics().titleBarHeight / 2));
+        const bool lockedQuiet = edits == 0 && rolls == 0;
+        container.setFenceTitleLocked(id, false);
+        dbl(view->titleTextRect().center());
+        check(QStringLiteral("title double-click is off while Appearance is open, back after (session 76)"),
+              lockedQuiet && edits == 1, QStringLiteral("locked quiet %1, edits after %2").arg(lockedQuiet).arg(edits));
+
+        // "+N": more icons than room.
+        QList<core::DesktopItem> many;
+        for (const char* exe : {"notepad.exe", "regedit.exe", "explorer.exe", "write.exe", "hh.exe", "splwow64.exe",
+                                "winhlp32.exe", "bfsvc.exe", "HelpPane.exe", "twain_32.dll"})
+            many << core::itemFromPathOnly(QStringLiteral("C:/Windows/") + QLatin1String(exe));
+        ui::FenceView small;
+        small.setItems(many);
+        small.resize(200, 120);
+        const int hidden = small.hiddenItemCount();
+        const QRect badge = small.hiddenBadgeRect();
+        small.resize(900, 600);
+        const int allShown = small.hiddenItemCount();
+        small.resize(200, 120);
+        {
+            QImage img(small.size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            small.render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/s76_hidden_badge_%1.png").arg(theme));
+        }
+        check(QStringLiteral("a fence too small shows \"+N\" in its corner, none when all fit (session 76)"),
+              hidden > 0 && hidden < many.size() && allShown == 0 && small.contentRect().contains(badge),
+              QStringLiteral("hidden %1 of %2, all shown %3").arg(hidden).arg(many.size()).arg(allShown));
+        {
+            QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            view->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/s76_names_hidden_%1.png").arg(theme));
+        }
+
+        // Icon order: corner and direction, per fence over the default.
+        {
+            using L = ui::IconLayout;
+            const QSize vp(400, 400);
+            const auto at = [&](int flow) { return L::compute(vp, 48, 72, 34, 8, 6, 3, flow); };
+            const auto c0 = at(0), c4 = at(L::ColumnsFirst), c1 = at(L::FromRight), c3 = at(L::FromRight | L::FromBottom);
+            const bool rows = c0[1].icon.x() > c0[0].icon.x() && c0[1].icon.y() == c0[0].icon.y();
+            const bool cols = c4[1].icon.y() > c4[0].icon.y() && c4[1].icon.x() == c4[0].icon.x();
+            const bool right = c1[0].icon.x() > 300 && c1[1].icon.x() < c1[0].icon.x();
+            const bool bottom = c3[0].icon.y() > 300 && c3[0].icon.x() > 300;
+            core::FenceStyle flowStyle = container.fenceStyle(id);
+            container.setIconFlowDefault(L::ColumnsFirst);
+            const bool byDefault = view->iconFlow() == L::ColumnsFirst;
+            flowStyle.iconFlow = QStringLiteral("br-cols");
+            container.setFenceStyle(id, flowStyle);
+            const bool fenceWins = view->iconFlow() == 7;
+            ui::FenceContainer again;
+            again.applyLayout(container.toLayout());
+            const bool flowKept = again.fenceStyle(again.fenceIds().value(0)).iconFlow == QLatin1String("br-cols");
+            container.setIconFlowDefault(0);
+            ui::FenceView flowView;
+            flowView.setItems(many.mid(0, 5));
+            flowView.setIconFlow(L::FromRight | L::FromBottom | L::ColumnsFirst);
+            flowView.resize(320, 300);
+            QImage img(flowView.size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&img);
+            flowView.render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/s76_flow_bottom_right_columns_%1.png").arg(theme));
+            check(QStringLiteral("icon order: rows or columns first, from any corner, default and per fence, saved (session 76)"),
+                  rows && cols && right && bottom && byDefault && fenceWins && flowKept,
+                  QStringLiteral("rows %1, cols %2, right %3, bottom %4, default %5, fence wins %6, kept %7")
+                      .arg(rows).arg(cols).arg(right).arg(bottom).arg(byDefault).arg(fenceWins).arg(flowKept));
+        }
+
+        // The splash: never focused, closes once the fences painted.
+        {
+            QImage card(340 * 2, 150 * 2, QImage::Format_ARGB32_Premultiplied);
+            card.setDevicePixelRatio(2.0);
+            card.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter p(&card);
+            ui::SplashScreen::paintCard(p, QRect(0, 0, 340, 150), 0.4, QStringLiteral("Setting out your fences..."));
+            p.end();
+            card.save(captures + QStringLiteral("/s76_splash.png"));
+            QPointer<ui::SplashScreen> splash = new ui::SplashScreen;
+            const bool noFocus = splash->testAttribute(Qt::WA_ShowWithoutActivating)
+                                 && (splash->windowFlags() & Qt::WindowDoesNotAcceptFocus);
+            QWidget fence; // never on screen: its paint is sent here
+            fence.setAttribute(Qt::WA_DontShowOnScreen);
+            fence.resize(120, 80);
+            fence.show();
+            splash->finishWhenPainted({&fence});
+            {
+                QPaintEvent paint(fence.rect());
+                QApplication::sendEvent(&fence, &paint);
+            }
+            wait(ui::SplashScreen::kMinimumMs + 500);
+            const bool gone = splash.isNull();
+            check(QStringLiteral("splash: never focused, closes once the fences painted (session 76)"), noFocus && gone,
+                  QStringLiteral("no focus %1, gone %2").arg(noFocus).arg(gone));
+        }
+
+        // The fence's menu: resize mode and templates, one click away.
+        ui::FenceMenu::State state;
+        state.snapToCells = QStringLiteral("off");
+        const auto has = [](const QList<ui::FenceMenu::Entry>& list, ui::FenceMenu::Action a) {
+            return std::any_of(list.begin(), list.end(), [a](const ui::FenceMenu::Entry& e) { return e.action == a; });
+        };
+        const bool noTemplates = has(ui::FenceMenu::entries(state), ui::FenceMenu::Action::Resize)
+                                 && !has(ui::FenceMenu::entries(state), ui::FenceMenu::Action::Template);
+        state.templates = {QStringLiteral("Glass"), QStringLiteral("Dark")};
+        const QList<ui::FenceMenu::Entry> resize = ui::FenceMenu::resizeEntries(state);
+        const bool freeChecked = resize.size() == 3 && resize.at(2).checked && !resize.at(0).checked;
+        const bool templates = has(ui::FenceMenu::entries(state), ui::FenceMenu::Action::Template)
+                               && ui::FenceMenu::templateEntries(state).size() == 2;
+        check(QStringLiteral("fence menu: Resize (whole icons / free) and Apply a template (session 76)"),
+              noTemplates && freeChecked && templates,
+              QStringLiteral("no templates %1, free checked %2, templates %3").arg(noTemplates).arg(freeChecked).arg(templates));
     }
 
     // --- session 75: shortcuts kept by StarFish; a target-less shortcut is no "missing" --

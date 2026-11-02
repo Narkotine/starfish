@@ -64,8 +64,8 @@ public:
     // Session 62: the icon and caption rects of every cell (content-local).
     QVector<IconCell> cells(const QSize& contentSize) const
     {
-        return IconLayout::compute(contentSize, m_iconSize, cellWidth(), m_labelHeight, m_gap, m_padding,
-                                   m_items.size());
+        return IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
+                                   m_items.size(), m_flow);
     }
     QFont captionFont() const { return m_captionFont; }
     // The width of one grid cell: wider than the icon, so a caption has room to
@@ -79,7 +79,12 @@ public:
     int fixedCellWidth() const { return m_fixedCellWidth; }
     int gap() const { return m_gap; }
     int padding() const { return m_padding; }
-    int labelHeight() const { return m_labelHeight; }
+    int labelHeight() const { return m_labelsShown ? m_labelHeight : 0; }
+    // Session 76: the icons' names, shown or not (the cell shrinks to the icon).
+    void setLabelsShown(bool shown) { m_labelsShown = shown; }
+    bool labelsShown() const { return m_labelsShown; }
+    void setFlow(int flow) { m_flow = flow; }
+    int flow() const { return m_flow; }
 
     // Draws the grid inside `contentRect` (already excludes the title bar and
     // the fence's outer padding). Caller is expected to clip to contentRect.
@@ -154,12 +159,14 @@ private:
     QList<core::DesktopItem> m_items;
     QString m_sortBy = QStringLiteral("name");
     int m_fixedCellWidth = 0;
+    int m_flow = 0; // session 76: IconLayout::Flow bits
     bool m_ascending = true;
 
     int m_iconSize = 48;
     int m_gap = 8;
     int m_padding = 12;
     int m_labelHeight = 34;
+    bool m_labelsShown = true;
     bool m_textShadow = false;
 
     // The caption font, one point below the view's own (T-049). Only meaningful

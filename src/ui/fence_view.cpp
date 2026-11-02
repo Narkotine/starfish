@@ -29,6 +29,7 @@
 #include <QRect>
 #include <QUrl>
 #include <QToolTip>
+#include <QMenu>
 #include <QCursor>
 #include <QDir>
 #include <QWheelEvent>
@@ -661,6 +662,23 @@ void FenceView::paintEvent(QPaintEvent* event)
     painter.setOpacity(m_iconOpacity);
     m_grid.paint(painter, content, m_iconProvider);
     painter.setOpacity(1.0);
+    if (const int hidden = hiddenItemCount(); hidden > 0) {
+        // Session 76: the fence is too small for all its icons -- say how many
+        // are out of sight; a click on the badge lists them.
+        const QRect badge = hiddenBadgeRect();
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(QPen(QColor(0x3B, 0x82, 0xF6), 1.0));
+        painter.setBrush(QColor(0x11, 0x18, 0x27, 0xE0));
+        painter.drawRoundedRect(QRectF(badge).adjusted(0.5, 0.5, -0.5, -0.5), badge.height() / 2.0, badge.height() / 2.0);
+        QFont bold = font();
+        bold.setBold(true);
+        bold.setPixelSize(11);
+        painter.setFont(bold);
+        painter.setPen(QColor(0xFF, 0xFF, 0xFF));
+        painter.drawText(badge, Qt::AlignCenter, QStringLiteral("+%1").arg(hidden));
+        painter.restore();
+    }
     if (m_dragging) {
         // Either the grid is about to receive the tile, or the desktop is:
         // never both, so the two hints are mutually exclusive by construction.
@@ -679,6 +697,12 @@ void FenceView::paintEvent(QPaintEvent* event)
 void FenceView::mousePressEvent(QMouseEvent* event)
 {
     emit pressed();
+    if (event->button() == Qt::LeftButton && hiddenItemCount() > 0
+        && hiddenBadgeRect().contains(event->pos())) {
+        showHiddenItemsMenu(); // session 76
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::RightButton) {
         // Right-click selects the item under the cursor and shows the Windows
         // shell context menu for it. The single path (mousePressEvent) covers
@@ -921,6 +945,11 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
     // before the grid so a double-click on an icon still launches it.
     if (handleAt(event->pos())
         == FenceHandle::TitleBar) {
+        // Session 76: not while the Appearance dialog edits this fence.
+        if (m_titleLocked) {
+            event->accept();
+            return;
+        }
         // Session 60: on the title's text, a double-click renames in place (as a
         // file's name in Explorer); anywhere else on the band it still rolls up.
         if (titleShown() && titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
@@ -936,11 +965,17 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
-    const QString target = IconGrid::launchPath(m_grid.items().at(index));
-    if (target.startsWith(QLatin1String("::")))
-        starfish::platform::win::openShellItem(target); // This PC, the Recycle Bin (ADR-21)
-    else if (!target.isEmpty())
-        QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+    // Session 76 (the user: a browser-installed web app opened the plain browser, the
+    // "Apps" Settings shortcut opened the Explorer): the *item itself* goes to
+    // the shell, as Explorer's double-click does -- a shortcut keeps its
+    // arguments, its working folder, its app id, its URI. Resolving the target
+    // here and opening that dropped all of it.
+    const core::DesktopItem& item = m_grid.items().at(index);
+    if (!starfish::platform::win::openShellItem(item.path)) {
+        const QString target = IconGrid::launchPath(item);
+        if (!target.isEmpty() && !target.startsWith(QLatin1String("::")))
+            QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+    }
     emit itemActivated(index);
 }
 
@@ -995,6 +1030,72 @@ int FenceView::replaceItems(const QStringList& previousPaths, const QList<core::
     return added;
 }
 
+void FenceView::setIconFlow(int flow)
+{
+    if (m_grid.flow() == flow)
+        return;
+    m_grid.setFlow(flow);
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setLabelsShown(bool shown)
+{
+    if (m_grid.labelsShown() == shown)
+        return;
+    m_grid.setLabelsShown(shown);
+    update();
+    emit contentChanged();
+}
+
+QStringList FenceView::hiddenItemPaths() const
+{
+    QStringList paths;
+    if (m_rolledUp)
+        return paths;
+    const QRect content = contentRect();
+    if (content.isEmpty())
+        return paths;
+    const QVector<IconCell> cells = m_grid.cells(content.size());
+    const QList<core::DesktopItem>& items = m_grid.items();
+    for (int i = 0; i < items.size() && i < cells.size(); ++i) {
+        // An icon cut by the edge counts as out of sight: it cannot be read.
+        if (!QRect(QPoint(0, 0), content.size()).contains(cells.at(i).icon))
+            paths << items.at(i).path;
+    }
+    return paths;
+}
+
+int FenceView::hiddenItemCount() const
+{
+    return hiddenItemPaths().size();
+}
+
+QRect FenceView::hiddenBadgeRect() const
+{
+    const QRect content = contentRect();
+    const int h = 18;
+    const int w = 16 + QFontMetrics(font()).horizontalAdvance(QStringLiteral("+%1").arg(qMax(1, hiddenItemCount())));
+    return QRect(content.right() - w - 3, content.bottom() - h - 3, w, h);
+}
+
+void FenceView::showHiddenItemsMenu()
+{
+    const QStringList hidden = hiddenItemPaths();
+    if (hidden.isEmpty())
+        return;
+    QMenu menu;
+    for (const core::DesktopItem& item : m_grid.items()) {
+        if (!hidden.contains(item.path))
+            continue;
+        const QPixmap pixmap = !item.missing && m_iconProvider ? m_iconProvider(item, 32) : QPixmap();
+        QAction* action = menu.addAction(QIcon(pixmap), item.name.isEmpty() ? item.fileName : item.name);
+        const QString path = item.path;
+        connect(action, &QAction::triggered, this, [path] { starfish::platform::win::openShellItem(path); });
+    }
+    menu.exec(QCursor::pos());
+}
+
 bool FenceView::replaceItem(const QString& oldPath, const core::DesktopItem& item)
 {
     if (!m_grid.replaceItem(oldPath, item))
@@ -1031,6 +1132,10 @@ void FenceView::updateMissingTip(const QPoint& localPoint)
                                + QLatin1Char('\n')
                                + (items.at(index).restorable ? tr("Right-click to restore the shortcut or remove it from the fence.")
                                                              : tr("Right-click to remove it from the fence.")));
+    } else if (index >= 0 && index < items.size() && !m_grid.labelsShown()) {
+        // Session 76: names hidden -- the name on hover.
+        QToolTip::showText(QCursor::pos(), items.at(index).name.isEmpty() ? items.at(index).fileName
+                                                                          : items.at(index).name);
     } else {
         QToolTip::hideText();
     }
@@ -1118,7 +1223,7 @@ void FenceView::paintDropIndicator(int index, QPainter& painter)
     const QRect content = contentRect();
     const QVector<ui::IconCell> cells = ui::IconLayout::compute(
         content.size(), m_grid.iconSize(), m_grid.cellWidth(), m_grid.labelHeight(), m_grid.gap(),
-        m_grid.padding(), m_grid.items().size() + 1);
+        m_grid.padding(), m_grid.items().size() + 1, m_grid.flow());
     if (index >= cells.size())
         return;
 

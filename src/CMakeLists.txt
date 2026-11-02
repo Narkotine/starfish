@@ -39,6 +39,7 @@ qt_add_executable(starfish WIN32
     ui/toggle_switch.cpp
     ui/desktop_backdrop.cpp
     ui/settings_dialog.cpp
+    ui/splash_screen.cpp
     ui/drag_image.cpp
     ui/tray_icon.cpp
     ui/fence_view.cpp

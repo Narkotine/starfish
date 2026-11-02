@@ -58,6 +58,7 @@
 #include "ui/icon_grid.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
+#include "ui/splash_screen.hpp"
 #include "ui/tray_icon.hpp"
 
 QLoggingCategory lc("starfish.product");
@@ -186,6 +187,14 @@ bool ProductApp::start(const Options& options, QString* error)
     // the mode: the icons being gone is a fact about the machine, not about this
     // document or this options set.
     repairIconHidingFromPreviousRun();
+    if (m_options.splash
+        && QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+               .value(QStringLiteral("showSplash"), true).toBool()) {
+        // Session 76: a short card while the fences draw (never focused).
+        m_splash = new ui::SplashScreen;
+        m_splash->show();
+        m_splash->repaint();
+    }
 
     if (m_options.hostOnDesktop && !platform::win::DesktopSurface::isDesktopAvailable()) {
         if (error)
@@ -243,6 +252,9 @@ bool ProductApp::start(const Options& options, QString* error)
         m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
         m_container->setSnapToCellsDefault(settings.value(QStringLiteral("fenceSnapToCells"), false).toBool());
         m_autoRestoreShortcuts = settings.value(QStringLiteral("fenceAutoRestoreShortcuts"), false).toBool();
+        m_container->setShowLabelsDefault(settings.value(QStringLiteral("fenceShowLabels"), true).toBool());
+        m_container->setIconFlowDefault(
+            ui::IconLayout::flowFromKey(settings.value(QStringLiteral("fenceIconFlow")).toString()));
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle());
         m_container->setDefaultBorder(settings.value(QStringLiteral("fenceBorderWidth"), 1).toInt(),
                                       settings.value(QStringLiteral("fenceBorderColor"), QStringLiteral("#FF3B82F6")).toString());
@@ -351,6 +363,12 @@ bool ProductApp::start(const Options& options, QString* error)
 
     refreshStatus();
     m_started = true;
+    if (m_splash) {
+        QList<QWidget*> views;
+        for (const QString& fid : m_container->fenceIds())
+            views << m_container->view(fid);
+        m_splash->finishWhenPainted(views);
+    }
 
     if (m_options.settingsWindow && m_options.showSettingsOnStart)
         showSettings();
@@ -596,6 +614,18 @@ void ProductApp::wireSettings()
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
             .setValue(QStringLiteral("fenceAutoRestoreShortcuts"), on);
         m_autoRestoreShortcuts = on;
+    });
+    connect(m_settings, &ui::SettingsDialog::iconFlowChosen, this, [this](const QString& key) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("fenceIconFlow"), key);
+        m_container->setIconFlowDefault(ui::IconLayout::flowFromKey(key));
+    });
+    connect(m_settings, &ui::SettingsDialog::splashToggled, this, [](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("showSplash"), on);
+    });
+    connect(m_settings, &ui::SettingsDialog::showLabelsToggled, this, [saveSwitch](bool on) {
+        saveSwitch(QStringLiteral("fenceShowLabels"), on, &ui::FenceContainer::setShowLabelsDefault);
     });
     connect(m_settings, &ui::SettingsDialog::snapToCellsToggled, this, [saveSwitch](bool on) {
         saveSwitch(QStringLiteral("fenceSnapToCells"), on, &ui::FenceContainer::setSnapToCellsDefault);
@@ -1009,13 +1039,13 @@ void ProductApp::wireBackdrop()
                 }
                 // The same resolution a fence's tile uses (F-006/T-005): a .lnk or
                 // a .url opens through its target, never through the link file.
+                // Session 76: the item itself, through the shell -- a shortcut's
+                // arguments, app id or URI are the shell's to apply, not ours.
+                if (platform::win::openShellItem(path))
+                    return;
                 const QString target = ui::IconGrid::launchPath(m_container->itemForPath(path));
-                if (target.isEmpty())
+                if (target.isEmpty() || target.startsWith(QLatin1String("::")))
                     return;
-                if (target.startsWith(QLatin1String("::"))) {
-                    platform::win::openShellItem(target);
-                    return;
-                }
                 qCInfo(lc).noquote() << QStringLiteral("opening \"%1\"").arg(target);
                 QDesktopServices::openUrl(QUrl::fromLocalFile(target));
             });
@@ -1046,6 +1076,20 @@ void ProductApp::wireFenceMenu()
     // Session 73: Delete on a fence's selection -- the Shell's own delete (Recycle
     // Bin and undo; Shift: its permanent delete with its confirmation). The
     // tiles whose file is gone leave the fence; a cancelled delete leaves all.
+    // Session 76: tiles dropped out of a fence go where they were let go (on
+    // the grid, never under a fence unless allowed), not to the place the
+    // hidden icon last had on the desktop.
+    connect(m_container, &ui::FenceContainer::tilesDroppedOnDesktop, this,
+            [this](const QStringList& paths, const QPoint& point) {
+                if (!drawnDesktop() || !m_shellView || paths.isEmpty())
+                    return;
+                const QString first = shellNameOf(paths.first());
+                if (first.isEmpty() || !m_itemPositions.contains(first))
+                    return;
+                const int icon = qMax(16, m_shellIconSize);
+                const QPoint wanted = point - QPoint(icon / 2, icon / 2);
+                moveDesktopItems(paths, wanted - m_itemPositions.value(first));
+            });
     // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
     connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
             [this](const QString& id, const QString& path) { startRename(path, id); });
@@ -1084,6 +1128,9 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     state.titleBarShown = fenceStyle.titleBar;
     state.hoverUnroll = fenceStyle.hoverUnroll;
     state.hoverUnrollDefault = m_container->hoverUnrollDefault();
+    state.snapToCells = fenceStyle.snapToCells; // session 76
+    state.snapToCellsDefault = m_container->snapToCellsDefault();
+    state.templates = ui::FenceTemplates::names();
     if (const ui::FenceView* view = m_container->view(id))
         state.sortBy = view->sortBy();
 
@@ -1115,6 +1162,12 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
             case ui::FenceMenu::Action::HoverUnroll:
                 children = ui::FenceMenu::hoverUnrollEntries(state);
                 break;
+            case ui::FenceMenu::Action::Resize:
+                children = ui::FenceMenu::resizeEntries(state);
+                break;
+            case ui::FenceMenu::Action::Template:
+                children = ui::FenceMenu::templateEntries(state);
+                break;
             default:
                 break;
             }
@@ -1123,7 +1176,8 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
             // once would be describing a state the document cannot hold (the
             // material *is* the alpha of the fence's colour). The colours submenu
             // is commands, not a state, so it gets no group at all.
-            const bool radio = entry.action != ui::FenceMenu::Action::Colours;
+            const bool radio = entry.action != ui::FenceMenu::Action::Colours
+                               && entry.action != ui::FenceMenu::Action::Template;
             auto* group = radio ? new QActionGroup(submenu) : nullptr;
             if (group)
                 group->setExclusive(true);
@@ -1141,8 +1195,15 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
                 } else {
                     const ui::FenceMenu::Action what = child.action;
                     const int value = child.value;
-                    connect(choice, &QAction::triggered, this,
-                            [this, id, what, value] { runFenceMenuCommand(id, what, value); });
+                    const QString name = child.label; // a template is applied by name
+                    connect(choice, &QAction::triggered, this, [this, id, what, value, name] {
+                        if (what == ui::FenceMenu::Action::ApplyTemplate) {
+                            if (ui::FenceTemplates::contains(name))
+                                m_container->setFenceStyle(id, ui::FenceTemplates::style(name));
+                            return;
+                        }
+                        runFenceMenuCommand(id, what, value);
+                    });
                 }
             }
             break;
@@ -1260,10 +1321,26 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         if (value >= 0 && value < ui::FenceMenu::sortKeys().size())
             m_container->setFenceSort(id, ui::FenceMenu::sortKeys().at(value), true);
         break;
+    case ui::FenceMenu::Action::ResizeChoice:
+        if (value >= 0 && value < ui::FenceMenu::resizeKeys().size()) {
+            core::FenceStyle style = m_container->fenceStyle(id);
+            style.snapToCells = ui::FenceMenu::resizeKeys().at(value);
+            m_container->setFenceStyle(id, style);
+        }
+        break;
+    case ui::FenceMenu::Action::Resize:
+    case ui::FenceMenu::Action::Template:
+    case ui::FenceMenu::Action::ApplyTemplate: // by name, in showFenceMenu
+        break;
     case ui::FenceMenu::Action::Appearance: {
         QDialog* dialog = ui::createFenceAppearanceDialog(m_container, id, nullptr);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
+        // Session 76: a double-click on the title meanwhile opened the inline
+        // rename over a fence the dialog was restyling -- off until it closes.
+        m_container->setFenceTitleLocked(id, true);
         dialog->exec();
+        if (m_container->contains(id))
+            m_container->setFenceTitleLocked(id, false);
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle()); // it may have changed
         break;
     }
@@ -1667,6 +1744,10 @@ void ProductApp::refreshStatus()
         m_settings->setRollAnimated(m_container->animateRoll());
         m_settings->setSnapToCells(m_container->snapToCellsDefault());
         m_settings->setAutoRestoreShortcuts(m_autoRestoreShortcuts);
+        m_settings->setShowLabels(m_container->showLabelsDefault());
+        m_settings->setSplash(QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+                                  .value(QStringLiteral("showSplash"), true).toBool());
+        m_settings->setIconFlow(ui::IconLayout::flowKeys().value(m_container->iconFlowDefault()));
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);

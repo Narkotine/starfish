@@ -269,6 +269,14 @@ public:
     void setAnimateRoll(bool on) { m_animateRoll = on; }
     bool animateRoll() const { return m_animateRoll; }
     void setSnapToCellsDefault(bool on) { m_snapToCellsDefault = on; }
+    // Session 76: the icons' names (style.showLabels overrides; shown by default).
+    void setShowLabelsDefault(bool on);
+    // Session 76: the icons' flow (style.iconFlow overrides); IconLayout::Flow bits.
+    void setIconFlowDefault(int flow);
+    int iconFlowDefault() const { return m_iconFlowDefault; }
+    bool showLabelsDefault() const { return m_showLabelsDefault; }
+    // Session 76: the title's double-click is off while Appearance edits the fence.
+    void setFenceTitleLocked(const QString& id, bool locked);
     bool snapToCellsDefault() const { return m_snapToCellsDefault; }
     bool fenceSnapsToCells(const QString& id) const;
     bool fenceAnimating(const QString& id) const;
@@ -554,6 +562,9 @@ signals:
     // Session 73: Delete pressed on a fence's selection.
     void fenceDeleteRequested(const QString& id, const QStringList& paths, bool permanent);
     void fenceRenameRequested(const QString& id, const QString& path); // session 74: F2
+    // Session 76: tiles let go over the desktop (before they leave the fence):
+    // the product puts them where they were dropped.
+    void tilesDroppedOnDesktop(const QStringList& paths, const QPoint& screenPoint);
     void fenceRectChanged(const QString& id, const QRect& rect);
     void fenceContentChanged(const QString& id);
     // T-009. Roll-up is persisted (it is part of the document), so the product
@@ -700,6 +711,8 @@ private:
     bool m_rollOppositeDefault = false;
     bool m_animateRoll = false; // the product turns it on (Settings); off headless
     bool m_snapToCellsDefault = false;
+    bool m_showLabelsDefault = true;
+    int m_iconFlowDefault = 0;
     QRect visibleRectOf(const FenceWindow& fence) const;
     FenceGeometry::RollEdge rollEdgeOf(const FenceWindow& fence) const;
     void animateRollFrom(FenceWindow& fence, const QRect& from);

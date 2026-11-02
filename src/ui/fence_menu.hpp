@@ -76,6 +76,10 @@ enum class Action {
     ToggleTitleBar, // session 68: show / hide the title bar, checkable
     HoverUnroll,       // session 71: the submenu; children from hoverUnrollEntries()
     HoverUnrollChoice, // value: 0 default (Settings), 1 yes, 2 no
+    Resize,            // session 76: the submenu; children from resizeEntries()
+    ResizeChoice,      // value: 0 default (Settings), 1 whole icons, 2 free
+    Template,          // session 76: the submenu; children from templateEntries()
+    ApplyTemplate,     // value: index into State::templates
 };
 
 struct Entry {
@@ -118,7 +122,50 @@ struct State {
     bool titleBarShown = true; // session 68
     QString hoverUnroll;       // session 71: "", "on", "off" (the fence's own)
     bool hoverUnrollDefault = false; // ... and what "" means today
+    QString snapToCells;             // session 76: "", "on", "off" (the fence's own)
+    bool snapToCellsDefault = false; // ... and what "" means today
+    QStringList templates;           // session 76: the saved templates' names
 };
+
+// Session 76: resizing in whole icons or freely -- the default, or this fence's own.
+inline QStringList resizeKeys()
+{
+    return {QString(), QStringLiteral("on"), QStringLiteral("off")};
+}
+
+inline QList<Entry> resizeEntries(const State& state)
+{
+    QList<Entry> entries;
+    const QStringList keys = resizeKeys();
+    const QStringList labels{
+        state.snapToCellsDefault ? QCoreApplication::translate("FenceMenu", "Default (whole icons)")
+                                 : QCoreApplication::translate("FenceMenu", "Default (free)"),
+        QCoreApplication::translate("FenceMenu", "Whole icons"), QCoreApplication::translate("FenceMenu", "Free")};
+    for (int i = 0; i < keys.size(); ++i) {
+        Entry entry;
+        entry.action = Action::ResizeChoice;
+        entry.value = i;
+        entry.label = labels.at(i);
+        entry.checkable = true;
+        entry.checked = state.snapToCells == keys.at(i);
+        entries.append(entry);
+    }
+    return entries;
+}
+
+// Session 76: the saved templates, one click each.
+inline QList<Entry> templateEntries(const State& state)
+{
+    QList<Entry> entries;
+    for (int i = 0; i < state.templates.size(); ++i) {
+        Entry entry;
+        entry.action = Action::ApplyTemplate;
+        entry.value = i;
+        entry.label = state.templates.at(i);
+        entries.append(entry);
+    }
+    return entries;
+}
 
 // Session 71: unroll on hover -- the default, or this fence's own yes / no.
 inline QStringList hoverUnrollKeys()
@@ -316,12 +363,26 @@ inline QList<Entry> entries(const State& state)
     sort.label = QCoreApplication::translate("FenceMenu", "Sort by");
     out.append(sort);
 
+    Entry resize; // session 76
+    resize.kind = Kind::Submenu;
+    resize.action = Action::Resize;
+    resize.label = QCoreApplication::translate("FenceMenu", "Resize");
+    out.append(resize);
+
     out.append(separator);
 
     Entry appearance;
     appearance.action = Action::Appearance;
     appearance.label = QCoreApplication::translate("FenceMenu", "Appearance...");
     out.append(appearance);
+
+    if (!state.templates.isEmpty()) { // session 76: absent rather than empty
+        Entry apply;
+        apply.kind = Kind::Submenu;
+        apply.action = Action::Template;
+        apply.label = QCoreApplication::translate("FenceMenu", "Apply a template");
+        out.append(apply);
+    }
 
     out.append(separator);
 

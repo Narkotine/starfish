@@ -5536,9 +5536,13 @@ int main(int argc, char* argv[])
                 // menu editor's list), but still no list of *fences* and no combo:
                 // no list row may name a fence, and only those two lists exist.
                 const QList<QListWidget*> lists = settings->findChildren<QListWidget*>();
-                // Session 65: the one combo allowed is the language's.
+                // Session 65: the one combo allowed is the language's; session 76:
+                // and the default icon order (a setting, not a fence).
                 QList<QComboBox*> combos = settings->findChildren<QComboBox*>();
-                combos.removeIf([](QComboBox* c) { return c->objectName() == QLatin1String("languageCombo"); });
+                combos.removeIf([](QComboBox* c) {
+                    return c->objectName() == QLatin1String("languageCombo")
+                           || c->objectName() == QLatin1String("iconFlowCombo");
+                });
                 const QStringList fenceTitles = [&] {
                     QStringList titles;
                     for (const QString& fid : product.container()->fenceIds())
@@ -5590,6 +5594,8 @@ int main(int argc, char* argv[])
                                                   QStringLiteral("rollAnimationSwitch"),
                                                   QStringLiteral("snapToCellsSwitch"),
                                                   QStringLiteral("autoRestoreShortcutsSwitch"),
+                                                  QStringLiteral("showLabelsSwitch"),
+                                                  QStringLiteral("splashSwitch"),
                                                   QStringLiteral("startWithWindowsSwitch")};
                 int strangeSwitches = 0;
                 for (QCheckBox* box : boxes) {
@@ -5601,7 +5607,7 @@ int main(int argc, char* argv[])
                 const QString statusShown =
                     statusLabel ? statusLabel->text() : QStringLiteral("(absent)");
                 check(QLatin1String("... it has its four pages, the status line and only the global switches"),
-                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 15 /* session 64: fenceOverlapSwitch, 65: fenceHoverSwitch, 69: desktopDoubleClickSwitch, 71: hoverUnrollSwitch, 73: roll x2 + snap, 75: autoRestoreShortcutsSwitch */
+                      nav != nullptr && nav->count() == 4 && strangeSwitches == 0 && boxes.size() == 17 /* session 64: fenceOverlapSwitch, 65: fenceHoverSwitch, 69: desktopDoubleClickSwitch, 71: hoverUnrollSwitch, 73: roll x2 + snap, 75: autoRestoreShortcutsSwitch, 76: showLabelsSwitch, splashSwitch */
                           && statusLabel != nullptr && !statusShown.isEmpty()
                           && settings->menuEditor() != nullptr,
                       QLatin1String("%1 page(s), %2 switch(es) (%3 unknown), status line [%4]")
@@ -5777,6 +5783,8 @@ int main(int argc, char* argv[])
                         && box->objectName() != QLatin1String("rollAnimationSwitch")
                         && box->objectName() != QLatin1String("snapToCellsSwitch")
                         && box->objectName() != QLatin1String("autoRestoreShortcutsSwitch")
+                        && box->objectName() != QLatin1String("showLabelsSwitch")
+                        && box->objectName() != QLatin1String("splashSwitch")
                         && box->objectName() != QLatin1String("startWithWindowsSwitch"))
                         ++secondBoxes;
                 }
@@ -8264,6 +8272,7 @@ int main(int argc, char* argv[])
         options.hotkeys = !parser.isSet(noHotkeysOption);
         options.watchDesktop = !parser.isSet(noWatchOption);
         options.refreshAutostart = true;
+        options.splash = true; // session 76
 
         QString startError;
         if (!product.start(options, &startError)) {
