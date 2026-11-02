@@ -1,4 +1,6 @@
 #include "ui/icon_grid.hpp"
+#include "ui/fence_widgets.hpp"
+#include <QDateTime>
 
 #include <QColor>
 #include <QFontMetrics>
@@ -137,6 +139,33 @@ static void paintMissingIcon(QPainter& painter, const QRect& box, bool restorabl
     painter.restore();
 }
 
+QVector<QSize> IconGrid::spans(int extraTiles) const
+{
+    if (!hasWidgets())
+        return {};
+    QVector<QSize> out;
+    out.reserve(m_items.size() + extraTiles);
+    for (const core::DesktopItem& item : m_items)
+        out.append(item.isWidget() ? item.span : QSize());
+    for (int i = 0; i < extraTiles; ++i)
+        out.append(QSize());
+    return out;
+}
+
+bool IconGrid::hasWidgets() const
+{
+    for (const core::DesktopItem& item : m_items)
+        if (item.isWidget())
+            return true;
+    return false;
+}
+
+QVector<IconCell> IconGrid::cellsPlusOne(const QSize& contentSize) const
+{
+    return IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
+                               m_items.size() + 1, m_flow, spans(1));
+}
+
 void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider iconFor) const
 {
     if (m_items.isEmpty())
@@ -144,7 +173,7 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
 
     const QVector<IconCell> cells =
         IconLayout::compute(contentRect.size(), m_iconSize, cellWidth(), labelHeight(), m_gap,
-                            m_padding, m_items.size(), m_flow);
+                            m_padding, m_items.size(), m_flow, spans());
 
     painter.save();
     // The cells are in *content-local* coordinates -- the same space hitTest()
@@ -179,6 +208,16 @@ void IconGrid::paint(QPainter& painter, const QRect& contentRect, IconProvider i
             painter.drawRoundedRect(highlight, 6, 6);
         }
 
+        if (item.isWidget()) { // session 79: the widget draws its whole block
+            widgets::PaintContext context;
+            context.text = selected ? kLabelTextSelected : kLabelText;
+            context.shadow = m_textShadow;
+            context.font = baseFont;
+            context.now = QDateTime::currentDateTime();
+            widgets::paint(painter, cell.icon, item, context);
+            painter.setFont(labelFont);
+            continue;
+        }
         // Icon.
         const QPixmap icon = item.missing ? QPixmap() : (iconFor ? iconFor(item, m_iconSize) : QPixmap());
         if (item.missing) {
@@ -228,7 +267,7 @@ int IconGrid::hitTest(const QPoint& contentLocalPoint, const QSize& contentSize)
 {
     const QVector<IconCell> cells =
         IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
-                            m_items.size(), m_flow);
+                            m_items.size(), m_flow, spans());
     return IconLayout::hitTest(cells, contentLocalPoint);
 }
 
@@ -241,7 +280,7 @@ QVector<QRect> IconGrid::cellRects(const QSize& contentSize) const
     // a tile is drawn in is the cell its region is built from.
     const QVector<IconCell> cells =
         IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
-                            m_items.size(), m_flow);
+                            m_items.size(), m_flow, spans());
     const QRect area(QPoint(0, 0), contentSize);
     rects.reserve(cells.size());
     for (const IconCell& cell : cells) {

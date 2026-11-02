@@ -1,4 +1,6 @@
 #include "ui/fence_container.hpp"
+#include "ui/fence_widgets.hpp"
+#include <QJsonObject>
 
 #include <algorithm>
 
@@ -231,8 +233,15 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         into->view->setExternalDropIndex(-1);
     m_tileDropTarget.clear();
     if (!into || !source || !source->view) {
-        emit tilesDroppedOnDesktop(paths, screenPoint); // session 76: where they were let go
-        releaseItems(sourceId, paths); // F-011: back on the desktop
+        // Session 79: a widget has no place on the desktop -- it stays.
+        QStringList files;
+        for (const QString& path : paths)
+            if (!core::isWidgetPath(path))
+                files << path;
+        if (files.isEmpty())
+            return 0;
+        emit tilesDroppedOnDesktop(files, screenPoint); // session 76: where they were let go
+        releaseItems(sourceId, files); // F-011: back on the desktop
         return 0;
     }
     // Session 65: into another fence -- the tiles keep their resolved item;
@@ -882,7 +891,7 @@ int FenceContainer::reconcileMissingItems(const QList<core::DesktopItem>& deskto
         const QSet<QString> provided = portalProvided(fence.portals);
         const QList<core::DesktopItem> items = fence.view->items();
         for (const core::DesktopItem& item : items) {
-            if (item.path.isEmpty() || item.path.startsWith(QLatin1String("::"))
+            if (item.path.isEmpty() || item.path.startsWith(QLatin1String("::")) || item.isWidget()
                 || provided.contains(item.path.toLower()))
                 continue;
             if (core::entryExists(item.path)) {
@@ -946,7 +955,7 @@ QStringList FenceContainer::fencedFilePaths() const
             continue;
         const QSet<QString> provided = portalProvided(fence.portals);
         for (const core::DesktopItem& item : fence.view->items()) {
-            if (!item.path.isEmpty() && !item.path.startsWith(QLatin1String("::"))
+            if (!item.path.isEmpty() && !item.path.startsWith(QLatin1String("::")) && !item.isWidget()
                 && !provided.contains(item.path.toLower()))
                 paths << item.path;
         }
@@ -1146,6 +1155,15 @@ void FenceContainer::setShowLabelsDefault(bool on)
     m_showLabelsDefault = on;
     for (FenceWindow& fence : m_fences)
         applyStyleToView(fence);
+}
+
+bool FenceContainer::addWidget(const QString& id, const core::DesktopItem& widget)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !fence->view || !widget.isWidget())
+        return false;
+    fence->view->addDroppedItems({widget});
+    return true;
 }
 
 void FenceContainer::setIconFlowDefault(int flow)
@@ -1987,6 +2005,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // this a drop, a portal refresh or a released icon would exist only in the
     // model (T-040).
     connect(view, &FenceView::contentChanged, this, [this, id] { renderFence(id); });
+    connect(view, &FenceView::widgetTick, this, [this, id] { renderFence(id); }); // session 79
     connect(view, &FenceView::itemReleaseRequested, this,
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
     connect(view, &FenceView::deleteRequested, this,
@@ -2098,6 +2117,14 @@ core::Layout FenceContainer::toLayout() const
                 // stop following its folder (T-011).
                 if (provided.contains(item.path.toLower()))
                     continue;
+                if (item.isWidget()) { // session 79
+                    core::FenceItem widget{QStringLiteral("widget"), item.path};
+                    widget.widgetType = item.widgetType;
+                    widget.span = item.span;
+                    widget.widgetSettings = QJsonObject::fromVariantMap(item.widgetSettings);
+                    out.items.append(widget);
+                    continue;
+                }
                 core::FenceItem entry{QStringLiteral("file"), item.path};
                 entry.fileId = item.fileId; // session 74
                 entry.target = item.isLink ? item.targetPath : QString();
@@ -2142,6 +2169,11 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
             if (core::isPortalKind(entry.kind)) {
                 if (!entry.path.isEmpty())
                     portalPaths.append(entry.path);
+                continue;
+            }
+            if (entry.kind == QLatin1String("widget")) { // session 79: never a file
+                items.append(widgets::restore(entry.path, entry.widgetType, entry.span,
+                                              entry.widgetSettings.toVariantMap()));
                 continue;
             }
             core::DesktopItem item = resolveItem(entry.path);

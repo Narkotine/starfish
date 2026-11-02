@@ -55,6 +55,8 @@
 #include <QPaintEvent>
 #include "ui/fence_menu.hpp"
 #include "ui/splash_screen.hpp"
+#include "ui/fence_widgets.hpp"
+#include "core/jsonstore.hpp"
 #include <windows.h>
 #include <shobjidl.h>
 
@@ -1116,6 +1118,163 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 79: the clock widget -----------------------------------------
+    {
+        using L = ui::IconLayout;
+        // Spans: a 2x1 block first, then tiles fill around it; every flow.
+        const QVector<QSize> spans{QSize(2, 1), QSize(), QSize(), QSize()};
+        const auto c = L::compute(QSize(400, 400), 48, 72, 34, 8, 6, 4, 0, spans);
+        const bool block = c[0].icon.width() == 2 * 72 + 8 && c[0].label.isNull()
+                           && c[1].icon.x() > c[0].icon.right() && c[1].icon.y() == c[0].icon.y();
+        const auto r = L::compute(QSize(400, 400), 48, 72, 34, 8, 6, 4, L::FromRight, spans);
+        const bool mirrored = r[0].icon.right() == 400 - 6 - 1 && r[1].icon.x() < r[0].icon.x();
+        const auto plain = L::compute(QSize(400, 400), 48, 72, 34, 8, 6, 4, L::ColumnsFirst);
+        const auto same = L::compute(QSize(400, 400), 48, 72, 34, 8, 6, 4, L::ColumnsFirst,
+                                     QVector<QSize>{QSize(), QSize(), QSize(), QSize()});
+        bool tilesSame = plain.size() == same.size();
+        for (int i = 0; tilesSame && i < plain.size(); ++i)
+            tilesSame = plain[i].icon == same[i].icon && plain[i].label == same[i].label;
+        check(QStringLiteral("widget spans: a block of cells, tiles fill around it, every flow; tiles alone unchanged (session 79)"),
+              block && mirrored && tilesSame,
+              QStringLiteral("block %1, mirrored %2, tiles same %3").arg(block).arg(mirrored).arg(tilesSame));
+
+        // The clock's text and its tick.
+        core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        const QDateTime at(QDate(2026, 11, 2), QTime(16, 41, 27, 300));
+        const QString hm = ui::widgets::clockTime(clock, at);
+        const int perMinute = ui::widgets::msUntilNextChange(clock, at);
+        clock.widgetSettings.insert(QStringLiteral("seconds"), true);
+        const QString hms = ui::widgets::clockTime(clock, at);
+        const int perSecond = ui::widgets::msUntilNextChange(clock, at);
+        check(QStringLiteral("clock: HH:mm (seconds optional), redrawn on the minute / second, aligned (session 79)"),
+              clock.isWidget() && core::isWidgetPath(clock.path) && clock.span == QSize(2, 1) && hm == QLatin1String("16:41")
+                  && hms == QLatin1String("16:41:27") && perMinute == 32700 + 15 && perSecond == 700 + 15,
+              QStringLiteral("%1 / %2, next %3 / %4 ms").arg(hm, hms).arg(perMinute).arg(perSecond));
+        clock.widgetSettings.insert(QStringLiteral("seconds"), false);
+
+        // In a fence: saved, restored, never a file; unknown type kept.
+        QTemporaryDir temp;
+        const QString doc = QDir::fromNativeSeparators(temp.path()) + QStringLiteral("/s79.txt");
+        {
+            QFile file(doc);
+            file.open(QIODevice::WriteOnly);
+            file.write("starfish probe s79");
+        }
+        ui::FenceContainer container;
+        const QString a = container.createFence(QStringLiteral("Clock"), QRect(0, 0, 380, 230));
+        const QString b = container.createFence(QStringLiteral("Other"), QRect(500, 0, 300, 230));
+        container.fileInto(a, {core::itemFromPathOnly(doc), core::itemFromPathOnly(QStringLiteral("C:/Windows/notepad.exe")),
+                               core::itemFromPathOnly(QStringLiteral("C:/Windows/regedit.exe"))});
+        const bool added = container.addWidget(a, clock);
+        ui::FenceView* view = container.view(a);
+        core::Layout layout = container.toLayout();
+        // A widget a newer StarFish wrote.
+        core::FenceItem future{QStringLiteral("widget"), QStringLiteral("widget:future-1")};
+        future.widgetType = QStringLiteral("weather");
+        future.span = QSize(2, 2);
+        future.widgetSettings = QJsonObject{{QStringLiteral("city"), QStringLiteral("Paris")}};
+        layout.fences[0].items.append(future);
+        const QByteArray json = core::JsonStore::toJson(layout);
+        const auto parsed = core::JsonStore::fromJson(json);
+        ui::FenceContainer next;
+        if (parsed)
+            next.applyLayout(*parsed);
+        bool clockBack = false, futureKept = false;
+        if (!next.fenceIds().isEmpty()) {
+            for (const core::DesktopItem& item : next.view(next.fenceIds().value(0))->items()) {
+                clockBack = clockBack || (item.path == clock.path && item.widgetType == QLatin1String("clock")
+                                          && item.span == QSize(2, 1) && item.widgetSettings.value(QStringLiteral("date")).toBool());
+                futureKept = futureKept || (item.widgetType == QLatin1String("weather") && !item.missing);
+            }
+            const QByteArray again = core::JsonStore::toJson(next.toLayout());
+            futureKept = futureKept && again.contains("\"weather\"") && again.contains("Paris");
+        }
+        const bool notAFile = !container.fencedFilePaths().contains(clock.path);
+        container.reconcileMissingItems({});
+        bool neverMissing = true;
+        for (const core::DesktopItem& item : view->items())
+            if (item.isWidget() && item.missing)
+                neverMissing = false;
+        check(QStringLiteral("clock in a fence: saved and restored, unknown widget kept as is, never a file nor missing (session 79)"),
+              added && clockBack && futureKept && notAFile && neverMissing,
+              QStringLiteral("added %1, back %2, future kept %3, not a file %4, never missing %5")
+                  .arg(added).arg(clockBack).arg(futureKept).arg(notAFile).arg(neverMissing));
+
+        // Captures: names shown, then hidden with a 2x2 clock with seconds.
+        const auto capture = [&](ui::FenceView* v, const QString& name) {
+            QImage img(v->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x2A, 0x4A, 0x6A));
+            QPainter p(&img);
+            v->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/%1_%2.png").arg(name, theme));
+        };
+        capture(view, QStringLiteral("s79_clock_fence"));
+        {
+            core::DesktopItem big = clock;
+            big.span = QSize(2, 2);
+            big.widgetSettings.insert(QStringLiteral("seconds"), true);
+            container.replaceFenceItem(a, clock.path, big);
+            core::FenceStyle style = container.fenceStyle(a);
+            style.showLabels = QStringLiteral("off");
+            container.setFenceStyle(a, style);
+            const int interval = view->widgetTickInterval();
+            capture(view, QStringLiteral("s79_clock_2x2_names_hidden"));
+            check(QStringLiteral("clock with seconds repaints within a second; 2x2 with names hidden (session 79)"),
+                  interval >= 0 && interval <= 1015 && !view->labelsShown(),
+                  QStringLiteral("next tick in %1 ms").arg(interval));
+            style.showLabels.clear();
+            container.setFenceStyle(a, style);
+            container.replaceFenceItem(a, clock.path, clock);
+        }
+
+        // Moved between fences; dropped on the desktop it stays; F2 / Delete.
+        const auto has = [&](const QString& id) {
+            for (const core::DesktopItem& item : container.view(id)->items())
+                if (item.path == clock.path)
+                    return true;
+            return false;
+        };
+        container.dragTilesOutside(a, {clock.path}, QPoint(2500, 2500), true); // the desktop
+        const bool stayed = has(a);
+        container.dragTilesOutside(a, {clock.path}, QPoint(620, 100), true); // fence b
+        const bool moved = !has(a) && has(b);
+        ui::FenceView* other = container.view(b);
+        int renames = 0, deletes = 0;
+        QObject::connect(other, &ui::FenceView::renameRequested, other, [&](const QString&) { ++renames; });
+        QObject::connect(other, &ui::FenceView::deleteRequested, other, [&](const QStringList&, bool) { ++deletes; });
+        const QRect cell = other->labelRectOf(clock.path).isEmpty()
+                               ? QRect(other->contentRect().topLeft() + QPoint(other->gridPadding() + 4, other->gridPadding() + 4), QSize(4, 4))
+                               : other->labelRectOf(clock.path);
+        const QPoint at2 = cell.center();
+        {
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(at2), other->mapToGlobal(QPointF(at2)), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(other, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at2), other->mapToGlobal(QPointF(at2)), Qt::LeftButton,
+                                Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(other, &release);
+        }
+        const bool selected = other->selectedPaths() == QStringList{clock.path};
+        QKeyEvent f2(QEvent::KeyPress, Qt::Key_F2, Qt::NoModifier);
+        QApplication::sendEvent(other, &f2);
+        QKeyEvent del(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+        QApplication::sendEvent(other, &del);
+        const bool removed = !has(b);
+        check(QStringLiteral("widget: moves between fences, stays when dropped on the desktop, no rename, Delete takes it out without the shell (session 79)"),
+              stayed && moved && selected && renames == 0 && deletes == 0 && removed && QFile::exists(doc),
+              QStringLiteral("stayed %1, moved %2, selected %3, renames %4, shell deletes %5, removed %6")
+                  .arg(stayed).arg(moved).arg(selected).arg(renames).arg(deletes).arg(removed));
+
+        ui::FenceMenu::State menuState;
+        menuState.widgetKinds = {ui::widgets::displayName(QStringLiteral("clock"))};
+        bool offered = false;
+        for (const ui::FenceMenu::Entry& e : ui::FenceMenu::entries(menuState))
+            offered = offered || e.action == ui::FenceMenu::Action::AddWidget;
+        check(QStringLiteral("fence menu offers Add a widget > Clock (session 79)"),
+              offered && ui::FenceMenu::widgetEntries(menuState).size() == 1, QString());
     }
 
     // --- session 76: launch through the shell, names hidden, title lock, "+N", menu ---

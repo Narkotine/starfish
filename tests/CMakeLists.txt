@@ -58,6 +58,8 @@ add_executable(test_starfish_icon_grid
     test_icon_grid.cpp
     ../src/core/desktop_item.cpp
     ../src/ui/icon_grid.cpp
+    ../src/ui/fence_widgets.cpp
+    ../src/core/i18n.cpp
 )
 
 target_include_directories(test_starfish_icon_grid PRIVATE

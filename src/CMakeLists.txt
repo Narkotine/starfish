@@ -45,6 +45,7 @@ qt_add_executable(starfish WIN32
     ui/tray_icon.cpp
     ui/fence_view.cpp
     ui/icon_grid.cpp
+    ui/fence_widgets.cpp
 )
 
 # StarFish's icon for the tray and the windows (session 59): the PNGs written by

@@ -459,6 +459,7 @@ private:
     // a radius has no id to switch on, so it travels as the number the document
     // stores.
     void runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action, int value = -1);
+    void showWidgetMenu(const QString& fenceId, const QString& path, const QPoint& point); // session 79
 
     Options m_options;
     bool m_started = false;

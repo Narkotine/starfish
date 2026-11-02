@@ -71,6 +71,13 @@ static QJsonObject itemToJson(const FenceItem& i)
         o["fileId"] = i.fileId;
     if (!i.target.isEmpty())
         o["target"] = i.target;
+    if (i.kind == QLatin1String("widget")) {
+        QJsonObject w;
+        w["type"] = i.widgetType;
+        w["span"] = QJsonArray{i.span.width(), i.span.height()};
+        w["settings"] = i.widgetSettings;
+        o["widget"] = w;
+    }
     return o;
 }
 
@@ -161,6 +168,15 @@ static Fence fenceFromJson(const QJsonObject& o)
         FenceItem item{io["kind"].toString(), io["path"].toString()};
         item.fileId = io["fileId"].toString();
         item.target = io["target"].toString();
+        if (item.kind == QLatin1String("widget")) {
+            const QJsonObject w = io["widget"].toObject();
+            item.widgetType = w["type"].toString();
+            const QJsonArray span = w["span"].toArray();
+            item.span = QSize(qMax(1, span.at(0).toInt(1)), qMax(1, span.at(1).toInt(1)));
+            item.widgetSettings = w["settings"].toObject();
+            if (item.widgetType.isEmpty() || !item.path.startsWith(QLatin1String("widget:")))
+                continue; // not a widget we can even keep
+        }
         f.items.append(item);
     }
     return f;

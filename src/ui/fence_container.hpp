@@ -273,6 +273,8 @@ public:
     void setShowLabelsDefault(bool on);
     // Session 76: the icons' flow (style.iconFlow overrides); IconLayout::Flow bits.
     void setIconFlowDefault(int flow);
+    // Session 79: a widget (ui/fence_widgets.hpp) into a fence, at the end.
+    bool addWidget(const QString& id, const core::DesktopItem& widget);
     int iconFlowDefault() const { return m_iconFlowDefault; }
     bool showLabelsDefault() const { return m_showLabelsDefault; }
     // Session 76: the title's double-click is off while Appearance edits the fence.

@@ -2,6 +2,8 @@
 
 #include <QByteArray>
 #include <QRect>
+#include <QJsonObject>
+#include <QSize>
 #include <QList>
 #include <QString>
 #include <optional>
@@ -92,10 +94,15 @@ struct FenceStyle {
 
 // An item displayed inside a fence: a desktop file or a folder portal.
 struct FenceItem {
-    QString kind;  // "file" | "portal"
+    QString kind;  // "file" | "portal" | "widget" (session 79)
     QString path;
     QString fileId; // session 74: identity kept by a rename (empty: unknown)
     QString target; // session 74: a shortcut's target, the fallback match
+    // Session 79, kind "widget": {"type", "span": [w, h], "settings": {...}}.
+    // An unknown type is kept as it was read (a newer StarFish wrote it).
+    QString widgetType;
+    QSize span{1, 1};
+    QJsonObject widgetSettings;
 };
 
 struct Fence {

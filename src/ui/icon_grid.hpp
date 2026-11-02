@@ -65,7 +65,7 @@ public:
     QVector<IconCell> cells(const QSize& contentSize) const
     {
         return IconLayout::compute(contentSize, m_iconSize, cellWidth(), labelHeight(), m_gap, m_padding,
-                                   m_items.size(), m_flow);
+                                   m_items.size(), m_flow, spans());
     }
     QFont captionFont() const { return m_captionFont; }
     // The width of one grid cell: wider than the icon, so a caption has room to
@@ -84,6 +84,11 @@ public:
     void setLabelsShown(bool shown) { m_labelsShown = shown; }
     bool labelsShown() const { return m_labelsShown; }
     void setFlow(int flow) { m_flow = flow; }
+    // Session 79: (w, h) per widget, (0, 0) per tile; empty when no widget.
+    QVector<QSize> spans(int extraTiles = 0) const;
+    bool hasWidgets() const;
+    // The cells with one more (tile) slot at the end -- the drop mark's.
+    QVector<IconCell> cellsPlusOne(const QSize& contentSize) const;
     int flow() const { return m_flow; }
 
     // Draws the grid inside `contentRect` (already excludes the title bar and

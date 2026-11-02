@@ -59,6 +59,8 @@
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/splash_screen.hpp"
+#include "ui/fence_widgets.hpp"
+#include <QActionGroup>
 #include "platform/win/startup_timeline.hpp"
 #include "ui/tray_icon.hpp"
 
@@ -1101,10 +1103,19 @@ void ProductApp::wireFenceMenu()
             });
     // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
     connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
-            [this](const QString& id, const QString& path) { startRename(path, id); });
+            [this](const QString& id, const QString& path) {
+                if (!core::isWidgetPath(path))
+                    startRename(path, id);
+            });
     connect(m_container, &ui::FenceContainer::fenceDeleteRequested, this,
-            [this](const QString& id, const QStringList& paths, bool permanent) {
+            [this](const QString& id, const QStringList& requested, bool permanent) {
                 using platform::win::DeleteMode;
+                QStringList paths; // session 79: a widget path never reaches the shell
+                for (const QString& path : requested)
+                    if (!core::isWidgetPath(path))
+                        paths << path;
+                if (paths.isEmpty())
+                    return;
                 platform::win::deleteShellItems(paths, permanent ? DeleteMode::Permanent : DeleteMode::RecycleBin,
                                                 backdropOwner());
                 if (m_container)
@@ -1140,6 +1151,8 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     state.snapToCells = fenceStyle.snapToCells; // session 76
     state.snapToCellsDefault = m_container->snapToCellsDefault();
     state.templates = ui::FenceTemplates::names();
+    for (const ui::widgets::Kind& kind : ui::widgets::kinds()) // session 79
+        state.widgetKinds << kind.label;
     if (const ui::FenceView* view = m_container->view(id))
         state.sortBy = view->sortBy();
 
@@ -1177,6 +1190,9 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
             case ui::FenceMenu::Action::Template:
                 children = ui::FenceMenu::templateEntries(state);
                 break;
+            case ui::FenceMenu::Action::AddWidget:
+                children = ui::FenceMenu::widgetEntries(state);
+                break;
             default:
                 break;
             }
@@ -1186,7 +1202,8 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
             // material *is* the alpha of the fence's colour). The colours submenu
             // is commands, not a state, so it gets no group at all.
             const bool radio = entry.action != ui::FenceMenu::Action::Colours
-                               && entry.action != ui::FenceMenu::Action::Template;
+                               && entry.action != ui::FenceMenu::Action::Template
+                               && entry.action != ui::FenceMenu::Action::AddWidget;
             auto* group = radio ? new QActionGroup(submenu) : nullptr;
             if (group)
                 group->setExclusive(true);
@@ -1337,6 +1354,11 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
             m_container->setFenceStyle(id, style);
         }
         break;
+    case ui::FenceMenu::Action::AddWidgetChoice: // session 79
+        if (value >= 0 && value < ui::widgets::kinds().size())
+            m_container->addWidget(id, ui::widgets::create(ui::widgets::kinds().at(value).type));
+        break;
+    case ui::FenceMenu::Action::AddWidget:
     case ui::FenceMenu::Action::Resize:
     case ui::FenceMenu::Action::Template:
     case ui::FenceMenu::Action::ApplyTemplate: // by name, in showFenceMenu
@@ -2551,10 +2573,72 @@ void ProductApp::syncShortcutVault()
     m_container->markRestorable([this](const QString& path) { return m_vault->has(path); });
 }
 
+void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, const QPoint& point)
+{
+    ui::FenceView* view = m_container->view(fenceId);
+    if (!view)
+        return;
+    core::DesktopItem widget;
+    for (const core::DesktopItem& item : view->items())
+        if (item.path == path)
+            widget = item;
+    if (!widget.isWidget())
+        return;
+    QMenu menu;
+    ui::styleModernMenu(&menu, ui::ModernMenuStyle::current());
+    QAction* title = menu.addAction(widget.name);
+    title->setEnabled(false);
+    menu.addSeparator();
+    QList<QPair<QAction*, QString>> toggles;
+    if (widget.widgetType == QLatin1String("clock")) {
+        const auto toggle = [&](const QString& key, const QString& label) {
+            QAction* action = menu.addAction(label);
+            action->setCheckable(true);
+            action->setChecked(widget.widgetSettings.value(key).toBool());
+            toggles.append({action, key});
+        };
+        toggle(QStringLiteral("seconds"), QCoreApplication::translate("ProductApp", "Show seconds"));
+        toggle(QStringLiteral("date"), QCoreApplication::translate("ProductApp", "Show the date"));
+        toggle(QStringLiteral("h12"), QCoreApplication::translate("ProductApp", "12-hour clock"));
+    }
+    QMenu* sizes = menu.addMenu(QCoreApplication::translate("ProductApp", "Size"));
+    ui::styleModernMenu(sizes, ui::ModernMenuStyle::current());
+    auto* group = new QActionGroup(sizes);
+    QHash<QAction*, QSize> spanOf;
+    for (const QSize& span : ui::widgets::spanChoices()) {
+        QAction* action = sizes->addAction(QStringLiteral("%1 \u00D7 %2").arg(span.width()).arg(span.height()));
+        action->setCheckable(true);
+        action->setChecked(span == widget.span);
+        group->addAction(action);
+        spanOf.insert(action, span);
+    }
+    menu.addSeparator();
+    QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
+    QAction* chosen = menu.exec(logicalFromPhysical(point));
+    if (!chosen || !m_container->contains(fenceId))
+        return;
+    if (chosen == remove) {
+        m_container->releaseItems(fenceId, {path}); // the widget only: no file behind it
+        return;
+    }
+    for (const auto& toggle : std::as_const(toggles)) {
+        if (toggle.first == chosen)
+            widget.widgetSettings.insert(toggle.second, chosen->isChecked());
+    }
+    if (spanOf.contains(chosen))
+        widget.span = spanOf.value(chosen);
+    m_container->replaceFenceItem(fenceId, path, widget);
+}
+
 void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& paths, const QPoint& point)
 {
     if (paths.isEmpty() || !m_container)
         return;
+    // Session 79: a widget's own menu (its settings, its size, take it out).
+    if (core::isWidgetPath(paths.first())) {
+        showWidgetMenu(fenceId, paths.first(), point);
+        return;
+    }
     // Session 74: a tile whose file is not found has no shell menu -- it gets
     // the one thing to do with it (its file is never touched).
     QStringList missing;

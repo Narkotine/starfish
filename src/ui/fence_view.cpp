@@ -1,4 +1,5 @@
 #include "ui/fence_view.hpp"
+#include "ui/fence_widgets.hpp"
 
 #include <QKeyEvent>
 #include <QMetaMethod>
@@ -75,6 +76,13 @@ Qt::CursorShape cursorForHandle(FenceHandle handle)
 FenceView::FenceView(QWidget* parent)
     : QWidget(parent)
 {
+    // Session 79: a widget's next change (a clock's minute), aligned on it.
+    m_widgetTimer.setSingleShot(true);
+    m_widgetTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_widgetTimer, &QTimer::timeout, this, [this] {
+        update();
+        emit widgetTick();
+    });
     setObjectName(QStringLiteral("starfishFenceView"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAutoFillBackground(false);
@@ -662,6 +670,7 @@ void FenceView::paintEvent(QPaintEvent* event)
     painter.setOpacity(m_iconOpacity);
     m_grid.paint(painter, content, m_iconProvider);
     painter.setOpacity(1.0);
+    scheduleWidgetTick(); // session 79: the next minute (second) of a clock
     if (const int hidden = hiddenItemCount(); hidden > 0) {
         // Session 76: the fence is too small for all its icons -- say how many
         // are out of sight; a click on the badge lists them.
@@ -965,6 +974,10 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
+    if (m_grid.items().at(index).isWidget()) { // session 79: nothing to open
+        event->accept();
+        return;
+    }
     // Session 76 (the user: a browser-installed web app opened the plain browser, the
     // "Apps" Settings shortcut opened the Explorer): the *item itself* goes to
     // the shell, as Explorer's double-click does -- a shortcut keeps its
@@ -1030,6 +1043,33 @@ int FenceView::replaceItems(const QStringList& previousPaths, const QList<core::
     return added;
 }
 
+void FenceView::scheduleWidgetTick()
+{
+    if (m_rolledUp || !m_grid.hasWidgets()) {
+        m_widgetTimer.stop();
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    int next = -1;
+    for (const core::DesktopItem& item : m_grid.items()) {
+        if (!item.isWidget())
+            continue;
+        const int ms = widgets::msUntilNextChange(item, now);
+        if (ms >= 0 && (next < 0 || ms < next))
+            next = ms;
+    }
+    // Sooner than what is pending (seconds just turned on), never later.
+    if (next >= 0 && (!m_widgetTimer.isActive() || m_widgetTimer.remainingTime() > next))
+        m_widgetTimer.start(next);
+    else if (next < 0)
+        m_widgetTimer.stop();
+}
+
+int FenceView::widgetTickInterval() const
+{
+    return m_widgetTimer.isActive() ? m_widgetTimer.remainingTime() : -1;
+}
+
 void FenceView::setIconFlow(int flow)
 {
     if (m_grid.flow() == flow)
@@ -1088,8 +1128,12 @@ void FenceView::showHiddenItemsMenu()
     for (const core::DesktopItem& item : m_grid.items()) {
         if (!hidden.contains(item.path))
             continue;
-        const QPixmap pixmap = !item.missing && m_iconProvider ? m_iconProvider(item, 32) : QPixmap();
+        const QPixmap pixmap = !item.missing && !item.isWidget() && m_iconProvider ? m_iconProvider(item, 32) : QPixmap();
         QAction* action = menu.addAction(QIcon(pixmap), item.name.isEmpty() ? item.fileName : item.name);
+        if (item.isWidget()) { // session 79: listed, nothing to open
+            action->setEnabled(false);
+            continue;
+        }
         const QString path = item.path;
         connect(action, &QAction::triggered, this, [path] { starfish::platform::win::openShellItem(path); });
     }
@@ -1221,9 +1265,7 @@ void FenceView::paintDropIndicator(int index, QPainter& painter)
 
     // Recompute the layout in content-local coordinates (matches paint()).
     const QRect content = contentRect();
-    const QVector<ui::IconCell> cells = ui::IconLayout::compute(
-        content.size(), m_grid.iconSize(), m_grid.cellWidth(), m_grid.labelHeight(), m_grid.gap(),
-        m_grid.padding(), m_grid.items().size() + 1, m_grid.flow());
+    const QVector<ui::IconCell> cells = m_grid.cellsPlusOne(content.size());
     if (index >= cells.size())
         return;
 
@@ -1299,7 +1341,7 @@ QImage FenceView::dragImageFor(int index, const QPoint& press, qreal dpr, QPoint
     tile.icon = cells.at(index).icon.translated(content.topLeft());
     tile.label = cells.at(index).label.translated(content.topLeft());
     const core::DesktopItem& item = m_grid.items().at(index);
-    tile.pixmap = m_iconProvider ? m_iconProvider(item, qRound(m_grid.iconSize() * dpr)) : QPixmap();
+    tile.pixmap = m_iconProvider && !item.isWidget() ? m_iconProvider(item, qRound(m_grid.iconSize() * dpr)) : QPixmap();
     tile.text = item.name;
     QPoint topLeft;
     const QImage image = DragImage::compose({tile}, m_grid.captionFont(), DragImage::kOpacity, dpr, &topLeft);
@@ -1421,7 +1463,7 @@ void FenceView::keyPressEvent(QKeyEvent* event)
     if (event->key() == Qt::Key_F2) {
         // Session 74: rename the selected icon (the edit is the product's).
         const QStringList selected = selectedPaths();
-        if (!selected.isEmpty())
+        if (!selected.isEmpty() && !core::isWidgetPath(selected.first())) // session 79: no name to edit
             emit renameRequested(selected.first());
         event->accept();
         return;
@@ -1434,11 +1476,18 @@ void FenceView::keyPressEvent(QKeyEvent* event)
     // Shell's permanent delete, with its own confirmation). Shell folders that
     // are not files (This PC, the Recycle Bin, ...) are never deleted.
     QStringList paths;
+    QStringList widgetPaths; // session 79: Delete takes a widget out (no file)
     for (const QString& path : selectedPaths()) {
+        if (core::isWidgetPath(path)) {
+            widgetPaths.append(path);
+            continue;
+        }
         if (path.isEmpty() || path.startsWith(QLatin1String("::")) || path.startsWith(QLatin1String("shell:"), Qt::CaseInsensitive))
             continue;
         paths.append(path);
     }
+    if (!widgetPaths.isEmpty())
+        emit itemReleaseRequested(widgetPaths);
     if (!paths.isEmpty())
         emit deleteRequested(paths, event->modifiers().testFlag(Qt::ShiftModifier));
     event->accept();

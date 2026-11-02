@@ -386,7 +386,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+270"/>
+        <location filename="../ui/fence_menu.hpp" line="+287"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -517,6 +517,11 @@
     </message>
     <message>
         <location line="+7"/>
+        <source>Add a widget</source>
+        <translation>Ajouter un widget</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Appearance...</source>
         <translation>Apparence…</translation>
     </message>
@@ -547,6 +552,14 @@
         <location line="+9"/>
         <source>Background and title bar. Icons and their names stay opaque.</source>
         <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques.</translation>
+    </message>
+</context>
+<context>
+    <name>FenceWidgets</name>
+    <message>
+        <location filename="../ui/fence_widgets.cpp" line="+93"/>
+        <source>Clock</source>
+        <translation>Horloge</translation>
     </message>
 </context>
 <context>
@@ -595,7 +608,32 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2559"/>
+        <location filename="../app/product_app.cpp" line="+2600"/>
+        <source>Show seconds</source>
+        <translation>Afficher les secondes</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show the date</source>
+        <translation>Afficher la date</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>12-hour clock</source>
+        <translation>Format 12 heures</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Size</source>
+        <translation>Taille</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Remove the widget</source>
+        <translation>Retirer le widget</translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -626,7 +664,7 @@
 <context>
     <name>SplashScreen</name>
     <message>
-        <location filename="../ui/splash_screen.cpp" line="+88"/>
+        <location filename="../ui/splash_screen.cpp" line="+95"/>
         <source>Setting out your fences...</source>
         <translation>Mise en place de vos zones…</translation>
     </message>
@@ -644,12 +682,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2794"/>
+        <location line="-2877"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+489"/>
+        <location line="+490"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -683,7 +721,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+443"/>
+        <location filename="../app/product_app.cpp" line="+458"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -693,7 +731,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+480"/>
+        <location line="+485"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1038,7 +1076,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+309"/>
+        <location filename="../ui/fence_view.cpp" line="+317"/>
         <location line="+134"/>
         <location line="+183"/>
         <source>Fence</source>
@@ -1050,7 +1088,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+473"/>
+        <location line="+509"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1070,7 +1108,7 @@
         <translation>Clic droit pour le retirer de la zone.</translation>
     </message>
     <message>
-        <location line="+127"/>
+        <location line="+125"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>

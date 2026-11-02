@@ -105,12 +105,15 @@ public:
     // the bottom are still computed (the caller clips / scrolls), so the vector
     // length always equals `itemCount`.
     static QVector<IconCell> compute(const QSize& viewport, int iconSize, int cellWidth,
-                                     int labelHeight, int gap, int padding, int itemCount, int flow = 0)
+                                     int labelHeight, int gap, int padding, int itemCount, int flow = 0,
+                                     const QVector<QSize>& spans = {})
     {
         QVector<IconCell> cells;
         cells.reserve(qMax(0, itemCount));
         if (itemCount <= 0)
             return cells;
+        if (!spans.isEmpty())
+            return computeSpanned(viewport, iconSize, cellWidth, labelHeight, gap, padding, itemCount, flow, spans);
 
         const int icon = qMax(1, iconSize);
         const int cellW = qMax(icon, cellWidth);
@@ -137,6 +140,75 @@ public:
             IconCell cell;
             cell.icon = QRect(x + (cellW - icon) / 2, y, icon, icon);
             cell.label = QRect(x, y + icon, cellW, labelHeight);
+            cells.append(cell);
+        }
+        return cells;
+    }
+
+    // Session 79: some items span several cells (widgets). `spans[i]` is
+    // (columns, rows) for a widget, (0, 0) for an ordinary tile. Items are
+    // placed in order, each at the first free place in the flow where it fits
+    // (first fit, like a dense grid); a widget's cell is its whole block, with
+    // no caption band. With only tiles it is exactly compute().
+    static QVector<IconCell> computeSpanned(const QSize& viewport, int iconSize, int cellWidth, int labelHeight,
+                                            int gap, int padding, int itemCount, int flow, const QVector<QSize>& spans)
+    {
+        QVector<IconCell> cells;
+        cells.reserve(itemCount);
+        const int icon = qMax(1, iconSize);
+        const int cellW = qMax(icon, cellWidth);
+        const int cellH = icon + labelHeight;
+        const bool byColumns = flow & ColumnsFirst;
+        const int columns = columnsForWidth(viewport.width(), cellW, gap, padding);
+        const int rows = qMax(1, (viewport.height() - 2 * padding + gap) / qMax(1, cellH + gap));
+        const int fixed = byColumns ? rows : columns; // the bounded direction
+        QVector<QVector<bool>> used; // [line][slot along the fixed direction]
+        const auto isFree = [&](int line, int slot, int lines, int across) {
+            if (slot + across > fixed)
+                return false;
+            for (int l = line; l < line + lines; ++l) {
+                if (l >= used.size())
+                    continue;
+                for (int s = slot; s < slot + across; ++s)
+                    if (used[l][s])
+                        return false;
+            }
+            return true;
+        };
+        int firstFree = 0; // in across: line * fixed + slot
+        for (int i = 0; i < itemCount; ++i) {
+            const QSize span = i < spans.size() ? spans.at(i) : QSize();
+            const bool block = span.width() > 0 && span.height() > 0;
+            const int w = block ? qMin(span.width(), byColumns ? 64 : fixed) : 1;
+            const int h = block ? qMin(span.height(), byColumns ? fixed : 64) : 1;
+            const int across = byColumns ? h : w;  // along the fixed direction
+            const int lines = byColumns ? w : h;
+            int at = firstFree;
+            while (!isFree(at / fixed, at % fixed, lines, across))
+                ++at;
+            const int line = at / fixed, slot = at % fixed;
+            while (used.size() < line + lines)
+                used.append(QVector<bool>(fixed, false));
+            for (int l = line; l < line + lines; ++l)
+                for (int s = slot; s < slot + across; ++s)
+                    used[l][s] = true;
+            while (firstFree / fixed < used.size() && used[firstFree / fixed][firstFree % fixed])
+                ++firstFree;
+            const int col = byColumns ? line : slot;
+            const int row = byColumns ? slot : line;
+            const int width = w * cellW + (w - 1) * gap;
+            const int height = h * cellH + (h - 1) * gap;
+            const int x = (flow & FromRight) ? viewport.width() - padding - (col * (cellW + gap)) - width
+                                             : padding + col * (cellW + gap);
+            const int y = (flow & FromBottom) ? viewport.height() - padding - (row * (cellH + gap)) - height
+                                              : padding + row * (cellH + gap);
+            IconCell cell;
+            if (block) {
+                cell.icon = QRect(x, y, width, height);
+            } else {
+                cell.icon = QRect(x + (cellW - icon) / 2, y, icon, icon);
+                cell.label = QRect(x, y + icon, cellW, labelHeight);
+            }
             cells.append(cell);
         }
         return cells;

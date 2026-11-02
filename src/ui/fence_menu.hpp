@@ -80,6 +80,8 @@ enum class Action {
     ResizeChoice,      // value: 0 default (Settings), 1 whole icons, 2 free
     Template,          // session 76: the submenu; children from templateEntries()
     ApplyTemplate,     // value: index into State::templates
+    AddWidget,         // session 79: the submenu; children from widgetEntries()
+    AddWidgetChoice,   // value: index into State::widgetKinds
 };
 
 struct Entry {
@@ -125,7 +127,22 @@ struct State {
     QString snapToCells;             // session 76: "", "on", "off" (the fence's own)
     bool snapToCellsDefault = false; // ... and what "" means today
     QStringList templates;           // session 76: the saved templates' names
+    QStringList widgetKinds;         // session 79: the widgets one can add (labels)
 };
+
+// Session 79: the widgets, one click each.
+inline QList<Entry> widgetEntries(const State& state)
+{
+    QList<Entry> entries;
+    for (int i = 0; i < state.widgetKinds.size(); ++i) {
+        Entry entry;
+        entry.action = Action::AddWidgetChoice;
+        entry.value = i;
+        entry.label = state.widgetKinds.at(i);
+        entries.append(entry);
+    }
+    return entries;
+}
 
 // Session 76: resizing in whole icons or freely -- the default, or this fence's own.
 inline QStringList resizeKeys()
@@ -368,6 +385,14 @@ inline QList<Entry> entries(const State& state)
     resize.action = Action::Resize;
     resize.label = QCoreApplication::translate("FenceMenu", "Resize");
     out.append(resize);
+
+    if (!state.widgetKinds.isEmpty()) { // session 79
+        Entry widget;
+        widget.kind = Kind::Submenu;
+        widget.action = Action::AddWidget;
+        widget.label = QCoreApplication::translate("FenceMenu", "Add a widget");
+        out.append(widget);
+    }
 
     out.append(separator);
 

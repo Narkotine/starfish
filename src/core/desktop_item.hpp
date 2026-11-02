@@ -2,6 +2,8 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QSize>
+#include <QVariantMap>
 #include <QString>
 
 #include "core/rules.hpp"
@@ -37,7 +39,19 @@ struct DesktopItem {
     bool missing = false;
     // Session 75: a missing shortcut StarFish kept a copy of (it can put it back).
     bool restorable = false;
+    // Session 79: a StarFish widget, not a file (path "widget:<uuid>"; never
+    // handed to the shell or the disk). See ui/fence_widgets.hpp.
+    QString widgetType;
+    QSize span{1, 1};          // cells: columns x rows
+    QVariantMap widgetSettings;
+    bool isWidget() const { return !widgetType.isEmpty(); }
 };
+
+// Session 79: a widget's path -- never a file.
+inline bool isWidgetPath(const QString& path)
+{
+    return path.startsWith(QLatin1String("widget:"));
+}
 
 // Session 75: the entry itself is on disk. Not QFileInfo::exists(), which on
 // Windows follows a .lnk to its target: a Store-app shortcut (no file target,

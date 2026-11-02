@@ -6,6 +6,7 @@
 #include <QTransform>
 #include <QPainterPath>
 #include <QPair>
+#include <QTimer>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -203,6 +204,8 @@ public:
     // icons the fence is too small to show (the "+N" badge opens them).
     void setLabelsShown(bool shown);
     void setIconFlow(int flow); // IconLayout::Flow bits
+    // Session 79: ms until the widgets' next change is drawn (-1: none due).
+    int widgetTickInterval() const;
     int iconFlow() const { return m_grid.flow(); }
     bool labelsShown() const { return m_grid.labelsShown(); }
     void setTitleGesturesLocked(bool locked) { m_titleLocked = locked; }
@@ -232,6 +235,9 @@ signals:
     // Fired whenever the visual content changes (selection, items, sort) so the
     // owner can re-render the offscreen frame and push it to the surface.
     void contentChanged();
+    // Session 79: a widget changed by itself (the clock's minute): repaint
+    // only -- nothing to save.
+    void widgetTick();
     void hoverChanged(bool hovered); // session 71: enter / leave
     // Session 73: Delete (Shift+Delete) on the selection; special items such as
     // This PC or the Recycle Bin are left out.
@@ -342,6 +348,8 @@ private:
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
     bool m_titleLocked = false; // session 76
+    QTimer m_widgetTimer;       // session 79
+    void scheduleWidgetTick();
     void showHiddenItemsMenu();
     int m_tipIndex = -1; // session 74: the missing tile whose tooltip is up
     void updateMissingTip(const QPoint& localPoint);
