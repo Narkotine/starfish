@@ -6,12 +6,12 @@
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
 - **Dernière session de code livrée :** 58 (2026-10-30) - **ADR-21 : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. **Lot 1 (T-089)** dessin + menus ; **lot 2 (T-090)** Explorer qui redémarre, liste re-masquée, écrans/DPI ; décisions : entrée de menu repointée, éléments virtuels rangeables, flèche des zones = réglage (oui par défaut) ; **lot 3 (T-091)** F2, clavier, rectangle, glisser OLE, `IFileOperation` + annuler ; **lot 4 (T-092)** menu clic droit façon Windows 11 dessiné par StarFish, configurable. `ctest` 17/17, `--drawn-desktop-probe` **46/46**. **§44**.
-- **Sessions 59-61 :** apps empaquetées au menu, icône, refonte Réglages + éditeur du menu ; redimensionnement, renommage sur le titre, superposition interdite ; `starfish --quit`.
-- **Session 62 :** « Démarrer avec Windows » (clé `Run` HKCU) ; image de glisser ; étude T-098.
+- **Sessions 59-61 :** apps empaquetées, icône, Réglages + éditeur du menu ; redimensionnement, renommage du titre, superposition ; `--quit`.
+- **Session 62 :** « Démarrer avec Windows » (`Run` HKCU) ; image de glisser.
 - **Sessions 63-64 :** rectangle fluide ; zone translucide composée (T-098) + curseurs de transparence ; superposition cohérente + réglage.
 - **Session 65 :** liste de l'utilisateur : icônes en haut à gauche ; sélection unique, menu Windows 11 sur les tuiles, glisser entre zones ; menu de zone = comportement + **Apparence…** (couleurs récentes, bordure, effets acrylique/texturé, largeur, barre de titre, modèles) ; curseurs de redimensionnement ; langue ; aperçu du tracé. Commits locaux.
-- **Sessions 66-79 :** retours apparence, `crash.log` ; barre de titre 4 côtés, onglet ; survols ; double-clic bureau ; contour uniforme, modèles (s70) ; grain sous les icônes, déroulé au survol (s71) ; largeur stable au redémarrage (s72) ; Suppr, enroulement (s73) ; renommage (s74) ; copies de raccourcis (s75) ; lancement shell, noms, +N (s76) ; splash (s77-78) ; horloge (s79).
-- **Dernière mise à jour :** 2026-11-02 (session 79)
+- **Sessions 66-79 :** retours apparence, `crash.log` ; barre de titre 4 côtés, onglet ; survols ; double-clic bureau ; contour uniforme, modèles (s70) ; grain sous les icônes, déroulé au survol (s71) ; largeur stable au redémarrage (s72) ; Suppr, enroulement (s73) ; renommage (s74) ; copies de raccourcis (s75) ; lancement shell, noms, +N (s76) ; splash (s77-78) ; horloge (s79) ; barre d'insertion, grille, témoin widgets (s80).
+- **Dernière mise à jour :** 2026-11-03 (session 80)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé au 2026-10-30 (`5d3b1a5`, session 62) ; sessions 63-68 **locales**.
 
 ## 3 prochaines actions
