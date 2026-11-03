@@ -302,6 +302,9 @@ public:
     // registered against the window.
     void setDropHandler(std::function<void(const QPoint&, const QStringList&)> handler);
     const std::function<void(const QPoint&, const QStringList&)>& dropHandler() const;
+    // Session 80: where such a drop hovers (physical client pixels; `active`
+    // false when it leaves or lands). Set with the drop handler.
+    void setDropHoverHandler(std::function<void(const QPoint&, bool)> hover) { m_dropHover = std::move(hover); }
 
     // One-line report of what the paint cycle actually did: how many WM_PAINTs
     // were handled, the update region, the clip box and the number of scan
@@ -411,6 +414,7 @@ private:
     // revoked and released on detach(). OleInitialize/Uninitialize are balanced
     // against a single init on this thread.
     std::function<void(const QPoint&, const QStringList&)> m_dropHandler;
+    std::function<void(const QPoint&, bool)> m_dropHover;
     ShellDropTarget* m_dropTarget = nullptr;
     std::function<void*(quintptr)> m_dropTargetFactory;
     void* m_customDropTarget = nullptr;

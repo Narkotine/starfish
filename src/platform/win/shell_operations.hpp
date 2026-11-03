@@ -81,6 +81,10 @@ using InternalDrop = std::function<void(const QPoint& screen, const QStringList&
 // desktop folder takes it, so what it creates can be placed under the cursor;
 // `stems` are the dropped files' base names (CF_HDROP), empty when it has none.
 using ForeignDrop = std::function<void(const QPoint& screen, const QStringList& stems)>;
-void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop = {});
+// Session 80: `hover(screen, internal, active)` follows a drag over the drawn
+// desktop (our icons: internal) -- `active` false when it leaves or lands.
+using DropHover = std::function<void(const QPoint& screen, bool internal, bool active)>;
+void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop = {},
+                              DropHover hover = {});
 
 } // namespace starfish::platform::win

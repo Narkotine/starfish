@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QLine>
 #include <QColor>
 #include <QPointF>
 #include <QStringList>
@@ -166,6 +167,13 @@ public:
 
     // The item under a widget-local point, or -1.
     int itemAt(const QPoint& localPoint) const;
+    // Session 80: the gap (0..n) a dragged icon let go at a widget-local point
+    // would be inserted at -- in the flow order (IconLayout::insertionIndex) --
+    // and the bar that shows it, widget-local (null line: none).
+    int insertionIndexAt(const QPoint& localPoint, bool* afterCell = nullptr) const;
+    QLine insertionBar(int gap, bool afterCell = false) const;
+    // The bar on show right now (own drag or tiles from elsewhere), for probes.
+    QLine shownInsertionBar() const;
 
     // T-082: where the grid's tiles are, in *widget* coordinates -- one rectangle
     // per tile, the pixels it owns and nothing more. The container hands these to
@@ -222,7 +230,8 @@ public:
     // Session 65: where tiles dragged from another fence would land (-1: none);
     // and whether this fence's own drag is over another fence (no "back to
     // the desktop" hint then).
-    void setExternalDropIndex(int index);
+    // Session 80: `index` is a gap (0..n), as insertionIndexAt() gives it.
+    void setExternalDropIndex(int index, bool afterCell = false);
     void setDragOverOtherFence(bool over);
 
 public:
@@ -321,9 +330,8 @@ private:
     // stay out of the widget header. `globalPos` is screen coordinates.
     void showContextMenuForIndex(int index, const QPoint& globalPos);
 
-    // Draws the "insert here" highlight around the cell at `index` while a
-    // drag is in progress. No-op when index < 0.
-    void paintDropIndicator(int index, QPainter& painter);
+    // Session 80: draws the insertion bar of gap `gap` (no-op when < 0).
+    void paintInsertionBar(int gap, bool afterCell, QPainter& painter);
 
     // Draws what letting go *now* would do (F-011): the cursor is outside the
     // fence, so the release hands the tile back to the desktop instead of
@@ -369,7 +377,8 @@ private:
     // updates `m_dropTargetIndex` as the cursor moves; the release performs
     // the reorder and clears the state.
     int m_dragOriginIndex = -1;
-    int m_dropTargetIndex = -1;
+    int m_dropTargetIndex = -1; // session 80: a gap (0..n), -1 when none / no move
+    bool m_dropAfterCell = false;
     QPoint m_dragStartPos;
     bool m_dragging = false;
     // Session 62: the picture of the dragged tile, under the cursor.
@@ -382,6 +391,7 @@ private:
     bool m_releaseArmed = false;
     QStringList m_dragPaths;
     int m_externalDropIndex = -1;
+    bool m_externalAfterCell = false;
     bool m_dragOverOtherFence = false;
 
     // Fence geometry drag state (T-007), mutually exclusive with the icon drag

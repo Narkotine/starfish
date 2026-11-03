@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <functional>
 #include <QFont>
 #include <QList>
 #include <QPainter>
@@ -56,5 +57,26 @@ int msUntilNextChange(const core::DesktopItem& item, const QDateTime& now);
 // The clock's text, exposed for the probe.
 QString clockTime(const core::DesktopItem& item, const QDateTime& now);
 QString clockDate(const core::DesktopItem& item, const QDateTime& now, bool longForm);
+
+// --- engines (session 80) ---------------------------------------------------
+//
+// The native widgets above need no engine: they are painted by the fence like
+// its icons. A future web widget will need one (WebView2 / Qt WebEngine), and
+// that costs memory -- so whatever hosts it registers a probe here, and
+// Settings > General shows what runs and what it weighs.
+struct EngineStatus {
+    QString name;            // "WebView2"
+    bool running = false;    // processes up right now
+    qint64 memoryBytes = -1; // working set of its processes, -1 when unknown
+    int widgets = 0;         // widgets it hosts
+};
+using EngineProbe = std::function<EngineStatus()>;
+void registerEngine(const EngineProbe& probe);
+void clearEngines(); // tests
+QList<EngineStatus> engines();
+// The line Settings shows, e.g. "None (native widgets only)", or
+// "WebView2, running (~120 MB, 2 widgets)". `nativeWidgets` adds the count of
+// native widgets in the fences when there are some.
+QString engineSummary(int nativeWidgets = 0);
 
 } // namespace starfish::ui::widgets

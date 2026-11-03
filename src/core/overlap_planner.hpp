@@ -5,6 +5,7 @@
 #include <QPoint>
 #include <QRect>
 #include <QSet>
+#include <QVector>
 #include <QSize>
 #include <QStringList>
 #include <QString>
@@ -120,6 +121,79 @@ public:
                 moves.append({item.first, item.second, to});
         }
         return moves;
+    }
+
+    // Session 80: the desktop's grid, for showing it while an icon is held.
+    // Its origin is where most icons sit modulo the spacing (Explorer's grid
+    // runs from where it laid the first one out); with no icon, the first work
+    // area's corner.
+    static QPoint gridOrigin(const QList<QPair<QString, QPoint>>& items, const QList<QRect>& areas,
+                             const OverlapSlot& slot)
+    {
+        const int sw = slot.spacing.width();
+        const int sh = slot.spacing.height();
+        if (sw <= 0 || sh <= 0)
+            return {};
+        QHash<qint64, int> votes;
+        qint64 best = 0;
+        int bestVotes = 0;
+        for (const auto& item : items) {
+            const int mx = item.second.x() - floorDiv(item.second.x(), sw) * sw;
+            const int my = item.second.y() - floorDiv(item.second.y(), sh) * sh;
+            const qint64 key = (qint64(mx) << 32) | quint32(my);
+            const int v = ++votes[key];
+            if (v > bestVotes) {
+                bestVotes = v;
+                best = key;
+            }
+        }
+        if (bestVotes > 0)
+            return QPoint(int(best >> 32), int(qint32(best & 0xFFFFFFFF)));
+        if (areas.isEmpty())
+            return {};
+        return QPoint(areas.first().left() + (sw - slot.iconSize) / 2, areas.first().top());
+    }
+
+    // Every slot box of that grid that lies whole inside a work area.
+    static QVector<QRect> gridSlots(const QList<QPair<QString, QPoint>>& items, const QList<QRect>& areas,
+                                    const OverlapSlot& slot, int cap = 4000)
+    {
+        QVector<QRect> cells;
+        const int sw = slot.spacing.width();
+        const int sh = slot.spacing.height();
+        if (sw <= 0 || sh <= 0)
+            return cells;
+        const QPoint origin = gridOrigin(items, areas, slot);
+        for (const QRect& area : areas) {
+            const int minX = area.left() + (sw - slot.iconSize) / 2;
+            const int minY = area.top() - slot.top;
+            const int x0 = minX + ((origin.x() - minX) % sw + sw) % sw;
+            const int y0 = minY + ((origin.y() - minY) % sh + sh) % sh;
+            for (int x = x0;; x += sw) {
+                if (slot.boxAt(QPoint(x, y0)).right() > area.right())
+                    break;
+                for (int y = y0;; y += sh) {
+                    const QRect box = slot.boxAt(QPoint(x, y));
+                    if (box.bottom() > area.bottom())
+                        break;
+                    cells.append(box);
+                    if (cells.size() >= cap)
+                        return cells;
+                }
+            }
+        }
+        return cells;
+    }
+
+    // The grid position nearest `position` (an icon's top-left).
+    static QPoint snapToGrid(const QPoint& position, const QPoint& origin, const OverlapSlot& slot)
+    {
+        const int sw = slot.spacing.width();
+        const int sh = slot.spacing.height();
+        if (sw <= 0 || sh <= 0)
+            return position;
+        return QPoint(origin.x() + qRound(double(position.x() - origin.x()) / sw) * sw,
+                      origin.y() + qRound(double(position.y() - origin.y()) / sh) * sh);
     }
 
 private:

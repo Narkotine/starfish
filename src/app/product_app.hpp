@@ -202,6 +202,16 @@ public:
     void newDesktopFolder();
     // The drop of our own icons back onto the desktop (the drop target's half).
     void onInternalDrop(const QPoint& point, const QStringList& paths, const QPoint& origin);
+    // Session 80: the desktop's grid while icons are held over it -- `paths`
+    // (our own, moved by `delta`; empty: a drop from elsewhere at `screen`),
+    // the slot they would take highlighted. Hidden when the switch is off.
+    void showDesktopDropGrid(const QStringList& paths, const QPoint& delta, const QPoint& screen,
+                             const QPoint& anchor = QPoint());
+    void hideDesktopDropGrid();
+    bool desktopDragGrid() const { return m_desktopDragGrid; }
+    void setDesktopDragGrid(bool on) { m_desktopDragGrid = on; if (!on) hideDesktopDropGrid(); }
+    // Session 80: the line Settings > General shows about widget engines.
+    QString widgetEngineSummary() const;
     // Session 61: a path as the drawn desktop spells it (C:/...) or as the
     // shell does (C:\...) -- both name the same icon.
     QPoint desktopItemPosition(const QString& path) const { return m_itemPositions.value(shellNameOf(path)); }
@@ -425,6 +435,8 @@ private:
     QHash<QString, QString> m_shellNames;     // BackdropLayout::pathKey -> parsing name
     bool m_shellSnap = false;
     bool m_shellAutoArrange = false;
+    bool m_desktopDragGrid = true; // session 80
+    QPoint m_dragOrigin;           // session 80: the press of our own icon drag
     QList<QRect> desktopWorkAreas() const;
     core::OverlapSlot desktopSlot() const;
     qint64 m_renameNewUntil = 0;

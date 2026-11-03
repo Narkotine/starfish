@@ -218,14 +218,19 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
     }
     if (source && source->view)
         source->view->setDragOverOtherFence(!dropped && into);
+    // Session 80: over no fence at all (its own included), the desktop shows
+    // its grid while the tiles are held.
+    emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
     if (!dropped) {
         if (into && into->view) {
             const QRect visible = visibleRectOf(*into);
             const qreal dpr = m_screens.devicePixelRatioFor(into->rect);
             const QPoint local(qRound((screenPoint.x() - visible.x()) / dpr),
                                qRound((screenPoint.y() - visible.y()) / dpr));
-            const int at = into->view->itemAt(local);
-            into->view->setExternalDropIndex(at >= 0 ? at : into->view->items().size());
+            // Session 80: the gap, shown as a bar between the icons.
+            bool after = false;
+            const int at = into->view->insertionIndexAt(local, &after);
+            into->view->setExternalDropIndex(at >= 0 ? at : into->view->items().size(), after);
         }
         return 0;
     }
@@ -286,7 +291,7 @@ int FenceContainer::fileIntoAt(const QString& fenceId, const QList<core::Desktop
         if (!item.path.isEmpty() && !alreadyThere)
             fresh.append(item);
     }
-    const int filed = fresh.isEmpty() ? 0 : fence->view->insertItems(fresh, fence->view->itemAt(local));
+    const int filed = fresh.isEmpty() ? 0 : fence->view->insertItems(fresh, fence->view->insertionIndexAt(local));
     if (filed > 0)
         qCInfo(lc).noquote() << QStringLiteral("filed %1 item(s) into %2 at %3,%4")
                                     .arg(filed).arg(fence->id).arg(local.x()).arg(local.y());
@@ -2037,7 +2042,9 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             // Session 60: inserted where it was let go (the client point is
             // physical, the grid logical).
             const qreal dpr = m_screens.devicePixelRatioFor(target->rect);
-            const int at = target->view->itemAt(QPoint(qRound(client.x() / dpr), qRound(client.y() / dpr)));
+            const int at = target->view->insertionIndexAt(
+                QPoint(qRound(client.x() / dpr), qRound(client.y() / dpr))); // session 80: the bar's gap
+            target->view->setExternalDropIndex(-1);
             QList<core::DesktopItem> dropped;
             dropped.reserve(paths.size());
             for (const QString& path : paths) {
@@ -2047,6 +2054,21 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             }
             if (!dropped.isEmpty())
                 target->view->insertItems(dropped, at);
+        });
+        // Session 80: a drag from the desktop or the Explorer shows its bar too.
+        surface->setDropHoverHandler([this, id](const QPoint& client, bool active) {
+            FenceWindow* target = find(id);
+            if (!target || !target->view)
+                return;
+            if (!active) {
+                target->view->setExternalDropIndex(-1);
+                return;
+            }
+            const qreal dpr = m_screens.devicePixelRatioFor(target->rect);
+            bool after = false;
+            const int at = target->view->insertionIndexAt(
+                QPoint(qRound(client.x() / dpr), qRound(client.y() / dpr)), &after);
+            target->view->setExternalDropIndex(at, after);
         });
 #endif
         // ⚠️ T-079 / ADR-15: the window is born with the material as its uniform

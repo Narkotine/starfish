@@ -57,6 +57,7 @@
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
 #include "core/jsonstore.hpp"
+#include "core/overlap_planner.hpp"
 #include <windows.h>
 #include <shobjidl.h>
 
@@ -1118,6 +1119,222 @@ int runUiProbe(QApplication& app)
                   .arg(explicitDown));
         check(QStringLiteral("Settings has the unroll-on-hover switch (session 71)"),
               settings.findChild<QWidget*>(QStringLiteral("hoverUnrollSwitch")) != nullptr, QString());
+    }
+
+    // --- session 80: insertion bar, desktop grid, widget engine ---------------
+    {
+        using L = ui::IconLayout;
+        // Pure: the gap under the cursor and its bar, for each flow.
+        const auto cellsFor = [](int flow, int labels, const QVector<QSize>& spans = {}) {
+            return L::compute(QSize(400, 400), 48, 72, labels, 8, 6, 4, flow, spans); // 3 items + the free cell
+        };
+        const auto box = [](const ui::IconCell& c) { return c.icon.united(c.label); };
+        bool gaps = true;
+        QStringList gapNotes;
+        for (int flow : {0, int(L::FromRight), int(L::ColumnsFirst), int(L::ColumnsFirst | L::FromBottom)}) {
+            const auto cells = cellsFor(flow, 34);
+            const QRect c0 = box(cells[0]);
+            const bool cols = flow & L::ColumnsFirst;
+            const bool mirror = cols ? (flow & L::FromBottom) : (flow & L::FromRight);
+            // The trailing half of cell 0 -> gap 1; its leading half -> gap 0.
+            QPoint trailing = c0.center(), leading = c0.center();
+            const int d = cols ? c0.height() / 4 : c0.width() / 4;
+            if (cols) {
+                trailing.ry() += mirror ? -d : d;
+                leading.ry() += mirror ? d : -d;
+            } else {
+                trailing.rx() += mirror ? -d : d;
+                leading.rx() += mirror ? d : -d;
+            }
+            const int gT = L::insertionIndex(cells, trailing, flow);
+            const int gL = L::insertionIndex(cells, leading, flow);
+            const int gEnd = L::insertionIndex(cells, box(cells[3]).center(), flow);
+            const QLine bar = L::insertionBar(cells, 1, flow, 8);
+            // Between cells 0 and 1, across the flow, as long as the cell.
+            const QRect c1 = box(cells[1]);
+            const bool across = cols ? bar.y1() == bar.y2() && bar.x1() == c1.left() && bar.x2() == c1.right()
+                                     : bar.x1() == bar.x2() && bar.y1() == c1.top() && bar.y2() == c1.bottom();
+            const int at = cols ? bar.y1() : bar.x1();
+            const int lo = cols ? qMin(c0.bottom(), c1.bottom()) : qMin(c0.right(), c1.right());
+            const int hi = cols ? qMax(c0.top(), c1.top()) : qMax(c0.left(), c1.left());
+            const bool between = at >= lo && at <= hi;
+            const bool ok = gT == 1 && gL == 0 && gEnd == 3 && across && between;
+            gaps = gaps && ok;
+            gapNotes << QStringLiteral("flow %1: %2/%3/%4 bar %5,%6-%7,%8").arg(flow).arg(gT).arg(gL).arg(gEnd)
+                            .arg(bar.x1()).arg(bar.y1()).arg(bar.x2()).arg(bar.y2());
+        }
+        // Names hidden: the bar is as long as the icon; a 2x1 widget first.
+        const auto bare = cellsFor(0, 0);
+        const QLine shortBar = L::insertionBar(bare, 1, 0, 8);
+        const bool namesHidden = shortBar.y2() - shortBar.y1() == 47;
+        const auto spanned = cellsFor(0, 34, {QSize(2, 1), QSize(), QSize()});
+        const int afterWidget = L::insertionIndex(spanned, box(spanned[0]).center() + QPoint(box(spanned[0]).width() / 4, 0), 0);
+        const QLine widgetBar = L::insertionBar(spanned, 1, 0, 8);
+        const bool widgetOk = afterWidget == 1 && widgetBar.x1() > box(spanned[0]).right()
+                              && widgetBar.x1() < box(spanned[1]).left();
+        check(QStringLiteral("insertion gap and bar follow the flow (rows / columns, any corner), hidden names, widgets (session 80)"),
+              gaps && namesHidden && widgetOk,
+              gapNotes.join(QStringLiteral("; ")) + QStringLiteral("; names hidden %1, widget %2 (gap %3)")
+                  .arg(namesHidden).arg(widgetOk).arg(afterWidget));
+
+        // In a fence: a real drag shows the bar and lands where it shows.
+        QTemporaryDir temp;
+        QList<core::DesktopItem> files;
+        for (int i = 0; i < 5; ++i) {
+            const QString path = QDir::fromNativeSeparators(temp.path()) + QStringLiteral("/s80_%1.txt").arg(i);
+            QFile file(path);
+            file.open(QIODevice::WriteOnly);
+            file.write("starfish probe s80");
+            file.close();
+            files << core::itemFromPathOnly(path);
+        }
+        ui::FenceContainer container;
+        const QString a = container.createFence(QStringLiteral("Insertion"), QRect(0, 0, 420, 260));
+        const QString b = container.createFence(QStringLiteral("Other"), QRect(500, 0, 420, 260));
+        container.fileInto(a, files.mid(0, 4));
+        container.fileInto(b, files.mid(4, 1));
+        ui::FenceView* view = container.view(a);
+        const auto order = [](ui::FenceView* v) {
+            QStringList names;
+            for (const core::DesktopItem& item : v->items())
+                names << QFileInfo(item.path).completeBaseName().right(1);
+            return names.join(QString());
+        };
+        const auto cellOf = [&](ui::FenceView* v, int i) {
+            const QVector<QRect> rects = v->tileRects();
+            return i < rects.size() ? rects.at(i) : QRect();
+        };
+        const auto send = [&](ui::FenceView* v, QEvent::Type type, const QPoint& at, Qt::MouseButtons buttons) {
+            QMouseEvent e(type, QPointF(at), v->mapToGlobal(QPointF(at)), Qt::LeftButton, buttons, Qt::NoModifier);
+            QApplication::sendEvent(v, &e);
+        };
+        const QString before = order(view);
+        const QRect c0 = cellOf(view, 0), c2 = cellOf(view, 2), c3 = cellOf(view, 3);
+        send(view, QEvent::MouseButtonPress, c0.center(), Qt::LeftButton);
+        send(view, QEvent::MouseMove, c0.center() + QPoint(12, 12), Qt::LeftButton);
+        const QPoint target = QPoint(c2.right() - c2.width() / 5, c2.center().y()); // trailing half of the 3rd
+        send(view, QEvent::MouseMove, target, Qt::LeftButton);
+        const QLine shown = view->shownInsertionBar();
+        const bool barBetween = !shown.isNull() && shown.x1() == shown.x2() && shown.x1() > c2.right()
+                                && shown.x1() < c3.left();
+        const auto captureView = [&](ui::FenceView* v, const QString& name) {
+            QImage img(v->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x2A, 0x4A, 0x6A));
+            QPainter painter(&img);
+            v->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+            painter.end();
+            img.save(captures + QStringLiteral("/%1_%2.png").arg(name, theme));
+        };
+        captureView(view, QStringLiteral("s80_insertion_bar_rows"));
+        send(view, QEvent::MouseButtonRelease, target, Qt::NoButton);
+        const QString after = order(view);
+        // Back over its own place: no bar (letting go changes nothing).
+        const QRect n0 = cellOf(view, 0);
+        send(view, QEvent::MouseButtonPress, n0.center(), Qt::LeftButton);
+        send(view, QEvent::MouseMove, n0.center() + QPoint(12, 0), Qt::LeftButton);
+        const bool noBarInPlace = view->shownInsertionBar().isNull();
+        send(view, QEvent::MouseButtonRelease, n0.center() + QPoint(12, 0), Qt::NoButton);
+        check(QStringLiteral("dragging an icon in a fence shows the bar between the icons and lands there (session 80)"),
+              before == QLatin1String("0123") && after == QLatin1String("1203") && barBetween && noBarInPlace
+                  && order(view) == after,
+              QStringLiteral("%1 -> %2, bar %3,%4-%5,%6 between %7, none in place %8")
+                  .arg(before, after).arg(shown.x1()).arg(shown.y1()).arg(shown.x2()).arg(shown.y2()).arg(barBetween)
+                  .arg(noBarInPlace));
+
+        // Columns from the bottom right, names hidden, a widget: captured.
+        core::FenceStyle style = container.fenceStyle(a);
+        style.iconFlow = L::flowKeys().value(int(L::ColumnsFirst | L::FromBottom | L::FromRight));
+        style.showLabels = QStringLiteral("off");
+        container.setFenceStyle(a, style);
+        container.addWidget(a, ui::widgets::create(QStringLiteral("clock")));
+        bool afterCell = false;
+        const QRect w1 = cellOf(view, 1);
+        const int colGap = view->insertionIndexAt(QPoint(w1.center().x(), w1.top() + 3), &afterCell);
+        view->setExternalDropIndex(colGap, afterCell);
+        const QLine colBar = view->shownInsertionBar();
+        captureView(view, QStringLiteral("s80_insertion_bar_columns_names_hidden"));
+        view->setExternalDropIndex(-1);
+        // Tiles from the other fence: the same gap, the same place.
+        ui::FenceView* other = container.view(b);
+        const QRect o0 = cellOf(view, 0);
+        const QPoint local(o0.center().x(), o0.bottom() - 4);
+        const QPoint screen = container.physicalFromFenceLocal(a, local);
+        container.dragTilesOutside(b, {files[4].path}, screen, false);
+        const QLine external = view->shownInsertionBar();
+        const int expected = view->insertionIndexAt(local);
+        captureView(view, QStringLiteral("s80_insertion_bar_from_other_fence"));
+        container.dragTilesOutside(b, {files[4].path}, screen, true);
+        int landed = -1;
+        for (int i = 0; i < view->items().size(); ++i)
+            if (view->items().at(i).path == files[4].path)
+                landed = i;
+        check(QStringLiteral("insertion bar: columns from a corner, names hidden, widget, tiles from another fence land on it (session 80)"),
+              !colBar.isNull() && colBar.y1() == colBar.y2() && !external.isNull() && landed == expected
+                  && other->items().isEmpty(),
+              QStringLiteral("column gap %1 bar %2,%3-%4,%5; external bar %6, landed %7 expected %8")
+                  .arg(colGap).arg(colBar.x1()).arg(colBar.y1()).arg(colBar.x2()).arg(colBar.y2())
+                  .arg(!external.isNull()).arg(landed).arg(expected));
+
+        // The desktop's grid: origin from where the icons sit, slots in the
+        // work area, a foreign drop snapped; drawn faint, its target bright.
+        core::OverlapSlot slot;
+        slot.spacing = QSize(95, 98);
+        slot.iconSize = 48;
+        slot.top = 5;
+        const QList<QRect> areas{QRect(0, 0, 1000, 600)};
+        const QList<QPair<QString, QPoint>> icons{{QStringLiteral("a"), QPoint(24, 2)}, {QStringLiteral("b"), QPoint(24, 100)},
+                                                  {QStringLiteral("c"), QPoint(119, 2)}, {QStringLiteral("d"), QPoint(300, 333)}};
+        const QPoint origin = core::OverlapPlanner::gridOrigin(icons, areas, slot);
+        const QVector<QRect> grid = core::OverlapPlanner::gridSlots(icons, areas, slot);
+        bool inside = !grid.isEmpty();
+        for (const QRect& r : grid)
+            inside = inside && areas.first().contains(r);
+        const QPoint snapped = core::OverlapPlanner::snapToGrid(QPoint(130, 90), origin, slot);
+        const QRect hit = slot.boxAt(snapped);
+        QImage desk(1000, 600, QImage::Format_ARGB32_Premultiplied);
+        {
+            QPainter painter(&desk);
+            QLinearGradient sky(0, 0, 1000, 600);
+            sky.setColorAt(0, QColor(0x1E, 0x3A, 0x5F));
+            sky.setColorAt(1, QColor(0x6A, 0x4C, 0x93));
+            painter.fillRect(desk.rect(), sky);
+            ui::DesktopBackdrop::paintDropGrid(painter, QRect(0, 0, 1000, 600), grid, hit, 1.0);
+        }
+        desk.save(captures + QStringLiteral("/s80_desktop_grid.png"));
+        const QColor inTarget = desk.pixelColor(hit.center());
+        const bool targetLit = inTarget.blue() - inTarget.red() > 0x40;
+        check(QStringLiteral("desktop grid: origin from the icons, slots in the work area, drop snapped, target lit (session 80)"),
+              origin == QPoint(24, 2) && inside && grid.size() == 10 * 6 && snapped == QPoint(119, 100) && targetLit,
+              QStringLiteral("origin %1,%2, %3 slots, snapped %4,%5, target colour %6")
+                  .arg(origin.x()).arg(origin.y()).arg(grid.size()).arg(snapped.x()).arg(snapped.y()).arg(inTarget.name()));
+
+        // Settings: the switch (on by default) and the widget-engine line.
+        ui::SettingsDialog fresh;
+        auto* gridSwitch = fresh.findChild<QCheckBox*>(QStringLiteral("desktopDragGridSwitch"));
+        auto* engineLabel = fresh.findChild<QLabel*>(QStringLiteral("widgetEngineStatus"));
+        const QString none = ui::widgets::engineSummary(0);
+        const QString initial = engineLabel ? engineLabel->text() : QString();
+        const QString withClock = ui::widgets::engineSummary(1);
+        ui::widgets::registerEngine([] {
+            ui::widgets::EngineStatus status;
+            status.name = QStringLiteral("WebView2");
+            status.running = true;
+            status.memoryBytes = qint64(120) * 1024 * 1024;
+            status.widgets = 2;
+            return status;
+        });
+        const QString web = ui::widgets::engineSummary(1);
+        ui::widgets::clearEngines();
+        fresh.setWidgetEngineStatus(withClock);
+        check(QStringLiteral("Settings: desktop grid switch (on by default), widget engine line, a future engine reports itself (session 80)"),
+              gridSwitch && gridSwitch->isChecked() && engineLabel && initial == none
+                  && fresh.widgetEngineStatus() == withClock && withClock.startsWith(none) && web.contains(QLatin1String("WebView2"))
+                  && web.contains(QLatin1String("120")) && !web.contains(none),
+              QStringLiteral("switch %4 on %5, label \"%6\", none \"%1\", with clock \"%2\", web \"%3\"")
+                  .arg(none, withClock, web)
+                  .arg(gridSwitch != nullptr)
+                  .arg(gridSwitch && gridSwitch->isChecked())
+                  .arg(engineLabel ? engineLabel->text() : QStringLiteral("-")));
     }
 
     // --- session 79: the clock widget -----------------------------------------

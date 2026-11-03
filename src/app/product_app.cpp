@@ -262,6 +262,7 @@ bool ProductApp::start(const Options& options, QString* error)
         m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
         m_container->setSnapToCellsDefault(settings.value(QStringLiteral("fenceSnapToCells"), false).toBool());
         m_autoRestoreShortcuts = settings.value(QStringLiteral("fenceAutoRestoreShortcuts"), false).toBool();
+        m_desktopDragGrid = settings.value(QStringLiteral("desktopDragGrid"), true).toBool(); // session 80
         m_container->setShowLabelsDefault(settings.value(QStringLiteral("fenceShowLabels"), true).toBool());
         m_container->setIconFlowDefault(
             ui::IconLayout::flowFromKey(settings.value(QStringLiteral("fenceIconFlow")).toString()));
@@ -631,6 +632,11 @@ void ProductApp::wireSettings()
             .setValue(QStringLiteral("fenceIconFlow"), key);
         m_container->setIconFlowDefault(ui::IconLayout::flowFromKey(key));
     });
+    connect(m_settings, &ui::SettingsDialog::desktopDragGridToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("desktopDragGrid"), on);
+        setDesktopDragGrid(on);
+    });
     connect(m_settings, &ui::SettingsDialog::splashToggled, this, [](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
             .setValue(QStringLiteral("showSplash"), on);
@@ -944,7 +950,18 @@ void ProductApp::wireBackdrop()
             [this](const QPoint& point, const QStringList& paths, const QPoint& origin) {
                 onInternalDrop(point, paths, origin);
             },
-            [this](const QPoint& point, const QStringList& stems) { onForeignDrop(point, stems); });
+            [this](const QPoint& point, const QStringList& stems) { onForeignDrop(point, stems); },
+            [this](const QPoint& point, bool internal, bool active) {
+                // Session 80: the grid follows a drag over the drawn desktop.
+                if (!active) {
+                    hideDesktopDropGrid();
+                } else if (internal) {
+                    const QStringList paths = platform::win::internalDragPaths();
+                    showDesktopDropGrid(paths, point - m_dragOrigin, point, m_dragOrigin);
+                } else {
+                    showDesktopDropGrid({}, {}, point);
+                }
+            });
     });
     // T-090: the desktop window died under us (Explorer restarted).
     connect(backdrop, &ui::DesktopBackdrop::desktopLost, this, &ProductApp::onDesktopLost);
@@ -1100,6 +1117,23 @@ void ProductApp::wireFenceMenu()
                 const int icon = qMax(16, m_shellIconSize);
                 const QPoint wanted = point - QPoint(icon / 2, icon / 2);
                 moveDesktopItems(paths, wanted - m_itemPositions.value(first));
+            });
+    // Session 80: tiles held over the bare desktop show its grid, and the slot
+    // they would take (the same sum as the drop above).
+    connect(m_container, &ui::FenceContainer::tilesHoverDesktop, this,
+            [this](const QStringList& paths, const QPoint& point, bool active) {
+                QStringList files;
+                for (const QString& path : paths)
+                    if (!core::isWidgetPath(path))
+                        files << path;
+                const QString first = files.isEmpty() ? QString() : shellNameOf(files.first());
+                if (!active || first.isEmpty() || !m_itemPositions.contains(first)) {
+                    hideDesktopDropGrid();
+                    return;
+                }
+                const int icon = qMax(16, m_shellIconSize);
+                const QPoint wanted = point - QPoint(icon / 2, icon / 2);
+                showDesktopDropGrid(files, wanted - m_itemPositions.value(first), point);
             });
     // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
     connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
@@ -1779,6 +1813,8 @@ void ProductApp::refreshStatus()
         m_settings->setSplash(QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
                                   .value(QStringLiteral("showSplash"), true).toBool());
         m_settings->setIconFlow(ui::IconLayout::flowKeys().value(m_container->iconFlowDefault()));
+        m_settings->setDesktopDragGrid(m_desktopDragGrid);
+        m_settings->setWidgetEngineStatus(widgetEngineSummary());
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
@@ -2878,6 +2914,83 @@ bool ProductApp::moveDesktopItems(const QStringList& paths, const QPoint& delta)
     return moved > 0;
 }
 
+void ProductApp::showDesktopDropGrid(const QStringList& paths, const QPoint& delta, const QPoint& screen,
+                                     const QPoint& anchor)
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop)
+        return;
+    if (!m_desktopDragGrid || !drawnDesktop() || m_shellAutoArrange) {
+        // Auto-arrange: Explorer decides the places, no slot to show.
+        backdrop->clearDropGrid();
+        return;
+    }
+    QStringList names;
+    for (const QString& path : paths) {
+        const QString name = shellNameOf(path);
+        if (!name.isEmpty() && !names.contains(name))
+            names << name;
+    }
+    const core::OverlapSlot slot = desktopSlot();
+    const QList<QRect> areas = desktopWorkAreas();
+    const QSet<QString> filed = m_container->filedPathKeys();
+    QList<QPair<QString, QPoint>> items;
+    for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it) {
+        if (names.contains(it.key()) || !filed.contains(ui::BackdropLayout::pathKey(it.key())))
+            items.append({it.key(), it.value()});
+    }
+    // The grid only when Explorer aligns to it: free placement has none.
+    const QVector<QRect> cells =
+        m_shellSnap ? core::OverlapPlanner::gridSlots(items, areas, slot) : QVector<QRect>();
+    QRect target;
+    if (!names.isEmpty()) {
+        // The icon under the press leads; the move is the drop's own plan.
+        QString lead = names.first();
+        for (const QString& name : std::as_const(names)) {
+            if (!anchor.isNull() && slot.boxAt(m_itemPositions.value(name)).contains(anchor))
+                lead = name;
+        }
+        QPoint to = m_itemPositions.value(lead);
+        if (qAbs(delta.x()) + qAbs(delta.y()) >= 4) {
+            const QList<QRect> obstacles = m_allowDesktopOverlap ? QList<QRect>() : m_container->fenceObstacleRects();
+            for (const core::OverlapMove& move :
+                 core::OverlapPlanner::planMove(items, names, delta, m_shellSnap, obstacles, areas, slot)) {
+                if (move.key == lead)
+                    to = move.to;
+            }
+        }
+        target = slot.boxAt(to);
+    } else {
+        // From elsewhere: placed under the cursor (onForeignDrop), on the grid.
+        const int icon = qMax(16, m_shellIconSize);
+        QPoint at = screen - QPoint(icon / 2, icon / 2);
+        if (m_shellSnap)
+            at = core::OverlapPlanner::snapToGrid(at, core::OverlapPlanner::gridOrigin(items, areas, slot), slot);
+        target = slot.boxAt(at);
+    }
+    backdrop->setDropGrid(cells, target);
+}
+
+void ProductApp::hideDesktopDropGrid()
+{
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr)
+        backdrop->clearDropGrid();
+}
+
+QString ProductApp::widgetEngineSummary() const
+{
+    int native = 0;
+    if (m_container) {
+        for (const QString& id : m_container->fenceIds()) {
+            if (const ui::FenceView* view = m_container->view(id)) {
+                for (const core::DesktopItem& item : view->items())
+                    native += item.isWidget() ? 1 : 0;
+            }
+        }
+    }
+    return ui::widgets::engineSummary(native);
+}
+
 void ProductApp::onForeignDrop(const QPoint& point, const QStringList& stems)
 {
     m_dropStems = stems;
@@ -2930,7 +3043,9 @@ void ProductApp::dragDesktopItems(const QStringList& paths, const QPoint& origin
     QPoint hotspot;
     ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
     const QImage picture = backdrop ? backdrop->dragImage(paths, origin, &hotspot) : QImage();
+    m_dragOrigin = origin; // session 80: the grid measures the move from here
     platform::win::dragShellItems(paths, origin, backdropOwner(), picture, hotspot);
+    hideDesktopDropGrid(); // whatever the drag ended on
     m_shellSignature.clear();
     m_shellResync.start();
 }

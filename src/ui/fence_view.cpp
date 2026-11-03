@@ -509,6 +509,34 @@ int FenceView::itemAt(const QPoint& localPoint) const
     return m_grid.hitTest(localPoint - contentRect().topLeft(), contentRect().size());
 }
 
+int FenceView::insertionIndexAt(const QPoint& localPoint, bool* afterCell) const
+{
+    const QRect content = contentRect();
+    if (content.isEmpty())
+        return -1;
+    const QVector<ui::IconCell> cells = m_grid.cellsPlusOne(content.size());
+    return IconLayout::insertionIndex(cells, localPoint - content.topLeft(), m_grid.flow(), afterCell);
+}
+
+QLine FenceView::insertionBar(int gap, bool afterCell) const
+{
+    const QRect content = contentRect();
+    if (gap < 0 || content.isEmpty())
+        return {};
+    const QVector<ui::IconCell> cells = m_grid.cellsPlusOne(content.size());
+    const QLine bar = IconLayout::insertionBar(cells, gap, m_grid.flow(), m_grid.gap(), afterCell);
+    return bar.isNull() ? bar : bar.translated(content.topLeft());
+}
+
+QLine FenceView::shownInsertionBar() const
+{
+    if (m_dragging && !m_releaseArmed && m_dropTargetIndex >= 0)
+        return insertionBar(m_dropTargetIndex, m_dropAfterCell);
+    if (m_externalDropIndex >= 0 && !m_sortOnAdd)
+        return insertionBar(m_externalDropIndex, m_externalAfterCell);
+    return {};
+}
+
 QVector<QRect> FenceView::tileRects() const
 {
     // The grid lays its cells out from the content origin (hitTest subtracts it
@@ -695,12 +723,13 @@ void FenceView::paintEvent(QPaintEvent* event)
             if (!m_dragOverOtherFence)
                 paintReleaseHint(painter);
         } else {
-            paintDropIndicator(m_dropTargetIndex, painter);
+            paintInsertionBar(m_dropTargetIndex, m_dropAfterCell, painter);
         }
     }
-    // Session 65: tiles from another fence would land here.
-    if (m_externalDropIndex >= 0)
-        paintDropIndicator(m_externalDropIndex, painter);
+    // Session 65: tiles from another fence would land here -- unless the fence
+    // sorts what it receives (the bar would lie then).
+    if (m_externalDropIndex >= 0 && !m_sortOnAdd)
+        paintInsertionBar(m_externalDropIndex, m_externalAfterCell, painter);
 }
 
 void FenceView::mousePressEvent(QMouseEvent* event)
@@ -836,7 +865,18 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
     }
     updateDragGhost(true);
 
-    m_dropTargetIndex = itemAt(event->pos());
+    // Session 80: the gap it would go to, shown as a bar -- none when letting
+    // go would leave a single icon where it is.
+    bool after = false;
+    int gap = insertionIndexAt(event->pos(), &after);
+    if (m_dragPaths.size() <= 1 && (gap == m_dragOriginIndex || gap == m_dragOriginIndex + 1))
+        gap = -1;
+    if (gap != m_dropTargetIndex || after != m_dropAfterCell) {
+        m_dropTargetIndex = gap;
+        m_dropAfterCell = after;
+        update();
+        emit contentChanged(); // the hosted surface is an image: re-render it
+    }
     // F-011: outside the fence there is no cell to drop onto, and the release
     // hands the tile back to the desktop instead of reordering the grid. The
     // hint has to follow the cursor both ways -- dragging back inside re-arms
@@ -894,21 +934,22 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         }
         if (m_dragPaths.size() > 1) {
             // Session 65: a multi-selection moves as a block, in its order, to
-            // where the cursor is.
-            int to = itemAt(event->pos());
-            QString anchor = to >= 0 ? m_grid.items().at(to).path : QString();
+            // where the cursor is. Session 80: to the gap the bar shows -- the
+            // icons that stay and sit before it say where the block goes.
+            const int gap = insertionIndexAt(event->pos());
             QList<core::DesktopItem> moving;
-            for (const core::DesktopItem& item : m_grid.items()) {
+            int at = 0;
+            for (int i = 0; i < m_grid.items().size(); ++i) {
+                const core::DesktopItem& item = m_grid.items().at(i);
                 if (m_dragPaths.contains(item.path))
                     moving.append(item);
+                else if (gap >= 0 && i < gap)
+                    ++at;
             }
-            if (!m_dragPaths.contains(anchor)) {
+            if (gap < 0)
+                at = -1; // nowhere to measure from: the end
+            if (!moving.isEmpty()) {
                 m_grid.removeItemsByPath(m_dragPaths);
-                int at = -1;
-                for (int i = 0; i < m_grid.items().size() && !anchor.isEmpty(); ++i) {
-                    if (m_grid.items().at(i).path == anchor)
-                        at = i;
-                }
                 m_grid.insertItems(moving, at, false);
                 m_grid.setManualOrder();
             }
@@ -923,11 +964,12 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
             emit contentChanged();
             return;
         }
-        // The drop target is the cell under the cursor; if the cursor is in
-        // empty space (no cell), drop at the end of the grid.
-        int to = itemAt(event->pos());
-        if (to < 0)
-            to = m_grid.items().size() - 1;
+        // Session 80: the icon goes into the gap the bar showed (the nearest
+        // one, in the flow order); past the last icon means the end. In the
+        // final list the gaps after `from` are one lower.
+        const int gap = insertionIndexAt(event->pos());
+        int to = gap < 0 ? m_grid.items().size() - 1 : (gap > from ? gap - 1 : gap);
+        to = qBound(0, to, qMax(0, m_grid.items().size() - 1));
         if (to >= 0 && from >= 0 && from != to)
             m_grid.moveItem(from, to);
         m_dragPaths.clear();
@@ -1253,32 +1295,24 @@ void FenceView::dropEvent(QDropEvent* event)
 #endif
 
     if (!items.isEmpty())
-        insertItems(items, itemAt(event->position().toPoint())); // where it was let go
+        insertItems(items, insertionIndexAt(event->position().toPoint())); // where it was let go
     event->acceptProposedAction();
 }
 
-void FenceView::paintDropIndicator(int index, QPainter& painter)
+void FenceView::paintInsertionBar(int gap, bool afterCell, QPainter& painter)
 {
-    // `size()` is the free cell after the last one (an append).
-    if (index < 0 || index > m_grid.items().size())
+    // Session 80: a thin accent bar in the gutter where the icon will go,
+    // across the flow, with a pale halo so it reads on any panel.
+    const QLine bar = insertionBar(gap, afterCell);
+    if (bar.isNull())
         return;
-
-    // Recompute the layout in content-local coordinates (matches paint()).
-    const QRect content = contentRect();
-    const QVector<ui::IconCell> cells = m_grid.cellsPlusOne(content.size());
-    if (index >= cells.size())
-        return;
-
-    const QRect iconRect = cells.at(index).icon.translated(content.topLeft());
-    const QRect labelRect = cells.at(index).label.translated(content.topLeft());
-    const QRect combined = iconRect.united(labelRect).adjusted(-4, -4, 4, 4);
-
     const QColor accent(0x3B, 0x82, 0xF6);
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(accent, 2.0));
-    painter.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 60));
-    painter.drawRoundedRect(combined, 6, 6);
+    painter.setPen(QPen(QColor(255, 255, 255, 110), 6.0, Qt::SolidLine, Qt::RoundCap));
+    painter.drawLine(bar);
+    painter.setPen(QPen(accent, 3.0, Qt::SolidLine, Qt::RoundCap));
+    painter.drawLine(bar);
     painter.restore();
 }
 
@@ -1416,11 +1450,12 @@ QStringList FenceView::selectedPaths() const
     return paths;
 }
 
-void FenceView::setExternalDropIndex(int index)
+void FenceView::setExternalDropIndex(int index, bool afterCell)
 {
-    if (m_externalDropIndex == index)
+    if (m_externalDropIndex == index && m_externalAfterCell == afterCell)
         return;
     m_externalDropIndex = index;
+    m_externalAfterCell = afterCell;
     update();
     emit contentChanged();
 }

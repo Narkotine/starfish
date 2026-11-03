@@ -239,6 +239,15 @@ QWidget* SettingsDialog::buildGeneral()
     l->addWidget(row(QString(QChar(0xF2B7)), tr("Language"), tr("Applied the next time StarFish starts."),
                      m_language, p));
 
+    // Session 80: what runs the widgets, and what it weighs -- native widgets
+    // need nothing; a web engine (later) reports itself here.
+    m_widgetEngine = new QLabel(tr("None (native widgets only)"));
+    m_widgetEngine->setObjectName(QStringLiteral("widgetEngineStatus"));
+    m_widgetEngine->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_widgetEngine->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    l->addWidget(row(QString(QChar(0xE950)), tr("Widget engine"),
+                     tr("What runs the fences' widgets, and the memory it takes."), m_widgetEngine, p));
+
     l->addWidget(sectionTitle(tr("Actions"), p));
     auto* create = new QPushButton(tr("Create"));
     create->setObjectName(QStringLiteral("accent"));
@@ -379,6 +388,9 @@ QWidget* SettingsDialog::buildFences()
                      m_iconFlow, p));
     toggle(m_splash, "splashSwitch", true, &SettingsDialog::splashToggled, QChar(0xE7B5),
            tr("Splash screen at startup"), tr("A short card while the fences draw."));
+    toggle(m_desktopDragGrid, "desktopDragGridSwitch", true, &SettingsDialog::desktopDragGridToggled,
+           QChar(0xE80A), tr("Show the desktop grid while moving an icon"),
+           tr("Faint slots on the desktop, and the one the icon will take. Only while an icon is held."));
     toggle(m_autoRestoreShortcuts, "autoRestoreShortcutsSwitch", false, &SettingsDialog::autoRestoreShortcutsToggled,
            QChar(0xE777), tr("Put back deleted fence shortcuts at startup"),
            tr("StarFish keeps a copy of the shortcuts in your fences. Off: a missing one can still be restored from its menu."));
@@ -606,6 +618,24 @@ void SettingsDialog::setIconFlow(const QString& key)
     m_updating = true;
     m_iconFlow->setCurrentIndex(qMax(0, m_iconFlow->findData(key)));
     m_updating = false;
+}
+
+void SettingsDialog::setDesktopDragGrid(bool on)
+{
+    m_updating = true;
+    m_desktopDragGrid->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setWidgetEngineStatus(const QString& text)
+{
+    if (m_widgetEngine)
+        m_widgetEngine->setText(text);
+}
+
+QString SettingsDialog::widgetEngineStatus() const
+{
+    return m_widgetEngine ? m_widgetEngine->text() : QString();
 }
 
 void SettingsDialog::setSplash(bool on)

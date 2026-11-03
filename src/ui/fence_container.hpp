@@ -567,6 +567,8 @@ signals:
     // Session 76: tiles let go over the desktop (before they leave the fence):
     // the product puts them where they were dropped.
     void tilesDroppedOnDesktop(const QStringList& paths, const QPoint& screenPoint);
+    // Session 80: tiles held over the bare desktop (`active` false: no longer).
+    void tilesHoverDesktop(const QStringList& paths, const QPoint& screenPoint, bool active);
     void fenceRectChanged(const QString& id, const QRect& rect);
     void fenceContentChanged(const QString& id);
     // T-009. Roll-up is persisted (it is part of the document), so the product

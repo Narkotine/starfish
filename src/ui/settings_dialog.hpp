@@ -60,6 +60,9 @@ public:
     void setAutoRestoreShortcuts(bool on);    // session 75
     void setShowLabels(bool on);              // session 76
     void setSplash(bool on);                  // session 76
+    void setDesktopDragGrid(bool on);         // session 80
+    void setWidgetEngineStatus(const QString& text); // session 80
+    QString widgetEngineStatus() const;
     void setIconFlow(const QString& key);     // session 76
     void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
@@ -93,6 +96,7 @@ signals:
     void autoRestoreShortcutsToggled(bool on);    // session 75
     void showLabelsToggled(bool on);              // session 76
     void splashToggled(bool on);                  // session 76
+    void desktopDragGridToggled(bool on);         // session 80
     void iconFlowChosen(const QString& key);      // session 76
     void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
@@ -133,6 +137,8 @@ private:
     QCheckBox* m_autoRestoreShortcuts = nullptr;
     QCheckBox* m_showLabels = nullptr;
     QCheckBox* m_splash = nullptr;
+    QCheckBox* m_desktopDragGrid = nullptr; // session 80
+    QLabel* m_widgetEngine = nullptr;       // session 80
     QComboBox* m_iconFlow = nullptr;
     QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;

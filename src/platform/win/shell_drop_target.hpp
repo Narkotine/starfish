@@ -30,6 +30,10 @@ public:
     ShellDropTarget(const ShellDropTarget&) = delete;
     ShellDropTarget& operator=(const ShellDropTarget&) = delete;
 
+    // Session 80: told where a drop it could take hovers (client coordinates,
+    // as for the handler), and when it leaves or lands (`active` false).
+    void setHoverHandler(std::function<void(const QPoint&, bool)> hover) { m_hover = std::move(hover); }
+
     // IUnknown.
     ULONG STDMETHODCALLTYPE AddRef() override;
     ULONG STDMETHODCALLTYPE Release() override;
@@ -49,6 +53,8 @@ private:
 
     HWND m_hwnd;
     std::function<void(const QPoint&, const QStringList&)> m_handler;
+    std::function<void(const QPoint&, bool)> m_hover;
+    QPoint clientOf(const POINTL& pt) const;
     LONG m_ref = 1;
     bool m_canDrop = false;
 };

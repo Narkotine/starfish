@@ -373,6 +373,10 @@ bool DesktopSurface::attach(const QRect& rect)
                 if (m_dropHandler)
                     m_dropHandler(client, paths);
             });
+        m_dropTarget->setHoverHandler([this](const QPoint& client, bool active) {
+            if (m_dropHover)
+                m_dropHover(client, active);
+        });
         const HRESULT hr = ::RegisterDragDrop(toHwnd(m_hwnd), m_dropTarget);
         if (FAILED(hr)) {
             qCWarning(lc) << "RegisterDragDrop failed, error" << hr

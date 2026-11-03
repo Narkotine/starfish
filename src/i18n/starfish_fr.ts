@@ -561,11 +561,51 @@
         <source>Clock</source>
         <translation>Horloge</translation>
     </message>
+    <message>
+        <location line="+122"/>
+        <source>%1, running</source>
+        <translation>%1, en marche</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1, idle</source>
+        <translation>%1, à l’arrêt</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>~%1 MB</source>
+        <translation>~%1 Mo</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>1 widget</source>
+        <translation>1 widget</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 widgets</source>
+        <translation>%1 widgets</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>None (native widgets only)</source>
+        <translation>Aucun (widgets natifs uniquement)</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>1 native widget</source>
+        <translation>1 widget natif</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 native widgets</source>
+        <translation>%1 widgets natifs</translation>
+    </message>
 </context>
 <context>
     <name>IconFlow</name>
     <message>
-        <location filename="../ui/icon_layout.hpp" line="+61"/>
+        <location filename="../ui/icon_layout.hpp" line="+62"/>
         <source>Rows, from the top right</source>
         <translation>Lignes, depuis le haut à droite</translation>
     </message>
@@ -608,7 +648,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2600"/>
+        <location filename="../app/product_app.cpp" line="+2636"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -672,7 +712,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+394"/>
+        <location filename="../app/product_app.cpp" line="+473"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -682,12 +722,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2877"/>
+        <location line="-2992"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+490"/>
+        <location line="+496"/>
         <location line="+117"/>
         <location line="+98"/>
         <source>StarFish</source>
@@ -721,7 +761,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+458"/>
+        <location filename="../app/product_app.cpp" line="+486"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -731,7 +771,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+485"/>
+        <location line="+487"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1053,7 +1093,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1160"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1219"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -1078,7 +1118,7 @@
     <message>
         <location filename="../ui/fence_view.cpp" line="+317"/>
         <location line="+134"/>
-        <location line="+183"/>
+        <location line="+211"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
@@ -1088,7 +1128,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+509"/>
+        <location line="+523"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1108,7 +1148,7 @@
         <translation>Clic droit pour le retirer de la zone.</translation>
     </message>
     <message>
-        <location line="+125"/>
+        <location line="+117"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
@@ -1128,24 +1168,24 @@
     </message>
     <message>
         <location line="-23"/>
-        <location line="+106"/>
+        <location line="+115"/>
         <source>Fences</source>
         <translation>Zones</translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+322"/>
+        <location line="-114"/>
+        <location line="+334"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-321"/>
-        <location line="+340"/>
+        <location line="-333"/>
+        <location line="+352"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-312"/>
+        <location line="-324"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -1157,12 +1197,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+482"/>
+        <location line="+512"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-472"/>
+        <location line="-502"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1177,7 +1217,22 @@
         <translation>Appliquée au prochain démarrage de StarFish.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+5"/>
+        <source>None (native widgets only)</source>
+        <translation>Aucun (widgets natifs uniquement)</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Widget engine</source>
+        <translation>Moteur de widgets</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>What runs the fences&apos; widgets, and the memory it takes.</source>
+        <translation>Ce qui fait tourner les widgets des zones, et la mémoire que cela prend.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Actions</source>
         <translation>Actions</translation>
     </message>
@@ -1198,12 +1253,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+294"/>
+        <location line="+297"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-287"/>
+        <location line="-290"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1354,6 +1409,16 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>Show the desktop grid while moving an icon</source>
+        <translation>Afficher la grille du bureau pendant le déplacement d’une icône</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Faint slots on the desktop, and the one the icon will take. Only while an icon is held.</source>
+        <translation>Des emplacements discrets sur le bureau, et celui que prendra l’icône. Seulement pendant qu’une icône est tenue.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Put back deleted fence shortcuts at startup</source>
         <translation>Remettre au démarrage les raccourcis supprimés des zones</translation>
     </message>
@@ -1473,7 +1538,7 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+162"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

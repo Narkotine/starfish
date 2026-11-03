@@ -180,4 +180,61 @@ int msUntilNextChange(const core::DesktopItem& item, const QDateTime& now)
     return 60000 - (t.second() * 1000 + t.msec()) + 15;
 }
 
+namespace {
+QList<EngineProbe>& probes()
+{
+    static QList<EngineProbe> list;
+    return list;
+}
+} // namespace
+
+void registerEngine(const EngineProbe& probe)
+{
+    if (probe)
+        probes().append(probe);
+}
+
+void clearEngines()
+{
+    probes().clear();
+}
+
+QList<EngineStatus> engines()
+{
+    QList<EngineStatus> list;
+    for (const EngineProbe& probe : probes())
+        list.append(probe());
+    return list;
+}
+
+QString engineSummary(int nativeWidgets)
+{
+    QStringList parts;
+    for (const EngineStatus& engine : engines()) {
+        QString line = engine.running
+                           ? QCoreApplication::translate("FenceWidgets", "%1, running").arg(engine.name)
+                           : QCoreApplication::translate("FenceWidgets", "%1, idle").arg(engine.name);
+        QStringList details;
+        if (engine.running && engine.memoryBytes >= 0)
+            details << QCoreApplication::translate("FenceWidgets", "~%1 MB")
+                           .arg(qMax<qint64>(1, (engine.memoryBytes + 512 * 1024) / (1024 * 1024)));
+        if (engine.widgets > 0)
+            details << (engine.widgets == 1 ? QCoreApplication::translate("FenceWidgets", "1 widget")
+                                            : QCoreApplication::translate("FenceWidgets", "%1 widgets").arg(engine.widgets));
+        if (!details.isEmpty())
+            line += QStringLiteral(" (%1)").arg(details.join(QStringLiteral(", ")));
+        parts << line;
+    }
+    if (parts.isEmpty()) {
+        QString none = QCoreApplication::translate("FenceWidgets", "None (native widgets only)");
+        if (nativeWidgets > 0)
+            none += QStringLiteral(" \u00B7 ")
+                    + (nativeWidgets == 1
+                           ? QCoreApplication::translate("FenceWidgets", "1 native widget")
+                           : QCoreApplication::translate("FenceWidgets", "%1 native widgets").arg(nativeWidgets));
+        return none;
+    }
+    return parts.join(QStringLiteral(" ; "));
+}
+
 } // namespace starfish::ui::widgets

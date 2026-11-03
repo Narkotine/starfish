@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <QCoreApplication>
+#include <QLine>
 #include <QPoint>
 #include <QRect>
 #include <QSize>
@@ -224,6 +225,120 @@ public:
                 return i;
         }
         return -1;
+    }
+
+    // --- insertion (session 80) -------------------------------------------
+
+    // The gap (0..n) a dragged icon would be inserted at, for a cursor at
+    // `point`. `cells` are the n laid-out cells plus the free one after them
+    // (cellsPlusOne). The cell under the cursor -- or the nearest one -- is cut
+    // in two along the flow's primary axis (x for rows, y for columns, mirrored
+    // when the flow starts from the right / the bottom): its leading half means
+    // "before it", its trailing half "after it". The free cell means "at the
+    // end". Returns -1 only when there is no cell at all. `afterCell` tells
+    // whether the gap was reached from the trailing half of the cell before it
+    // (the bar then stays next to that cell at the end of a line).
+    static int insertionIndex(const QVector<IconCell>& cells, const QPoint& point, int flow,
+                              bool* afterCell = nullptr)
+    {
+        if (afterCell)
+            *afterCell = false;
+        if (cells.isEmpty())
+            return -1;
+        const int n = cells.size() - 1; // the last one is the free cell
+        if (n <= 0)
+            return 0;
+        int best = -1;
+        qint64 bestDistance = -1;
+        for (int i = 0; i < cells.size(); ++i) {
+            const QRect r = cells.at(i).icon.united(cells.at(i).label);
+            const int dx = point.x() < r.left() ? r.left() - point.x()
+                                                : (point.x() > r.right() ? point.x() - r.right() : 0);
+            const int dy = point.y() < r.top() ? r.top() - point.y()
+                                               : (point.y() > r.bottom() ? point.y() - r.bottom() : 0);
+            const qint64 d = qint64(dx) * dx + qint64(dy) * dy;
+            if (best < 0 || d < bestDistance) {
+                best = i;
+                bestDistance = d;
+            }
+        }
+        if (best >= n) {
+            if (afterCell)
+                *afterCell = true;
+            return n;
+        }
+        const QRect r = cells.at(best).icon.united(cells.at(best).label);
+        bool trailing;
+        if (flow & ColumnsFirst)
+            trailing = (flow & FromBottom) ? point.y() < r.center().y() : point.y() > r.center().y();
+        else
+            trailing = (flow & FromRight) ? point.x() < r.center().x() : point.x() > r.center().x();
+        if (afterCell)
+            *afterCell = trailing;
+        return trailing ? best + 1 : best;
+    }
+
+    // The bar that shows gap `gap` (0..n), as a line in content coordinates:
+    // across the flow (vertical for rows, horizontal for columns), as long as
+    // the cell it stands next to (icon + caption, the icon alone when names are
+    // hidden, the whole block for a widget), in the middle of the gutter. Two
+    // neighbours on the same line share it; otherwise it hugs the leading edge
+    // of the cell it goes before (or the trailing edge of the last one).
+    static QLine insertionBar(const QVector<IconCell>& cells, int gap, int flow, int gutter,
+                              bool afterCell = false)
+    {
+        const int n = cells.size() - 1;
+        if (n < 0 || gap < 0 || gap > n)
+            return {};
+        const bool byColumns = flow & ColumnsFirst;
+        const bool mirrored = byColumns ? (flow & FromBottom) : (flow & FromRight);
+        const int half = qMax(2, gutter / 2);
+        auto box = [&](int i) { return cells.at(i).icon.united(cells.at(i).label); };
+        // Leading / trailing edge of a cell along the primary axis, in the gutter.
+        auto leading = [&](const QRect& r) {
+            if (byColumns)
+                return mirrored ? r.bottom() + half : r.top() - half;
+            return mirrored ? r.right() + half : r.left() - half;
+        };
+        auto trailing = [&](const QRect& r) {
+            if (byColumns)
+                return mirrored ? r.top() - half : r.bottom() + half;
+            return mirrored ? r.left() - half : r.right() + half;
+        };
+        auto line = [&](int at, int from, int to) {
+            return byColumns ? QLine(from, at, to, at) : QLine(at, from, at, to);
+        };
+        auto cross = [&](const QRect& r, int* from, int* to) {
+            *from = byColumns ? r.left() : r.top();
+            *to = byColumns ? r.right() : r.bottom();
+        };
+        int from = 0, to = 0;
+        if (gap == n) {
+            const QRect r = box(n > 0 ? n - 1 : 0);
+            cross(r, &from, &to);
+            return line(n > 0 ? trailing(r) : leading(r), from, to);
+        }
+        const QRect next = box(gap);
+        cross(next, &from, &to);
+        int at = leading(next);
+        if (gap > 0) {
+            const QRect prev = box(gap - 1);
+            int pFrom = 0, pTo = 0;
+            cross(prev, &pFrom, &pTo);
+            const int after = trailing(prev);
+            const bool sameLine = pFrom <= to && from <= pTo;
+            // Neighbours: the gutter between them is a gutter wide at most.
+            const bool adjacent = qAbs(after - at) <= qMax(4, gutter * 2);
+            if (sameLine && adjacent) {
+                at = (after + at) / 2;
+            } else if (afterCell) {
+                // At the end of a line, reached from the cell before: the bar
+                // stays where the cursor is, after that cell.
+                cross(prev, &from, &to);
+                at = after;
+            }
+        }
+        return line(at, from, to);
     }
 
     // --- captions (T-049) ---------------------------------------------------

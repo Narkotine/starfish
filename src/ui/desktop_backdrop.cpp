@@ -288,6 +288,7 @@ QImage DesktopBackdrop::buildFrame() const
     // second copy of them would be exactly the duplication this decision is
     // about. What is left on screen is the rubber band, and the one alpha level
     // that keeps the frame findable.
+    paintDropGrid(painter, box, m_dropGrid, m_dropTarget, scale()); // session 80
     if (m_drawFreeIcons)
         paintCells(painter, box.topLeft(), m_cells, m_iconProvider, physicalMetrics(), scale());
 
@@ -330,8 +331,66 @@ void DesktopBackdrop::paintArea(QImage& frame, const QRect& dirty) const
                 touched.append(cell);
         }
     }
+    paintDropGrid(painter, box, m_dropGrid, m_dropTarget, scale()); // session 80
     paintDesktop(painter, box.topLeft(), touched, m_iconProvider, physicalMetrics(), scale(), selected);
     paintOverlays(painter, box);
+}
+
+void DesktopBackdrop::paintDropGrid(QPainter& painter, const QRect& box, const QVector<QRect>& cells,
+                                    const QRect& target, qreal scale)
+{
+    if (cells.isEmpty() && target.isEmpty())
+        return;
+    // Session 80: the slots the desktop snaps icons to, barely there, and the
+    // one the held icon would take in the accent colour.
+    const qreal s = qMax(1.0, scale);
+    const qreal inset = 3 * s;
+    const qreal radius = 6 * s;
+    const QRect clip = painter.hasClipping() ? painter.clipBoundingRect().toAlignedRect().translated(box.topLeft())
+                                             : box;
+    painter.save();
+    painter.translate(-box.topLeft());
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(QColor(255, 255, 255, 0x46), s));
+    painter.setBrush(QColor(255, 255, 255, 0x0E));
+    for (const QRect& cell : cells) {
+        if (cell.intersects(clip))
+            painter.drawRoundedRect(QRectF(cell).adjusted(inset, inset, -inset, -inset), radius, radius);
+    }
+    if (!target.isEmpty() && target.intersects(clip)) {
+        const QColor accent(0x3B, 0x82, 0xF6);
+        painter.setPen(QPen(QColor(accent.red(), accent.green(), accent.blue(), 0xE0), 2 * s));
+        painter.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 0x50));
+        painter.drawRoundedRect(QRectF(target).adjusted(inset, inset, -inset, -inset), radius, radius);
+    }
+    painter.restore();
+}
+
+void DesktopBackdrop::setDropGrid(const QVector<QRect>& cells, const QRect& target)
+{
+    if (cells == m_dropGrid && target == m_dropTarget)
+        return;
+    const int pen = qCeil(2 * qMax(1.0, scale())) + 2;
+    if (cells != m_dropGrid) {
+        // The whole grid comes or goes: everything it covers is repainted.
+        QRect bounds = m_dropTarget;
+        for (const QRect& cell : m_dropGrid)
+            bounds = bounds.united(cell);
+        for (const QRect& cell : cells)
+            bounds = bounds.united(cell);
+        bounds = bounds.united(target);
+        m_dropGrid = cells;
+        m_dropTarget = target;
+        invalidate(bounds.adjusted(-pen, -pen, pen, pen));
+        return;
+    }
+    // Only the target moved: its old and new slots.
+    const QRect before = m_dropTarget;
+    m_dropTarget = target;
+    if (!before.isEmpty())
+        invalidate(before.adjusted(-pen, -pen, pen, pen));
+    if (!target.isEmpty())
+        invalidate(target.adjusted(-pen, -pen, pen, pen));
 }
 
 void DesktopBackdrop::paintOverlays(QPainter& painter, const QRect& box) const

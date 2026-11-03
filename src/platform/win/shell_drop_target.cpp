@@ -95,7 +95,18 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWOR
     // Session 62: the picture follows the cursor over the fence too.
     dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), pDataObj, QPoint(pt.x, pt.y),
                    m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
+    if (m_canDrop && m_hover)
+        m_hover(clientOf(pt), true);
     return S_OK;
+}
+
+QPoint ShellDropTarget::clientOf(const POINTL& pt) const
+{
+    QPoint client(static_cast<int>(pt.x), static_cast<int>(pt.y));
+    RECT r{};
+    if (m_hwnd && ::GetWindowRect(m_hwnd, &r))
+        client = QPoint(static_cast<int>(pt.x) - r.left, static_cast<int>(pt.y) - r.top);
+    return client;
 }
 
 HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD /*grfKeyState*/, POINTL pt,
@@ -104,6 +115,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD /*grfKeyState*/, POINT
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
     dragImageOver(QPoint(pt.x, pt.y), m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
+    if (m_canDrop && m_hover)
+        m_hover(clientOf(pt), true);
     return S_OK;
 }
 
@@ -111,6 +124,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
 {
     m_canDrop = false;
     dragImageLeave();
+    if (m_hover)
+        m_hover(QPoint(), false);
     return S_OK;
 }
 
@@ -122,6 +137,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*g
     if (pdwEffect)
         *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
     m_canDrop = false;
+    if (m_hover)
+        m_hover(QPoint(), false);
     dragImageDrop(pDataObj, QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)),
                   pdwEffect ? *pdwEffect : DROPEFFECT_NONE);
 

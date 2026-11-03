@@ -176,6 +176,16 @@ public:
     QRect rubberBand() const { return m_rubberBand; }
     // ADR-21 lot 3: the selection rectangle being drawn, or a null rect.
     QRect marquee() const { return m_marquee; }
+    // Session 80: the desktop's grid while an icon is held over it -- every
+    // slot (virtual-screen pixels, as the cells) and the one it would take.
+    // No cells: no grid. Drawn under the icons, faint.
+    void setDropGrid(const QVector<QRect>& cells, const QRect& target);
+    void clearDropGrid() { setDropGrid({}, {}); }
+    QVector<QRect> dropGrid() const { return m_dropGrid; }
+    QRect dropGridTarget() const { return m_dropTarget; }
+    // Draws the grid of `cells` and `target` with the painter's origin at `box`'s.
+    static void paintDropGrid(QPainter& painter, const QRect& box, const QVector<QRect>& cells,
+                              const QRect& target, qreal scale);
     // Ends whatever the mouse was doing (the shell's drag loop took over).
     void cancelGesture();
     // ADR-21 lot 3: the drawn desktop's drop target (see DesktopSurface::
@@ -366,6 +376,8 @@ private:
     bool m_marqueeArmed = false;
     QPoint m_marqueeOrigin;
     QRect m_marquee;
+    QVector<QRect> m_dropGrid; // session 80
+    QRect m_dropTarget;
     QStringList m_marqueeBase;
     QPoint m_iconPressPoint;
     std::function<void*(quintptr)> m_dropFactory;

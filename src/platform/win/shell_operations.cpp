@@ -123,8 +123,9 @@ QStringList droppedStems(IDataObject* data)
 class DesktopDropTarget : public IDropTarget
 {
 public:
-    DesktopDropTarget(HWND hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop)
-        : m_hwnd(hwnd), m_internalDrop(std::move(internalDrop)), m_foreignDrop(std::move(foreignDrop))
+    DesktopDropTarget(HWND hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop, DropHover hover)
+        : m_hwnd(hwnd), m_internalDrop(std::move(internalDrop)), m_foreignDrop(std::move(foreignDrop)),
+          m_hover(std::move(hover))
     {
     }
     ~DesktopDropTarget()
@@ -158,6 +159,8 @@ public:
                                         DWORD* effect) override
     {
         m_internal = internalDragActive();
+        if (m_hover)
+            m_hover(QPoint(pt.x, pt.y), m_internal, true);
         if (m_internal) {
             *effect = (*effect & DROPEFFECT_MOVE) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
             dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), data, QPoint(pt.x, pt.y), *effect);
@@ -170,6 +173,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL pt, DWORD* effect) override
     {
+        if (m_hover)
+            m_hover(QPoint(pt.x, pt.y), m_internal, true);
         if (m_internal) {
             *effect = (*effect & DROPEFFECT_MOVE) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
             dragImageOver(QPoint(pt.x, pt.y), *effect);
@@ -182,6 +187,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE DragLeave() override
     {
+        if (m_hover)
+            m_hover(QPoint(), m_internal, false);
         if (!m_internal && m_shell)
             m_shell->DragLeave();
         if (m_internal)
@@ -191,6 +198,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override
     {
+        if (m_hover)
+            m_hover(QPoint(), m_internal, false);
         if (m_internal || internalDragActive()) {
             m_internal = false;
             // Ours: the icons move on the desktop, no file does. NONE tells the
@@ -230,6 +239,7 @@ private:
     HWND m_hwnd = nullptr;
     InternalDrop m_internalDrop;
     ForeignDrop m_foreignDrop;
+    DropHover m_hover;
     IDropTarget* m_shell = nullptr;
     bool m_internal = false;
     LONG m_ref = 1;
@@ -524,10 +534,11 @@ void endInternalDrag()
     dragState() = DragState{};
 }
 
-void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop)
+void* createDesktopDropTarget(quintptr hwnd, InternalDrop internalDrop, ForeignDrop foreignDrop,
+                              DropHover hover)
 {
-    return static_cast<IDropTarget*>(new DesktopDropTarget(reinterpret_cast<HWND>(hwnd),
-                                                           std::move(internalDrop), std::move(foreignDrop)));
+    return static_cast<IDropTarget*>(new DesktopDropTarget(reinterpret_cast<HWND>(hwnd), std::move(internalDrop),
+                                                           std::move(foreignDrop), std::move(hover)));
 }
 
 } // namespace starfish::platform::win
