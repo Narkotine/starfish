@@ -1,5 +1,7 @@
 # AGENTS.md — StarFish
 
+> **Reprise rapide (nouvel agent) :** lire [`docs/reprise.md`](docs/reprise.md) - ordre de lecture, commandes, données, règles, pièges.
+
 > Instructions pour tout agent de codage IA travaillant sur ce dépôt. Fichier canonique ; `AGENT.md` en est un alias. Concis par conception : il est injecté à chaque prompt.
 
 ## Protocole d'entrée (obligatoire, dans cet ordre)
