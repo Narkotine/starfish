@@ -60,14 +60,14 @@ void paintClock(QPainter& painter, const QRect& rect, const core::DesktopItem& i
     const QRect timeBox(inner.x(), inner.y(), inner.width(), timeHeight);
     const QRect dateBox(inner.x(), inner.y() + timeHeight, inner.width(), inner.height() - timeHeight);
     drawText(painter, timeBox, time, fitted(base, time, timeBox.size(), 0.82), c);
-    QFont small = c.font;
-    small.setWeight(QFont::Normal);
+    QFont smallFont = c.font;
+    smallFont.setWeight(QFont::Normal);
     // The long form ("lundi 2 novembre") when it reads at a decent size.
     QString date = clockDate(item, c.now, true);
-    QFont dateFont = fitted(small, date, dateBox.size(), 0.62);
+    QFont dateFont = fitted(smallFont, date, dateBox.size(), 0.62);
     if (dateFont.pixelSize() < 11) {
         date = clockDate(item, c.now, false);
-        dateFont = fitted(small, date, dateBox.size(), 0.62);
+        dateFont = fitted(smallFont, date, dateBox.size(), 0.62);
     }
     drawText(painter, dateBox, date, dateFont, c);
 }

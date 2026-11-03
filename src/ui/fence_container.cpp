@@ -1410,9 +1410,9 @@ void FenceContainer::composeFence(FenceWindow& fence)
         // smooth: a cheap wide blur), under the translucent panel.
         if (fence.style.effect == QLatin1String("acrylic") && visible.width() > 16 && visible.height() > 16) {
             painter.end();
-            const QImage small = frame.scaled(qMax(1, visible.width() / 12), qMax(1, visible.height() / 12),
+            const QImage smallFrame = frame.scaled(qMax(1, visible.width() / 12), qMax(1, visible.height() / 12),
                                               Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-            const QImage blurred = small.scaled(visible.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            const QImage blurred = smallFrame.scaled(visible.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
             painter.begin(&frame);
             painter.setRenderHint(QPainter::Antialiasing, true);
             painter.save();

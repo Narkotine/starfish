@@ -298,9 +298,9 @@ QImage SplashScreen::blurredWallpaper(const QSize& size, const QString& cacheDir
         cached = cacheDir + QStringLiteral("/%1x%2-").arg(size.width()).arg(size.height())
                  + QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(16))
                  + QStringLiteral(".png");
-        const QImage small(cached);
-        if (!small.isNull()) {
-            QImage full = small.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+        const QImage smallImage(cached);
+        if (!smallImage.isNull()) {
+            QImage full = smallImage.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                               .convertToFormat(QImage::Format_RGB32);
             return full;
         }
@@ -313,23 +313,23 @@ QImage SplashScreen::blurredWallpaper(const QSize& size, const QString& cacheDir
     const QImage fitted = cover.copy((cover.width() - size.width()) / 2, (cover.height() - size.height()) / 2,
                                      size.width(), size.height());
     const QSize tiny(qMax(8, size.width() / 40), qMax(6, size.height() / 40));
-    QImage small = fitted.scaled(tiny, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+    QImage smallImage = fitted.scaled(tiny, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                        .scaled(tiny * 2, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                        .scaled(tiny * 4, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                        .scaled(tiny * 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                        .convertToFormat(QImage::Format_RGB32);
     {
-        QPainter dim(&small);
-        dim.fillRect(small.rect(), QColor(0x06, 0x12, 0x22, 150));
+        QPainter dim(&smallImage);
+        dim.fillRect(smallImage.rect(), QColor(0x06, 0x12, 0x22, 150));
     }
     if (!cached.isEmpty() && QDir().mkpath(cacheDir)) {
         // One copy per wallpaper and size: the old ones go.
         const QString sameSize = QStringLiteral("%1x%2-*.png").arg(size.width()).arg(size.height());
         for (const QFileInfo& old : QDir(cacheDir).entryInfoList({sameSize}, QDir::Files))
             QFile::remove(old.absoluteFilePath());
-        small.save(cached);
+        smallImage.save(cached);
     }
-    return small.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
+    return smallImage.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
 }
 
 QRect SplashScreen::animatedRect(const QRect& rect)
@@ -383,10 +383,10 @@ void SplashScreen::paintScene(QPainter& painter, const QRect& rect, qreal phase,
     painter.setPen(QColor(0xF5, 0xF7, 0xFA));
     const QRectF text(rect.center().x() - 200, centre.y() + 104, 400, 50);
     painter.drawText(text, Qt::AlignCenter, QStringLiteral("StarFish"));
-    QFont small = painter.font();
-    small.setPixelSize(14);
-    small.setBold(false);
-    painter.setFont(small);
+    QFont smallFont = painter.font();
+    smallFont.setPixelSize(14);
+    smallFont.setBold(false);
+    painter.setFont(smallFont);
     painter.setPen(QColor(0xC8, 0xD4, 0xE3));
     painter.drawText(text.translated(0, 42), Qt::AlignCenter, subtitle);
 

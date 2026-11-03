@@ -1672,24 +1672,24 @@ int runUiProbe(QApplication& app)
         for (const char* exe : {"notepad.exe", "regedit.exe", "explorer.exe", "write.exe", "hh.exe", "splwow64.exe",
                                 "winhlp32.exe", "bfsvc.exe", "HelpPane.exe", "twain_32.dll"})
             many << core::itemFromPathOnly(QStringLiteral("C:/Windows/") + QLatin1String(exe));
-        ui::FenceView small;
-        small.setItems(many);
-        small.resize(200, 120);
-        const int hidden = small.hiddenItemCount();
-        const QRect badge = small.hiddenBadgeRect();
-        small.resize(900, 600);
-        const int allShown = small.hiddenItemCount();
-        small.resize(200, 120);
+        ui::FenceView smallView;
+        smallView.setItems(many);
+        smallView.resize(200, 120);
+        const int hidden = smallView.hiddenItemCount();
+        const QRect badge = smallView.hiddenBadgeRect();
+        smallView.resize(900, 600);
+        const int allShown = smallView.hiddenItemCount();
+        smallView.resize(200, 120);
         {
-            QImage img(small.size(), QImage::Format_ARGB32_Premultiplied);
+            QImage img(smallView.size(), QImage::Format_ARGB32_Premultiplied);
             img.fill(QColor(0x9A, 0xC8, 0x2A));
             QPainter p(&img);
-            small.render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            smallView.render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
             p.end();
             img.save(captures + QStringLiteral("/s76_hidden_badge_%1.png").arg(theme));
         }
         check(QStringLiteral("a fence too small shows \"+N\" in its corner, none when all fit (session 76)"),
-              hidden > 0 && hidden < many.size() && allShown == 0 && small.contentRect().contains(badge),
+              hidden > 0 && hidden < many.size() && allShown == 0 && smallView.contentRect().contains(badge),
               QStringLiteral("hidden %1 of %2, all shown %3").arg(hidden).arg(many.size()).arg(allShown));
         {
             QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
