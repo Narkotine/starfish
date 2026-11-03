@@ -278,3 +278,22 @@ target_include_directories(test_starfish_context_menu PRIVATE
 target_link_libraries(test_starfish_context_menu PRIVATE Qt6::Core Qt6::Test)
 
 add_test(NAME core_context_menu COMMAND test_starfish_context_menu)
+
+# StarFish's own widgets (session 79 / 81): the kinds and which one is written by
+# the user, a note's wrapping and elision, the card the fence paints, and the
+# editor that saves while it is typed. Pure -- no window shown, no Win32, no
+# desktop.
+add_executable(test_starfish_fence_widgets
+    test_fence_widgets.cpp
+    ../src/ui/fence_widgets.cpp
+    ../src/ui/note_editor.cpp
+    ../src/core/i18n.cpp
+)
+
+target_include_directories(test_starfish_fence_widgets PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(test_starfish_fence_widgets PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+
+add_test(NAME ui_fence_widgets COMMAND test_starfish_fence_widgets)

@@ -72,6 +72,47 @@ void paintClock(QPainter& painter, const QRect& rect, const core::DesktopItem& i
     drawText(painter, dateBox, date, dateFont, c);
 }
 
+// Session 81: a note -- the widget's text, wrapped into its cell. The card is
+// what makes a note readable on any panel colour: a recessed surface and a
+// hairline, then the text (the user's, or the hint that says how to write one).
+void paintNotes(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& c)
+{
+    const QRect card = rect.adjusted(2, 2, -2, -2);
+    if (card.width() < 12 || card.height() < 12)
+        return;
+    painter.setPen(QPen(QColor(c.text.red(), c.text.green(), c.text.blue(), 0x38), 1));
+    painter.setBrush(QColor(0, 0, 0, 0x30));
+    painter.drawRoundedRect(QRectF(card).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6);
+
+    const QRect inner = card.adjusted(8, 6, -8, -6);
+    if (inner.width() <= 0 || inner.height() <= 0)
+        return;
+    QFont font = c.font;
+    font.setWeight(QFont::Normal);
+    font.setPixelSize(qBound(10, qMin(14, inner.height() / 6), 14));
+    const QFontMetrics metrics(font);
+    const int lineHeight = qMax(1, metrics.lineSpacing());
+    const QString text = noteText(item).trimmed();
+    const bool empty = text.isEmpty();
+    const QStringList lines =
+        noteLines(empty ? notePlaceholder() : text, font, inner.width(), qMax(1, inner.height() / lineHeight));
+    painter.setFont(font);
+    int top = inner.top();
+    for (const QString& line : lines) {
+        const QRect box(inner.x(), top, inner.width(), lineHeight);
+        if (c.shadow) {
+            painter.setPen(QColor(0, 0, 0, 0x90));
+            painter.drawText(box.translated(1, 1), Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, line);
+        }
+        QColor colour = c.text;
+        if (empty)
+            colour.setAlpha(0x90); // the hint is not the note
+        painter.setPen(colour);
+        painter.drawText(box, Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, line);
+        top += lineHeight;
+    }
+}
+
 void paintUnknown(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& c)
 {
     // A widget this version does not know (a newer StarFish wrote it): kept in
@@ -95,7 +136,14 @@ QList<Kind> kinds()
     clock.defaults = {{QStringLiteral("seconds"), false},
                       {QStringLiteral("date"), true},
                       {QStringLiteral("h12"), false}};
-    return {clock};
+
+    Kind notes; // session 81
+    notes.type = QStringLiteral("notes");
+    notes.label = QCoreApplication::translate("FenceWidgets", "Notes");
+    notes.defaultSpan = QSize(2, 2);
+    notes.defaults = {{QStringLiteral("text"), QString()}};
+    notes.editable = true;
+    return {clock, notes};
 }
 
 bool isKnown(const QString& type)
@@ -103,6 +151,14 @@ bool isKnown(const QString& type)
     for (const Kind& kind : kinds())
         if (kind.type == type)
             return true;
+    return false;
+}
+
+bool isEditable(const QString& type)
+{
+    for (const Kind& kind : kinds())
+        if (kind.type == type)
+            return kind.editable;
     return false;
 }
 
@@ -157,6 +213,77 @@ QString clockDate(const core::DesktopItem&, const QDateTime& now, bool longForm)
     return date;
 }
 
+QString noteText(const core::DesktopItem& item)
+{
+    return item.widgetSettings.value(QStringLiteral("text")).toString();
+}
+
+core::DesktopItem withNoteText(const core::DesktopItem& item, const QString& text)
+{
+    core::DesktopItem note = item;
+    note.widgetSettings.insert(QStringLiteral("text"), text);
+    return note;
+}
+
+QString notePlaceholder()
+{
+    return QCoreApplication::translate("FenceWidgets", "Double-click to write");
+}
+
+QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines, bool* elided)
+{
+    if (elided)
+        *elided = false;
+    QStringList out;
+    if (text.isEmpty() || width <= 0 || maxLines <= 0)
+        return out;
+    const QFontMetrics metrics(font);
+    // The user's own line breaks are kept: a note is written, not re-flowed
+    // away. Each paragraph is then wrapped on spaces, and a word wider than the
+    // card is cut by characters instead of sticking out of it.
+    const QStringList paragraphs = text.split(QLatin1Char('\n'));
+    for (const QString& paragraph : paragraphs) {
+        if (paragraph.trimmed().isEmpty()) {
+            out << QString();
+            continue;
+        }
+        QString line;
+        const QStringList words = paragraph.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        for (const QString& word : words) {
+            const QString candidate = line.isEmpty() ? word : line + QLatin1Char(' ') + word;
+            if (metrics.horizontalAdvance(candidate) <= width) {
+                line = candidate;
+                continue;
+            }
+            if (!line.isEmpty()) {
+                out << line;
+                line.clear();
+            }
+            QString rest = word;
+            while (metrics.horizontalAdvance(rest) > width && rest.size() > 1) {
+                int cut = rest.size() - 1;
+                while (cut > 1 && metrics.horizontalAdvance(rest.left(cut)) > width)
+                    --cut;
+                out << rest.left(cut);
+                rest = rest.mid(cut);
+            }
+            line = rest;
+        }
+        out << line;
+    }
+    while (!out.isEmpty() && out.last().isEmpty())
+        out.removeLast();
+    if (out.size() > maxLines) {
+        out = out.mid(0, maxLines);
+        if (elided)
+            *elided = true;
+        // The last line that fits says there was more, rather than the card
+        // ending mid-sentence with no sign of it.
+        out.last() = metrics.elidedText(out.last() + QChar(0x2026), Qt::ElideRight, width);
+    }
+    return out;
+}
+
 void paint(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& context)
 {
     painter.save();
@@ -164,6 +291,8 @@ void paint(QPainter& painter, const QRect& rect, const core::DesktopItem& item, 
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     if (item.widgetType == QLatin1String("clock"))
         paintClock(painter, rect, item, context);
+    else if (item.widgetType == QLatin1String("notes"))
+        paintNotes(painter, rect, item, context);
     else
         paintUnknown(painter, rect, item, context);
     painter.restore();

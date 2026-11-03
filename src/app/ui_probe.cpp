@@ -1494,6 +1494,90 @@ int runUiProbe(QApplication& app)
               offered && ui::FenceMenu::widgetEntries(menuState).size() == 1, QString());
     }
 
+    // --- session 81: the notes widget, written in place -----------------------
+    {
+        // A note is a widget whose content the user writes: the fence paints it,
+        // a double-click asks the product for its editor, and the text belongs to
+        // the document (so it comes back after a restart).
+        ui::FenceContainer container;
+        const QString a = container.createFence(QStringLiteral("Notes"), QRect(0, 0, 420, 300));
+        const core::DesktopItem note = ui::widgets::create(QStringLiteral("notes"));
+        const bool added = container.addWidget(a, note);
+        ui::FenceView* view = container.view(a);
+        const QRect local = view->itemRectOf(note.path);
+        const QRect cell = container.fenceItemRect(a, note.path);
+        const bool framed = !local.isEmpty() && !cell.isEmpty() && note.span == QSize(2, 2)
+                            && local.width() > 2 * view->iconSize() && local.height() > view->iconSize();
+        const auto capture = [&](ui::FenceView* v, const QString& name) {
+            QImage img(v->size(), QImage::Format_ARGB32_Premultiplied);
+            img.fill(QColor(0x2A, 0x4A, 0x6A));
+            QPainter p(&img);
+            v->render(&p, QPoint(), QRegion(), QWidget::DrawChildren);
+            p.end();
+            img.save(captures + QStringLiteral("/%1_%2.png").arg(name, theme));
+            return img;
+        };
+        const QImage hint = capture(view, QStringLiteral("s81_note_empty"));
+
+        // The double-click that asks for the editor -- and the clock, which has
+        // nothing to write, stays silent.
+        QString editPath;
+        QObject::connect(&container, &ui::FenceContainer::fenceWidgetEditRequested, view,
+                         [&](const QString& id, const QString& path) {
+                             if (id == a)
+                                 editPath = path;
+                         });
+        const QPoint at = local.center();
+        {
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), view->mapToGlobal(QPointF(at)), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(view, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), view->mapToGlobal(QPointF(at)),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(view, &release);
+            QMouseEvent dbl(QEvent::MouseButtonDblClick, QPointF(at), view->mapToGlobal(QPointF(at)), Qt::LeftButton,
+                            Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(view, &dbl);
+        }
+        const bool asked = editPath == note.path;
+        const core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        container.addWidget(a, clock);
+        editPath.clear();
+        const QRect clockCell = view->itemRectOf(clock.path);
+        if (!clockCell.isEmpty()) {
+            const QPoint clockAt = clockCell.center();
+            QMouseEvent dbl(QEvent::MouseButtonDblClick, QPointF(clockAt), view->mapToGlobal(QPointF(clockAt)),
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(view, &dbl);
+        }
+        const bool clockSilent = editPath.isEmpty();
+        container.releaseItems(a, {clock.path});
+
+        // What is written, drawn, and kept: the text in the document, the card
+        // with the text in it (not the hint), and the same text after a reload.
+        const QString text = QStringLiteral("Sortir les poubelles\nAppeler Marc a 9 h");
+        container.replaceFenceItem(a, note.path, ui::widgets::withNoteText(note, text));
+        const QImage written = capture(view, QStringLiteral("s81_note_written"));
+        const bool drawn = hint != written;
+        const QByteArray json = core::JsonStore::toJson(container.toLayout());
+        const auto parsed = core::JsonStore::fromJson(json);
+        ui::FenceContainer next;
+        if (parsed)
+            next.applyLayout(*parsed);
+        bool textBack = false;
+        if (!next.fenceIds().isEmpty()) {
+            for (const core::DesktopItem& item : next.view(next.fenceIds().value(0))->items())
+                textBack = textBack || (item.widgetType == QLatin1String("notes") && ui::widgets::noteText(item) == text);
+        }
+        const bool inJson = json.contains("Sortir les poubelles") && json.contains("\\n");
+        check(QStringLiteral("notes: a 2x2 cell, a double-click asks for the editor (the clock does not), the text "
+                             "is drawn and survives a reload (session 81)"),
+              added && framed && asked && clockSilent && drawn && textBack && inJson,
+              QStringLiteral("added %1, cell %2x%3, asked %4, clock silent %5, drawn %6, back %7, in json %8")
+                  .arg(added).arg(local.width()).arg(local.height()).arg(asked).arg(clockSilent).arg(drawn)
+                  .arg(textBack).arg(inJson));
+    }
+
     // --- session 76: launch through the shell, names hidden, title lock, "+N", menu ---
     {
         QTemporaryDir temp;

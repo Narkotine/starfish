@@ -75,6 +75,7 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 | F-014 | Taille des icônes et densité réglables (par zone) | P1 |
 | F-015 | Teinte de couleur appliquée aux icônes (nouveauté Fences 6) | P2 |
 | F-016 | Fondu des icônes dans le fond d'écran (Chameleon fade) | P2 |
+| F-041 | **Widgets dans une zone** : un bloc qui occupe plusieurs cellules de la grille et garde ses réglages dans le document (`kind: "widget"`, `settings`) — il se déplace, se range et se redimensionne comme une tuile, sans jamais toucher au disque. Livrés : **horloge** (**T-134**, s79 : heure, date, secondes, 12/24 h, taille) et **notes** (s81 : texte libre sur plusieurs lignes, écrit dans la zone au double-clic, enregistré pendant la frappe). À venir : widgets web (`%APPDATA%\StarFish\widgets\<id>\manifest.json`), météo, calendrier, CPU/RAM (**T-135**) | P1 |
 
 ### C. Automatisation
 

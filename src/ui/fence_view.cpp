@@ -1017,6 +1017,11 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         return;
     }
     if (m_grid.items().at(index).isWidget()) { // session 79: nothing to open
+        // Session 81: a widget whose content is text (the notes) is written in
+        // place, as the title is; the others have nothing to open.
+        const core::DesktopItem& widget = m_grid.items().at(index);
+        if (widgets::isEditable(widget.widgetType))
+            emit widgetEditRequested(widget.path);
         event->accept();
         return;
     }
@@ -1200,6 +1205,20 @@ QRect FenceView::labelRectOf(const QString& path) const
     for (int i = 0; i < items.size() && i < cells.size(); ++i) {
         if (items.at(i).path.compare(path, Qt::CaseInsensitive) == 0)
             return cells.at(i).label.translated(content.topLeft()).intersected(content);
+    }
+    return {};
+}
+
+QRect FenceView::itemRectOf(const QString& path) const
+{
+    const QList<core::DesktopItem>& items = m_grid.items();
+    const QRect content = contentRect();
+    if (content.isEmpty())
+        return {};
+    const QVector<IconCell> cells = m_grid.cells(content.size());
+    for (int i = 0; i < items.size() && i < cells.size(); ++i) {
+        if (items.at(i).path.compare(path, Qt::CaseInsensitive) == 0)
+            return cells.at(i).icon.united(cells.at(i).label).translated(content.topLeft()).intersected(content);
     }
     return {};
 }

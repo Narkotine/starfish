@@ -61,6 +61,8 @@
 #include "ui/fence_material.hpp"
 #include "ui/fence_menu.hpp"
 #include "ui/fence_view.hpp"
+#include "ui/fence_widgets.hpp"
+#include "ui/note_editor.hpp"
 #include "ui/settings_dialog.hpp"
 #include "version.h"
 
@@ -5398,6 +5400,50 @@ int main(int argc, char* argv[])
                           .arg(cancelKept ? QLatin1String("yes") : QLatin1String("no"))
                           .arg(product.container()->fenceTitle(id)));
                 product.container()->setFenceTitle(id, QLatin1String("Renamed"));
+
+                // Session 81: a note, written in the product's own window over
+                // the widget's cell -- opened, saved while typed, closed.
+                {
+                    const starfish::core::DesktopItem note =
+                        starfish::ui::widgets::create(QStringLiteral("notes"));
+                    const bool noteAdded = product.container()->addWidget(id, note);
+                    const QRect noteCell = product.container()->fenceItemRect(id, note.path);
+                    product.startWidgetEdit(id, note.path);
+                    starfish::ui::NoteEditor* editor = product.noteEditor();
+                    const bool opened = editor != nullptr && product.widgetEditPath() == note.path;
+                    const QRect frame = editor ? editor->geometry() : QRect();
+                    // The cell is in physical pixels, the editor in logical ones:
+                    // the two agree up to the scaling of the screen it is on.
+                    const qreal scale = frame.width() > 0 ? qreal(noteCell.width()) / frame.width() : 0.0;
+                    const bool overCell = qAbs(frame.width() * scale - noteCell.width()) <= 2
+                                          && qAbs(frame.height() * scale - noteCell.height()) <= 2;
+                    if (editor) {
+                        editor->setPlainText(QStringLiteral("Faire les courses"));
+                        product.flushWidgetEdit();
+                    }
+                    bool typed = false;
+                    for (const starfish::core::DesktopItem& item : product.container()->view(id)->items()) {
+                        if (item.path == note.path)
+                            typed = starfish::ui::widgets::noteText(item) == QStringLiteral("Faire les courses");
+                    }
+                    const bool stillOpen = product.noteEditor() != nullptr; // saving keeps it open
+                    product.finishWidgetEdit(true);
+                    const bool closed = product.noteEditor() == nullptr;
+                    const QByteArray document = starfish::core::JsonStore::toJson(product.container()->toLayout());
+                    check(QLatin1String("a note is written in place: the editor covers the widget's cell, typing "
+                                        "reaches the document, leaving closes it"),
+                          noteAdded && opened && overCell && typed && stillOpen && closed
+                              && document.contains("Faire les courses"),
+                          QLatin1String("added %1, opened %2, cell %3x%4 editor %5x%6, typed %7, kept open %8, "
+                                        "closed %9")
+                              .arg(noteAdded ? QLatin1String("yes") : QLatin1String("no"))
+                              .arg(opened ? QLatin1String("yes") : QLatin1String("no"))
+                              .arg(noteCell.width()).arg(noteCell.height()).arg(frame.width()).arg(frame.height())
+                              .arg(typed ? QLatin1String("yes") : QLatin1String("no"))
+                              .arg(stillOpen ? QLatin1String("yes") : QLatin1String("no"))
+                              .arg(closed ? QLatin1String("yes") : QLatin1String("no")));
+                    product.container()->releaseItems(id, {note.path});
+                }
 
                 product.container()->setFenceRolledUp(id, true);
                 check(QLatin1String("rolling a fence up takes"),

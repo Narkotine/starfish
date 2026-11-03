@@ -223,6 +223,10 @@ public:
     QStringList hiddenItemPaths() const;
     // Session 74: where a tile's caption is, in widget coordinates (the rename edit).
     QRect labelRectOf(const QString& path) const;
+    // Session 81: where an item's whole cell is -- the icon block united with
+    // its caption band -- in widget coordinates. The widget editor's frame, and
+    // the same geometry paint and hitTest use.
+    QRect itemRectOf(const QString& path) const;
     // Session 65: global selection -- cleared from outside (another fence or
     // the desktop was clicked). Repaints only when something was selected.
     void clearSelection();
@@ -253,6 +257,10 @@ signals:
     void deleteRequested(const QStringList& paths, bool permanent);
     // Session 74: F2 on the selection.
     void renameRequested(const QString& path);
+    // Session 81: a double-click on a widget whose content is written (the
+    // notes). The view cannot edit it -- it is an image on the desktop -- so the
+    // product lays its own editor over the widget's cell.
+    void widgetEditRequested(const QString& path);
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the

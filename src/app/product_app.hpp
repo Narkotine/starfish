@@ -39,6 +39,7 @@ struct NativeDesktopIcon;
 
 namespace starfish::ui {
 class FenceContainer;
+class NoteEditor;
 class SettingsDialog;
 class SplashScreen;
 class TrayIcon;
@@ -192,6 +193,14 @@ public:
     void finishRename(bool commit);
     QLineEdit* renameEditor() const { return m_renameEdit; }
     QString renamePath() const { return m_renameEdit ? m_renamePath : QString(); }
+    // Session 81: the notes widget, written in place. The editor is the
+    // product's own window over the widget's cell; its text is saved while it is
+    // typed (a debounce) and belongs to the document, so it survives a restart.
+    void startWidgetEdit(const QString& fenceId, const QString& path);
+    void finishWidgetEdit(bool commit);
+    void flushWidgetEdit();
+    ui::NoteEditor* noteEditor() const { return m_noteEdit; }
+    QString widgetEditPath() const { return m_noteEdit ? m_noteEditPath : QString(); }
     bool renameDesktopItem(const QString& path, const QString& newName, QString* newPath = nullptr);
     // A key the backdrop passed on (F2, Delete, Return, Ctrl+C/X/V/Z/Y, F5...).
     void onDesktopKey(int key, Qt::KeyboardModifiers modifiers);
@@ -431,6 +440,11 @@ private:
     QLineEdit* m_renameEdit = nullptr;
     QString m_renamePath;
     QString m_renameFenceId; // session 74: the fence of the tile being renamed
+    // Session 81: the notes widget's editor, and what it is writing.
+    ui::NoteEditor* m_noteEdit = nullptr;
+    QString m_noteEditFenceId;
+    QString m_noteEditPath;
+    void applyWidgetText(const QString& text);
     QHash<QString, QPoint> m_itemPositions;   // by the shell's parsing name
     QHash<QString, QString> m_shellNames;     // BackdropLayout::pathKey -> parsing name
     bool m_shellSnap = false;

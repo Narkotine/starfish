@@ -557,12 +557,22 @@
 <context>
     <name>FenceWidgets</name>
     <message>
-        <location filename="../ui/fence_widgets.cpp" line="+93"/>
+        <location filename="../ui/fence_widgets.cpp" line="+134"/>
         <source>Clock</source>
         <translation>Horloge</translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+8"/>
+        <source>Notes</source>
+        <translation>Notes</translation>
+    </message>
+    <message>
+        <location line="+88"/>
+        <source>Double-click to write</source>
+        <translation>Double-cliquez pour écrire</translation>
+    </message>
+    <message>
+        <location line="+114"/>
         <source>%1, running</source>
         <translation>%1, en marche</translation>
     </message>
@@ -648,7 +658,12 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2636"/>
+        <location filename="../app/product_app.cpp" line="+2638"/>
+        <source>Edit the note</source>
+        <translation>Modifier la note</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -673,7 +688,7 @@
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+40"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -696,7 +711,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5871"/>
+        <location filename="../main.cpp" line="+5873"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -712,7 +727,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+473"/>
+        <location filename="../app/product_app.cpp" line="+561"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -722,7 +737,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-2992"/>
+        <location line="-3095"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -761,7 +776,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+486"/>
+        <location filename="../app/product_app.cpp" line="+489"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1128,7 +1143,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+523"/>
+        <location line="+542"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>

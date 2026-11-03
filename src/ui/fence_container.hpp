@@ -299,6 +299,9 @@ public:
     int markRestorable(const std::function<bool(const QString& path)>& canRestore);
     // Session 74: a tile's caption on screen, physical pixels (the rename edit).
     QRect fenceItemLabelRect(const QString& id, const QString& path) const;
+    // Session 81: an item's whole cell in physical screen pixels (the widget
+    // editor's frame). Empty for a rolled-up fence or an item it does not hold.
+    QRect fenceItemRect(const QString& id, const QString& path) const;
     // The acrylic / textured grain tile (session 71: public for the probe).
     static const QImage& grainTile();
     // Session 65 (T-081): the look a new fence is born with (a template).
@@ -585,6 +588,9 @@ signals:
     void fenceItemMenuRequested(const QString& id, const QStringList& paths, const QPoint& point);
     // Session 60: a double-click on a fence's title text (inline rename).
     void fenceTitleEditRequested(const QString& id);
+    // Session 81: a double-click on a widget whose content is written (the
+    // notes) -- the product edits it in its own window, over the widget's cell.
+    void fenceWidgetEditRequested(const QString& id, const QString& path);
     // T-010. The rule list is persisted, so the product wires this to the same
     // auto-save as the other document-level signals. It is deliberately NOT
     // emitted by applyLayout: restoring the document is not changing it.

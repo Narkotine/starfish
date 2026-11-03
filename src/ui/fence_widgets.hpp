@@ -26,10 +26,14 @@ struct Kind {
     QString label;     // translated, for menus
     QSize defaultSpan; // in cells
     QVariantMap defaults;
+    // Session 81: the widget's content is text the user writes, so a
+    // double-click on it opens an editor instead of doing nothing.
+    bool editable = false;
 };
 
 QList<Kind> kinds();
 bool isKnown(const QString& type);
+bool isEditable(const QString& type);
 QString displayName(const QString& type); // translated; the type itself if unknown
 
 // A new widget of `type`, with its default span and settings.
@@ -57,6 +61,22 @@ int msUntilNextChange(const core::DesktopItem& item, const QDateTime& now);
 // The clock's text, exposed for the probe.
 QString clockTime(const core::DesktopItem& item, const QDateTime& now);
 QString clockDate(const core::DesktopItem& item, const QDateTime& now, bool longForm);
+
+// --- notes (session 81) ------------------------------------------------------
+//
+// A note is a widget whose content is text the user writes in place: the fence
+// paints it, the product's own window edits it (the fence is an image on the
+// desktop, exactly like the title and caption edits). The text lives in the
+// widget's settings ("text"), so it travels with the document.
+QString noteText(const core::DesktopItem& item);
+core::DesktopItem withNoteText(const core::DesktopItem& item, const QString& text);
+// What an empty note shows instead of nothing.
+QString notePlaceholder();
+// `text` wrapped into at most `maxLines` lines for `width` px, the last one
+// elided on the right when something is left over (`elided` says so). Pure, so
+// the probe measures the same wrapping the paint does.
+QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines,
+                      bool* elided = nullptr);
 
 // --- engines (session 80) ---------------------------------------------------
 //

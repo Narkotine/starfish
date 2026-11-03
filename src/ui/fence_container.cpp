@@ -1007,6 +1007,20 @@ QRect FenceContainer::fenceItemLabelRect(const QString& id, const QString& path)
                  QSize(qRound(local.width() * dpr), qRound(local.height() * dpr)));
 }
 
+QRect FenceContainer::fenceItemRect(const QString& id, const QString& path) const
+{
+    const FenceWindow* fence = find(id);
+    if (!fence || !fence->view || fence->rolledUp)
+        return {};
+    const QRect local = fence->view->itemRectOf(path);
+    if (local.isEmpty())
+        return {};
+    const QRect visible = visibleRectOf(*fence);
+    const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
+    return QRect(visible.topLeft() + QPoint(qRound(local.x() * dpr), qRound(local.y() * dpr)),
+                 QSize(qRound(local.width() * dpr), qRound(local.height() * dpr)));
+}
+
 void FenceContainer::setFenceTitle(const QString& id, const QString& title)
 {
     FenceWindow* fence = find(id);
@@ -2021,6 +2035,9 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     connect(view, &FenceView::rollUpRequested, this,
             [this, id](bool rolledUp) { setFenceRolledUp(id, rolledUp); });
     connect(view, &FenceView::titleEditRequested, this, [this, id] { emit fenceTitleEditRequested(id); });
+    // Session 81: a widget written in place (the notes) -- the product's editor.
+    connect(view, &FenceView::widgetEditRequested, this,
+            [this, id](const QString& path) { emit fenceWidgetEditRequested(id, path); });
     // T-076: the fence's own menu, reported with the fence it belongs to. Nothing
     // is built here -- the container has no interface (it renders an image) and
     // the actions are the product's, exactly like the tray's entries.

@@ -60,6 +60,7 @@
 #include "ui/settings_dialog.hpp"
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/note_editor.hpp"
 #include <QActionGroup>
 #include "platform/win/startup_timeline.hpp"
 #include "ui/tray_icon.hpp"
@@ -1101,6 +1102,9 @@ void ProductApp::wireFenceMenu()
             &ProductApp::showFenceMenu);
     connect(m_container, &ui::FenceContainer::fenceItemMenuRequested, this,
             &ProductApp::onFenceItemMenu);
+    // Session 81: a double-click on a note opens its editor over the widget.
+    connect(m_container, &ui::FenceContainer::fenceWidgetEditRequested, this,
+            &ProductApp::startWidgetEdit);
     // Session 73: Delete on a fence's selection -- the Shell's own delete (Recycle
     // Bin and undo; Shift: its permanent delete with its confirmation). The
     // tiles whose file is gone leave the fence; a cancelled delete leaves all.
@@ -1881,6 +1885,10 @@ void ProductApp::shutdown()
     if (m_hotkeys)
         m_hotkeys->unregisterAll();
 
+    // Session 81: a note being written is part of the document -- it goes in
+    // before the last write, not after it.
+    finishWidgetEdit(true);
+
     if (m_store) {
         QString error;
         if (!m_store->saveNow(&error))
@@ -2625,6 +2633,10 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     QAction* title = menu.addAction(widget.name);
     title->setEnabled(false);
     menu.addSeparator();
+    // Session 81: a note is written here (or by a double-click on it).
+    QAction* edit = ui::widgets::isEditable(widget.widgetType)
+                        ? menu.addAction(QCoreApplication::translate("ProductApp", "Edit the note"))
+                        : nullptr;
     QList<QPair<QAction*, QString>> toggles;
     if (widget.widgetType == QLatin1String("clock")) {
         const auto toggle = [&](const QString& key, const QString& label) {
@@ -2653,6 +2665,10 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     QAction* chosen = menu.exec(logicalFromPhysical(point));
     if (!chosen || !m_container->contains(fenceId))
         return;
+    if (edit && chosen == edit) {
+        startWidgetEdit(fenceId, path);
+        return;
+    }
     if (chosen == remove) {
         m_container->releaseItems(fenceId, {path}); // the widget only: no file behind it
         return;
@@ -2841,6 +2857,94 @@ void ProductApp::finishRename(bool commit)
                 m_container->replaceFenceItem(fenceId, path, renamed);
         }
     }
+}
+
+void ProductApp::startWidgetEdit(const QString& fenceId, const QString& path)
+{
+    if (!m_container || !m_container->contains(fenceId))
+        return;
+    ui::FenceView* view = m_container->view(fenceId);
+    if (!view)
+        return;
+    core::DesktopItem widget;
+    for (const core::DesktopItem& item : view->items()) {
+        if (item.path == path)
+            widget = item;
+    }
+    if (!widget.isWidget() || !ui::widgets::isEditable(widget.widgetType))
+        return;
+    // The widget's whole cell: the editor covers exactly what the fence paints.
+    const QRect cell = m_container->fenceItemRect(fenceId, path);
+    if (cell.isEmpty()) {
+        qCInfo(lc).noquote() << QStringLiteral("\"%1\" cannot be written here").arg(path);
+        return;
+    }
+    finishWidgetEdit(true); // one editor at a time, and the previous one is saved first
+
+    auto* edit = new ui::NoteEditor(
+        ui::widgets::noteText(widget), [this](const QString& text) { applyWidgetText(text); },
+        [this] { finishWidgetEdit(true); });
+    edit->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    edit->setFont(QFont(QStringLiteral("Segoe UI"), 10));
+    // The fence's own colours: this editor *is* the note, not a white box
+    // flashing over the desktop (the rename box is Explorer's; this one is ours).
+    edit->setStyleSheet(QStringLiteral(
+        "QPlainTextEdit { background: #1F2937; color: #E5E7EB; border: 1px solid #3B82F6; "
+        "selection-background-color: #3B82F6; selection-color: #FFFFFF; padding: 4px; }"));
+    // The cell is in physical pixels; a Qt window is placed in logical ones.
+    const ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    const ui::ScreenInfo* primary = backdrop ? backdrop->screens().primary() : nullptr;
+    const qreal dpr = primary ? qMax(1.0, primary->devicePixelRatio)
+                              : qMax(1.0, QGuiApplication::primaryScreen()
+                                              ? QGuiApplication::primaryScreen()->devicePixelRatio()
+                                              : 1.0);
+    const QRect frame(qRound(cell.x() / dpr), qRound(cell.y() / dpr), qRound(cell.width() / dpr),
+                      qRound(cell.height() / dpr));
+    edit->setGeometry(frame.adjusted(0, 0, 0, 0));
+    m_noteEdit = edit;
+    m_noteEditFenceId = fenceId;
+    m_noteEditPath = path;
+    edit->show();
+    edit->raise();
+    edit->activateWindow();
+    edit->setFocus();
+    qCInfo(lc).noquote() << QStringLiteral("writing the note \"%1\"").arg(path);
+}
+
+void ProductApp::applyWidgetText(const QString& text)
+{
+    if (!m_container || m_noteEditFenceId.isEmpty())
+        return;
+    ui::FenceView* view = m_container->view(m_noteEditFenceId);
+    if (!view)
+        return;
+    for (const core::DesktopItem& item : view->items()) {
+        if (item.path != m_noteEditPath)
+            continue;
+        // One document change: the fence repaints, the auto-save follows.
+        m_container->replaceFenceItem(m_noteEditFenceId, m_noteEditPath, ui::widgets::withNoteText(item, text));
+        return;
+    }
+}
+
+void ProductApp::flushWidgetEdit()
+{
+    if (m_noteEdit)
+        m_noteEdit->flush();
+}
+
+void ProductApp::finishWidgetEdit(bool commit)
+{
+    if (!m_noteEdit)
+        return;
+    ui::NoteEditor* edit = m_noteEdit;
+    if (commit)
+        edit->flush(); // the last keystrokes belong to the note
+    m_noteEdit = nullptr;
+    m_noteEditFenceId.clear();
+    m_noteEditPath.clear();
+    edit->hide();
+    edit->deleteLater();
 }
 
 bool ProductApp::renameDesktopItem(const QString& path, const QString& newName, QString* newPath)
