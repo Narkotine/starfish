@@ -1,6 +1,7 @@
 #include "core/context_menu.hpp"
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QHash>
 #include <QJsonArray>
@@ -133,10 +134,15 @@ QJsonObject profileToJson(const ContextMenuProfile& p)
 {
     QJsonArray custom;
     for (const ContextMenuCustomEntry& c : p.custom) {
-        custom.append(QJsonObject{{QStringLiteral("label"), c.label},
-                                  {QStringLiteral("program"), c.program},
-                                  {QStringLiteral("arguments"), QJsonArray::fromStringList(c.arguments)},
-                                  {QStringLiteral("glyph"), c.glyph}});
+        QJsonObject entry{{QStringLiteral("label"), c.label},
+                          {QStringLiteral("program"), c.program},
+                          {QStringLiteral("arguments"), QJsonArray::fromStringList(c.arguments)},
+                          {QStringLiteral("glyph"), c.glyph}};
+        // Session 82: an action is written only when there is one -- a document
+        // that predates it must not gain an empty key on its first save.
+        if (!c.action.isEmpty())
+            entry.insert(QStringLiteral("action"), c.action);
+        custom.append(entry);
     }
     return QJsonObject{{QStringLiteral("hidden"), QJsonArray::fromStringList(p.hidden)},
                        {QStringLiteral("shown"), QJsonArray::fromStringList(p.shown)},
@@ -167,7 +173,9 @@ ContextMenuProfile profileFromJson(const QJsonObject& o)
         e.program = c.value(QStringLiteral("program")).toString();
         e.arguments = strings(c.value(QStringLiteral("arguments")));
         e.glyph = c.value(QStringLiteral("glyph")).toString();
-        if (!e.label.isEmpty() && !e.program.isEmpty())
+        e.action = c.value(QStringLiteral("action")).toString();
+        // An action entry has no program (the light/dark switch runs nothing).
+        if (!e.label.isEmpty() && (!e.program.isEmpty() || !e.action.isEmpty()))
             p.custom << e;
     }
     return p;
@@ -440,6 +448,126 @@ QStringList expandCustomArguments(const ContextMenuCustomEntry& entry, const QSt
         out << a;
     }
     return out;
+}
+
+namespace {
+
+// Session 82: the icon pool. The code points are the ones the menu already
+// carries where the two lists overlap (measured on this PC's own menus, see
+// knownEntries above); the rest are the font's own standard names. A probe asks
+// the installed icon font whether each one exists, so a wrong number shows up as
+// a red check instead of an empty box in the menu.
+struct PoolRow {
+    const char* name;
+    char16_t glyph;
+    const char* label; // QT_TRANSLATE_NOOP: translated by menuGlyphPool()
+};
+
+const std::vector<PoolRow>& poolRows()
+{
+    static const std::vector<PoolRow> rows{
+        {"settings", 0xE713, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Settings")},
+        {"apps", 0xE71D, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Applications")},
+        {"uninstall", 0xE74D, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Uninstall")},
+        {"appearance", 0xE771, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Appearance")},
+        {"theme", 0xE706, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Light or dark")},
+        {"folder", 0xE8B7, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Folder")},
+        {"terminal", 0xE756, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Terminal")},
+        {"star", 0xE734, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Star")},
+        {"browser", 0xE774, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Browser")},
+        {"mail", 0xE715, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Mail")},
+        {"search", 0xE721, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Search")},
+        {"calendar", 0xE787, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Calendar")},
+        {"clock", 0xE917, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Clock")},
+        {"lock", 0xE72E, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Lock")},
+        {"pin", 0xE718, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Pin")},
+        {"share", 0xE72D, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Share")},
+        {"copy", 0xE8C8, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Copy")},
+        {"cut", 0xE8C6, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Cut")},
+        {"edit", 0xE70F, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Edit")},
+        {"print", 0xE749, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Print")},
+        {"properties", 0xE946, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Properties")},
+        {"link", 0xE71B, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Link")},
+        {"refresh", 0xE72C, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Refresh")},
+        {"power", 0xE7E8, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Power")},
+        {"display", 0xE7F4, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Display")},
+        {"network", 0xE839, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Network")},
+        {"wifi", 0xE701, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Wi-Fi")},
+        {"bluetooth", 0xE702, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Bluetooth")},
+        {"sound", 0xE767, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Sound")},
+        {"download", 0xE896, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Download")},
+        {"upload", 0xE898, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Upload")},
+        {"game", 0xE7FC, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Game")},
+        {"store", 0xE719, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Store")},
+    };
+    return rows;
+}
+
+} // namespace
+
+QList<MenuGlyph> menuGlyphPool()
+{
+    QList<MenuGlyph> pool;
+    for (const PoolRow& row : poolRows()) {
+        MenuGlyph glyph;
+        glyph.name = QString::fromLatin1(row.name);
+        glyph.glyph = QString(QChar(row.glyph));
+        glyph.label = QCoreApplication::translate("ContextMenuGlyphs", row.label);
+        pool.append(glyph);
+    }
+    return pool;
+}
+
+QString glyphForName(const QString& name)
+{
+    for (const PoolRow& row : poolRows()) {
+        if (name == QLatin1String(row.name))
+            return QString(QChar(row.glyph));
+    }
+    return {};
+}
+
+QString nameForGlyph(const QString& glyph)
+{
+    if (glyph.isEmpty())
+        return {};
+    for (const PoolRow& row : poolRows()) {
+        if (glyph == QString(QChar(row.glyph)))
+            return QString::fromLatin1(row.name);
+    }
+    return {};
+}
+
+QList<MenuPreset> menuPresets()
+{
+    // Settings pages go through explorer.exe: the URI handler is the shell's, and
+    // running it through a program keeps one shape for every entry (a program and
+    // its arguments). The light/dark switch is ours -- no program at all.
+    const QString explorer = QStringLiteral("explorer.exe");
+    QList<MenuPreset> presets;
+    const auto add = [&presets](const QString& label, const QString& program, const QStringList& arguments,
+                                const QString& glyph, const QString& action) {
+        MenuPreset preset;
+        preset.label = label;
+        preset.program = program;
+        preset.arguments = arguments;
+        preset.glyph = glyph;
+        preset.action = action;
+        presets.append(preset);
+    };
+    add(QCoreApplication::translate("ContextMenuPresets", "Windows settings"), explorer,
+        {QStringLiteral("ms-settings:")}, QStringLiteral("settings"), {});
+    add(QCoreApplication::translate("ContextMenuPresets", "Installed applications"), explorer,
+        {QStringLiteral("ms-settings:appsfeatures")}, QStringLiteral("apps"), {});
+    add(QCoreApplication::translate("ContextMenuPresets", "Appearance and themes"), explorer,
+        {QStringLiteral("ms-settings:personalization")}, QStringLiteral("appearance"), {});
+    add(QCoreApplication::translate("ContextMenuPresets", "Light or dark mode"), {}, {}, QStringLiteral("theme"),
+        QStringLiteral("theme"));
+    add(QCoreApplication::translate("ContextMenuPresets", "Network and Internet"), explorer,
+        {QStringLiteral("ms-settings:network")}, QStringLiteral("network"), {});
+    add(QCoreApplication::translate("ContextMenuPresets", "Windows Update"), explorer,
+        {QStringLiteral("ms-settings:windowsupdate")}, QStringLiteral("refresh"), {});
+    return presets;
 }
 
 } // namespace starfish::core

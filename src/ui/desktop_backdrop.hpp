@@ -174,6 +174,12 @@ public:
     // The rubber band currently being drawn, or a null rect. Exposed for the
     // probes: what is on screen is otherwise only observable as pixels.
     QRect rubberBand() const { return m_rubberBand; }
+    // Session 82: the rectangle stays on screen while its menu is open (the user
+    // sees the fence he is about to build); the product clears it when the menu
+    // closes, whatever was chosen. `showFencePreview` is the gesture's own half of
+    // that rule, kept callable so a probe measures it without a desktop to host.
+    void clearFencePreview() { setBand({}); }
+    void showFencePreview(const QRect& rect) { setBand(rect); }
     // ADR-21 lot 3: the selection rectangle being drawn, or a null rect.
     QRect marquee() const { return m_marquee; }
     // Session 80: the desktop's grid while an icon is held over it -- every

@@ -63,6 +63,7 @@
 #include "ui/note_editor.hpp"
 #include <QActionGroup>
 #include "platform/win/startup_timeline.hpp"
+#include "platform/win/windows_theme.hpp"
 #include "ui/tray_icon.hpp"
 
 QLoggingCategory lc("starfish.product");
@@ -818,17 +819,28 @@ QString ProductApp::nextFenceTitle() const
 
 void ProductApp::onNewFence()
 {
-    const QString id = createFenceWithDefaultPlacement();
-    if (id.isEmpty())
-        return;
-    if (m_tray)
-        m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
+    // Session 82 (the user's ask): no notification when a fence is built, wherever
+    // it is built from. The fence appearing is the answer.
+    createFenceWithDefaultPlacement();
 }
 
 void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
 {
     if (!m_container)
         return;
+
+    ui::DesktopBackdrop* backdrop = m_container->backdrop();
+    // Session 82 (the user's ask): the rectangle he drew stays on screen while the
+    // menu is open, so he sees the fence he is about to build. It goes away when
+    // this function returns -- chosen, dismissed, created or not.
+    struct PreviewGuard {
+        ui::DesktopBackdrop* backdrop;
+        ~PreviewGuard()
+        {
+            if (backdrop)
+                backdrop->clearFencePreview();
+        }
+    } previewGuard{backdrop};
 
     // What the entry would do, said before anything happens: a drawn rectangle
     // offers *that* rectangle, a plain right-click offers a default-size fence
@@ -844,7 +856,7 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
     // The popup belongs to the hosted surface, so it behaves like a menu of the
     // real on-screen window rather than of a hidden helper.
     void* owner = nullptr;
-    if (ui::DesktopBackdrop* backdrop = m_container->backdrop()) {
+    if (backdrop) {
         if (platform::win::DesktopSurface* surface = backdrop->surface())
             owner = reinterpret_cast<void*>(surface->hwnd());
     }
@@ -919,8 +931,8 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
                                 .arg(target.y())
                                 .arg(target.width())
                                 .arg(target.height());
-    if (m_tray)
-        m_tray->notify(tr("StarFish"), tr("Created \"%1\"").arg(m_container->fenceTitle(id)));
+    // Session 82 (the user's ask): no notification when a fence is built. The
+    // fence appearing *is* the answer; a balloon said it twice.
 }
 
 void ProductApp::wireBackdrop()
@@ -2947,6 +2959,23 @@ void ProductApp::finishWidgetEdit(bool commit)
     edit->deleteLater();
 }
 
+void ProductApp::runMenuAction(const QString& action)
+{
+    if (action != QLatin1String("theme")) {
+        qCInfo(lc).noquote() << QStringLiteral("unknown menu action \"%1\"").arg(action);
+        return;
+    }
+    // Session 82: the light/dark switch. Windows keeps it in two values and every
+    // window learns about the change from a broadcast (see windows_theme.cpp), so
+    // the taskbar and the open apps follow without a logon.
+    const platform::win::ThemeState now = platform::win::readTheme();
+    const bool light = platform::win::flippedLight(now.appsLight);
+    const bool done = platform::win::applyTheme(light);
+    qCInfo(lc).noquote() << QStringLiteral("menu action \"theme\": %1")
+                                .arg(!done ? QStringLiteral("failed")
+                                           : light ? QStringLiteral("light") : QStringLiteral("dark"));
+}
+
 bool ProductApp::renameDesktopItem(const QString& path, const QString& newName, QString* newPath)
 {
     const bool done = platform::win::renameShellItem(path, newName, backdropOwner(), newPath);
@@ -3373,12 +3402,17 @@ int ProductApp::runContextMenuEntry(const core::ContextMenuItem& item, core::Con
         const core::ContextMenuProfile& profile = config.profile(kind);
         if (item.customIndex < profile.custom.size()) {
             const core::ContextMenuCustomEntry& entry = profile.custom.at(item.customIndex);
-            const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
-            const bool started = QProcess::startDetached(
-                entry.program, core::expandCustomArguments(entry, paths, desktop), desktop);
-            qCInfo(lc).noquote() << QStringLiteral("custom menu entry \"%1\": %2 %3")
-                                        .arg(entry.label, entry.program,
-                                             started ? QStringLiteral("started") : QStringLiteral("FAILED"));
+            if (!entry.action.isEmpty()) {
+                // Session 82: an entry that runs a StarFish action, not a program.
+                runMenuAction(entry.action);
+            } else {
+                const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+                const bool started = QProcess::startDetached(
+                    entry.program, core::expandCustomArguments(entry, paths, desktop), desktop);
+                qCInfo(lc).noquote() << QStringLiteral("custom menu entry \"%1\": %2 %3")
+                                            .arg(entry.label, entry.program,
+                                                 started ? QStringLiteral("started") : QStringLiteral("FAILED"));
+            }
         }
     } else {
         result = item.ownId;

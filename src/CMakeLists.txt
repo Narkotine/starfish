@@ -32,6 +32,7 @@ qt_add_executable(starfish WIN32
     platform/win/shell_drop_target.cpp
     platform/win/shell_operations.cpp
     platform/win/autostart.cpp
+    platform/win/windows_theme.cpp
     platform/win/packaged_commands.cpp
     platform/win/hotkey_manager.cpp
     ui/fence_container.cpp

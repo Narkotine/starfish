@@ -7,13 +7,16 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QProcess>
 #include <QPushButton>
 #include <QTabBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include "ui/modern_menu.hpp"
@@ -35,6 +38,56 @@ bool isTopBar(const QString& key, core::ContextMenuKind kind)
     return keys.indexOf(key) >= 0 && keys.indexOf(key) < bar;
 }
 
+// Session 82: the icon pool, shown as the grid of buttons it is. One entry per
+// icon of core::menuGlyphPool(), plus "No icon"; the dialog returns the code
+// point, the document keeps it as it always did.
+bool askGlyph(QWidget* parent, QString& glyph)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("glyphPicker"));
+    dialog.setWindowTitle(ContextMenuEditor::tr("Choose an icon"));
+    applyWindowTheme(&dialog, ModernMenuStyle::current());
+    const QColor colour = themeText(ModernMenuStyle::current());
+    QString chosen = glyph;
+
+    auto* grid = new QGridLayout;
+    grid->setSpacing(4);
+    int index = 0;
+    for (const core::MenuGlyph& entry : core::menuGlyphPool()) {
+        auto* button = new QToolButton(&dialog);
+        button->setObjectName(QStringLiteral("glyph:") + entry.name);
+        button->setIcon(glyphIcon(entry.glyph, colour, 20));
+        button->setIconSize(QSize(20, 20));
+        button->setToolTip(entry.label);
+        button->setAutoRaise(true);
+        button->setFixedSize(34, 34);
+        const QString picked = entry.glyph;
+        QObject::connect(button, &QToolButton::clicked, &dialog, [&chosen, &dialog, picked] {
+            chosen = picked;
+            dialog.accept();
+        });
+        grid->addWidget(button, index / 8, index % 8);
+        ++index;
+    }
+    auto* none = new QPushButton(ContextMenuEditor::tr("No icon"), &dialog);
+    none->setObjectName(QStringLiteral("glyph:none"));
+    QObject::connect(none, &QPushButton::clicked, &dialog, [&chosen, &dialog] {
+        chosen.clear();
+        dialog.accept();
+    });
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Cancel)->setText(ContextMenuEditor::tr("Cancel"));
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto* root = new QVBoxLayout(&dialog);
+    root->addLayout(grid);
+    root->addWidget(none);
+    root->addWidget(buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+    glyph = chosen;
+    return true;
+}
+
 // The program, its arguments and a label, asked in a small dialog.
 bool askCustomEntry(QWidget* parent, core::ContextMenuCustomEntry& entry)
 {
@@ -54,11 +107,31 @@ bool askCustomEntry(QWidget* parent, core::ContextMenuCustomEntry& entry)
                             &dialog);
     hint->setObjectName(QStringLiteral("hint"));
     hint->setWordWrap(true);
+    // Session 82: the icon, from the pool the menu's own glyphs come from.
+    QString glyph = entry.glyph;
+    auto* icon = new QPushButton(&dialog);
+    icon->setObjectName(QStringLiteral("iconButton"));
+    const auto showIcon = [icon](const QString& current) {
+        QString text = ContextMenuEditor::tr("No icon");
+        for (const core::MenuGlyph& g : core::menuGlyphPool()) {
+            if (g.glyph == current)
+                text = g.label;
+        }
+        icon->setIcon(current.isEmpty() ? QIcon()
+                                        : glyphIcon(current, themeText(ModernMenuStyle::current()), 16));
+        icon->setText(text);
+    };
+    showIcon(glyph);
+    QObject::connect(icon, &QPushButton::clicked, &dialog, [&] {
+        if (askGlyph(&dialog, glyph))
+            showIcon(glyph);
+    });
     auto* programRow = new QHBoxLayout;
     programRow->addWidget(program, 1);
     programRow->addWidget(browse);
     auto* form = new QFormLayout;
     form->addRow(ContextMenuEditor::tr("Label"), label);
+    form->addRow(ContextMenuEditor::tr("Icon"), icon);
     form->addRow(ContextMenuEditor::tr("Program"), programRow);
     form->addRow(ContextMenuEditor::tr("Arguments"), arguments);
     form->addRow(QString(), hint);
@@ -81,7 +154,9 @@ bool askCustomEntry(QWidget* parent, core::ContextMenuCustomEntry& entry)
         }
     });
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
-        if (!label->text().trimmed().isEmpty() && !program->text().trimmed().isEmpty())
+        // An action entry (the light/dark switch) has no program of its own.
+        if (!label->text().trimmed().isEmpty()
+            && (!program->text().trimmed().isEmpty() || !entry.action.isEmpty()))
             dialog.accept();
     });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -90,6 +165,7 @@ bool askCustomEntry(QWidget* parent, core::ContextMenuCustomEntry& entry)
     entry.label = label->text().trimmed();
     entry.program = program->text().trimmed();
     entry.arguments = QProcess::splitCommand(arguments->text());
+    entry.glyph = glyph;
     return true;
 }
 
@@ -128,6 +204,10 @@ ContextMenuEditor::ContextMenuEditor(QWidget* parent)
     m_up = new QPushButton(tr("Move up"), this);
     m_down = new QPushButton(tr("Move down"), this);
     auto* add = new QPushButton(tr("Add a program..."), this);
+    // Session 82: the ready-made entries (Windows settings pages, the light/dark
+    // switch) -- one click instead of filling the dialog by hand.
+    auto* presets = new QPushButton(tr("Add from the list..."), this);
+    presets->setObjectName(QStringLiteral("presets"));
     m_edit = new QPushButton(tr("Edit..."), this);
     m_remove = new QPushButton(tr("Remove"), this);
     auto* reset = new QPushButton(tr("Reset"), this);
@@ -135,11 +215,12 @@ ContextMenuEditor::ContextMenuEditor(QWidget* parent)
     m_up->setIcon(glyphIcon(QString(QChar(0xE74A)), glyph));
     m_down->setIcon(glyphIcon(QString(QChar(0xE74B)), glyph));
     add->setIcon(glyphIcon(QString(QChar(0xE710)), glyph));
+    presets->setIcon(glyphIcon(QString(QChar(0xE8FD)), glyph));
     m_edit->setIcon(glyphIcon(QString(QChar(0xE70F)), glyph));
     m_remove->setIcon(glyphIcon(QString(QChar(0xE74D)), glyph));
     reset->setIcon(glyphIcon(QString(QChar(0xE777)), glyph));
     auto* buttons = new QVBoxLayout;
-    for (QPushButton* b : {m_up, m_down, add, m_edit, m_remove})
+    for (QPushButton* b : {m_up, m_down, add, presets, m_edit, m_remove})
         buttons->addWidget(b);
     buttons->addStretch(1);
     buttons->addWidget(reset);
@@ -174,6 +255,29 @@ ContextMenuEditor::ContextMenuEditor(QWidget* parent)
     connect(m_up, &QPushButton::clicked, this, [this] { moveCurrent(-1); });
     connect(m_down, &QPushButton::clicked, this, [this] { moveCurrent(1); });
     connect(add, &QPushButton::clicked, this, [this] { editCustom(-1); });
+    connect(presets, &QPushButton::clicked, this, [this, presets] {
+        QMenu menu;
+        styleModernMenu(&menu, ModernMenuStyle::current());
+        const QColor colour = themeText(ModernMenuStyle::current());
+        const QList<core::MenuPreset> list = core::menuPresets();
+        QList<QAction*> actions;
+        for (const core::MenuPreset& preset : list) {
+            QAction* action = menu.addAction(glyphIcon(core::glyphForName(preset.glyph), colour), preset.label);
+            actions << action;
+        }
+        QAction* chosen = menu.exec(presets->mapToGlobal(QPoint(0, presets->height())));
+        const int index = actions.indexOf(chosen);
+        if (index < 0)
+            return;
+        const core::MenuPreset& preset = list.at(index);
+        core::ContextMenuCustomEntry entry;
+        entry.label = preset.label;
+        entry.program = preset.program;
+        entry.arguments = preset.arguments;
+        entry.glyph = core::glyphForName(preset.glyph);
+        entry.action = preset.action;
+        addCustomEntry(entry);
+    });
     connect(m_edit, &QPushButton::clicked, this, [this] {
         if (QListWidgetItem* item = m_list->currentItem())
             editCustom(item->data(kCustomRole).toInt());
@@ -341,7 +445,10 @@ void ContextMenuEditor::fill()
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
         item->setCheckState(core::isShown(key, k, p) ? Qt::Checked : Qt::Unchecked);
         item->setToolTip(key);
-        const QString g = core::contextMenuGlyph(key);
+        // Session 82: a user entry wears the icon it was given, when it has one.
+        QString g = core::contextMenuGlyph(key);
+        if (custom >= 0 && custom < p.custom.size() && !p.custom.at(custom).glyph.isEmpty())
+            g = p.custom.at(custom).glyph;
         item->setIcon(g.isEmpty() ? glyphIcon(QString(QChar(0xE76C)), glyph.darker(160)) : glyphIcon(g, glyph));
         if (key == keep)
             m_list->setCurrentItem(item);

@@ -47,6 +47,9 @@ LITERALS = r'"(?:[^"\\]|\\.)*"(?:\s*"(?:[^"\\]|\\.)*")*'
 CALL_PATTERNS = [
     re.compile(r'\btr\(\s*(?P<text>' + LITERALS + ')'),
     re.compile(r'\bQT_TR_NOOP\(\s*(?P<text>' + LITERALS + ')'),
+    # QT_TRANSLATE_NOOP marks a table entry whose context is named at the call
+    # site (session 82: the icon pool), so lupdate and the code agree on it.
+    re.compile(r'\bQT_TRANSLATE_NOOP\(\s*"(?P<context>[^"]*)"\s*,\s*(?P<text>' + LITERALS + ')'),
     re.compile(r'\btr\(\s*QLatin1String\(\s*(?P<text>' + LITERALS + ')'),
     re.compile(r'\btranslate\(\s*"(?P<context>[^"]*)"\s*,\s*(?P<text>' + LITERALS + ')'),
 ]

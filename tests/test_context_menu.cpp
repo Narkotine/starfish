@@ -1,5 +1,7 @@
 // T-092: the drawn right-click menu as data -- the Windows 11 profile and the
 // user's configuration, with menus shaped like the ones measured on the desktop.
+#include <QFile>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -213,6 +215,93 @@ private slots:
         QCOMPARE(back.items.custom.size(), 1);
         QCOMPARE(back.items.custom.first().arguments, QStringList{QStringLiteral("%path%")});
         QCOMPARE(back.items.custom.first().glyph, QString(QChar(0xE70F)));
+    }
+
+    // Session 82: the icon pool a user entry draws its icon from. Named, unique,
+    // one character each -- the document stores a code point, the picker a name.
+    void theIconPoolIsNamed()
+    {
+        const QList<MenuGlyph> pool = menuGlyphPool();
+        QVERIFY(pool.size() >= 24);
+        QSet<QString> names;
+        QSet<QString> glyphs;
+        for (const MenuGlyph& glyph : pool) {
+            QVERIFY(!glyph.name.isEmpty());
+            QVERIFY(!glyph.label.isEmpty());
+            QCOMPARE(glyph.glyph.size(), 1);
+            names.insert(glyph.name);
+            glyphs.insert(glyph.glyph);
+        }
+        QCOMPARE(names.size(), pool.size());
+        QCOMPARE(glyphs.size(), pool.size());
+        for (const MenuGlyph& glyph : pool) {
+            QCOMPARE(glyphForName(glyph.name), glyph.glyph);
+            QCOMPARE(nameForGlyph(glyph.glyph), glyph.name);
+        }
+        QVERIFY(glyphForName(QStringLiteral("no-such-icon")).isEmpty());
+        QVERIFY(nameForGlyph(QStringLiteral("z")).isEmpty());
+    }
+
+    void thePresetsAreReadyToUse()
+    {
+        const QList<MenuPreset> presets = menuPresets();
+        QVERIFY(presets.size() >= 4);
+        bool lightOrDark = false;
+        for (const MenuPreset& preset : presets) {
+            QVERIFY(!preset.label.isEmpty());
+            QVERIFY(!preset.program.isEmpty() || !preset.action.isEmpty());
+            QVERIFY2(!glyphForName(preset.glyph).isEmpty(), qPrintable(preset.label));
+            if (preset.action == QLatin1String("theme"))
+                lightOrDark = true;
+        }
+        QVERIFY(lightOrDark); // the switch is one of them
+    }
+
+    // An entry that runs a StarFish action has no program; the file keeps it, and
+    // a plain program entry's file does not grow an empty "action" key.
+    void anActionEntrySurvivesTheFile()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("context-menu.json"));
+        ContextMenuConfig config;
+        ContextMenuCustomEntry action;
+        action.label = QStringLiteral("Light or dark mode");
+        action.action = QStringLiteral("theme");
+        action.glyph = glyphForName(QStringLiteral("theme"));
+        config.background.custom << action;
+        ContextMenuCustomEntry program;
+        program.label = QStringLiteral("Bloc-notes");
+        program.program = QStringLiteral("notepad.exe");
+        program.glyph = glyphForName(QStringLiteral("edit"));
+        config.background.custom << program;
+        QVERIFY(config.save(path));
+
+        const ContextMenuConfig back = ContextMenuConfig::load(path);
+        QCOMPARE(back.background.custom.size(), 2);
+        QCOMPARE(back.background.custom.at(0).action, QStringLiteral("theme"));
+        QCOMPARE(back.background.custom.at(0).program, QString());
+        QCOMPARE(back.background.custom.at(1).action, QString());
+        QCOMPARE(back.background.custom.at(1).glyph, glyphForName(QStringLiteral("edit")));
+
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray json = file.readAll();
+        QCOMPARE(json.count("\"action\""), 1); // only the one that has an action
+
+        // And the composed menu carries both: the action as a user entry, the icon
+        // as it was chosen.
+        const std::vector<ContextMenuItem> menu =
+            composeWindows11Menu({}, ContextMenuKind::Background, back, {}, QStringLiteral("Show more options"));
+        bool sawAction = false;
+        bool sawGlyph = false;
+        for (const ContextMenuItem& item : menu) {
+            if (item.customIndex == 0) {
+                sawAction = true;
+                sawGlyph = item.glyph == glyphForName(QStringLiteral("theme"));
+            }
+        }
+        QVERIFY(sawAction);
+        QVERIFY(sawGlyph);
     }
 };
 

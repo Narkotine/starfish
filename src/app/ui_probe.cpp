@@ -44,6 +44,11 @@
 #include "ui/fence_appearance_dialog.hpp"
 #include "core/desktop_item.hpp"
 #include "ui/desktop_backdrop.hpp"
+#include "ui/backdrop_gesture.hpp"
+#include "platform/win/windows_theme.hpp"
+#include <QFontDatabase>
+#include <QFontMetrics>
+#include <QPushButton>
 #include "ui/modern_menu.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
@@ -1576,6 +1581,120 @@ int runUiProbe(QApplication& app)
               QStringLiteral("added %1, cell %2x%3, asked %4, clock silent %5, drawn %6, back %7, in json %8")
                   .arg(added).arg(local.width()).arg(local.height()).arg(asked).arg(clockSilent).arg(drawn)
                   .arg(textBack).arg(inJson));
+    }
+
+    // --- session 82: the rectangle's preview, the icon pool, the ready-made entries ---
+    {
+        // The user's ask: a drawn rectangle stays on screen while its menu is open,
+        // so the fence he is about to build is visible. Measured on the gesture and
+        // on the backdrop's own band -- no desktop is hosted, nothing is shown.
+        ui::BackdropGesture gesture;
+        ui::BackdropGesture::Metrics metrics;
+        metrics.minimumFence = QSize(80, 60);
+        gesture.setMetrics(metrics);
+        gesture.press(QPoint(100, 100), ui::BackdropGesture::Button::Right, false);
+        gesture.move(QPoint(320, 280));
+        const ui::BackdropGesture::Result drawn =
+            gesture.release(QPoint(320, 280), ui::BackdropGesture::Button::Right);
+        const QRect band = drawn.rect.normalized();
+        ui::DesktopBackdrop preview; // never attached: his desktop is not touched
+        preview.showFencePreview(band);
+        const bool kept = !band.isEmpty() && preview.rubberBand() == band;
+        preview.clearFencePreview();
+        const bool cleared = preview.rubberBand().isNull();
+        check(QStringLiteral("a drawn rectangle keeps its preview while its menu is open, and it goes away "
+                             "when the menu returns (session 82)"),
+              drawn.action == ui::BackdropGesture::Action::DesktopMenu && kept && cleared,
+              QStringLiteral("action %1, band %2,%3 %4x%5 kept %6, cleared %7")
+                  .arg(int(drawn.action)).arg(band.x()).arg(band.y()).arg(band.width()).arg(band.height())
+                  .arg(kept).arg(cleared));
+
+        // The icon pool is the menu's own font: every code point must exist there,
+        // or the menu would show an empty box instead of an icon.
+        const QStringList families = QFontDatabase::families();
+        const QString iconFont = families.contains(QStringLiteral("Segoe Fluent Icons"))
+                                     ? QStringLiteral("Segoe Fluent Icons")
+                                     : QStringLiteral("Segoe MDL2 Assets");
+        QFont iconFace(iconFont);
+        iconFace.setPixelSize(16);
+        const QFontMetrics iconMetrics(iconFace);
+        QStringList missing;
+        for (const core::MenuGlyph& glyph : core::menuGlyphPool()) {
+            if (!iconMetrics.inFontUcs4(glyph.glyph.at(0).unicode()))
+                missing << glyph.name;
+        }
+        check(QStringLiteral("every icon of the pool exists in the installed icon font (session 82)"),
+              families.contains(iconFont) && missing.isEmpty() && core::menuGlyphPool().size() >= 24,
+              QStringLiteral("%1, %2 icons, missing [%3]")
+                  .arg(iconFont).arg(core::menuGlyphPool().size()).arg(missing.join(QStringLiteral(", "))));
+
+        // The pool itself, drawn: what the picker offers, to be looked at.
+        {
+            const int cell = 34;
+            const int cols = 8;
+            const int rows = (core::menuGlyphPool().size() + cols - 1) / cols;
+            QImage sheet(cols * cell, rows * cell, QImage::Format_ARGB32_Premultiplied);
+            sheet.fill(QColor(0x1F, 0x29, 0x37));
+            QPainter painter(&sheet);
+            painter.setRenderHint(QPainter::TextAntialiasing, true);
+            QFont face(iconFont);
+            face.setPixelSize(20);
+            painter.setFont(face);
+            painter.setPen(QColor(0xE5, 0xE7, 0xEB));
+            int index = 0;
+            for (const core::MenuGlyph& glyph : core::menuGlyphPool()) {
+                painter.drawText(QRect((index % cols) * cell, (index / cols) * cell, cell, cell), Qt::AlignCenter,
+                                 glyph.glyph);
+                ++index;
+            }
+            painter.end();
+            sheet.save(captures + QStringLiteral("/s82_glyph_pool_dark.png"));
+        }
+
+        // The ready-made entries: the editor's own button, and the light/dark
+        // switch added the way that button adds it -- listed, saved, reloaded.
+        QTemporaryDir temp;
+        const QString config = QDir::fromNativeSeparators(temp.path()) + QStringLiteral("/context-menu.json");
+        ui::ContextMenuEditor editor;
+        editor.setConfigPath(config);
+        auto* presetsButton = editor.findChild<QPushButton*>(QStringLiteral("presets"));
+        QString switchLabel;
+        for (const core::MenuPreset& preset : core::menuPresets()) {
+            if (preset.action != QLatin1String("theme"))
+                continue;
+            switchLabel = preset.label;
+            core::ContextMenuCustomEntry entry;
+            entry.label = preset.label;
+            entry.program = preset.program;
+            entry.arguments = preset.arguments;
+            entry.glyph = core::glyphForName(preset.glyph);
+            entry.action = preset.action;
+            editor.addCustomEntry(entry);
+        }
+        const QString key = QStringLiteral("custom:") + switchLabel;
+        const bool listed = !switchLabel.isEmpty() && editor.listedKeys().contains(key);
+        auto* list = editor.findChild<QListWidget*>(QStringLiteral("entries"));
+        bool withIcon = false;
+        for (int i = 0; list && i < list->count(); ++i) {
+            if (list->item(i)->data(Qt::UserRole).toString() == key)
+                withIcon = !list->item(i)->icon().isNull();
+        }
+        ui::ContextMenuEditor reloaded;
+        reloaded.setConfigPath(config);
+        const bool saved = reloaded.listedKeys().contains(key);
+        check(QStringLiteral("the ready-made entries are one click away: the light/dark switch is added, "
+                             "wears a pool icon and survives a reload (session 82)"),
+              presetsButton != nullptr && listed && withIcon && saved,
+              QStringLiteral("button %1, listed %2, icon %3, reloaded %4 [%5]")
+                  .arg(presetsButton != nullptr).arg(listed).arg(withIcon).arg(saved).arg(switchLabel));
+
+        // Reading the theme is harmless and tells the switch which way to go; the
+        // write is the user's click, so no probe flips his colours.
+        const platform::win::ThemeState theme = platform::win::readTheme();
+        check(QStringLiteral("the light/dark switch knows where it starts and flips it (session 82)"),
+              theme.valid && platform::win::flippedLight(theme.appsLight) != theme.appsLight,
+              QStringLiteral("read %1, apps light %2, system light %3")
+                  .arg(theme.valid).arg(theme.appsLight).arg(theme.systemLight));
     }
 
     // --- session 76: launch through the shell, names hidden, title lock, "+N", menu ---

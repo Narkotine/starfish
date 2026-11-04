@@ -2,6 +2,207 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="fr_FR">
 <context>
+    <name>ContextMenuGlyphs</name>
+    <message>
+        <location filename="../core/context_menu.cpp" line="+469"/>
+        <source>Settings</source>
+        <translation>Paramètres</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Applications</source>
+        <translation>Applications</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Uninstall</source>
+        <translation>Désinstaller</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Appearance</source>
+        <translation>Apparence</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Light or dark</source>
+        <translation>Clair ou sombre</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Folder</source>
+        <translation>Dossier</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Terminal</source>
+        <translation>Terminal</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Star</source>
+        <translation>Étoile</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Browser</source>
+        <translation>Navigateur</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mail</source>
+        <translation>Courrier</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Search</source>
+        <translation>Rechercher</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Calendar</source>
+        <translation>Calendrier</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clock</source>
+        <translation>Horloge</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lock</source>
+        <translation>Verrou</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Pin</source>
+        <translation>Épingler</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Share</source>
+        <translation>Partager</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Copy</source>
+        <translation>Copier</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Cut</source>
+        <translation>Couper</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Edit</source>
+        <translation>Modifier</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Print</source>
+        <translation>Imprimer</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Properties</source>
+        <translation>Propriétés</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Link</source>
+        <translation>Lien</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Refresh</source>
+        <translation>Actualiser</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Power</source>
+        <translation>Alimentation</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Display</source>
+        <translation>Affichage</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network</source>
+        <translation>Réseau</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Wi-Fi</source>
+        <translation>Wi-Fi</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Bluetooth</source>
+        <translation>Bluetooth</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound</source>
+        <translation>Son</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Download</source>
+        <translation>Télécharger</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Upload</source>
+        <translation>Envoyer</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Game</source>
+        <translation>Jeu</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Store</source>
+        <translation>Store</translation>
+    </message>
+</context>
+<context>
+    <name>ContextMenuPresets</name>
+    <message>
+        <location line="+57"/>
+        <source>Windows settings</source>
+        <translation>Paramètres Windows</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Installed applications</source>
+        <translation>Applications installées</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Appearance and themes</source>
+        <translation>Apparence et thèmes</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Light or dark mode</source>
+        <translation>Mode clair ou sombre</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Network and Internet</source>
+        <translation>Réseau et Internet</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Windows Update</source>
+        <translation>Windows Update</translation>
+    </message>
+</context>
+<context>
     <name>DesktopMenu</name>
     <message>
         <location filename="../platform/win/desktop_menu.cpp" line="+46"/>
@@ -658,7 +859,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2638"/>
+        <location filename="../app/product_app.cpp" line="+2650"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
@@ -711,7 +912,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5873"/>
+        <location filename="../main.cpp" line="+5919"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -727,7 +928,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+561"/>
+        <location filename="../app/product_app.cpp" line="+578"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -737,19 +938,17 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3095"/>
+        <location line="-3123"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
         <location line="+496"/>
-        <location line="+117"/>
-        <location line="+98"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
     <message>
-        <location line="-215"/>
+        <location line="+0"/>
         <source>%1 item(s) filed by the rules</source>
         <translation>%1 élément(s) rangé(s) par les règles</translation>
     </message>
@@ -759,13 +958,7 @@
         <translation>Zone %1</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+98"/>
-        <source>Created &quot;%1&quot;</source>
-        <translation>« %1 » créée</translation>
-    </message>
-    <message>
-        <location line="-84"/>
+        <location line="+34"/>
         <source>Create a fence here (%1 x %2)</source>
         <translation>Créer une zone ici (%1 x %2)</translation>
     </message>
@@ -844,7 +1037,7 @@
 <context>
     <name>starfish::ui::ContextMenuEditor</name>
     <message>
-        <location filename="../ui/context_menu_editor.cpp" line="+42"/>
+        <location filename="../ui/context_menu_editor.cpp" line="+95"/>
         <source>Entry of my own</source>
         <translation>Entrée personnelle</translation>
     </message>
@@ -859,12 +1052,12 @@
         <translation>%paths% : les éléments sélectionnés — %path% : le premier — %desktop% : le dossier du bureau</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+28"/>
         <source>Label</source>
         <translation>Libellé</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <location line="+12"/>
         <source>Program</source>
         <translation>Programme</translation>
@@ -880,17 +1073,34 @@
         <translation>Enregistrer</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-61"/>
+        <location line="+62"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-93"/>
+        <source>Choose an icon</source>
+        <translation>Choisir une icône</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <location line="+43"/>
+        <source>No icon</source>
+        <translation>Aucune icône</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Icon</source>
+        <translation>Icône</translation>
+    </message>
+    <message>
+        <location line="+15"/>
         <source>Programs (*.exe *.bat *.cmd)</source>
         <translation>Programmes (*.exe *.bat *.cmd)</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+29"/>
         <source>Windows 11 style menu</source>
         <translation>Menu façon Windows 11</translation>
     </message>
@@ -930,7 +1140,12 @@
         <translation>Ajouter un programme...</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+3"/>
+        <source>Add from the list...</source>
+        <translation>Ajouter depuis la liste…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Edit...</source>
         <translation>Modifier...</translation>
     </message>
@@ -945,7 +1160,7 @@
         <translation>Réinitialiser</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+126"/>
         <source>View</source>
         <translation>Affichage</translation>
     </message>
@@ -1108,7 +1323,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1219"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1223"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>

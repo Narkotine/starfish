@@ -43,7 +43,36 @@ struct ContextMenuCustomEntry {
     QString program;
     QStringList arguments;
     QString glyph;
+    // Session 82: a StarFish action instead of a program ("theme": the light/dark
+    // switch). Empty: the program is run.
+    QString action;
 };
+
+// --- the icon pool (session 82) ---------------------------------------------
+//
+// The menu's own glyphs come from Segoe Fluent Icons (Segoe MDL2 Assets on
+// Windows 10) -- the very characters Windows 11 draws. A user entry may wear one,
+// and the editor offers this list by name: the document stores "settings", not a
+// private-use character nothing can read back.
+struct MenuGlyph {
+    QString name;  // "settings"
+    QString glyph; // the code point, one character
+    QString label; // translated, what the picker says
+};
+QList<MenuGlyph> menuGlyphPool();
+QString glyphForName(const QString& name);  // empty when the name is unknown
+QString nameForGlyph(const QString& glyph); // empty when the glyph is not in the pool
+
+// A ready-made entry the editor adds in one click: Windows settings pages, and
+// the light/dark switch StarFish itself performs (`action`).
+struct MenuPreset {
+    QString label;
+    QString program;
+    QStringList arguments;
+    QString glyph;  // a name from the pool
+    QString action; // "theme" for the light/dark switch; empty = run the program
+};
+QList<MenuPreset> menuPresets();
 
 struct ContextMenuProfile {
     QStringList hidden; // keys taken out

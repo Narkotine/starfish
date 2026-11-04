@@ -1041,7 +1041,11 @@ bool DesktopBackdrop::applyGesture(const BackdropGesture::Result& result)
     }
 
     case BackdropGesture::Action::DesktopMenu:
-        setBand({});
+        // Session 82: a drawn rectangle keeps its preview while the menu is open
+        // -- the user is choosing *that* fence, and it has to stay visible. A
+        // plain right-click has no rectangle, so there is nothing to keep. The
+        // product clears it when the menu returns (clearFencePreview()).
+        showFencePreview(result.rect);
         // The backdrop says what happened; the product decides what to make of
         // it, exactly like every other gesture in this project.
         emit desktopMenuRequested(result.rect, result.point);
