@@ -27,6 +27,10 @@ public:
                         std::function<void()> finish, QWidget* parent = nullptr);
 
     static constexpr int kSaveDelayMs = 600;
+    // Session 83: a change this large is a paste, not typing, and is written
+    // straight away (see the constructor). A note pasted and then followed by a
+    // crash used to lose everything typed after the last pause.
+    static constexpr int kPasteChars = 200;
     int saveDelay() const { return kSaveDelayMs; }
 
     // Saves the text if it changed since the last save. Returns whether it did.

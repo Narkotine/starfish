@@ -139,6 +139,93 @@ private slots:
         QCOMPARE(widgets::msUntilNextChange(note, QDateTime::currentDateTime()), -1);
     }
 
+    // Session 83: a note whose text was pasted in whole used to freeze the
+    // product. The card only ever shows `maxLines` lines, so that is all that may
+    // be wrapped -- and an over-wide word must be cut by bisection, not by
+    // measuring every prefix (that scan is quadratic: 2 000 characters in one
+    // run measured 22 s, 20 000 never finished; the fence repaints while the
+    // user types, so StarFish stopped answering and the note was never saved).
+    void aWallOfPastedTextCostsTheCardNotTheDocument()
+    {
+        const QFont font = testFont();
+        const int width = 150;
+        const int maxLines = 8;
+
+        QString blob;
+        blob.fill(QLatin1Char('a'), 200000); // one run, no space to wrap on
+        QElapsedTimer timer;
+        timer.start();
+        bool elided = false;
+        const QStringList lines = widgets::noteLines(blob, font, width, maxLines, &elided);
+        const qint64 elapsed = timer.elapsed();
+        qInfo() << "200 000 characters in one run ->" << elapsed << "ms";
+        QCOMPARE(lines.size(), maxLines);
+        QVERIFY(elided);
+        const QFontMetrics metrics(font);
+        for (const QString& line : lines)
+            QVERIFY2(metrics.horizontalAdvance(line) <= width, qPrintable(line));
+        QVERIFY2(elapsed < 1000, qPrintable(QStringLiteral("wrapping took %1 ms").arg(elapsed)));
+
+        // Prose, many paragraphs: same cost, and the same answer.
+        QString prose;
+        for (int i = 0; i < 20000; ++i)
+            prose += QStringLiteral("mot numero %1\n").arg(i);
+        timer.restart();
+        const QStringList proseLines = widgets::noteLines(prose, font, width, maxLines, &elided);
+        QCOMPARE(proseLines.size(), maxLines);
+        QVERIFY(elided);
+        QVERIFY2(timer.elapsed() < 1000, qPrintable(QStringLiteral("wrapping took %1 ms").arg(timer.elapsed())));
+
+        // What is drawn is bounded; what is *kept* is not: the document still
+        // holds the whole text, and the ellipsis is the only sign of it.
+        const DesktopItem note = widgets::withNoteText(widgets::create(QStringLiteral("notes")), blob);
+        QCOMPARE(widgets::noteText(note).size(), blob.size());
+
+        // The fence's own paint of that note: the card, and `maxLines` lines.
+        timer.restart();
+        const QImage card = painted(note);
+        QVERIFY2(timer.elapsed() < 1000,
+                 qPrintable(QStringLiteral("painting took %1 ms").arg(timer.elapsed())));
+        QVERIFY(card.pixelColor(100, 100).alpha() > 0);
+
+        // A note whose first lines are blank keeps at least the sign that there
+        // is more (a card with no line at all reads as an empty note).
+        bool blankElided = false;
+        const QStringList blank = widgets::noteLines(QStringLiteral("\n\n\nabc"), font, width, 2, &blankElided);
+        QVERIFY(!blank.isEmpty());
+        QVERIFY(blankElided);
+    }
+
+    // Session 83: a pasted wall of text is in the document before anything else
+    // happens; typing still waits for a pause.
+    void aPasteIsSavedAtOnceAndTypingWaits()
+    {
+        QString saved;
+        int saves = 0;
+        NoteEditor editor(QString(), [&](const QString& text) {
+            saved = text;
+            ++saves;
+        }, [] {});
+        QVERIFY(saved.isEmpty());
+
+        // Typing: one character does not write yet.
+        QTest::keyClicks(&editor, QStringLiteral("a"));
+        QCOMPARE(saves, 0);
+        // A paste (here: the same thing a paste does, a whole block at once)
+        // goes to the document immediately.
+        const QString pasted = QString(5000, QLatin1Char('p'));
+        editor.setPlainText(pasted);
+        QCOMPARE(saves, 1);
+        QCOMPARE(saved, pasted);
+        QVERIFY(editor.savedTextIsCurrent());
+
+        // Clearing a note that big is just as large a change.
+        editor.setPlainText(QString());
+        QCOMPARE(saves, 2);
+        QVERIFY(saved.isEmpty());
+        QVERIFY(editor.savedTextIsCurrent());
+    }
+
     // The editor saves while it is typed, and only when something changed.
     void theEditorSavesOnDemand()
     {

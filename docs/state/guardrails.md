@@ -7,7 +7,7 @@
 |---|---|
 | [Contraintes, stack et périmètre](./guardrails/01-contraintes.md) | 3 |
 | [Plateforme Windows : reparentage, layered, Shell](./guardrails/02-windows-plateforme.md) | 6 |
-| [Rendu : surface, layered par pixel, matériaux, cadence](./guardrails/03-rendu.md) | 10 |
+| [Rendu : surface, layered par pixel, matériaux, cadence](./guardrails/03-rendu.md) | 11 |
 | [Layout, persistance et snapshots](./guardrails/04-layout-persistance.md) | 9 |
 | [Navigation, gestes et édition manuelle](./guardrails/05-navigation-gestes.md) | 13 |
 | [Règles et portails](./guardrails/06-regles-portails.md) | 10 |

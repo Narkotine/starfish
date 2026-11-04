@@ -17,7 +17,16 @@ NoteEditor::NoteEditor(const QString& text, std::function<void(const QString&)> 
     m_timer.setSingleShot(true);
     m_timer.setInterval(kSaveDelayMs);
     connect(&m_timer, &QTimer::timeout, this, [this] { flush(); });
-    connect(this, &QPlainTextEdit::textChanged, this, [this] { m_timer.start(); });
+    // Session 83: typing waits for a pause (one write per pause, not per
+    // keystroke); a *paste* is written now. The user pasted a wall of text into a
+    // note, the app went down before the debounce got its turn, and the text was
+    // gone at the next launch -- the document must have it the moment it lands.
+    connect(this, &QPlainTextEdit::textChanged, this, [this] {
+        if (qAbs(int(document()->characterCount()) - int(m_saved.size())) >= kPasteChars)
+            flush();
+        else
+            m_timer.start();
+    });
 }
 
 bool NoteEditor::flush()

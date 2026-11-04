@@ -238,11 +238,69 @@ QStringList noteLines(const QString& text, const QFont& font, int width, int max
     if (text.isEmpty() || width <= 0 || maxLines <= 0)
         return out;
     const QFontMetrics metrics(font);
+    // Session 83: only the lines the card can show are ever built. A pasted wall
+    // of text used to be wrapped in full on *every* repaint of the fence -- and
+    // an over-wide word was cut by measuring every one of its prefixes, which is
+    // quadratic: 2 000 characters in one run measured 22 s, 20 000 never
+    // finished. The paint runs on the UI thread while the user types, so the
+    // product froze (and the note was never saved: the auto-save never got its
+    // turn). Stopping at `maxLines` makes a huge note cost exactly what a short
+    // one does, and the ellipsis says the rest is still there and still saved.
+    bool more = false;
+
+    // Does `word` certainly stick out of `width`? Measured on a *bounded window*
+    // of characters, never on the whole run: shaping a 100 000-character string
+    // to answer "does it fit" is what cost a second per repaint.
+    const auto tooWide = [&metrics, width](const QString& word) {
+        const int size = int(word.size());
+        int window = qBound(64, width, 4096); // characters probed at once
+        while (window < size) {
+            if (metrics.horizontalAdvance(word.left(window)) > width)
+                return true;
+            window *= 4; // only narrow characters (a wall of 'i') get this far
+        }
+        return metrics.horizontalAdvance(word) > width;
+    };
+
+    // How many characters of `word` fit `width`, by bisection over the prefixes
+    // that can possibly fit: measuring every prefix is the quadratic scan that
+    // froze the product.
+    const auto fittingPrefix = [&metrics, width](const QString& word) {
+        const auto fits = [&](int count) { return metrics.horizontalAdvance(word.left(count)) <= width; };
+        const int size = int(word.size());
+        int lo = 0;  // known to fit
+        int hi = 1;  // first prefix that does not
+        while (hi < size && fits(hi)) {
+            lo = hi;
+            hi *= 2;
+        }
+        if (hi > size)
+            hi = size;
+        if (lo == 0 && !fits(1))
+            return 1; // not even one character fits: cut one anyway, so it ends
+        while (lo + 1 < hi) {
+            const int mid = lo + (hi - lo) / 2;
+            if (fits(mid))
+                lo = mid;
+            else
+                hi = mid;
+        }
+        return qBound(1, lo, qMax(1, size - 1)); // never 0, never all of it
+    };
+
     // The user's own line breaks are kept: a note is written, not re-flowed
     // away. Each paragraph is then wrapped on spaces, and a word wider than the
     // card is cut by characters instead of sticking out of it.
     const QStringList paragraphs = text.split(QLatin1Char('\n'));
     for (const QString& paragraph : paragraphs) {
+        if (out.size() >= maxLines) {
+            // A blank paragraph has nothing to add to a card that is already
+            // full: it is only the text that would have shown that is "more".
+            if (paragraph.trimmed().isEmpty())
+                continue;
+            more = true;
+            break;
+        }
         if (paragraph.trimmed().isEmpty()) {
             out << QString();
             continue;
@@ -251,35 +309,50 @@ QStringList noteLines(const QString& text, const QFont& font, int width, int max
         const QStringList words = paragraph.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (const QString& word : words) {
             const QString candidate = line.isEmpty() ? word : line + QLatin1Char(' ') + word;
-            if (metrics.horizontalAdvance(candidate) <= width) {
+            if (!tooWide(candidate)) {
                 line = candidate;
                 continue;
             }
             if (!line.isEmpty()) {
                 out << line;
                 line.clear();
+                if (out.size() >= maxLines) {
+                    more = true; // this word and everything after it is left over
+                    break;
+                }
             }
             QString rest = word;
-            while (metrics.horizontalAdvance(rest) > width && rest.size() > 1) {
-                int cut = rest.size() - 1;
-                while (cut > 1 && metrics.horizontalAdvance(rest.left(cut)) > width)
-                    --cut;
+            while (rest.size() > 1 && tooWide(rest)) {
+                const int cut = fittingPrefix(rest);
+                const bool roomLeft = out.size() + 1 < maxLines;
                 out << rest.left(cut);
                 rest = rest.mid(cut);
+                if (!roomLeft) {
+                    more = !rest.isEmpty();
+                    break;
+                }
             }
+            if (more)
+                break;
             line = rest;
         }
+        if (more)
+            break;
         out << line;
     }
     while (!out.isEmpty() && out.last().isEmpty())
         out.removeLast();
-    if (out.size() > maxLines) {
+    if (more || out.size() > maxLines) {
         out = out.mid(0, maxLines);
         if (elided)
             *elided = true;
         // The last line that fits says there was more, rather than the card
-        // ending mid-sentence with no sign of it.
-        out.last() = metrics.elidedText(out.last() + QChar(0x2026), Qt::ElideRight, width);
+        // ending mid-sentence with no sign of it. (A note whose first lines are
+        // blank keeps nothing at all: one ellipsis line beats an empty card.)
+        if (out.isEmpty())
+            out << metrics.elidedText(QString(QChar(0x2026)), Qt::ElideRight, width);
+        else
+            out.last() = metrics.elidedText(out.last() + QChar(0x2026), Qt::ElideRight, width);
     }
     return out;
 }

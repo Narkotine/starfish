@@ -120,6 +120,9 @@ private slots:
     void jsonAcceptsADocumentWithoutRules();
     // T-098 -- a fence's own transparency, or the default.
     void defaultOpacityRoundTripsAndMigrates();
+    // Session 83 -- a note's text is the document's, whatever its size: the card
+    // only wraps what it can show, it never shortens what is kept.
+    void aWidgetsLongTextRoundTripsWhole();
 };
 
 void TestLayoutStore::jsonRoundTripsEveryField()
@@ -478,6 +481,36 @@ void TestLayoutStore::defaultOpacityRoundTripsAndMigrates()
     QCOMPARE(parsed->fences.at(0).style.defaultOpacity, false);
     QCOMPARE(parsed->fences.at(1).style.defaultOpacity, true);
     QCOMPARE(FenceStyle().defaultOpacity, true);
+}
+
+// Session 83: the user pasted a wall of text into a Notes widget; the paint
+// froze the app and the note came back empty. What the card *draws* is now
+// bounded by its cell -- what the document *keeps* must not be: a note written
+// once has to be there on the next launch, whole, whatever its length.
+void TestLayoutStore::aWidgetsLongTextRoundTripsWhole()
+{
+    Layout layout;
+    Fence fence = makeFence(QStringLiteral("fence-notes"), QStringLiteral("Notes"), QRect(0, 0, 400, 300));
+    fence.items.clear();
+    FenceItem note{QStringLiteral("widget"), QStringLiteral("widget:0f8c1d2e-notes")};
+    note.widgetType = QStringLiteral("notes");
+    note.span = QSize(2, 2);
+    QString text;
+    for (int i = 0; i < 4000; ++i)
+        text += QStringLiteral("ligne %1 d'un texte colle qui depasse la carte\n").arg(i);
+    text += QString(20000, QLatin1Char('x')); // one long run, no space to wrap on
+    note.widgetSettings.insert(QStringLiteral("text"), text);
+    fence.items.append(note);
+    layout.fences.append(fence);
+
+    const auto parsed = JsonStore::fromJson(JsonStore::toJson(layout));
+    QVERIFY(parsed.has_value());
+    QCOMPARE(parsed->fences.size(), 1);
+    QCOMPARE(parsed->fences.at(0).items.size(), 1);
+    const FenceItem& back = parsed->fences.at(0).items.at(0);
+    QCOMPARE(back.widgetType, QStringLiteral("notes"));
+    QCOMPARE(back.span, QSize(2, 2));
+    QCOMPARE(back.widgetSettings.value(QStringLiteral("text")).toString(), text);
 }
 
 QTEST_MAIN(TestLayoutStore)
