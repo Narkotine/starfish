@@ -5,11 +5,11 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 83 (2026-11-04) - **texte long dans une note** : le dessin ne met plus en page que les lignes que la carte peut montrer (`noteLines`) et un **collage** (≥ 200 caractères d'un coup) part au document **tout de suite**. Mesuré : 200 000 caractères en un seul mot → **1 ms** (avant : 2 000 = **22 s**, 20 000 = jamais fini, fil bloqué, sauvegarde jamais atteinte). `ctest` **20/20**, `--product-probe` **38/38**, `--ui-probe` hors écran **76/76**, i18n **322**. **T-143** ✅.
+- **Dernière session de code livrée :** 84 (2026-11-06) - **CI MSVC** : `objbase.h` + `oleauto.h` avant `exdisp.h` dans `desktop_shell_view.cpp` (`WIN32_LEAN_AND_MEAN` laissait `IDispatch` hors scope → erreur « IWebBrowser »). MinGW inchangé. Notes (81+83) et menu (82) déjà au niveau horloge ; rien à polir ici. `ctest` **20/20** ×2, `--ui-probe` **76/76**.
 - **ADR-21 (session 58) : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. Lots 1-4 livrés (T-089 → T-092) ; restent des validations humaines (deux écrans, vrai redémarrage d'Explorer, vraie souris).
 - **Sessions 59-82 (récits dans `devlog/`) :** apps empaquetées, icône, Réglages + éditeur du menu, `--quit` (59-61) · « Démarrer avec Windows », image de glisser (62) · rectangle fluide, zone translucide composée (T-098), curseurs, superposition cohérente (63-64) · liste de l'utilisateur, menus, Apparence…, curseurs, langue, aperçu du tracé (65) · apparence, `crash.log`, barre de titre 4 côtés, onglet, survols, double-clic bureau, contour uniforme, modèles (66-70) · grain sous les icônes, déroulé au survol, largeur stable, suppr, enroulement, renommage, raccourcis conservés, lancement shell, noms, +N, splash, horloge (71-79) · barre d'insertion, grille du bureau, témoin des moteurs (80) · **widget Notes** (81) · menu clic droit : aperçu gardé, 33 icônes, entrées prêtes à l'emploi (82).
-- **Dernière mise à jour :** 2026-11-04 (session 83)
-- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé jusqu'à la session 80 (`2fcc7cd`) ; sessions 81-83 **locales**.
+- **Dernière mise à jour :** 2026-11-06 (session 84)
+- **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**privé**) ; poussé jusqu'à la session 80 (`2fcc7cd`) ; sessions 81-84 **locales** (notes, menu, wrap, CI include).
 
 ## 3 prochaines actions
 
