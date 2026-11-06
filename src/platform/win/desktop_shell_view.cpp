@@ -13,6 +13,13 @@
 #endif
 #include <windows.h>
 
+// WIN32_LEAN_AND_MEAN leaves OLE out of windows.h. MSVC's exdisp.h needs
+// IDispatch / IUnknown before IWebBrowser (CI failed with "missing ';' before
+// IWebBrowser"); MinGW was fine. objbase + oleauto restore what LEAN_AND_MEAN
+// stripped, without dropping LEAN_AND_MEAN itself.
+#include <objbase.h>
+#include <oleauto.h>
+
 #include <shellapi.h> // SEE_MASK_* behind CMIC_MASK_* (left out by WIN32_LEAN_AND_MEAN)
 #include <commctrl.h> // SetWindowSubclass
 #include <exdisp.h>   // IShellWindows
