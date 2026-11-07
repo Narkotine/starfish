@@ -1,4 +1,8 @@
+#include <algorithm>
 #include "core/layout_store.hpp"
+#include <QFile>
+#include <QRegularExpression>
+#include <QDateTime>
 
 #include <QDir>
 #include <QFileInfo>
@@ -46,6 +50,9 @@ void LayoutStore::setDebounceInterval(int ms)
 
 bool LayoutStore::load(QString* error)
 {
+    m_readOnly = false;
+    m_readOnlyReason.clear();
+    m_recoveredFrom.clear();
     if (!QFileInfo::exists(m_filePath)) {
         // First run: an empty layout is the correct state, not a failure.
         qCInfo(lc).noquote()
@@ -54,26 +61,130 @@ bool LayoutStore::load(QString* error)
         return true;
     }
 
+    QFile file(m_filePath);
     QString localError;
-    const auto loaded = JsonStore::load(m_filePath, &localError);
-    if (!loaded) {
-        // The current layout is kept on purpose: refusing to load is a
-        // recoverable state, wiping the user's fences is not.
-        if (error)
-            *error = localError;
-        qCWarning(lc).noquote()
-            << QStringLiteral("could not load %1: %2 (layout kept as is)")
-                   .arg(m_filePath, localError);
-        return false;
+    if (!file.open(QIODevice::ReadOnly)) {
+        localError = file.errorString();
+    } else {
+        const QByteArray data = file.readAll();
+        file.close();
+        if (loadFromBytes(data, &localError)) {
+            emit layoutLoaded(m_layout);
+            return true;
+        }
     }
 
+    // Session 85: the file is broken. Its copy goes to the backups (never
+    // deleted), then the newest backup that still reads is used -- and saved
+    // over the broken file at the next write.
+    const QString broken = backupNow(QStringLiteral("corrupt"));
+    for (const QString& candidate : backups()) {
+        if (candidate == broken || candidate.contains(QLatin1String(".corrupt.")))
+            continue;
+        QFile backup(candidate);
+        if (!backup.open(QIODevice::ReadOnly))
+            continue;
+        QString ignored;
+        if (loadFromBytes(backup.readAll(), &ignored) && !m_readOnly) {
+            m_recoveredFrom = candidate;
+            m_dirty = true;
+            qCWarning(lc).noquote() << QStringLiteral("%1 unreadable (%2): recovered from %3")
+                                           .arg(m_filePath, localError, candidate);
+            emit layoutLoaded(m_layout);
+            return true;
+        }
+    }
+    // Nothing to recover from: keep the layout, and never write over the file.
+    m_readOnly = true;
+    m_readOnlyReason = QStringLiteral("unreadable document, no usable backup: %1").arg(localError);
+    if (error)
+        *error = localError;
+    qCWarning(lc).noquote()
+        << QStringLiteral("could not load %1: %2 (layout kept, file protected)").arg(m_filePath, localError);
+    return false;
+}
+
+bool LayoutStore::loadFromBytes(const QByteArray& data, QString* error)
+{
+    const JsonStore::Info info = JsonStore::peek(data, error);
+    if (!info.valid)
+        return false;
+    if (info.schema > JsonStore::kCurrentSchema) {
+        // A newer StarFish wrote it: show what this build understands, write nothing.
+        m_readOnly = true;
+        m_readOnlyReason = QStringLiteral("written by a newer StarFish (schema %1, %2)")
+                               .arg(info.schema)
+                               .arg(info.writtenBy.isEmpty() ? QStringLiteral("?") : info.writtenBy);
+    } else if (info.schema >= 1 && info.schema < JsonStore::kCurrentSchema) {
+        backupNow(QStringLiteral("pre-migration"));
+    } else if (!m_appVersion.isEmpty() && info.writtenBy != m_appVersion) {
+        // Another version wrote it last (an update, a downgrade, or the first
+        // run of a build that stamps): keep that state before touching it.
+        backupNow(info.writtenBy.isEmpty() ? QStringLiteral("unversioned")
+                                           : QStringLiteral("from-") + info.writtenBy);
+    }
+    const auto loaded = JsonStore::fromJson(data, error);
+    if (!loaded)
+        return false;
     m_layout = *loaded;
+    m_raw = info.root;
     m_fingerprint = JsonStore::toJson(m_layout);
     m_dirty = false;
-    qCInfo(lc).noquote()
-        << QStringLiteral("loaded %1 fence(s) from %2").arg(m_layout.fences.size()).arg(m_filePath);
-    emit layoutLoaded(m_layout);
+    qCInfo(lc).noquote() << QStringLiteral("loaded %1 fence(s) from %2%3")
+                                .arg(m_layout.fences.size())
+                                .arg(m_filePath, m_readOnly ? QStringLiteral(" (read-only: ") + m_readOnlyReason + QLatin1Char(')') : QString());
     return true;
+}
+
+QString LayoutStore::backupDir() const
+{
+    return QFileInfo(m_filePath).absolutePath() + QStringLiteral("/backups");
+}
+
+QStringList LayoutStore::backups() const
+{
+    QDir dir(backupDir());
+    // Newest first by the timestamp in the name: a copy keeps the source's
+    // mtime, so file times cannot order backups.
+    static const QRegularExpression stamp(QStringLiteral("\\.(\\d{8}-\\d{6}-\\d{3})\\."));
+    QList<QPair<QString, QString>> keyed;
+    for (const QFileInfo& fi : dir.entryInfoList({QStringLiteral("layout.*.bak.json")}, QDir::Files)) {
+        const auto m = stamp.match(fi.fileName());
+        keyed.append({m.hasMatch() ? m.captured(1) : QString(), fi.absoluteFilePath()});
+    }
+    std::sort(keyed.begin(), keyed.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    QStringList list;
+    for (const auto& k : keyed)
+        list << k.second;
+    return list;
+}
+
+QString LayoutStore::backupNow(const QString& reason)
+{
+    if (!QFileInfo::exists(m_filePath))
+        return {};
+    QDir().mkpath(backupDir());
+    QFile file(m_filePath);
+    int schema = 0;
+    if (file.open(QIODevice::ReadOnly))
+        schema = JsonStore::peek(file.readAll()).schema;
+    file.close();
+    QString safeReason = reason;
+    safeReason.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
+    const QString target = QStringLiteral("%1/layout.v%2.%3.%4.bak.json")
+                               .arg(backupDir())
+                               .arg(schema)
+                               .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz")), safeReason);
+    if (!QFile::copy(m_filePath, target)) {
+        qCWarning(lc).noquote() << QStringLiteral("could not back %1 up to %2").arg(m_filePath, target);
+        return {};
+    }
+    // Keep the newest kMaxBackups; a broken file's copy counts like the rest.
+    const QStringList all = backups();
+    for (int i = kMaxBackups; i < all.size(); ++i)
+        QFile::remove(all.at(i));
+    qCInfo(lc).noquote() << QStringLiteral("backed up %1 (%2)").arg(target, reason);
+    return target;
 }
 
 bool LayoutStore::setLayout(const Layout& layout)
@@ -111,7 +222,17 @@ bool LayoutStore::saveNow(QString* error)
     }
 
     QString localError;
-    if (!JsonStore::save(m_layout, m_filePath, &localError)) {
+    if (m_readOnly) {
+        // Session 85: a newer StarFish's document, or a broken one: kept as it is.
+        localError = QStringLiteral("not written: ") + m_readOnlyReason;
+        if (error)
+            *error = localError;
+        qCWarning(lc).noquote() << QStringLiteral("%1 %2").arg(m_filePath, localError);
+        emit saveFailed(m_filePath, localError);
+        return false;
+    }
+    const QByteArray payload = JsonStore::toJsonPreserving(m_layout, m_raw, m_appVersion);
+    if (!JsonStore::saveBytes(payload, m_filePath, &localError)) {
         if (error)
             *error = localError;
         // Stays dirty: the next change (or an explicit save) retries.
@@ -122,6 +243,7 @@ bool LayoutStore::saveNow(QString* error)
     }
 
     m_dirty = false;
+    m_raw = JsonStore::peek(payload).root;
     qCInfo(lc).noquote()
         << QStringLiteral("saved %1 fence(s) to %2").arg(m_layout.fences.size()).arg(m_filePath);
     emit saved(m_filePath);

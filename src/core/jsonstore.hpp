@@ -119,6 +119,10 @@ struct Fence {
 
 // Versioned layout document (docs/technique.md ADR-5 / section 5).
 struct Layout {
+    // Session 85: the document's format version. Bumped only for a change an
+    // older StarFish could misread; additions with a default stay at the same
+    // schema (see docs/mises-a-jour.md). JsonStore::kCurrentSchema is the one
+    // this build writes.
     int schema = 1;
     QList<Fence> fences;
     // Automation rules (T-010, F-017). They belong to the document rather than
@@ -130,6 +134,33 @@ struct Layout {
 class JsonStore
 {
 public:
+    static constexpr int kCurrentSchema = 1;
+
+    // Session 85: what a document says about itself, read without parsing it
+    // into a Layout. `valid` is false for something that is not a JSON object.
+    struct Info {
+        bool valid = false;
+        int schema = 0;
+        QString writtenBy; // the StarFish version that last wrote it ("" before s85)
+        QJsonObject root;
+    };
+    static Info peek(const QByteArray& data, QString* error = nullptr);
+
+    // Brings `root` from schema `from` up to kCurrentSchema, one step at a time
+    // (each step is a pure function of the JSON). False with an error when a
+    // step is missing or fails -- the caller then keeps the file untouched.
+    static bool migrate(QJsonObject& root, int from, QString* error = nullptr);
+
+    // The document for `layout`, carrying over every key `previous` (the file
+    // as read) holds that this build does not know -- at the root, per fence
+    // (matched by id), its style, per tile (matched by path), its widget
+    // object, per rule. A newer StarFish's additions survive an older one's
+    // write. `writtenBy` stamps the version.
+    static QByteArray toJsonPreserving(const Layout& layout, const QJsonObject& previous,
+                                       const QString& writtenBy);
+    // Atomic write (QSaveFile: temp file then rename) of ready bytes.
+    static bool saveBytes(const QByteArray& payload, const QString& filePath, QString* error = nullptr);
+
     // Serialises a layout to the on-disk document. Deterministic (QJsonObject
     // sorts its keys), so the bytes can be compared to tell whether two layouts
     // are identical -- LayoutStore relies on that to skip pointless writes.

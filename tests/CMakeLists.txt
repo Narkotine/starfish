@@ -297,3 +297,13 @@ target_include_directories(test_starfish_fence_widgets PRIVATE
 target_link_libraries(test_starfish_fence_widgets PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
 
 add_test(NAME ui_fence_widgets COMMAND test_starfish_fence_widgets)
+
+# Session 85: the layout across versions (backups, newer documents, unknown keys).
+add_executable(test_starfish_layout_safety
+    test_layout_safety.cpp
+    ../src/core/jsonstore.cpp
+    ../src/core/layout_store.cpp
+)
+target_include_directories(test_starfish_layout_safety PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_layout_safety PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME core_layout_safety COMMAND test_starfish_layout_safety)

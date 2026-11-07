@@ -68,6 +68,24 @@ public:
     bool saveNow(QString* error = nullptr);
 
     bool isDirty() const { return m_dirty; }
+
+    // --- session 85: safe across versions ----------------------------------
+    // The version this build stamps into the document ("writtenBy"); a file
+    // last written by another version is backed up before anything is changed.
+    void setAppVersion(const QString& version) { m_appVersion = version; }
+    // Read-only: the file came from a newer StarFish, or is broken with no good
+    // backup. Nothing is ever written over it then (saveNow fails, says why).
+    bool isReadOnly() const { return m_readOnly; }
+    QString readOnlyReason() const { return m_readOnlyReason; }
+    // Set by load() when the file was broken and a backup was used instead.
+    QString recoveredFrom() const { return m_recoveredFrom; }
+    // <dir of the document>/backups; the newest kMaxBackups are kept.
+    static constexpr int kMaxBackups = 10;
+    QString backupDir() const;
+    // Copies the current file to backups/layout.v<schema>.<yyyyMMdd-HHmmss-zzz>.<reason>.bak.json
+    // and prunes the oldest. Returns the copy's path ("" when there was no file).
+    QString backupNow(const QString& reason);
+    QStringList backups() const; // newest first
     bool hasPendingSave() const { return m_timer.isActive(); }
 
 signals:
@@ -84,6 +102,12 @@ private:
     QTimer m_timer;
     int m_debounceMs = kDefaultDebounceMs;
     bool m_dirty = false;
+    QJsonObject m_raw; // the document as last read / written (unknown keys live here)
+    QString m_appVersion;
+    bool m_readOnly = false;
+    QString m_readOnlyReason;
+    QString m_recoveredFrom;
+    bool loadFromBytes(const QByteArray& data, QString* error);
 };
 
 } // namespace starfish::core

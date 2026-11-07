@@ -1,5 +1,8 @@
 #include "core/jsonstore.hpp"
 
+#include <functional>
+#include <QHash>
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -258,12 +261,18 @@ std::optional<Layout> JsonStore::fromJson(const QByteArray& data, QString* error
             *error = parseError.errorString();
         return std::nullopt;
     }
-    const auto root = doc.object();
-    if (root["schema"].toInt() != Layout{}.schema) {
+    QJsonObject root = doc.object();
+    const int schema = root["schema"].toInt();
+    if (schema < 1) {
         if (error)
-            *error = QStringLiteral("unsupported schema: %1").arg(root["schema"].toInt());
+            *error = QStringLiteral("unsupported schema: %1").arg(schema);
         return std::nullopt;
     }
+    // Session 85: an older document is migrated in memory (LayoutStore backs
+    // the file up first); a newer one is read as far as this build understands
+    // it -- LayoutStore then refuses to write over it.
+    if (schema < kCurrentSchema && !migrate(root, schema, error))
+        return std::nullopt;
 
     Layout layout;
     for (const auto& v : root["fences"].toArray())
@@ -275,9 +284,140 @@ std::optional<Layout> JsonStore::fromJson(const QByteArray& data, QString* error
     return layout;
 }
 
+JsonStore::Info JsonStore::peek(const QByteArray& data, QString* error)
+{
+    Info info;
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error)
+            *error = parseError.error != QJsonParseError::NoError ? parseError.errorString()
+                                                                  : QStringLiteral("not a JSON object");
+        return info;
+    }
+    info.valid = true;
+    info.root = doc.object();
+    info.schema = info.root["schema"].toInt();
+    info.writtenBy = info.root["writtenBy"].toString();
+    return info;
+}
+
+bool JsonStore::migrate(QJsonObject& root, int from, QString* error)
+{
+    // One entry per step: steps[n - 1] takes schema n to n + 1. Empty while the
+    // only schema is 1 -- the pipeline (backup, step, re-check) is what exists.
+    static const QList<std::function<bool(QJsonObject&)>> steps{};
+    for (int schema = from; schema < kCurrentSchema; ++schema) {
+        if (schema < 1 || schema - 1 >= steps.size() || !steps.at(schema - 1)(root)) {
+            if (error)
+                *error = QStringLiteral("no migration from schema %1").arg(schema);
+            return false;
+        }
+        root["schema"] = schema + 1;
+    }
+    return true;
+}
+
+namespace {
+
+// The keys this build writes, level by level. A key in a previous document
+// that is not listed here belongs to someone else (a newer StarFish) and is
+// carried over; a listed key is always this build's to write or to omit.
+const QStringList kRootKeys{"schema", "fences", "rules", "writtenBy"};
+const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", "sortAscending", "rolledUp", "items"};
+const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap", "titleBar", "iconTint",
+                             "fadeIcons", "titleBarColor", "defaultOpacity", "borderWidth", "borderColor",
+                             "cellWidth", "effect", "titleAlign", "titleSide", "titleBarShape", "hoverEffect",
+                             "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow"};
+const QStringList kItemKeys{"kind", "path", "fileId", "target", "widget"};
+const QStringList kWidgetKeys{"type", "span", "settings"};
+const QStringList kRuleKeys{"id", "name", "match", "targetFence", "moveFiles"};
+const QStringList kMatchKeys{"type", "name", "newerThanDays", "olderThanDays"};
+
+void keepUnknown(QJsonObject& into, const QJsonObject& previous, const QStringList& known)
+{
+    for (auto it = previous.constBegin(); it != previous.constEnd(); ++it) {
+        if (!known.contains(it.key()) && !into.contains(it.key()))
+            into.insert(it.key(), it.value());
+    }
+}
+
+QHash<QString, QJsonObject> byKey(const QJsonArray& array, const char* key)
+{
+    QHash<QString, QJsonObject> map;
+    for (const QJsonValue& v : array) {
+        const QJsonObject o = v.toObject();
+        const QString k = o[QLatin1String(key)].toString();
+        if (!k.isEmpty() && !map.contains(k))
+            map.insert(k, o);
+    }
+    return map;
+}
+
+} // namespace
+
+QByteArray JsonStore::toJsonPreserving(const Layout& layout, const QJsonObject& previous, const QString& writtenBy)
+{
+    QJsonObject root = QJsonDocument::fromJson(toJson(layout)).object();
+    if (!writtenBy.isEmpty())
+        root["writtenBy"] = writtenBy;
+    if (!previous.isEmpty()) {
+        keepUnknown(root, previous, kRootKeys);
+        const auto oldFences = byKey(previous["fences"].toArray(), "id");
+        QJsonArray fences;
+        for (const QJsonValue& v : root["fences"].toArray()) {
+            QJsonObject fence = v.toObject();
+            const QJsonObject old = oldFences.value(fence["id"].toString());
+            if (!old.isEmpty()) {
+                keepUnknown(fence, old, kFenceKeys);
+                QJsonObject style = fence["style"].toObject();
+                keepUnknown(style, old["style"].toObject(), kStyleKeys);
+                fence["style"] = style;
+                const auto oldItems = byKey(old["items"].toArray(), "path");
+                QJsonArray items;
+                for (const QJsonValue& iv : fence["items"].toArray()) {
+                    QJsonObject item = iv.toObject();
+                    const QJsonObject oldItem = oldItems.value(item["path"].toString());
+                    if (!oldItem.isEmpty()) {
+                        keepUnknown(item, oldItem, kItemKeys);
+                        if (item.contains("widget") && oldItem.contains("widget")) {
+                            QJsonObject widget = item["widget"].toObject();
+                            keepUnknown(widget, oldItem["widget"].toObject(), kWidgetKeys);
+                            item["widget"] = widget;
+                        }
+                    }
+                    items.append(item);
+                }
+                fence["items"] = items;
+            }
+            fences.append(fence);
+        }
+        root["fences"] = fences;
+        const auto oldRules = byKey(previous["rules"].toArray(), "id");
+        QJsonArray rules;
+        for (const QJsonValue& v : root["rules"].toArray()) {
+            QJsonObject rule = v.toObject();
+            const QJsonObject old = oldRules.value(rule["id"].toString());
+            if (!old.isEmpty()) {
+                keepUnknown(rule, old, kRuleKeys);
+                QJsonObject match = rule["match"].toObject();
+                keepUnknown(match, old["match"].toObject(), kMatchKeys);
+                rule["match"] = match;
+            }
+            rules.append(rule);
+        }
+        root["rules"] = rules;
+    }
+    return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
+
 bool JsonStore::save(const Layout& layout, const QString& filePath, QString* error)
 {
-    const QByteArray payload = toJson(layout);
+    return saveBytes(toJson(layout), filePath, error);
+}
+
+bool JsonStore::saveBytes(const QByteArray& payload, const QString& filePath, QString* error)
+{
 
     // The layout lives in %APPDATA%/StarFish/, which does not exist on a fresh
     // profile: create it rather than failing the very first save.

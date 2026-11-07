@@ -221,6 +221,7 @@ bool ProductApp::start(const Options& options, QString* error)
 
     // --- the document ------------------------------------------------------
     m_store = new core::LayoutStore(this);
+    m_store->setAppVersion(QCoreApplication::applicationVersion()); // session 85: "writtenBy", backups on change
     if (!m_options.layoutPath.isEmpty())
         m_store->setFilePath(m_options.layoutPath);
     // Session 75: next to the document (a probe's own document, its own copies).
@@ -421,6 +422,10 @@ void ProductApp::applyDocument()
         // layout is kept: never replace a user's layout with nothing.
         qCWarning(lc).noquote() << "document refused, starting empty:" << loadError;
     }
+    if (m_store->isReadOnly())
+        qCWarning(lc).noquote() << "layout.json is protected, nothing will be written:" << m_store->readOnlyReason();
+    if (!m_store->recoveredFrom().isEmpty())
+        qCWarning(lc).noquote() << "layout.json was unreadable, recovered from" << m_store->recoveredFrom();
 
     QString applyError;
     if (!m_container->applyLayout(m_store->layout(), &applyError)) {

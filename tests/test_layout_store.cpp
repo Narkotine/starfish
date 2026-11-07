@@ -243,7 +243,9 @@ void TestLayoutStore::anEmptyTitleBarColourWritesNoKey()
 void TestLayoutStore::jsonRejectsAnotherSchema()
 {
     QByteArray payload = JsonStore::toJson(makeLayout());
-    payload.replace(QByteArrayLiteral("\"schema\": 1"), QByteArrayLiteral("\"schema\": 7"));
+    // Session 85: a *newer* schema is read (LayoutStore protects the file, see
+    // test_layout_safety); a document with no valid schema is still refused.
+    payload.replace(QByteArrayLiteral("\"schema\": 1"), QByteArrayLiteral("\"schema\": 0"));
 
     QString error;
     QVERIFY(!JsonStore::fromJson(payload, &error).has_value());
