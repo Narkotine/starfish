@@ -1,4 +1,9 @@
 #pragma once
 
-// Version string injected by CMake (see src/version.h.in).
+// Version injected by CMake from project(StarFish VERSION ...) -- the single
+// source of truth (session 85): About, the exe's VERSIONINFO, the installer and
+// the update check all read it from here.
 #define STARFISH_VERSION "@PROJECT_VERSION@"
+#define STARFISH_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define STARFISH_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define STARFISH_VERSION_PATCH @PROJECT_VERSION_PATCH@
