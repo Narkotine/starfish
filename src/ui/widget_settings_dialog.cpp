@@ -3,7 +3,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
+#include <QImageReader>
+#include <QPushButton>
+#include <QStandardPaths>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,7 +22,19 @@ namespace starfish::ui {
 
 bool WidgetSettingsDialog::hasOptions(const QString& type)
 {
-    return type == QLatin1String("clock") || core::isSystemWidgetType(type);
+    return type == QLatin1String("clock") || type == QLatin1String("image") || core::isSystemWidgetType(type);
+}
+
+QString WidgetSettingsDialog::chooseImage(QWidget* parent, const QString& current)
+{
+    QStringList patterns;
+    for (const QByteArray& format : QImageReader::supportedImageFormats())
+        patterns << QStringLiteral("*.") + QString::fromLatin1(format);
+    const QString start = current.isEmpty()
+                              ? QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+                              : QFileInfo(current).absolutePath();
+    return QFileDialog::getOpenFileName(parent, tr("Choose an image"), start,
+                                        tr("Images (%1)").arg(patterns.join(QLatin1Char(' '))));
 }
 
 WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWidget* parent)
@@ -40,7 +57,31 @@ WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWid
     form->addRow(tr("Size (cells)"), m_size);
 
     const QVariantMap& settings = widget.widgetSettings;
-    if (widget.widgetType == QLatin1String("clock")) {
+    if (widget.widgetType == QLatin1String("image")) { // session 95
+        m_imagePath = widgets::imagePath(widget);
+        auto* row = new QHBoxLayout;
+        m_imageLabel = new QLabel(this);
+        m_imageLabel->setObjectName(QStringLiteral("imagePath"));
+        m_imageLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        auto* browse = new QPushButton(tr("Browse..."), this);
+        browse->setObjectName(QStringLiteral("imageBrowse"));
+        row->addWidget(m_imageLabel, 1);
+        row->addWidget(browse);
+        form->addRow(tr("Image"), row);
+        connect(browse, &QPushButton::clicked, this, [this] {
+            const QString chosen = chooseImage(this, m_imagePath);
+            if (!chosen.isEmpty()) {
+                m_imagePath = chosen;
+                updateEnabled();
+            }
+        });
+        m_fit = new QComboBox(this);
+        m_fit->setObjectName(QStringLiteral("fit"));
+        m_fit->addItem(tr("Fit (whole picture)"), QStringLiteral("fit"));
+        m_fit->addItem(tr("Fill (cropped)"), QStringLiteral("fill"));
+        m_fit->setCurrentIndex(widgets::imageFills(widget) ? 1 : 0);
+        form->addRow(tr("Display"), m_fit);
+    } else if (widget.widgetType == QLatin1String("clock")) {
         m_seconds = new QCheckBox(tr("Show seconds"), this);
         m_seconds->setChecked(settings.value(QStringLiteral("seconds")).toBool());
         m_date = new QCheckBox(tr("Show the date"), this);
@@ -121,8 +162,18 @@ WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWid
     updateEnabled();
 }
 
+void WidgetSettingsDialog::setImagePath(const QString& path)
+{
+    m_imagePath = path;
+    updateEnabled();
+}
+
 void WidgetSettingsDialog::updateEnabled()
 {
+    if (m_imageLabel) {
+        m_imageLabel->setText(m_imagePath.isEmpty() ? tr("(none)") : QFileInfo(m_imagePath).fileName());
+        m_imageLabel->setToolTip(m_imagePath);
+    }
     if (m_history && m_mode) {
         const bool graph = m_mode->currentData().toInt() == int(core::MetricSettings::Mode::Graph);
         m_history->setEnabled(graph);
@@ -140,6 +191,10 @@ core::DesktopItem WidgetSettingsDialog::result() const
 {
     core::DesktopItem widget = m_widget;
     widget.span = m_size->currentData().toSize();
+    if (m_fit) {
+        widget.widgetSettings.insert(QStringLiteral("path"), m_imagePath);
+        widget.widgetSettings.insert(QStringLiteral("fit"), m_fit->currentData().toString());
+    }
     if (m_seconds) {
         widget.widgetSettings.insert(QStringLiteral("seconds"), m_seconds->isChecked());
         widget.widgetSettings.insert(QStringLiteral("date"), m_date->isChecked());

@@ -1,6 +1,9 @@
 #include "ui/fence_widgets.hpp"
 
+#include <QCache>
 #include <QCoreApplication>
+#include <QFileInfo>
+#include <QImageReader>
 #include <QFontMetrics>
 #include <QLocale>
 #include <QPainterPath>
@@ -134,6 +137,88 @@ void paintNotes(QPainter& painter, const QRect& rect, const core::DesktopItem& i
         painter.drawText(box, Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, line);
         top += lineHeight;
     }
+}
+
+// Session 95: a picture the user chose, fitted (whole, letterboxed) or filling
+// the widget (cropped). Decoded once per file version and kept small (longest
+// side 2048 px), then scaled once per size: a repaint only blits.
+QImage decodedImage(const QString& path)
+{
+    static QCache<QString, QImage> cache(96 * 1024); // KB
+    const QFileInfo info(path);
+    if (path.isEmpty() || !info.isFile())
+        return {};
+    const QString key = path + QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    if (QImage* hit = cache.object(key))
+        return *hit;
+    QImageReader reader(path);
+    reader.setAutoTransform(true);
+    const QSize size = reader.size();
+    if (size.isValid() && qMax(size.width(), size.height()) > 2048)
+        reader.setScaledSize(size.scaled(2048, 2048, Qt::KeepAspectRatio));
+    QImage image = reader.read();
+    if (image.isNull())
+        return {};
+    image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    cache.insert(key, new QImage(image), qMax<qsizetype>(1, image.sizeInBytes() / 1024));
+    return image;
+}
+
+void paintImage(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& c)
+{
+    const QRect card = rect.adjusted(2, 2, -2, -2);
+    if (card.width() < 8 || card.height() < 8)
+        return;
+    const QString path = imagePath(item);
+    const QImage image = decodedImage(path);
+    if (image.isNull()) {
+        painter.setPen(QPen(QColor(c.text.red(), c.text.green(), c.text.blue(), 0x60), 1, Qt::DashLine));
+        painter.setBrush(QColor(0, 0, 0, 0x30));
+        painter.drawRoundedRect(QRectF(card).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6);
+        QFont font = c.font;
+        font.setPixelSize(qBound(9, card.height() / 6, 13));
+        const QString hint = path.isEmpty()
+                                 ? QCoreApplication::translate("FenceWidgets", "No image yet (Configure widget...)")
+                                 : QCoreApplication::translate("FenceWidgets", "Image not found");
+        const QRect box = card.adjusted(6, 6, -6, -6);
+        painter.setFont(font);
+        if (c.shadow) {
+            painter.setPen(QColor(0, 0, 0, 0xA0));
+            painter.drawText(box.translated(1, 1), Qt::AlignCenter | Qt::TextWordWrap, hint);
+        }
+        painter.setPen(c.text);
+        painter.drawText(box, Qt::AlignCenter | Qt::TextWordWrap, hint);
+        return;
+    }
+    const bool fill = imageFills(item);
+    const qreal dpr = painter.device() ? painter.device()->devicePixelRatioF() : 1.0;
+    const QSize target = (QSizeF(card.size()) * dpr).toSize();
+    static QCache<QString, QImage> scaled(48 * 1024);
+    const QString key = path + QLatin1Char('|') + QString::number(image.cacheKey()) + QLatin1Char('|')
+                        + QString::number(target.width()) + QLatin1Char('x') + QString::number(target.height())
+                        + (fill ? QStringLiteral("|fill") : QStringLiteral("|fit"));
+    QImage picture;
+    if (QImage* hit = scaled.object(key)) {
+        picture = *hit;
+    } else {
+        picture = image.scaled(target, fill ? Qt::KeepAspectRatioByExpanding : Qt::KeepAspectRatio,
+                               Qt::SmoothTransformation);
+        if (fill) {
+            picture = picture.copy((picture.width() - target.width()) / 2, (picture.height() - target.height()) / 2,
+                                   target.width(), target.height());
+        }
+        scaled.insert(key, new QImage(picture), qMax<qsizetype>(1, picture.sizeInBytes() / 1024));
+    }
+    picture.setDevicePixelRatio(dpr);
+    const QSizeF shown = QSizeF(picture.size()) / dpr;
+    const QRectF place(card.x() + (card.width() - shown.width()) / 2.0, card.y() + (card.height() - shown.height()) / 2.0,
+                       shown.width(), shown.height());
+    QPainterPath clip;
+    clip.addRoundedRect(place, 6, 6);
+    painter.save();
+    painter.setClipPath(clip, Qt::IntersectClip);
+    painter.drawImage(place.topLeft(), picture);
+    painter.restore();
 }
 
 // Session 88: a bar from 0 to 100 %.
@@ -347,6 +432,12 @@ QList<Kind> kinds()
                       {QStringLiteral("date"), true},
                       {QStringLiteral("h12"), false}};
 
+    Kind image; // session 95
+    image.type = QStringLiteral("image");
+    image.label = QCoreApplication::translate("FenceWidgets", "Image");
+    image.defaultSpan = QSize(2, 2);
+    image.defaults = {{QStringLiteral("path"), QString()}, {QStringLiteral("fit"), QStringLiteral("fit")}};
+
     Kind notes; // session 81
     notes.type = QStringLiteral("notes");
     notes.label = QCoreApplication::translate("FenceWidgets", "Notes");
@@ -365,6 +456,7 @@ QList<Kind> kinds()
     };
     return {clock,
             notes,
+            image,
             system(QStringLiteral("cpu"), QCoreApplication::translate("FenceWidgets", "CPU usage"), QSize(2, 1)),
             system(QStringLiteral("ram"), QCoreApplication::translate("FenceWidgets", "Memory (RAM)"), QSize(2, 1)),
             system(QStringLiteral("gpu"), QCoreApplication::translate("FenceWidgets", "GPU usage"), QSize(2, 1)),
@@ -438,6 +530,16 @@ QString clockDate(const core::DesktopItem&, const QDateTime& now, bool longForm)
     if (!date.isEmpty())
         date[0] = date.at(0).toUpper();
     return date;
+}
+
+QString imagePath(const core::DesktopItem& item)
+{
+    return item.widgetSettings.value(QStringLiteral("path")).toString();
+}
+
+bool imageFills(const core::DesktopItem& item)
+{
+    return item.widgetSettings.value(QStringLiteral("fit")).toString() == QLatin1String("fill");
 }
 
 QString noteText(const core::DesktopItem& item)
@@ -593,6 +695,8 @@ void paint(QPainter& painter, const QRect& rect, const core::DesktopItem& item, 
         paintClock(painter, rect, item, context);
     else if (item.widgetType == QLatin1String("notes"))
         paintNotes(painter, rect, item, context);
+    else if (item.widgetType == QLatin1String("image"))
+        paintImage(painter, rect, item, context);
     else if (core::Metric metric; core::metricFromType(item.widgetType, &metric))
         paintMetric(painter, rect, item, metric, context);
     else if (item.widgetType == QLatin1String("system"))

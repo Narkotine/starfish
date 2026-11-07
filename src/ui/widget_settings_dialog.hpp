@@ -5,6 +5,7 @@
 #include "core/desktop_item.hpp"
 
 class QCheckBox;
+class QLabel;
 class QComboBox;
 class QSpinBox;
 
@@ -24,6 +25,9 @@ public:
     core::DesktopItem result() const;
     // Whether the dialog has anything beyond the size to offer for `type`.
     static bool hasOptions(const QString& type);
+    // Session 95: the picture chooser (image widget); empty when cancelled.
+    static QString chooseImage(QWidget* parent, const QString& current);
+    void setImagePath(const QString& path); // the probe, without the file dialog
 
 private:
     void updateEnabled();
@@ -34,6 +38,10 @@ private:
     QCheckBox* m_seconds = nullptr;
     QCheckBox* m_date = nullptr;
     QCheckBox* m_h12 = nullptr;
+    // image (session 95)
+    QString m_imagePath;
+    QLabel* m_imageLabel = nullptr;
+    QComboBox* m_fit = nullptr;
     // system widgets
     QComboBox* m_show = nullptr;
     QComboBox* m_mode = nullptr;

@@ -79,6 +79,12 @@ QString notePlaceholder();
 QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines,
                       bool* elided = nullptr);
 
+// --- image (session 95) ---------------------------------------------------
+// settings: "path" (a local picture file), "fit" ("fit": whole picture; "fill":
+// cropped to the widget). StarFish only reads the file.
+QString imagePath(const core::DesktopItem& item);
+bool imageFills(const core::DesktopItem& item);
+
 // --- system widgets (session 88) -------------------------------------------
 //
 // "cpu", "ram", "gpu", "vram" and the compact "system" group draw readings
