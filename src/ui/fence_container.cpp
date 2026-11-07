@@ -2359,6 +2359,7 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
     if (fence.view) {
         fence.view->setRolledUp(fence.rolledUp && !fence.animating); // session 73: unrolled while it moves
+        fence.view->setRolling(fence.animating);
         fence.view->resize(logicalSize(visible.size(), dpr));
     }
     // T-082: the overlay is placed *first*. It is the window that goes to the top

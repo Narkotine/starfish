@@ -33,6 +33,8 @@
 #include "ui/toggle_switch.hpp"
 #include "ui/tray_icon.hpp"
 
+#include <QMessageBox>
+
 namespace starfish::ui {
 
 namespace {
@@ -571,6 +573,37 @@ QWidget* SettingsDialog::buildAbout()
     registry->setObjectName(QStringLiteral("hint"));
     registry->setTextInteractionFlags(Qt::TextSelectableByMouse);
     l->addWidget(registry);
+
+    // Session 86: start the StarFish desktop over. Never touches the desktop
+    // folder or Explorer's own layout; the layout is backed up first.
+    l->addWidget(sectionTitle(tr("Reset"), p));
+    auto* resetHint = new QLabel(tr("Your files and the Windows desktop are never touched. The current layout "
+                                    "is saved to the backups folder first."),
+                                 p);
+    resetHint->setObjectName(QStringLiteral("hint"));
+    resetHint->setWordWrap(true);
+    l->addWidget(resetHint);
+    auto* fromWindows = new QPushButton(tr("Start again from the Windows desktop"), p);
+    fromWindows->setObjectName(QStringLiteral("resetFromWindows"));
+    auto* wipe = new QPushButton(tr("Wipe the StarFish desktop"), p);
+    wipe->setObjectName(QStringLiteral("resetWipe"));
+    auto* resetRow = new QHBoxLayout;
+    resetRow->addWidget(fromWindows);
+    resetRow->addWidget(wipe);
+    resetRow->addStretch(1);
+    l->addLayout(resetRow);
+    auto confirm = [this](bool wipeAll) {
+        const QString text = wipeAll
+            ? tr("Remove every zone, widget (notes included) and rule? Every icon goes back to the desktop.")
+            : tr("Remove every zone? Every icon goes back to the place Windows keeps for it; "
+                 "the rules are kept.");
+        if (QMessageBox::question(this, tr("Reset the StarFish desktop"), text,
+                                  QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel)
+            == QMessageBox::Yes)
+            emit resetDesktopRequested(wipeAll);
+    };
+    connect(fromWindows, &QPushButton::clicked, this, [confirm] { confirm(false); });
+    connect(wipe, &QPushButton::clicked, this, [confirm] { confirm(true); });
     l->addStretch(1);
     return p;
 }

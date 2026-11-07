@@ -1810,6 +1810,16 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("a fence too small shows \"+N\" in its corner, none when all fit (session 76)"),
               hidden > 0 && hidden < many.size() && allShown == 0 && smallView.contentRect().contains(badge),
               QStringLiteral("hidden %1 of %2, all shown %3").arg(hidden).arg(many.size()).arg(allShown));
+        // Session 86: no "+N" while the fence rolls, nor once it is rolled up.
+        smallView.setRolling(true);
+        const int whileRolling = smallView.hiddenItemCount();
+        smallView.setRolling(false);
+        smallView.setRolledUp(true);
+        const int rolled = smallView.hiddenItemCount();
+        smallView.setRolledUp(false);
+        check(QStringLiteral("no \"+N\" on a fence that rolls or is rolled up (session 86)"),
+              whileRolling == 0 && rolled == 0 && smallView.hiddenItemCount() == hidden,
+              QStringLiteral("rolling %1, rolled %2, back %3").arg(whileRolling).arg(rolled).arg(smallView.hiddenItemCount()));
         {
             QImage img(view->size(), QImage::Format_ARGB32_Premultiplied);
             img.fill(QColor(0x9A, 0xC8, 0x2A));

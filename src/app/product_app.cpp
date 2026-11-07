@@ -687,6 +687,7 @@ void ProductApp::wireSettings()
             &ProductApp::setAllowDesktopOverlap);
     connect(m_settings, &ui::SettingsDialog::restoreIconsRequested, this,
             &ProductApp::restoreDesktopIcons);
+    connect(m_settings, &ui::SettingsDialog::resetDesktopRequested, this, &ProductApp::resetDesktop);
     m_settings->setRestoreIconsOffered(m_options.claimDesktop);
     loadSeenMenuKeys();
     m_settings->menuEditor()->setSeenEntries(m_seenMenuKeys);
@@ -1137,7 +1138,32 @@ void ProductApp::wireFenceMenu()
                     return;
                 const int icon = qMax(16, m_shellIconSize);
                 const QPoint wanted = point - QPoint(icon / 2, icon / 2);
+                QHash<QString, QPoint> before;
+                for (const QString& path : paths)
+                    before.insert(path, m_itemPositions.value(shellNameOf(path)));
                 moveDesktopItems(paths, wanted - m_itemPositions.value(first));
+                // Session 86 (the user: the icon flashed at its old desktop place
+                // before jumping to the drop): the drawn desktop's boxes still held
+                // the old place until the next shell read. Moved here, before the
+                // fence releases the tiles, so they first appear where they land.
+                ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+                if (!backdrop)
+                    return;
+                QHash<QString, QRect> boxes = backdrop->nativeIconBoxes();
+                bool changed = false;
+                for (const QString& path : paths) {
+                    const QString name = shellNameOf(path);
+                    const QString key = ui::BackdropLayout::pathKey(path);
+                    if (name.isEmpty() || !boxes.contains(key) || !m_itemPositions.contains(name))
+                        continue;
+                    const QPoint shift = m_itemPositions.value(name) - before.value(path);
+                    if (shift.isNull())
+                        continue;
+                    boxes[key].translate(shift);
+                    changed = true;
+                }
+                if (changed)
+                    backdrop->setNativeIconBoxes(boxes);
             });
     // Session 80: tiles held over the bare desktop show its grid, and the slot
     // they would take (the same sum as the drop above).
@@ -1757,6 +1783,39 @@ void ProductApp::refreshDesktopItems()
     m_container->reconcileMissingItems(items); // session 74: renamed while we were away
     syncShortcutVault();
     m_container->setDesktopItems(std::move(items));
+}
+
+void ProductApp::resetDesktop(bool wipeAll)
+{
+    if (!m_container || !m_store)
+        return;
+    if (m_store->isReadOnly()) {
+        qCWarning(lc).noquote() << "reset refused: the layout is read-only:" << m_store->readOnlyReason();
+        return;
+    }
+    // The current state first on disk, then copied aside: the reset can always
+    // be undone by putting that backup back as layout.json.
+    m_store->setLayout(m_container->toLayout());
+    m_store->saveNow();
+    const QString backup = m_store->backupNow(wipeAll ? QStringLiteral("before-wipe")
+                                                      : QStringLiteral("before-reset"));
+    if (backup.isEmpty() && QFileInfo::exists(m_store->filePath())) {
+        qCWarning(lc) << "reset cancelled: no backup could be written";
+        return;
+    }
+    // Zones only: no file moves, Explorer's own places are left as they are, so
+    // the released icons show where Windows keeps them.
+    for (const QString& id : m_container->fenceIds())
+        m_container->removeFence(id);
+    if (wipeAll)
+        m_container->setRules({});
+    m_store->setLayout(m_container->toLayout());
+    m_store->saveNow();
+    m_shellSignature.clear(); // read Explorer's layout again
+    m_shellResync.start();
+    qCInfo(lc).noquote() << QStringLiteral("StarFish desktop %1 (backup %2)")
+                                .arg(wipeAll ? QStringLiteral("wiped") : QStringLiteral("reset from Windows"), backup);
+    refreshStatus();
 }
 
 void ProductApp::restoreDesktopIcons()

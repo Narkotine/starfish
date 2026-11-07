@@ -5925,6 +5925,21 @@ int main(int argc, char* argv[])
                           qtCancel == QStringLiteral("Annuler"),
                           QLatin1String("QPlatformTheme/Cancel = [%1]").arg(qtCancel));
 
+                    // Session 86: About > reset -- the layout is backed up, then
+                    // the zones go (the probe's own document, never the user's).
+                    const int zonesBefore = product.container()->fenceCount();
+                    product.resetDesktop(true);
+                    const QStringList resetBackups =
+                        QDir(probeDir + QLatin1String("/backups"))
+                            .entryList({QStringLiteral("*.before-wipe.bak.json")}, QDir::Files);
+                    check(QLatin1String("the StarFish desktop wipe leaves no zone and a backup (session 86)"),
+                          zonesBefore >= 1 && product.container()->fenceCount() == 0
+                              && product.container()->rules().isEmpty() && resetBackups.size() == 1,
+                          QStringLiteral("%1 -> %2 zone(s), backups %3")
+                              .arg(zonesBefore)
+                              .arg(product.container()->fenceCount())
+                              .arg(resetBackups.join(QLatin1Char(','))));
+
                     product.shutdown();
                 }
             }

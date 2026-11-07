@@ -773,7 +773,7 @@
         <translation>Double-cliquez pour écrire</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+187"/>
         <source>%1, running</source>
         <translation>%1, en marche</translation>
     </message>
@@ -859,7 +859,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2650"/>
+        <location filename="../app/product_app.cpp" line="+2714"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
@@ -912,7 +912,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5919"/>
+        <location filename="../main.cpp" line="+5923"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -938,12 +938,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3123"/>
+        <location line="-3187"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+496"/>
+        <location line="+502"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -969,7 +969,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+489"/>
+        <location filename="../app/product_app.cpp" line="+514"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -979,7 +979,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+520"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1346,7 +1346,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+317"/>
+        <location filename="../ui/fence_view.cpp" line="+325"/>
         <location line="+134"/>
         <location line="+211"/>
         <source>Fence</source>
@@ -1358,7 +1358,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+544"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1386,7 +1386,7 @@
 <context>
     <name>starfish::ui::SettingsDialog</name>
     <message>
-        <location filename="../ui/settings_dialog.cpp" line="+111"/>
+        <location filename="../ui/settings_dialog.cpp" line="+113"/>
         <source>StarFish settings</source>
         <translation>Réglages StarFish</translation>
     </message>
@@ -1427,12 +1427,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+512"/>
+        <location line="+543"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-502"/>
+        <location line="-533"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1768,7 +1768,42 @@
         <translation>Préférences : registre, HKEY_CURRENT_USER\Software\StarFish</translation>
     </message>
     <message>
-        <location line="+162"/>
+        <location line="+7"/>
+        <source>Reset</source>
+        <translation>Remise à zéro</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your files and the Windows desktop are never touched. The current layout is saved to the backups folder first.</source>
+        <translation>Vos fichiers et le bureau Windows ne sont jamais touchés. La disposition actuelle est d&apos;abord copiée dans le dossier des sauvegardes.</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Start again from the Windows desktop</source>
+        <translation>Repartir du bureau Windows</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Wipe the StarFish desktop</source>
+        <translation>Effacer le bureau StarFish</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Remove every zone, widget (notes included) and rule? Every icon goes back to the desktop.</source>
+        <translation>Supprimer toutes les zones, tous les widgets (notes comprises) et toutes les règles ? Chaque icône retourne sur le bureau.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remove every zone? Every icon goes back to the place Windows keeps for it; the rules are kept.</source>
+        <translation>Supprimer toutes les zones ? Chaque icône retourne à l&apos;emplacement que Windows lui garde ; les règles sont conservées.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Reset the StarFish desktop</source>
+        <translation>Remettre à zéro le bureau StarFish</translation>
+    </message>
+    <message>
+        <location line="+165"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

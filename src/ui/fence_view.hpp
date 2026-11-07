@@ -86,6 +86,10 @@ public:
     // geometry gestures of T-007.
     void setRolledUp(bool rolledUp);
     bool rolledUp() const { return m_rolledUp; }
+    // Session 86: true while the container animates a roll / unroll -- the
+    // view is drawn unrolled then, but nothing counts as "out of sight".
+    void setRolling(bool rolling);
+    bool rolling() const { return m_rolling; }
 
     // Where icons come from. Bound by the application to a ShellIconCache.
     void setIconProvider(IconGrid::IconProvider provider) { m_iconProvider = std::move(provider); }
@@ -377,6 +381,7 @@ private:
     qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
     bool m_rolledUp = false;
+    bool m_rolling = false;
     IconGrid m_grid;
     IconGrid::IconProvider m_iconProvider;
 

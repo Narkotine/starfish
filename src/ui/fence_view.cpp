@@ -191,6 +191,14 @@ void FenceView::setRolledUp(bool rolledUp)
     update();
 }
 
+void FenceView::setRolling(bool rolling)
+{
+    if (m_rolling == rolling)
+        return;
+    m_rolling = rolling;
+    update();
+}
+
 QRect FenceView::contentRect() const
 {
     // A rolled-up fence is nothing but its title bar: there is no content area
@@ -1138,7 +1146,9 @@ void FenceView::setLabelsShown(bool shown)
 QStringList FenceView::hiddenItemPaths() const
 {
     QStringList paths;
-    if (m_rolledUp)
+    // Session 86: no "+N" on a rolled-up fence, nor while it rolls (the shrinking
+    // panel hides icons only for the length of the animation).
+    if (m_rolledUp || m_rolling)
         return paths;
     const QRect content = contentRect();
     if (content.isEmpty())

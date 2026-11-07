@@ -106,6 +106,10 @@ signals:
     void desktopShortcutArrowsToggled(bool shown);
     void desktopOverlapToggled(bool allowed);
     void restoreIconsRequested();
+    // Session 86: About > reset. `wipeAll` false: the zones go, every icon is back
+    // where Explorer keeps it; true: zones, widgets and rules all go. Asked only
+    // after the user confirmed; the product backs the layout up first.
+    void resetDesktopRequested(bool wipeAll);
 
 protected:
     void showEvent(QShowEvent* event) override;

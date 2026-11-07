@@ -240,6 +240,7 @@ public:
     // the remembered one, which is exactly the situation a confused run cannot
     // rely on. Wired to the tray's "Restore my icons".
     void restoreDesktopIcons();
+    void resetDesktop(bool wipeAll); // session 86: About > reset
 
     // One line describing what is actually running: fences, rules, what is
     // watched, which hot keys Windows accepted. Shown by the settings window and
