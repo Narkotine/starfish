@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QTimer>
 #include <QProcess>
 #include <QPushButton>
 #include <QTabBar>
@@ -28,6 +29,7 @@ namespace {
 
 constexpr int kKeyRole = Qt::UserRole;
 constexpr int kCustomRole = Qt::UserRole + 1;
+constexpr int kPresetRole = Qt::UserRole + 2; // session 95: a ready-made entry not added yet
 
 bool isTopBar(const QString& key, core::ContextMenuKind kind)
 {
@@ -423,6 +425,20 @@ void ContextMenuEditor::fill()
         add(key);
     for (const core::ContextMenuCustomEntry& c : p.custom)
         add(QStringLiteral("custom:") + c.label);
+    // Session 95: on the desktop's menu, every ready-made entry is listed, ticked
+    // only once the user ticks it (it is then added as one of theirs). What the
+    // user already added keeps its row and its state.
+    QMap<QString, int> presetRows;
+    if (k == core::ContextMenuKind::Background) {
+        const QList<core::MenuPreset> presets = core::menuPresets();
+        for (int i = 0; i < presets.size(); ++i) {
+            const QString key = QStringLiteral("custom:") + presets.at(i).label;
+            if (!keys.contains(key)) {
+                presetRows.insert(key, i);
+                add(key);
+            }
+        }
+    }
 
     const QString keep = m_list->currentItem() ? m_list->currentItem()->data(kKeyRole).toString() : QString();
     m_filling = true;
@@ -442,11 +458,15 @@ void ContextMenuEditor::fill()
                 custom = i;
         }
         item->setData(kCustomRole, custom);
+        item->setData(kPresetRole, presetRows.value(key, -1));
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-        item->setCheckState(core::isShown(key, k, p) ? Qt::Checked : Qt::Unchecked);
+        item->setCheckState(presetRows.contains(key) ? Qt::Unchecked
+                            : core::isShown(key, k, p) ? Qt::Checked : Qt::Unchecked);
         item->setToolTip(key);
         // Session 82: a user entry wears the icon it was given, when it has one.
         QString g = core::contextMenuGlyph(key);
+        if (presetRows.contains(key))
+            g = core::glyphForName(core::menuPresets().at(presetRows.value(key)).glyph);
         if (custom >= 0 && custom < p.custom.size() && !p.custom.at(custom).glyph.isEmpty())
             g = p.custom.at(custom).glyph;
         item->setIcon(g.isEmpty() ? glyphIcon(QString(QChar(0xE76C)), glyph.darker(160)) : glyphIcon(g, glyph));
@@ -506,6 +526,24 @@ void ContextMenuEditor::onItemChanged(QListWidgetItem* item)
         return;
     const QString key = item->data(kKeyRole).toString();
     const bool on = item->checkState() == Qt::Checked;
+    const int preset = item->data(kPresetRole).toInt();
+    if (preset >= 0) {
+        // Session 95: a ready-made entry ticked for the first time becomes the
+        // user's own entry (shown); unticked, it simply stays out of the file.
+        if (!on)
+            return;
+        const QList<core::MenuPreset> list = core::menuPresets();
+        if (preset >= list.size())
+            return;
+        core::ContextMenuCustomEntry entry;
+        entry.label = list.at(preset).label;
+        entry.program = list.at(preset).program;
+        entry.arguments = list.at(preset).arguments;
+        entry.glyph = core::glyphForName(list.at(preset).glyph);
+        entry.action = list.at(preset).action;
+        QTimer::singleShot(0, this, [this, entry] { addCustomEntry(entry); }); // not inside itemChanged
+        return;
+    }
     core::ContextMenuProfile& p = profile();
     p.hidden.removeAll(key);
     p.shown.removeAll(key);

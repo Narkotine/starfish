@@ -255,6 +255,10 @@ private slots:
                 lightOrDark = true;
         }
         QVERIFY(lightOrDark); // the switch is one of them
+        bool taskManager = false; // session 95
+        for (const MenuPreset& preset : presets)
+            taskManager = taskManager || preset.program == QLatin1String("taskmgr.exe");
+        QVERIFY(taskManager);
     }
 
     // An entry that runs a StarFish action has no program; the file keeps it, and

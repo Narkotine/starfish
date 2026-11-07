@@ -499,6 +499,7 @@ const std::vector<PoolRow>& poolRows()
         {"upload", 0xE898, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Upload")},
         {"game", 0xE7FC, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Game")},
         {"store", 0xE719, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Store")},
+        {"tasks", 0xE9D9, QT_TRANSLATE_NOOP("ContextMenuGlyphs", "Task Manager")}, // session 95
     };
     return rows;
 }
@@ -567,6 +568,9 @@ QList<MenuPreset> menuPresets()
         {QStringLiteral("ms-settings:network")}, QStringLiteral("network"), {});
     add(QCoreApplication::translate("ContextMenuPresets", "Windows Update"), explorer,
         {QStringLiteral("ms-settings:windowsupdate")}, QStringLiteral("refresh"), {});
+    // Session 95 (the user asked for it).
+    add(QCoreApplication::translate("ContextMenuPresets", "Task Manager"), QStringLiteral("taskmgr.exe"), {},
+        QStringLiteral("tasks"), {});
     return presets;
 }
 
