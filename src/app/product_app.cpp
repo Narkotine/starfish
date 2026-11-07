@@ -457,6 +457,8 @@ void ProductApp::connectLifecycle(const std::function<void()>& onChange)
             [onChange](const QString&) { onChange(); });
     connect(c, &ui::FenceContainer::fenceRolledUpChanged, this,
             [onChange](const QString&, bool) { onChange(); });
+    connect(c, &ui::FenceContainer::fenceLockedChanged, this,
+            [onChange](const QString&, bool) { onChange(); }); // session 94
     connect(c, &ui::FenceContainer::fencesVisibilityChanged, this,
             [onChange](bool) { onChange(); });
     connect(c, &ui::FenceContainer::peekChanged, this, [onChange](bool) { onChange(); });
@@ -1256,6 +1258,7 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
 
     ui::FenceMenu::State state;
     state.rolledUp = m_container->fenceRolledUp(id);
+    state.locked = m_container->fenceLocked(id); // session 94
     // Read from the fence every time the menu opens rather than remembered here:
     // the check mark must follow the document, and the document may have been
     // changed by the tray a moment ago.
@@ -1388,6 +1391,9 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     switch (action) {
     case ui::FenceMenu::Action::ToggleRoll:
         onRollUpToggled(id, !m_container->fenceRolledUp(id));
+        break;
+    case ui::FenceMenu::Action::ToggleLock: // session 94
+        m_container->setFenceLocked(id, !m_container->fenceLocked(id));
         break;
     case ui::FenceMenu::Action::Rename:
         // Session 60: on the title itself, no dialog.
@@ -2386,7 +2392,7 @@ QString ProductApp::shellNameOf(const QString& path) const
 
 void ProductApp::startFenceTitleEdit(const QString& id)
 {
-    if (!m_container || !m_container->contains(id))
+    if (!m_container || !m_container->contains(id) || m_container->fenceLocked(id))
         return;
     finishFenceTitleEdit(false);
     const QRect title = m_container->fenceTitleScreenRect(id); // logical

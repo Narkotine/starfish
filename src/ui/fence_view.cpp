@@ -405,6 +405,32 @@ QPainterPath FenceView::outlinePath(const QSizeF& size, qreal inset) const
 
 FenceHandle FenceView::handleAt(const QPoint& point) const
 {
+    const FenceHandle handle = rawHandleAt(point);
+    if (!m_locked || handle == FenceHandle::None || handle == FenceHandle::TitleBar)
+        return handle;
+    // Session 94: a grip on the band of a locked fence is the band (roll-up
+    // gestures); any other grip does not exist.
+    return rect().contains(point) && titleBandRect().contains(point) ? FenceHandle::TitleBar
+                                                                     : FenceHandle::None;
+}
+
+void FenceView::setLocked(bool locked)
+{
+    if (m_locked == locked)
+        return;
+    m_locked = locked;
+    setCursor(Qt::ArrowCursor);
+    if (locked) {
+        m_dragOriginIndex = -1;
+        m_dragging = false;
+        m_externalDropIndex = -1;
+    }
+    update();
+    emit contentChanged();
+}
+
+FenceHandle FenceView::rawHandleAt(const QPoint& point) const
+{
     if (tabbed()) {
         // Session 69: the tab is the bar; the body has its grips; the rest of
         // the strip along the bar is not the fence's (the window region leaves
@@ -666,6 +692,13 @@ void FenceView::paintEvent(QPaintEvent* event)
             const int pad = tabPadding();
             titleRect = QRect(span.first + pad, 0, qMax(0, span.second - 2 * pad), m_metrics.titleBarHeight);
         }
+        if (m_locked) { // session 94: room for the padlock
+            const int room = 16;
+            if (!tabbed() && (m_titleAlign & Qt::AlignRight))
+                titleRect.setLeft(titleRect.left() + room);
+            else
+                titleRect.setRight(titleRect.right() - room);
+        }
         const QString titleText_ = painter.fontMetrics().elidedText(
             m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
         const Qt::Alignment align =
@@ -676,8 +709,28 @@ void FenceView::paintEvent(QPaintEvent* event)
         }
         painter.setPen(titleText);
         painter.drawText(titleRect, align, titleText_);
+        if (m_locked) {
+            // Session 94: a small, discreet padlock at the far end of the bar
+            // (the near end when the title sits on the right).
+            const int h = m_metrics.titleBarHeight;
+            const qreal s = qBound(8.0, h * 0.42, 12.0);
+            const bool atStart = !tabbed() && (m_titleAlign & Qt::AlignRight);
+            const qreal x = tabbed() ? titleRect.right() + 4.0
+                            : atStart ? inset
+                                      : bandLength() - inset - s;
+            const QRectF body(x, h / 2.0 - s * 0.05, s, s * 0.55);
+            QColor ink = titleText;
+            ink.setAlphaF(0.55);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setPen(QPen(ink, 1.3));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawArc(QRectF(x + s * 0.2, body.top() - s * 0.45, s * 0.6, s * 0.8), 0, 180 * 16);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(ink);
+            painter.drawRoundedRect(body, 1.5, 1.5);
+        }
         painter.restore();
-    } else if (m_hovered) {
+    } else if (m_hovered && !m_locked) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
         painter.save();
         painter.setTransform(bandTransform(), true);
@@ -791,6 +844,10 @@ void FenceView::mousePressEvent(QMouseEvent* event)
     // -- which is also what keeps the two drags mutually exclusive.
     const FenceHandle handle =
         handleAt(event->pos());
+    if (handle != FenceHandle::None && m_locked) {
+        event->accept(); // session 94: the band of a locked fence never moves it
+        return;
+    }
     if (handle != FenceHandle::None) {
         m_geometryHandle = handle;
         m_geometryStartScreen = event->globalPosition();
@@ -820,7 +877,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
 
     // Arm a possible drag (T-006-2). The move enters drag mode only once the
     // cursor leaves the system threshold -- a click in place never reorders.
-    m_dragOriginIndex = (index >= 0 && index < m_grid.items().size()) ? index : -1;
+    m_dragOriginIndex = (!m_locked && index >= 0 && index < m_grid.items().size()) ? index : -1;
     m_dragStartPos = event->pos();
     m_dropTargetIndex = -1;
     m_dragging = false;
@@ -850,8 +907,7 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
         // Idle: reflect the handle under the pointer so the user can see where
         // the fence can be grabbed.
         if (!(event->buttons() & Qt::LeftButton))
-            setCursor(cursorForHandle(
-                handleAt(event->pos())));
+            setCursor(m_locked ? Qt::ArrowCursor : cursorForHandle(handleAt(event->pos())));
         if (!(event->buttons() & Qt::LeftButton))
             updateMissingTip(event->position().toPoint());
         return;
@@ -1011,7 +1067,7 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         }
         // Session 60: on the title's text, a double-click renames in place (as a
         // file's name in Explorer); anywhere else on the band it still rolls up.
-        if (titleShown() && titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
+        if (!m_locked && titleShown() && titleTextRect().adjusted(-4, -4, 4, 4).contains(event->pos())) {
             emit titleEditRequested();
             return;
         }
@@ -1273,7 +1329,7 @@ int FenceView::removeItemsByPath(const QStringList& paths)
 void FenceView::dragEnterEvent(QDragEnterEvent* event)
 {
     // Qt translates the Explorer's CF_HDROP into a list of file:// URLs.
-    if (event->mimeData()->hasUrls())
+    if (!m_locked && event->mimeData()->hasUrls())
         event->acceptProposedAction();
     else
         event->ignore();
@@ -1281,7 +1337,7 @@ void FenceView::dragEnterEvent(QDragEnterEvent* event)
 
 void FenceView::dragMoveEvent(QDragMoveEvent* event)
 {
-    if (event->mimeData()->hasUrls())
+    if (!m_locked && event->mimeData()->hasUrls())
         event->acceptProposedAction();
     else
         event->ignore();
@@ -1289,7 +1345,7 @@ void FenceView::dragMoveEvent(QDragMoveEvent* event)
 
 void FenceView::dropEvent(QDropEvent* event)
 {
-    if (!event->mimeData()->hasUrls()) {
+    if (m_locked || !event->mimeData()->hasUrls()) {
         event->ignore();
         return;
     }
@@ -1481,6 +1537,8 @@ QStringList FenceView::selectedPaths() const
 
 void FenceView::setExternalDropIndex(int index, bool afterCell)
 {
+    if (m_locked)
+        index = -1; // session 94: nothing lands in a locked fence, so no bar
     if (m_externalDropIndex == index && m_externalAfterCell == afterCell)
         return;
     m_externalDropIndex = index;

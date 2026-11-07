@@ -134,6 +134,23 @@ private slots:
 
     // Session 91: widgets on the desktop -- a root list, absent when empty
     // (older documents unchanged), round-tripped, unknown keys kept per widget.
+    void lockedFenceRoundTrip()
+    {
+        // Session 94: "locked" is written only when true, read back, and an
+        // older document (no key) is unlocked.
+        Layout plain = *JsonStore::fromJson(kV1Fixture);
+        QVERIFY(!plain.fences.isEmpty());
+        QVERIFY(!plain.fences[0].locked);
+        const QJsonObject unlockedDoc = QJsonDocument::fromJson(JsonStore::toJson(plain)).object();
+        QVERIFY(!unlockedDoc["fences"].toArray()[0].toObject().contains(QLatin1String("locked")));
+        Layout with = plain;
+        with.fences[0].locked = true;
+        const Layout back = *JsonStore::fromJson(JsonStore::toJson(with));
+        QVERIFY(back.fences[0].locked);
+        if (back.fences.size() > 1)
+            QVERIFY(!back.fences[1].locked);
+    }
+
     void desktopWidgetsRoundTrip()
     {
         Layout plain = *JsonStore::fromJson(kV1Fixture);

@@ -89,7 +89,7 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWOR
 {
     // ADR-21 lot 3: a drag of the drawn desktop's own icons may carry virtual
     // items (This PC) that no CF_HDROP can name: what is carried is known here.
-    m_canDrop = internalDragActive() || dataHasHdrop(pDataObj);
+    m_canDrop = (!m_accept || m_accept()) && (internalDragActive() || dataHasHdrop(pDataObj));
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
     // Session 62: the picture follows the cursor over the fence too.
@@ -132,8 +132,10 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
 HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*grfKeyState*/,
                                                 POINTL pt, DWORD* pdwEffect)
 {
-    const QStringList paths =
-        internalDragActive() ? internalDragPaths() : pathsFromHdrop(pDataObj);
+    const bool accepted = !m_accept || m_accept();
+    const QStringList paths = !accepted ? QStringList()
+                              : internalDragActive() ? internalDragPaths()
+                                                     : pathsFromHdrop(pDataObj);
     if (pdwEffect)
         *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
     m_canDrop = false;

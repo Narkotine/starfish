@@ -82,6 +82,7 @@ enum class Action {
     ApplyTemplate,     // value: index into State::templates
     AddWidget,         // session 79: the submenu; children from widgetEntries()
     AddWidgetChoice,   // value: index into State::widgetKinds
+    ToggleLock,        // session 94: lock / unlock the fence
 };
 
 struct Entry {
@@ -128,6 +129,7 @@ struct State {
     bool snapToCellsDefault = false; // ... and what "" means today
     QStringList templates;           // session 76: the saved templates' names
     QStringList widgetKinds;         // session 79: the widgets one can add (labels)
+    bool locked = false;             // session 94
 };
 
 // Session 79: the widgets, one click each.
@@ -349,6 +351,21 @@ inline QList<Entry> entries(const State& state)
     Entry separator;
     separator.kind = Kind::Separator;
 
+    Entry lock;
+    lock.action = Action::ToggleLock;
+    lock.label = state.locked ? QCoreApplication::translate("FenceMenu", "Unlock the zone")
+                              : QCoreApplication::translate("FenceMenu", "Lock the zone");
+    if (state.locked) {
+        // Session 94 (the user): on a locked zone the menu's first entry is the
+        // way out; only rolling stays, the rest waits for the unlock.
+        Entry roll;
+        roll.action = Action::ToggleRoll;
+        roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
+                                    : QCoreApplication::translate("FenceMenu", "Roll up");
+        out << lock << separator << roll;
+        return out;
+    }
+
     Entry rename;
     rename.action = Action::Rename;
     rename.label = QCoreApplication::translate("FenceMenu", "Rename...");
@@ -359,6 +376,7 @@ inline QList<Entry> entries(const State& state)
     roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
                                 : QCoreApplication::translate("FenceMenu", "Roll up");
     out.append(roll);
+    out.append(lock);
 
     // Session 68 (the user asked for it here): the title bar, shown or not.
     Entry titleBar;

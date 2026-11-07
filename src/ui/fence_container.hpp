@@ -50,6 +50,7 @@ struct FenceWindow {
     QRect rect;
     core::FenceStyle style; // panel colour + radius are applied to the view
     bool rolledUp = false;  // F-020: persisted (T-008) and acted upon (T-009)
+    bool locked = false;    // session 94: no move/resize/rename, nothing in or out
     // Session 71: rolled up in the document, shown unrolled while the pointer is
     // over it ("unroll on hover"); never saved as unrolled.
     bool hoverUnrolled = false;
@@ -376,6 +377,9 @@ public:
     // down restores the fence exactly. Idempotent.
     bool setFenceRolledUp(const QString& id, bool rolledUp);
     bool toggleFenceRolledUp(const QString& id);
+    // Session 94: a locked fence (persisted). Its icons still open.
+    bool setFenceLocked(const QString& id, bool locked);
+    bool fenceLocked(const QString& id) const;
 
     // The rect a fence actually shows (its title bar when rolled up).
     QRect fenceVisibleRect(const QString& id) const;
@@ -590,6 +594,7 @@ signals:
     // T-009. Roll-up is persisted (it is part of the document), so the product
     // wires this to the same auto-save as the other lifecycle signals.
     void fenceRolledUpChanged(const QString& id, bool rolledUp);
+    void fenceLockedChanged(const QString& id, bool locked); // session 94
     void fencesVisibilityChanged(bool visible);
     void peekChanged(bool active);
     // T-076: the user asked for the fence's **own** menu -- a right-click that

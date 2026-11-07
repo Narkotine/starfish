@@ -152,7 +152,10 @@ public:
     QRect titleBandRect() const;     // the band, widget coordinates
     QTransform bandTransform() const; // band coordinates -> widget
     int bandLength() const;
+    // Session 94: a locked fence has no grip at all -- only its title band,
+    // kept for the roll-up gestures (double-click, wheel), never for a move.
     FenceHandle handleAt(const QPoint& point) const;
+    FenceHandle rawHandleAt(const QPoint& point) const;
     // Session 69 (T-115): the title bar as a tab as long as the title, joined
     // to the body by a rounded (concave) junction; the rest of the strip is
     // not the fence's. outlinePath() is the fence's shape for a size (logical
@@ -221,6 +224,11 @@ public:
     int iconFlow() const { return m_grid.flow(); }
     bool labelsShown() const { return m_grid.labelsShown(); }
     void setTitleGesturesLocked(bool locked) { m_titleLocked = locked; }
+    // Session 94 (the user's "lock a zone"): no move, no resize, no rename by
+    // double-click, no tile dragged out, nothing dropped in. Icons still open;
+    // roll-up and unroll (double-click, wheel, hover) are untouched.
+    void setLocked(bool locked);
+    bool locked() const { return m_locked; }
     bool titleGesturesLocked() const { return m_titleLocked; }
     int hiddenItemCount() const;
     QRect hiddenBadgeRect() const;
@@ -368,6 +376,7 @@ private:
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;
     bool m_titleLocked = false; // session 76
+    bool m_locked = false;      // session 94
     QTimer m_widgetTimer;       // session 79
     void scheduleWidgetTick();
     void showHiddenItemsMenu();

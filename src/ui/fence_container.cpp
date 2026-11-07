@@ -209,6 +209,13 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         target.clear();
     FenceWindow* source = find(sourceId);
     FenceWindow* into = target.isEmpty() ? nullptr : find(target);
+    // Session 94: a locked fence takes nothing -- no bar over it, and letting go
+    // there calls the drag off (it is not the bare desktop either).
+    const bool refused = into && into->locked;
+    if (refused) {
+        into = nullptr;
+        target.clear();
+    }
 
     // The insertion mark follows the cursor from fence to fence.
     if (m_tileDropTarget != target) {
@@ -217,7 +224,7 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         m_tileDropTarget = target;
     }
     if (source && source->view)
-        source->view->setDragOverOtherFence(!dropped && into);
+        source->view->setDragOverOtherFence(!dropped && (into || refused));
     // Session 80: over no fence at all (its own included), the desktop shows
     // its grid while the tiles are held.
     emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
@@ -237,6 +244,8 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
     if (into && into->view)
         into->view->setExternalDropIndex(-1);
     m_tileDropTarget.clear();
+    if (refused)
+        return 0;
     if (!into || !source || !source->view) {
         // Session 79: a widget has no place on the desktop -- it stays.
         QStringList files;
@@ -278,7 +287,7 @@ int FenceContainer::fileIntoAt(const QString& fenceId, const QList<core::Desktop
                                const QPoint& screenPoint)
 {
     FenceWindow* fence = find(fenceId);
-    if (!fence || !fence->view)
+    if (!fence || !fence->view || fence->locked) // session 94: a locked fence takes no drop
         return 0;
     const QRect visible = visibleRectOf(*fence);
     const qreal dpr = m_screens.devicePixelRatioFor(fence->rect);
@@ -2132,7 +2141,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         // OLE IDropTarget of the surface (T-006-3) and are appended here.
         surface->setDropHandler([this, id](const QPoint& client, const QStringList& paths) {
             FenceWindow* target = find(id);
-            if (!target || !target->view)
+            if (!target || !target->view || target->locked)
                 return;
             // Session 60: inserted where it was let go (the client point is
             // physical, the grid logical).
@@ -2149,6 +2158,10 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             }
             if (!dropped.isEmpty())
                 target->view->insertItems(dropped, at);
+        });
+        surface->setDropAcceptor([this, id] { // session 94: a locked fence says no
+            const FenceWindow* target = find(id);
+            return target && !target->locked;
         });
         // Session 80: a drag from the desktop or the Explorer shows its bar too.
         surface->setDropHoverHandler([this, id](const QPoint& client, bool active) {
@@ -2219,6 +2232,7 @@ core::Layout FenceContainer::toLayout() const
         out.rect = fence.rect;
         out.style = fence.style;
         out.rolledUp = fence.rolledUp || fence.hoverUnrolled; // session 71: never saved unrolled by hover
+        out.locked = fence.locked;
         if (fence.view) {
             out.sortBy = fence.view->sortBy();
             out.sortAscending = fence.view->sortAscending();
@@ -2323,8 +2337,10 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
                 items.append(item);
             }
         }
-        addFence(stored.id, stored.title, stored.rect, stored.style, stored.sortBy,
-                 stored.sortAscending, stored.rolledUp, items, portalPaths, stored.monitor);
+        const QString added = addFence(stored.id, stored.title, stored.rect, stored.style, stored.sortBy,
+                                       stored.sortAscending, stored.rolledUp, items, portalPaths, stored.monitor);
+        if (stored.locked)
+            setFenceLocked(added, true);
     }
     qCInfo(lc).noquote() << QStringLiteral("applied layout: %1 fence(s), %2 rule(s), %3 portal(s)")
                                 .arg(m_fences.size())
@@ -2517,6 +2533,26 @@ QRect FenceContainer::fenceVisibleRect(const QString& id) const
     if (!fence)
         return {};
     return visibleRectOf(*fence);
+}
+
+bool FenceContainer::setFenceLocked(const QString& id, bool locked)
+{
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return false;
+    if (fence->locked == locked)
+        return true;
+    fence->locked = locked;
+    if (fence->view)
+        fence->view->setLocked(locked);
+    emit fenceLockedChanged(id, locked);
+    return true;
+}
+
+bool FenceContainer::fenceLocked(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->locked;
 }
 
 bool FenceContainer::setFenceRolledUp(const QString& id, bool rolledUp)

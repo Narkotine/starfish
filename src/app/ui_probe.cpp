@@ -650,6 +650,80 @@ int runUiProbe(QApplication& app)
               view->hasMouseTracking(), QString());
     }
 
+    // --- session 94: a locked zone ---------------------------------------------
+    {
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Locked"), QRect(0, 0, 300, 220));
+        const QString other = container.createFence(QStringLiteral("Other"), QRect(400, 0, 300, 220));
+        container.fileInto(id, {core::itemFromPathOnly(QStringLiteral("C:/s94/a.txt")),
+                                core::itemFromPathOnly(QStringLiteral("C:/s94/b.txt"))});
+        container.fileInto(other, {core::itemFromPathOnly(QStringLiteral("C:/s94/c.txt"))});
+        ui::FenceView* view = container.view(id);
+        view->resize(300, 220);
+        container.setFenceLocked(id, true);
+        const QRect band = view->titleBandRect();
+        const bool hits = view->locked() && container.fenceLocked(id)
+                          && view->handleAt(QPoint(298, 110)) == ui::FenceHandle::None
+                          && view->handleAt(QPoint(298, 218)) == ui::FenceHandle::None
+                          && view->handleAt(QPoint(150, 218)) == ui::FenceHandle::None
+                          && view->handleAt(band.center()) == ui::FenceHandle::TitleBar;
+        int geometry = 0, outside = 0, rename = 0, roll = 0;
+        QObject::connect(view, &ui::FenceView::geometryDragStarted, view, [&geometry] { ++geometry; });
+        QObject::connect(view, &ui::FenceView::itemsDraggedOutside, view, [&outside] { ++outside; });
+        QObject::connect(view, &ui::FenceView::titleEditRequested, view, [&rename] { ++rename; });
+        QObject::connect(view, &ui::FenceView::rollUpRequested, view, [&roll] { ++roll; });
+        auto send = [view](QEvent::Type type, const QPoint& at, Qt::MouseButtons buttons) {
+            QMouseEvent e(type, QPointF(at), view->mapToGlobal(QPointF(at)),
+                          type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons, Qt::NoModifier);
+            QApplication::sendEvent(view, &e);
+        };
+        bool cursors = true;
+        for (const QPoint& at : {QPoint(298, 110), QPoint(298, 218), band.center(), QPoint(2, 2)}) {
+            send(QEvent::MouseMove, at, Qt::NoButton);
+            cursors = cursors && view->cursor().shape() == Qt::ArrowCursor;
+        }
+        send(QEvent::MouseButtonPress, band.center(), Qt::LeftButton);
+        send(QEvent::MouseMove, band.center() + QPoint(60, 40), Qt::LeftButton);
+        send(QEvent::MouseButtonRelease, band.center() + QPoint(60, 40), Qt::NoButton);
+        const QPoint icon = view->itemRectOf(QStringLiteral("C:/s94/a.txt")).center();
+        send(QEvent::MouseButtonPress, icon, Qt::LeftButton);
+        send(QEvent::MouseMove, icon + QPoint(30, 0), Qt::LeftButton);
+        send(QEvent::MouseMove, QPoint(360, 100), Qt::LeftButton);
+        send(QEvent::MouseButtonRelease, QPoint(360, 100), Qt::NoButton);
+        send(QEvent::MouseButtonDblClick, view->titleTextRect().center(), Qt::LeftButton);
+        send(QEvent::MouseButtonRelease, view->titleTextRect().center(), Qt::NoButton);
+        const bool gestures = geometry == 0 && outside == 0 && rename == 0 && roll == 1
+                              && view->items().size() == 2 && !icon.isNull();
+        container.setFenceRolledUp(id, false); // back down: the drops aim at its body
+        // Nothing lands in it: another fence's tile, a desktop icon (fileIntoAt).
+        const int moved = container.dragTilesOutside(other, {QStringLiteral("C:/s94/c.txt")}, QPoint(150, 120), true);
+        const int filed = container.fileIntoAt(id, {core::itemFromPathOnly(QStringLiteral("C:/s94/d.txt"))},
+                                               QPoint(150, 120));
+        const bool refused = moved == 0 && filed == 0 && view->items().size() == 2
+                             && container.view(other)->items().size() == 1;
+        bool saved = false;
+        for (const core::Fence& f : container.toLayout().fences)
+            if (f.id == id)
+                saved = f.locked;
+        {
+            QImage shot(300, 220, QImage::Format_ARGB32_Premultiplied);
+            shot.fill(QColor(0x9A, 0xC8, 0x2A));
+            QPainter sp(&shot);
+            view->render(&sp, QPoint(), QRegion(), QWidget::DrawChildren);
+            sp.end();
+            shot.save(captures + QStringLiteral("/s94_locked.png")); // the padlock
+        }
+        container.setFenceLocked(id, false);
+        const bool unlocked = view->handleAt(QPoint(298, 110)) != ui::FenceHandle::None
+                              && container.fileIntoAt(id, {core::itemFromPathOnly(QStringLiteral("C:/s94/d.txt"))},
+                                                      QPoint(150, 120)) == 1;
+        check(QStringLiteral("a locked zone: no grip, arrow cursor, no move, no rename, no drag out, no drop in; roll-up kept (session 94)"),
+              hits && cursors && gestures && refused && saved && unlocked,
+              QStringLiteral("hits %1 cursors %2 geometry %3 outside %4 rename %5 roll %6 moved %7 filed %8 saved %9 unlocked %10")
+                  .arg(hits).arg(cursors).arg(geometry).arg(outside).arg(rename).arg(roll).arg(moved).arg(filed)
+                  .arg(saved).arg(unlocked));
+    }
+
     // --- session 68: the title bar on any side ---------------------------------
     {
         ui::FenceContainer container;

@@ -114,6 +114,7 @@ struct Fence {
     QString sortBy = "name"; // name | type | size | date | manual (session 60: the user's order)
     bool sortAscending = true;
     bool rolledUp = false;   // F-020
+    bool locked = false;     // session 94: written only when true (older builds keep it)
     QList<FenceItem> items;
 };
 

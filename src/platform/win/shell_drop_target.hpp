@@ -33,6 +33,9 @@ public:
     // Session 80: told where a drop it could take hovers (client coordinates,
     // as for the handler), and when it leaves or lands (`active` false).
     void setHoverHandler(std::function<void(const QPoint&, bool)> hover) { m_hover = std::move(hover); }
+    // Session 94: asked at each drag whether anything may land at all (a locked
+    // fence says no: the cursor shows "no drop", no bar, no handler call).
+    void setAcceptHandler(std::function<bool()> accept) { m_accept = std::move(accept); }
 
     // IUnknown.
     ULONG STDMETHODCALLTYPE AddRef() override;
@@ -54,6 +57,7 @@ private:
     HWND m_hwnd;
     std::function<void(const QPoint&, const QStringList&)> m_handler;
     std::function<void(const QPoint&, bool)> m_hover;
+    std::function<bool()> m_accept;
     QPoint clientOf(const POINTL& pt) const;
     LONG m_ref = 1;
     bool m_canDrop = false;

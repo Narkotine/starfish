@@ -100,6 +100,8 @@ static QJsonObject fenceToJson(const Fence& f)
     o["sort"] = f.sortBy;
     o["sortAscending"] = f.sortAscending;
     o["rolledUp"] = f.rolledUp;
+    if (f.locked)
+        o["locked"] = true;
     QJsonArray items;
     for (const auto& i : f.items)
         items.append(itemToJson(i));
@@ -165,6 +167,7 @@ static Fence fenceFromJson(const QJsonObject& o)
     f.sortBy = o["sort"].toString(f.sortBy);
     f.sortAscending = o["sortAscending"].toBool(f.sortAscending);
     f.rolledUp = o["rolledUp"].toBool();
+    f.locked = o["locked"].toBool();
     const auto items = o["items"].toArray();
     for (const auto& v : items) {
         const auto io = v.toObject();
@@ -353,7 +356,7 @@ namespace {
 // carried over; a listed key is always this build's to write or to omit.
 const QStringList kRootKeys{"schema", "fences", "rules", "writtenBy", "desktopWidgets"};
 const QStringList kDesktopWidgetKeys{"path", "x", "y", "widget", "fileId", "target"};
-const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", "sortAscending", "rolledUp", "items"};
+const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", "sortAscending", "rolledUp", "locked", "items"};
 const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap", "titleBar", "iconTint",
                              "fadeIcons", "titleBarColor", "defaultOpacity", "borderWidth", "borderColor",
                              "cellWidth", "effect", "titleAlign", "titleSide", "titleBarShape", "hoverEffect",

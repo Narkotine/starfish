@@ -51,6 +51,21 @@ private:
     }
 
 private slots:
+    void aLockedFenceOffersUnlockFirst()
+    {
+        // Session 94: unlocked, "Lock the zone" is offered; locked, "Unlock the
+        // zone" is the first entry and only rolling remains besides it.
+        FenceMenu::State state;
+        QCOMPARE(countOf(FenceMenu::entries(state), FenceMenu::Action::ToggleLock), 1);
+        state.locked = true;
+        const QList<FenceMenu::Entry> locked = FenceMenu::entries(state);
+        QVERIFY(!locked.isEmpty());
+        QCOMPARE(locked.first().action, FenceMenu::Action::ToggleLock);
+        QCOMPARE(countOf(locked, FenceMenu::Action::ToggleRoll), 1);
+        QCOMPARE(countOf(locked, FenceMenu::Action::Rename), 0);
+        QCOMPARE(countOf(locked, FenceMenu::Action::Remove), 0);
+    }
+
     void theMenuOffersEachActionExactlyOnce()
     {
         // Session 65: behaviour only; the look is one "Appearance..." entry.

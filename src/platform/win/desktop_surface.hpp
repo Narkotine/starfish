@@ -305,6 +305,8 @@ public:
     // Session 80: where such a drop hovers (physical client pixels; `active`
     // false when it leaves or lands). Set with the drop handler.
     void setDropHoverHandler(std::function<void(const QPoint&, bool)> hover) { m_dropHover = std::move(hover); }
+    // Session 94: whether a drop may land at all right now (a locked fence: no).
+    void setDropAcceptor(std::function<bool()> accept) { m_dropAccept = std::move(accept); }
 
     // One-line report of what the paint cycle actually did: how many WM_PAINTs
     // were handled, the update region, the clip box and the number of scan
@@ -415,6 +417,7 @@ private:
     // against a single init on this thread.
     std::function<void(const QPoint&, const QStringList&)> m_dropHandler;
     std::function<void(const QPoint&, bool)> m_dropHover;
+    std::function<bool()> m_dropAccept; // session 94
     ShellDropTarget* m_dropTarget = nullptr;
     std::function<void*(quintptr)> m_dropTargetFactory;
     void* m_customDropTarget = nullptr;

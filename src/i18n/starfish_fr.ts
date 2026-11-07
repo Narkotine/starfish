@@ -587,7 +587,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+287"/>
+        <location filename="../ui/fence_menu.hpp" line="+289"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -617,12 +617,14 @@
         <translation>Barre de titre : comme le panneau</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+29"/>
+        <location line="+13"/>
         <source>Roll down</source>
         <translation>Dérouler</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-12"/>
+        <location line="+13"/>
         <source>Roll up</source>
         <translation>Enrouler</translation>
     </message>
@@ -632,7 +634,7 @@
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="-196"/>
+        <location line="-211"/>
         <source>Default (whole icons)</source>
         <translation>Par défaut (icônes entières)</translation>
     </message>
@@ -697,7 +699,17 @@
         <translation>Nom</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+124"/>
+        <source>Unlock the zone</source>
+        <translation>Déverrouiller la zone</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lock the zone</source>
+        <translation>Verrouiller la zone</translation>
+    </message>
+    <message>
+        <location line="+27"/>
         <source>Show the title bar</source>
         <translation>Afficher la barre de titre</translation>
     </message>
@@ -889,7 +901,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2762"/>
+        <location filename="../app/product_app.cpp" line="+2768"/>
         <location line="+152"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
@@ -956,7 +968,7 @@
 <context>
     <name>QPlatformTheme</name>
     <message>
-        <location filename="../main.cpp" line="+5923"/>
+        <location filename="../main.cpp" line="+5935"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -995,12 +1007,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3400"/>
+        <location line="-3406"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+503"/>
+        <location line="+505"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -1031,7 +1043,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+526"/>
+        <location line="+530"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1409,18 +1421,18 @@
     <name>starfish::ui::FenceView</name>
     <message>
         <location filename="../ui/fence_view.cpp" line="+325"/>
-        <location line="+134"/>
-        <location line="+211"/>
+        <location line="+160"/>
+        <location line="+218"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+51"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+544"/>
+        <location line="+547"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
