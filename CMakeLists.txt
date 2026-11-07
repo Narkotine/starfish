@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(StarFish
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "Open-source Fences 6 equivalent for Windows"
     LANGUAGES CXX
 )

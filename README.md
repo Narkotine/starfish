@@ -26,7 +26,7 @@ by desktop organizers such as Stardock Fences, but it is an independent project.
 
 ## Status
 
-**Alpha, v0.1.0.** The author uses it daily, but expect bugs. Back up `%APPDATA%\StarFish`
+**Alpha, v0.1.1.** The author uses it daily, but expect bugs. Back up `%APPDATA%\StarFish`
 before trying a new version.
 
 ## Installation
