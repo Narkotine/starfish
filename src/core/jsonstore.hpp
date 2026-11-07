@@ -117,6 +117,16 @@ struct Fence {
     QList<FenceItem> items;
 };
 
+// Session 91: a widget on the desktop itself, outside any fence. `item` is a
+// kind "widget" FenceItem; `pos` is its top-left in the same space as a fence's
+// rect (virtual-screen physical pixels); its size follows from the span and the
+// desktop's icon grid. Stored under the root key "desktopWidgets" -- an older
+// StarFish ignores it, and keeps it (unknown root key) when it writes.
+struct DesktopWidgetEntry {
+    FenceItem item;
+    QPoint pos;
+};
+
 // Versioned layout document (docs/technique.md ADR-5 / section 5).
 struct Layout {
     // Session 85: the document's format version. Bumped only for a change an
@@ -128,6 +138,7 @@ struct Layout {
     // Automation rules (T-010, F-017). They belong to the document rather than
     // to a single fence: a rule names the fence it feeds.
     QList<Rule> rules;
+    QList<DesktopWidgetEntry> desktopWidgets; // session 91
 };
 
 // Atomic JSON persistence via QSaveFile (docs/technique.md ADR-5).

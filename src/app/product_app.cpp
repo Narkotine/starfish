@@ -461,6 +461,7 @@ void ProductApp::connectLifecycle(const std::function<void()>& onChange)
             [onChange](bool) { onChange(); });
     connect(c, &ui::FenceContainer::peekChanged, this, [onChange](bool) { onChange(); });
     connect(c, &ui::FenceContainer::rulesChanged, this, onChange);
+    connect(c, &ui::FenceContainer::desktopWidgetsChanged, this, onChange); // session 91
     // Session 64: the stacking is the fences' order in the document.
     connect(c, &ui::FenceContainer::fenceStackChanged, this, [onChange](const QString&) { onChange(); });
 }
@@ -886,6 +887,9 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
         if (!registered.isEmpty())
             hidden << registered;
         constexpr int kCreateFence = 1;
+        constexpr int kAddWidget = 100; // session 91: + the kind's index
+        const QList<ui::widgets::Kind> kinds = ui::widgets::kinds();
+        const QString addWidget = tr("Add a widget");
         int chosen = -1;
         if (modernContextMenuWanted()) {
             // T-092: Windows 11's menu, drawn by StarFish from the real one.
@@ -894,11 +898,29 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
             create.label = label;
             create.glyph = QString(QChar(0xE80A));
             create.ownId = kCreateFence;
-            chosen = showModernContextMenu(core::ContextMenuKind::Background, {}, point, {create},
+            core::ContextMenuItem widgetsEntry;
+            widgetsEntry.key = QStringLiteral("starfish:add-widget");
+            widgetsEntry.label = addWidget;
+            widgetsEntry.glyph = QString(QChar(0xE71D));
+            for (int i = 0; i < kinds.size(); ++i) {
+                core::ContextMenuItem kind;
+                kind.key = QStringLiteral("starfish:add-widget:") + kinds.at(i).type;
+                kind.label = kinds.at(i).label;
+                kind.ownId = kAddWidget + i;
+                widgetsEntry.children.push_back(kind);
+            }
+            chosen = showModernContextMenu(core::ContextMenuKind::Background, {}, point, {create, widgetsEntry},
                                            nullptr, hidden);
         } else {
+            platform::win::DesktopShellView::MenuEntry widgetsEntry{0, addWidget, true, false, {}};
+            for (int i = 0; i < kinds.size(); ++i)
+                widgetsEntry.children.push_back({kAddWidget + i, kinds.at(i).label, false, false, {}});
             chosen = m_shellView->showBackgroundMenu(
-                point, backdropOwner(), {{kCreateFence, label, true, false, {}}}, hidden);
+                point, backdropOwner(), {{kCreateFence, label, false, false, {}}, widgetsEntry}, hidden);
+        }
+        if (chosen >= kAddWidget && chosen < kAddWidget + kinds.size()) {
+            addDesktopWidgetAt(kinds.at(chosen - kAddWidget).type, point);
+            return;
         }
         // Whatever the shell ran (a new folder, a paste, View > Small icons)
         // shows up on the next read; asked for now rather than in 1.5 s.
@@ -961,6 +983,25 @@ void ProductApp::wireBackdrop()
             &ProductApp::onDesktopMenu);
     // ADR-21: the drawn desktop's item menu, and the view's re-reads.
     connect(backdrop, &ui::DesktopBackdrop::iconMenuRequested, this, &ProductApp::onIconMenu);
+    // Session 91: the desktop widgets -- menu, drag (with the grid), drop, edit.
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetMenuRequested, this, &ProductApp::showDesktopWidgetMenu);
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDragged, this,
+            [this](const QString&, const QRect& rect, bool active) {
+                if (active)
+                    showDesktopWidgetGrid(rect);
+                else
+                    hideDesktopDropGrid();
+            });
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDropped, this, [this](const QString& path, const QPoint& pos) {
+        QSize span(1, 1);
+        for (const ui::DesktopWidget& widget : m_container->desktopWidgets())
+            if (widget.item.path == path)
+                span = widget.item.span;
+        m_container->moveDesktopWidget(path, snapDesktopWidget(pos, span));
+    });
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetEditRequested, this,
+            [this](const QString& path) { startWidgetEdit(desktopWidgetOwner(), path); });
+    syncDesktopWidgetCell();
     // ADR-21 lot 3 (T-091): the keyboard, the shell's drag loop, and the drop
     // target that moves our icons or hands a foreign drop to the desktop folder.
     connect(backdrop, &ui::DesktopBackdrop::keyCommand, this, &ProductApp::onDesktopKey);
@@ -1810,6 +1851,9 @@ void ProductApp::resetDesktop(bool wipeAll)
     // the released icons show where Windows keeps them.
     for (const QString& id : m_container->fenceIds())
         m_container->removeFence(id);
+    // Session 91: the Windows desktop has no widgets -- both resets remove the
+    // desktop's (the backup above keeps them).
+    m_container->clearDesktopWidgets();
     if (wipeAll)
         m_container->setRules({});
     m_store->setLayout(m_container->toLayout());
@@ -2509,6 +2553,7 @@ void ProductApp::syncShellView()
     m_shellSignature = signature;
     m_shellSpacing = state.spacing;
     m_shellIconSize = state.iconSize;
+    syncDesktopWidgetCell(); // session 91: a desktop widget spans icon slots
     m_shellIconsShown = state.iconsShown;
     // Session 60: a new icon (an installer's shortcut) or one put back may land
     // under a fence -- checked once the view is quiet.
@@ -2770,6 +2815,146 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     m_container->replaceFenceItem(fenceId, path, widget);
 }
 
+// --- session 91: widgets on the desktop ---------------------------------------
+
+void ProductApp::syncDesktopWidgetCell()
+{
+    if (ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr)
+        backdrop->setDesktopWidgetCell(desktopSlot().spacing);
+}
+
+QPoint ProductApp::snapDesktopWidget(const QPoint& pos, const QSize& span) const
+{
+    // As an icon: on the desktop's grid when Explorer aligns to it, kept on a
+    // work area. `pos` is the widget's top-left = its first slot's box.
+    const core::OverlapSlot slot = desktopSlot();
+    const QList<QRect> areas = desktopWorkAreas();
+    QPoint at = pos;
+    if (m_shellSnap && !m_shellAutoArrange) {
+        QList<QPair<QString, QPoint>> items;
+        for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it)
+            items.append({it.key(), it.value()});
+        // The slot's box -> the icon position the grid is defined on, and back.
+        const QPoint toIcon((slot.spacing.width() - slot.iconSize) / 2, -slot.top);
+        const QPoint icon = core::OverlapPlanner::snapToGrid(
+            pos + toIcon + QPoint(slot.spacing.width() / 2, slot.spacing.height() / 2) - QPoint(slot.spacing.width() / 2, slot.spacing.height() / 2),
+            core::OverlapPlanner::gridOrigin(items, areas, slot), slot);
+        at = slot.boxAt(icon).topLeft();
+    }
+    const QSize size(span.width() * slot.spacing.width(), span.height() * slot.spacing.height());
+    QRect area;
+    for (const QRect& a : areas)
+        if (a.contains(pos + QPoint(size.width() / 2, size.height() / 2)))
+            area = a;
+    if (area.isEmpty() && !areas.isEmpty())
+        area = areas.first();
+    if (!area.isEmpty()) {
+        at.setX(qBound(area.left(), at.x(), qMax(area.left(), area.right() + 1 - size.width())));
+        at.setY(qBound(area.top(), at.y(), qMax(area.top(), area.bottom() + 1 - size.height())));
+    }
+    return at;
+}
+
+void ProductApp::showDesktopWidgetGrid(const QRect& rect)
+{
+    ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
+    if (!backdrop)
+        return;
+    if (!m_desktopDragGrid || !drawnDesktop() || m_shellAutoArrange || !m_shellSnap) {
+        backdrop->clearDropGrid();
+        return;
+    }
+    const core::OverlapSlot slot = desktopSlot();
+    const QList<QRect> areas = desktopWorkAreas();
+    const QSet<QString> filed = m_container->filedPathKeys();
+    QList<QPair<QString, QPoint>> items;
+    for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it) {
+        if (!filed.contains(ui::BackdropLayout::pathKey(it.key())))
+            items.append({it.key(), it.value()});
+    }
+    const QSize span(qMax(1, rect.width() / qMax(1, slot.spacing.width())),
+                     qMax(1, rect.height() / qMax(1, slot.spacing.height())));
+    const QPoint at = snapDesktopWidget(rect.topLeft(), span);
+    backdrop->setDropGrid(core::OverlapPlanner::gridSlots(items, areas, slot), QRect(at, rect.size()));
+}
+
+QString ProductApp::addDesktopWidgetAt(const QString& type, const QPoint& point)
+{
+    if (!m_container)
+        return {};
+    core::DesktopItem widget = ui::widgets::create(type);
+    if (!widget.isWidget())
+        return {};
+    syncDesktopWidgetCell();
+    // Centred on the click's slot, then on the grid like an icon.
+    const QPoint at = snapDesktopWidget(point - QPoint(desktopSlot().spacing.width() / 2, desktopSlot().spacing.height() / 2),
+                                        widget.span);
+    if (!m_container->addDesktopWidget(widget, at))
+        return {};
+    qCInfo(lc).noquote() << QStringLiteral("desktop widget %1 (%2) at %3,%4").arg(widget.path, type).arg(at.x()).arg(at.y());
+    return widget.path;
+}
+
+void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
+{
+    if (!m_container)
+        return;
+    core::DesktopItem widget;
+    for (const ui::DesktopWidget& d : m_container->desktopWidgets())
+        if (d.item.path == path)
+            widget = d.item;
+    if (!widget.isWidget())
+        return;
+    QMenu menu;
+    ui::styleModernMenu(&menu, ui::ModernMenuStyle::current());
+    QAction* title = menu.addAction(widget.name);
+    title->setEnabled(false);
+    menu.addSeparator();
+    QAction* edit = ui::widgets::isEditable(widget.widgetType)
+                        ? menu.addAction(QCoreApplication::translate("ProductApp", "Edit the note"))
+                        : nullptr;
+    QAction* configure = menu.addAction(QCoreApplication::translate("ProductApp", "Configure widget…"));
+    QAction* plate = menu.addAction(QCoreApplication::translate("ProductApp", "Readable backdrop"));
+    plate->setCheckable(true);
+    plate->setChecked(widget.widgetSettings.value(QStringLiteral("backdrop")).toBool());
+    QMenu* sizes = menu.addMenu(QCoreApplication::translate("ProductApp", "Size"));
+    ui::styleModernMenu(sizes, ui::ModernMenuStyle::current());
+    auto* group = new QActionGroup(sizes);
+    QHash<QAction*, QSize> spanOf;
+    for (const QSize& span : ui::widgets::spanChoices()) {
+        QAction* action = sizes->addAction(QStringLiteral("%1 \u00D7 %2").arg(span.width()).arg(span.height()));
+        action->setCheckable(true);
+        action->setChecked(span == widget.span);
+        group->addAction(action);
+        spanOf.insert(action, span);
+    }
+    menu.addSeparator();
+    QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
+    QAction* chosen = menu.exec(logicalFromPhysical(point));
+    if (!chosen)
+        return;
+    if (edit && chosen == edit) {
+        startWidgetEdit(desktopWidgetOwner(), path);
+        return;
+    }
+    if (chosen == remove) {
+        m_container->removeDesktopWidget(path);
+        return;
+    }
+    if (chosen == configure) {
+        ui::WidgetSettingsDialog dialog(widget);
+        dialog.move(logicalFromPhysical(point));
+        if (dialog.exec() == QDialog::Accepted)
+            m_container->replaceDesktopWidget(path, dialog.result());
+        return;
+    }
+    if (chosen == plate)
+        widget.widgetSettings.insert(QStringLiteral("backdrop"), chosen->isChecked());
+    if (spanOf.contains(chosen))
+        widget.span = spanOf.value(chosen);
+    m_container->replaceDesktopWidget(path, widget);
+}
+
 void ProductApp::onFenceItemMenu(const QString& fenceId, const QStringList& paths, const QPoint& point)
 {
     if (paths.isEmpty() || !m_container)
@@ -2949,20 +3134,33 @@ void ProductApp::finishRename(bool commit)
 
 void ProductApp::startWidgetEdit(const QString& fenceId, const QString& path)
 {
-    if (!m_container || !m_container->contains(fenceId))
-        return;
-    ui::FenceView* view = m_container->view(fenceId);
-    if (!view)
+    if (!m_container)
         return;
     core::DesktopItem widget;
-    for (const core::DesktopItem& item : view->items()) {
-        if (item.path == path)
-            widget = item;
+    QRect cell;
+    if (fenceId == desktopWidgetOwner()) { // session 91: a note on the desktop
+        for (const ui::DesktopWidget& d : m_container->desktopWidgets()) {
+            if (d.item.path == path) {
+                widget = d.item;
+                if (m_container->backdrop())
+                    cell = m_container->backdrop()->desktopWidgetRect(d);
+            }
+        }
+    } else {
+        if (!m_container->contains(fenceId))
+            return;
+        ui::FenceView* view = m_container->view(fenceId);
+        if (!view)
+            return;
+        for (const core::DesktopItem& item : view->items()) {
+            if (item.path == path)
+                widget = item;
+        }
+        // The widget's whole cell: the editor covers exactly what the fence paints.
+        cell = m_container->fenceItemRect(fenceId, path);
     }
     if (!widget.isWidget() || !ui::widgets::isEditable(widget.widgetType))
         return;
-    // The widget's whole cell: the editor covers exactly what the fence paints.
-    const QRect cell = m_container->fenceItemRect(fenceId, path);
     if (cell.isEmpty()) {
         qCInfo(lc).noquote() << QStringLiteral("\"%1\" cannot be written here").arg(path);
         return;
@@ -3003,6 +3201,12 @@ void ProductApp::applyWidgetText(const QString& text)
 {
     if (!m_container || m_noteEditFenceId.isEmpty())
         return;
+    if (m_noteEditFenceId == desktopWidgetOwner()) { // session 91
+        for (const ui::DesktopWidget& d : m_container->desktopWidgets())
+            if (d.item.path == m_noteEditPath)
+                m_container->replaceDesktopWidget(m_noteEditPath, ui::widgets::withNoteText(d.item, text));
+        return;
+    }
     ui::FenceView* view = m_container->view(m_noteEditFenceId);
     if (!view)
         return;
@@ -3454,8 +3658,12 @@ int ProductApp::runContextMenuEntry(const core::ContextMenuItem& item, core::Con
         // "Show more options": the classic menu, ours included, where it was asked.
         if (kind == core::ContextMenuKind::Background) {
             QList<platform::win::DesktopShellView::MenuEntry> extra;
-            for (const core::ContextMenuItem& o : ours)
-                extra.append({o.ownId, o.label, true, false, {}});
+            for (const core::ContextMenuItem& o : ours) {
+                platform::win::DesktopShellView::MenuEntry entry{o.ownId, o.label, true, false, {}};
+                for (const core::ContextMenuItem& child : o.children) // session 91: "Add a widget"
+                    entry.children.push_back({child.ownId, child.label, false, false, {}});
+                extra.append(entry);
+            }
             QStringList hidden{QStringLiteral("StarFish"), platform::win::desktopMenuLabel()};
             result = m_shellView->showBackgroundMenu(point, backdropOwner(), extra, hidden);
         } else {

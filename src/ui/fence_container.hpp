@@ -18,6 +18,7 @@
 #include "ui/fence_geometry.hpp"
 #include "ui/icon_grid.hpp"
 #include "ui/screen_layout.hpp"
+#include "ui/desktop_backdrop.hpp" // session 91: DesktopWidget
 
 class QVariantAnimation;
 
@@ -547,6 +548,18 @@ public:
     // Returns how many tiles were actually released.
     int releaseItems(const QString& fenceId, const QStringList& paths);
 
+    // --- session 91: widgets on the desktop, outside any fence ---------------
+    // Part of the document (layout.json "desktopWidgets"); drawn and moved by
+    // the backdrop. Every change emits desktopWidgetsChanged (auto-save).
+    QList<DesktopWidget> desktopWidgets() const { return m_desktopWidgets; }
+    bool addDesktopWidget(const core::DesktopItem& widget, const QPoint& pos);
+    bool moveDesktopWidget(const QString& path, const QPoint& pos);
+    bool replaceDesktopWidget(const QString& path, const core::DesktopItem& widget);
+    bool removeDesktopWidget(const QString& path);
+    void clearDesktopWidgets();
+    // The rects they cover now (physical px), for icon placement.
+    QList<QRect> desktopWidgetRects() const;
+
     // --- persistence (T-008) -------------------------------------------------
     // The live fences as a versioned document, ready for core::JsonStore. The
     // order of `fences` is the creation order.
@@ -597,6 +610,7 @@ signals:
     void rulesChanged();
     // An item was filed by a rule. Diagnostics and, later, an undo trail.
     void ruleApplied(const QString& path, const QString& fenceId);
+    void desktopWidgetsChanged(); // session 91
 
 private:
     QString m_tileDropTarget; // session 65: the fence showing an insertion mark
@@ -688,6 +702,8 @@ private:
     // T-039: the layer the desktop's own icons are drawn on while the native one
     // is hidden. Owned here, and always present -- it is inert until enabled.
     DesktopBackdrop* m_backdrop = nullptr;
+    QList<DesktopWidget> m_desktopWidgets; // session 91
+    void pushDesktopWidgets();
     // T-010: the automation rules, in priority order (first match wins).
     QList<core::Rule> m_rules;
     // T-014: every screen the fences may live on. Defaults to the v1 single

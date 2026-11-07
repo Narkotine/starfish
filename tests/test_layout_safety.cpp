@@ -132,6 +132,54 @@ private slots:
         QVERIFY(!f["style"].toObject().contains(QLatin1String("borderWidth")));
     }
 
+    // Session 91: widgets on the desktop -- a root list, absent when empty
+    // (older documents unchanged), round-tripped, unknown keys kept per widget.
+    void desktopWidgetsRoundTrip()
+    {
+        Layout plain = *JsonStore::fromJson(kV1Fixture);
+        QVERIFY(plain.desktopWidgets.isEmpty());
+        QVERIFY(!QJsonDocument::fromJson(JsonStore::toJson(plain)).object().contains(QLatin1String("desktopWidgets")));
+
+        Layout with = plain;
+        DesktopWidgetEntry cpu;
+        cpu.item = FenceItem{QStringLiteral("widget"), QStringLiteral("widget:cpu-1")};
+        cpu.item.widgetType = QStringLiteral("cpu");
+        cpu.item.span = QSize(2, 1);
+        cpu.item.widgetSettings = QJsonObject{{QStringLiteral("mode"), QStringLiteral("graph")},
+                                              {QStringLiteral("backdrop"), true}};
+        cpu.pos = QPoint(-1900, 240); // a monitor left of the primary
+        with.desktopWidgets << cpu;
+        const Layout back = *JsonStore::fromJson(JsonStore::toJson(with));
+        QCOMPARE(back.desktopWidgets.size(), 1);
+        QCOMPARE(back.desktopWidgets[0].pos, QPoint(-1900, 240));
+        QCOMPARE(back.desktopWidgets[0].item.widgetType, QStringLiteral("cpu"));
+        QCOMPARE(back.desktopWidgets[0].item.span, QSize(2, 1));
+        QCOMPARE(back.desktopWidgets[0].item.widgetSettings["mode"].toString(), QStringLiteral("graph"));
+
+        QJsonObject previous = QJsonDocument::fromJson(JsonStore::toJson(with)).object();
+        QJsonArray list = previous["desktopWidgets"].toArray();
+        QJsonObject entry = list[0].toObject();
+        entry["futureDesk"] = 3;
+        QJsonObject w = entry["widget"].toObject();
+        w["futureWidget"] = 4;
+        entry["widget"] = w;
+        list[0] = entry;
+        previous["desktopWidgets"] = list;
+        const QJsonObject out =
+            QJsonDocument::fromJson(JsonStore::toJsonPreserving(with, previous, QStringLiteral("9.9.9"))).object();
+        const QJsonObject kept = out["desktopWidgets"].toArray()[0].toObject();
+        QCOMPARE(kept["futureDesk"].toInt(), 3);
+        QCOMPARE(kept["widget"].toObject()["futureWidget"].toInt(), 4);
+        // Removed on the desktop: gone from the file, not resurrected.
+        const QJsonObject none =
+            QJsonDocument::fromJson(JsonStore::toJsonPreserving(plain, previous, QStringLiteral("9.9.9"))).object();
+        QVERIFY(!none.contains(QLatin1String("desktopWidgets")));
+        // A broken entry (no type) is dropped, not fatal.
+        QJsonObject bad = previous;
+        bad["desktopWidgets"] = QJsonArray{QJsonObject{{QStringLiteral("path"), QStringLiteral("widget:x")}}};
+        QVERIFY(JsonStore::fromJson(QJsonDocument(bad).toJson())->desktopWidgets.isEmpty());
+    }
+
     void neverWritesOverANewerDocument()
     {
         QByteArray newer = kV1Fixture;

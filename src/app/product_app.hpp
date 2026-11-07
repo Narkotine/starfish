@@ -487,6 +487,17 @@ private:
     // stores.
     void runFenceMenuCommand(const QString& id, ui::FenceMenu::Action action, int value = -1);
     void showWidgetMenu(const QString& fenceId, const QString& path, const QPoint& point); // session 79
+    // Session 91: widgets on the desktop itself.
+    void showDesktopWidgetMenu(const QString& path, const QPoint& point);
+    QPoint snapDesktopWidget(const QPoint& pos, const QSize& span) const;
+    void showDesktopWidgetGrid(const QRect& rect);
+    void syncDesktopWidgetCell();
+public:
+    // Adds a `type` widget on the desktop near `point` (physical px). Its path,
+    // or "" (unknown type). Public for the probes.
+    QString addDesktopWidgetAt(const QString& type, const QPoint& point);
+    static QString desktopWidgetOwner() { return QStringLiteral("::desktop"); }
+private:
     // Session 82: what a user menu entry with an `action` runs ("theme": the
     // light/dark switch). A program entry goes through QProcess instead.
     void runMenuAction(const QString& action);

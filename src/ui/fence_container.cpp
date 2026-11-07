@@ -575,12 +575,90 @@ QSet<QString> FenceContainer::filedPathKeys() const
 
 QList<QRect> FenceContainer::fenceObstacleRects() const
 {
-    QList<QRect> rects;
+    // Session 91: the desktop widgets too -- an icon is not placed under one.
+    QList<QRect> rects = desktopWidgetRects();
     if (!m_fencesVisible)
         return rects;
     for (const FenceWindow& fence : m_fences)
         rects.append(visibleRectOf(fence));
     return rects;
+}
+
+QList<QRect> FenceContainer::desktopWidgetRects() const
+{
+    QList<QRect> rects;
+    if (!m_backdrop)
+        return rects;
+    for (const DesktopWidget& widget : m_desktopWidgets)
+        rects << m_backdrop->desktopWidgetRect(widget);
+    return rects;
+}
+
+void FenceContainer::pushDesktopWidgets()
+{
+    if (m_backdrop)
+        m_backdrop->setDesktopWidgets(m_desktopWidgets);
+}
+
+bool FenceContainer::addDesktopWidget(const core::DesktopItem& widget, const QPoint& pos)
+{
+    if (!widget.isWidget())
+        return false;
+    for (const DesktopWidget& existing : std::as_const(m_desktopWidgets))
+        if (existing.item.path == widget.path)
+            return false;
+    m_desktopWidgets.append({widget, pos});
+    pushDesktopWidgets();
+    emit desktopWidgetsChanged();
+    return true;
+}
+
+bool FenceContainer::moveDesktopWidget(const QString& path, const QPoint& pos)
+{
+    for (DesktopWidget& widget : m_desktopWidgets) {
+        if (widget.item.path != path)
+            continue;
+        widget.pos = pos;
+        pushDesktopWidgets(); // also when unchanged: the backdrop may show the drag's place
+        emit desktopWidgetsChanged();
+        return true;
+    }
+    return false;
+}
+
+bool FenceContainer::replaceDesktopWidget(const QString& path, const core::DesktopItem& item)
+{
+    for (DesktopWidget& widget : m_desktopWidgets) {
+        if (widget.item.path != path)
+            continue;
+        widget.item = item;
+        pushDesktopWidgets();
+        emit desktopWidgetsChanged();
+        return true;
+    }
+    return false;
+}
+
+bool FenceContainer::removeDesktopWidget(const QString& path)
+{
+    for (int i = 0; i < m_desktopWidgets.size(); ++i) {
+        if (m_desktopWidgets.at(i).item.path != path)
+            continue;
+        m_desktopWidgets.removeAt(i);
+        pushDesktopWidgets();
+        emit desktopWidgetsChanged();
+        return true;
+    }
+    return false;
+}
+
+void FenceContainer::clearDesktopWidgets()
+{
+    if (m_desktopWidgets.isEmpty())
+        return;
+    m_desktopWidgets.clear();
+    pushDesktopWidgets();
+    emit desktopWidgetsChanged();
 }
 
 FenceWindow* FenceContainer::find(const QString& id)
@@ -2176,6 +2254,15 @@ core::Layout FenceContainer::toLayout() const
         }
         layout.fences.append(out);
     }
+    for (const DesktopWidget& widget : m_desktopWidgets) { // session 91
+        core::DesktopWidgetEntry entry;
+        entry.item = core::FenceItem{QStringLiteral("widget"), widget.item.path};
+        entry.item.widgetType = widget.item.widgetType;
+        entry.item.span = widget.item.span;
+        entry.item.widgetSettings = QJsonObject::fromVariantMap(widget.item.widgetSettings);
+        entry.pos = widget.pos;
+        layout.desktopWidgets.append(entry);
+    }
     return layout;
 }
 
@@ -2196,6 +2283,13 @@ bool FenceContainer::applyLayout(const core::Layout& layout, QString* error)
     // document is not modifying it, and announcing it here would make a
     // startup restore look like an edit and trigger a pointless write.
     m_rules = layout.rules;
+    // Session 91: the desktop widgets, restored without announcing a change.
+    m_desktopWidgets.clear();
+    for (const core::DesktopWidgetEntry& entry : layout.desktopWidgets)
+        m_desktopWidgets.append({widgets::restore(entry.item.path, entry.item.widgetType, entry.item.span,
+                                                  entry.item.widgetSettings.toVariantMap()),
+                                 entry.pos});
+    pushDesktopWidgets();
 
     for (const core::Fence& stored : layout.fences) {
         QList<core::DesktopItem> items;

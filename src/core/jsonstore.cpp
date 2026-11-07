@@ -249,6 +249,19 @@ QByteArray JsonStore::toJson(const Layout& layout)
     for (const auto& r : layout.rules)
         rules.append(ruleToJson(r));
     root["rules"] = rules;
+    // Session 91: only when there is one -- a document without desktop widgets
+    // stays byte for byte what it was.
+    if (!layout.desktopWidgets.isEmpty()) {
+        QJsonArray widgets;
+        for (const DesktopWidgetEntry& w : layout.desktopWidgets) {
+            QJsonObject o = itemToJson(w.item);
+            o.remove("kind");
+            o["x"] = w.pos.x();
+            o["y"] = w.pos.y();
+            widgets.append(o);
+        }
+        root["desktopWidgets"] = widgets;
+    }
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
@@ -281,6 +294,21 @@ std::optional<Layout> JsonStore::fromJson(const QByteArray& data, QString* error
     // carry no rules, and must keep loading.
     for (const auto& v : root["rules"].toArray())
         layout.rules.append(ruleFromJson(v.toObject()));
+    // Session 91: widgets on the desktop (absent before: none).
+    for (const auto& v : root["desktopWidgets"].toArray()) {
+        const QJsonObject o = v.toObject();
+        DesktopWidgetEntry entry;
+        entry.item = FenceItem{QStringLiteral("widget"), o["path"].toString()};
+        const QJsonObject w = o["widget"].toObject();
+        entry.item.widgetType = w["type"].toString();
+        const QJsonArray span = w["span"].toArray();
+        entry.item.span = QSize(qMax(1, span.at(0).toInt(1)), qMax(1, span.at(1).toInt(1)));
+        entry.item.widgetSettings = w["settings"].toObject();
+        entry.pos = QPoint(o["x"].toInt(), o["y"].toInt());
+        if (entry.item.widgetType.isEmpty() || !entry.item.path.startsWith(QLatin1String("widget:")))
+            continue;
+        layout.desktopWidgets.append(entry);
+    }
     return layout;
 }
 
@@ -323,7 +351,8 @@ namespace {
 // The keys this build writes, level by level. A key in a previous document
 // that is not listed here belongs to someone else (a newer StarFish) and is
 // carried over; a listed key is always this build's to write or to omit.
-const QStringList kRootKeys{"schema", "fences", "rules", "writtenBy"};
+const QStringList kRootKeys{"schema", "fences", "rules", "writtenBy", "desktopWidgets"};
+const QStringList kDesktopWidgetKeys{"path", "x", "y", "widget", "fileId", "target"};
 const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", "sortAscending", "rolledUp", "items"};
 const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap", "titleBar", "iconTint",
                              "fadeIcons", "titleBarColor", "defaultOpacity", "borderWidth", "borderColor",
@@ -407,6 +436,23 @@ QByteArray JsonStore::toJsonPreserving(const Layout& layout, const QJsonObject& 
             rules.append(rule);
         }
         root["rules"] = rules;
+        // Session 91: per desktop widget (matched by path), its unknown keys.
+        if (root.contains("desktopWidgets")) {
+            const auto oldWidgets = byKey(previous["desktopWidgets"].toArray(), "path");
+            QJsonArray widgets;
+            for (const QJsonValue& v : root["desktopWidgets"].toArray()) {
+                QJsonObject entry = v.toObject();
+                const QJsonObject old = oldWidgets.value(entry["path"].toString());
+                if (!old.isEmpty()) {
+                    keepUnknown(entry, old, kDesktopWidgetKeys);
+                    QJsonObject widget = entry["widget"].toObject();
+                    keepUnknown(widget, old["widget"].toObject(), kWidgetKeys);
+                    entry["widget"] = widget;
+                }
+                widgets.append(entry);
+            }
+            root["desktopWidgets"] = widgets;
+        }
     }
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }

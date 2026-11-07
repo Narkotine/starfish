@@ -2,6 +2,7 @@
 
 #include <QPainterPath>
 #include "ui/drag_image.hpp"
+#include "ui/fence_widgets.hpp"
 
 #include <QColor>
 #include <QFont>
@@ -194,6 +195,19 @@ DesktopBackdrop::DesktopBackdrop(QObject* parent) : QObject(parent)
     m_partialTimer.setSingleShot(true);
     m_partialTimer.setInterval(0);
     connect(&m_partialTimer, &QTimer::timeout, this, &DesktopBackdrop::onPartialTimer);
+    // Session 91: the desktop widgets' own clock (a clock's minute, a system
+    // widget's second) -- only their pixels are repainted.
+    m_widgetTimer.setSingleShot(true);
+    m_widgetTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_widgetTimer, &QTimer::timeout, this, [this] {
+        ++m_widgetRepaints;
+        const QDateTime now = QDateTime::currentDateTime();
+        for (int i = 0; i < m_widgets.size(); ++i) {
+            if (widgets::msUntilNextChange(m_widgets.at(i).item, now) >= 0)
+                invalidateWidget(i);
+        }
+        scheduleWidgetTick();
+    });
 }
 
 DesktopBackdrop::~DesktopBackdrop()
@@ -333,6 +347,7 @@ void DesktopBackdrop::paintArea(QImage& frame, const QRect& dirty) const
     }
     paintDropGrid(painter, box, m_dropGrid, m_dropTarget, scale()); // session 80
     paintDesktop(painter, box.topLeft(), touched, m_iconProvider, physicalMetrics(), scale(), selected);
+    paintDesktopWidgets(painter, box, dirty); // session 91: above the icons
     paintOverlays(painter, box);
 }
 
@@ -639,6 +654,7 @@ void DesktopBackdrop::setEnabled(bool enabled)
         detach();
         m_renderTimer.stop();
         m_frame = QImage();
+        scheduleWidgetTick(); // session 91: stops it
     }
 }
 
@@ -826,6 +842,10 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     // space a fence's stored rect uses (T-014), so the drawn rect needs no
     // conversion at all.
     const QPoint screen = mouse->globalPosition().toPoint();
+    // Session 91: a widget on the desktop takes its clicks first (drawn above
+    // the icons).
+    if (drawsWholeDesktop() && handleWidgetMouse(mouse, screen))
+        return true;
     // Which icons are under the cursor depends on which ones are *there*: the
     // native ones (ADR-13, the default) or the ones this layer would draw. Asking
     // the wrong set is how a right press on an icon would open the background
@@ -1182,6 +1202,193 @@ void DesktopBackdrop::onRenderTimer()
     renderNow();
 }
 
+// --- session 91: widgets on the desktop --------------------------------------
+
+void DesktopBackdrop::setDesktopWidgets(const QList<DesktopWidget>& widgets)
+{
+    for (int i = 0; i < m_widgets.size(); ++i)
+        invalidateWidget(i);
+    m_widgets = widgets;
+    for (int i = 0; i < m_widgets.size(); ++i)
+        invalidateWidget(i);
+    scheduleWidgetTick();
+}
+
+void DesktopBackdrop::setDesktopWidgetCell(const QSize& cell)
+{
+    if (!cell.isValid() || cell.isEmpty() || cell == m_widgetCell)
+        return;
+    for (int i = 0; i < m_widgets.size(); ++i)
+        invalidateWidget(i);
+    m_widgetCell = cell;
+    for (int i = 0; i < m_widgets.size(); ++i)
+        invalidateWidget(i);
+}
+
+QRect DesktopBackdrop::desktopWidgetRect(const DesktopWidget& widget) const
+{
+    const QSize span = widget.item.span.isValid() ? widget.item.span : QSize(1, 1);
+    return QRect(widget.pos, QSize(span.width() * m_widgetCell.width(), span.height() * m_widgetCell.height()));
+}
+
+QList<QRect> DesktopBackdrop::desktopWidgetRects() const
+{
+    QList<QRect> rects;
+    for (const DesktopWidget& widget : m_widgets)
+        rects << desktopWidgetRect(widget);
+    return rects;
+}
+
+int DesktopBackdrop::desktopWidgetAt(const QPoint& screen) const
+{
+    for (int i = int(m_widgets.size()) - 1; i >= 0; --i) {
+        if (desktopWidgetRect(m_widgets.at(i)).contains(screen))
+            return i;
+    }
+    return -1;
+}
+
+void DesktopBackdrop::invalidateWidget(int index)
+{
+    if (index < 0 || index >= m_widgets.size())
+        return;
+    const int pad = qRound(4 * scale());
+    invalidate(desktopWidgetRect(m_widgets.at(index)).adjusted(-pad, -pad, pad, pad));
+}
+
+void DesktopBackdrop::paintDesktopWidgets(QPainter& painter, const QRect& box, const QRect& dirty) const
+{
+    if (m_widgets.isEmpty())
+        return;
+    const qreal s = scale();
+    widgets::PaintContext context;
+    context.text = QColor(0xFF, 0xFF, 0xFF);
+    context.shadow = true; // like an icon's caption on the wallpaper
+    QFont font(QStringLiteral("Segoe UI"));
+    font.setPixelSize(qMax(9, qRound(12.0 * s)));
+    context.font = font;
+    context.now = QDateTime::currentDateTime();
+    painter.save();
+    painter.translate(-box.topLeft());
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    for (const DesktopWidget& widget : m_widgets) {
+        const QRect rect = desktopWidgetRect(widget);
+        if (!rect.intersects(dirty.adjusted(-8, -8, 8, 8)))
+            continue;
+        const QRect inner = rect.adjusted(qRound(3 * s), qRound(3 * s), -qRound(3 * s), -qRound(3 * s));
+        if (widget.item.widgetSettings.value(QStringLiteral("backdrop")).toBool()) {
+            // The widget's own choice: a discreet plate, for a busy wallpaper.
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 0x70));
+            painter.drawRoundedRect(QRectF(inner), 8 * s, 8 * s);
+        }
+        painter.save();
+        painter.translate(inner.topLeft());
+        painter.setClipRect(QRect(QPoint(0, 0), inner.size()));
+        widgets::paint(painter, QRect(QPoint(0, 0), inner.size()), widget.item, context);
+        painter.restore();
+    }
+    painter.restore();
+}
+
+void DesktopBackdrop::scheduleWidgetTick()
+{
+    if (m_widgets.isEmpty() || !m_enabled || !drawsWholeDesktop() || !isAttached()) {
+        // Nothing on screen: no clock, and the system sampler's lease runs out.
+        m_widgetTimer.stop();
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    int next = -1;
+    for (const DesktopWidget& widget : std::as_const(m_widgets)) {
+        const int ms = widgets::msUntilNextChange(widget.item, now);
+        if (ms >= 0 && (next < 0 || ms < next))
+            next = ms;
+    }
+    if (next < 0)
+        m_widgetTimer.stop();
+    else
+        m_widgetTimer.start(next);
+}
+
+bool DesktopBackdrop::handleWidgetMouse(QMouseEvent* mouse, const QPoint& screen)
+{
+    const auto indexOf = [this](const QString& path) {
+        for (int i = 0; i < m_widgets.size(); ++i)
+            if (m_widgets.at(i).item.path == path)
+                return i;
+        return -1;
+    };
+    const int hit = desktopWidgetAt(screen);
+    switch (mouse->type()) {
+    case QEvent::MouseButtonPress:
+        if (hit < 0)
+            return false;
+        if (mouse->button() == Qt::LeftButton) {
+            m_widgetPressed = m_widgets.at(hit).item.path;
+            m_widgetPressAt = screen;
+            m_widgetOrigin = m_widgets.at(hit).pos;
+            m_widgetMoving = false;
+            setSelectionInternal({});
+            return true;
+        }
+        if (mouse->button() == Qt::RightButton) {
+            m_widgetRight = m_widgets.at(hit).item.path;
+            setSelectionInternal({});
+            return true;
+        }
+        return true;
+    case QEvent::MouseMove: {
+        if (m_widgetPressed.isEmpty())
+            return false;
+        const int i = indexOf(m_widgetPressed);
+        if (i < 0 || !mouse->buttons().testFlag(Qt::LeftButton)) {
+            m_widgetPressed.clear();
+            return i >= 0;
+        }
+        const QPoint delta = screen - m_widgetPressAt;
+        if (!m_widgetMoving && delta.manhattanLength() >= m_gesture.metrics().dragThreshold)
+            m_widgetMoving = true; // the icons' own threshold
+        if (m_widgetMoving) {
+            invalidateWidget(i);
+            m_widgets[i].pos = m_widgetOrigin + delta;
+            invalidateWidget(i);
+            emit desktopWidgetDragged(m_widgetPressed, desktopWidgetRect(m_widgets.at(i)), true);
+        }
+        return true;
+    }
+    case QEvent::MouseButtonRelease:
+        if (mouse->button() == Qt::LeftButton && !m_widgetPressed.isEmpty()) {
+            const QString path = m_widgetPressed;
+            const bool moved = m_widgetMoving;
+            m_widgetPressed.clear();
+            m_widgetMoving = false;
+            const int i = indexOf(path);
+            if (moved && i >= 0) {
+                emit desktopWidgetDragged(path, {}, false);
+                emit desktopWidgetDropped(path, m_widgets.at(i).pos);
+            }
+            return true;
+        }
+        if (mouse->button() == Qt::RightButton && !m_widgetRight.isEmpty()) {
+            const QString path = m_widgetRight;
+            m_widgetRight.clear();
+            emit desktopWidgetMenuRequested(path, screen);
+            return true;
+        }
+        return false;
+    case QEvent::MouseButtonDblClick:
+        if (hit < 0)
+            return false;
+        if (mouse->button() == Qt::LeftButton && widgets::isEditable(m_widgets.at(hit).item.widgetType))
+            emit desktopWidgetEditRequested(m_widgets.at(hit).item.path);
+        return true; // never the desktop's quick hide
+    default:
+        return false;
+    }
+}
+
 void DesktopBackdrop::noteGestureMove()
 {
     if (!m_pendingSince.isValid())
@@ -1203,6 +1410,7 @@ void DesktopBackdrop::noteFrameShown(qint64 costUs)
 
 void DesktopBackdrop::renderNow()
 {
+    QTimer::singleShot(0, this, [this] { scheduleWidgetTick(); }); // session 91: after the frame
     QElapsedTimer cost;
     cost.start();
     recompute();

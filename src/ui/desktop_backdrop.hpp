@@ -25,6 +25,13 @@ class QMouseEvent;
 
 namespace starfish::ui {
 
+// Session 91: a built-in widget placed on the desktop itself (no fence). `pos`
+// is its top-left in virtual-screen physical pixels -- a fence rect's space.
+struct DesktopWidget {
+    core::DesktopItem item;
+    QPoint pos;
+};
+
 // The desktop layer StarFish draws itself when it owns the icons (T-039).
 //
 // WHY THIS EXISTS
@@ -236,6 +243,27 @@ public:
     // One line for the settings window and the probes.
     QString statusText() const;
 
+    // --- session 91: widgets on the desktop -----------------------------------
+    // Drawn on the drawn desktop (ADR-21) like an icon: no panel, no title, a
+    // text shadow; an optional backdrop per widget ("backdrop" setting). Moved by
+    // a plain left drag (the icons' threshold), menu on the right button. The
+    // product owns the list (FenceContainer) and the snapping; this class paints
+    // and reports.
+    void setDesktopWidgets(const QList<DesktopWidget>& widgets);
+    const QList<DesktopWidget>& desktopWidgets() const { return m_widgets; }
+    // One grid slot (physical px): a widget spans span.w x span.h of them.
+    void setDesktopWidgetCell(const QSize& cell);
+    QSize desktopWidgetCell() const { return m_widgetCell; }
+    QRect desktopWidgetRect(const DesktopWidget& widget) const;
+    QList<QRect> desktopWidgetRects() const;
+    // The index of the widget under `screen`, or -1 (topmost = last).
+    int desktopWidgetAt(const QPoint& screen) const;
+    // Whether the widgets' clock runs (they repaint themselves), for the probes.
+    bool desktopWidgetsTicking() const { return m_widgetTimer.isActive(); }
+    int desktopWidgetRepaints() const { return m_widgetRepaints; }
+    // Paints the widgets that touch `box`-relative pixels (also used by probes).
+    void paintDesktopWidgets(QPainter& painter, const QRect& box, const QRect& dirty) const;
+
     // Session 63: what drawing a gesture costs. `updates` frames reached the
     // window while a rubber band or a selection rectangle moved; `costUs` is the
     // time spent building and pushing them, `latencyUs` the time from the first
@@ -297,6 +325,13 @@ signals:
     // An icon drag left its threshold: the product runs the shell's drag loop
     // (SHDoDragDrop) with `paths`, picked up at `origin` (screen pixels).
     void iconDragRequested(const QStringList& paths, const QPoint& origin);
+    // Session 91: a desktop widget's right-click menu, its drag (the rect it
+    // would take, `active` false when it ends) and its drop (the top-left the
+    // pointer left it at -- the product snaps it to the grid).
+    void desktopWidgetMenuRequested(const QString& path, const QPoint& point);
+    void desktopWidgetDragged(const QString& path, const QRect& rect, bool active);
+    void desktopWidgetDropped(const QString& path, const QPoint& pos);
+    void desktopWidgetEditRequested(const QString& path);
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -395,6 +430,20 @@ private:
     // Re-hosts the window when the surface mode (transparent layer / opaque
     // desktop) has to change.
     void remodel(bool wasWholeDesktop);
+
+    // Session 91.
+    bool handleWidgetMouse(QMouseEvent* mouse, const QPoint& screen);
+    void scheduleWidgetTick();
+    void invalidateWidget(int index);
+    QList<DesktopWidget> m_widgets;
+    QSize m_widgetCell{95, 100};
+    QTimer m_widgetTimer;
+    int m_widgetRepaints = 0;
+    QString m_widgetPressed;   // left press on this widget
+    QPoint m_widgetPressAt;
+    QPoint m_widgetOrigin;
+    bool m_widgetMoving = false;
+    QString m_widgetRight;     // right press on this widget
 };
 
 } // namespace starfish::ui

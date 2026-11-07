@@ -2778,6 +2778,117 @@ int runUiProbe(QApplication& app)
               cpuH && ramH && cpuH->latest().valid() && ramH->latest().valid(), read.join(QLatin1Char(' ')));
     }
 
+    // --- session 91: widgets on the desktop (a detached backdrop, fake wallpaper)
+    {
+        static core::MetricHistory deskFake(200);
+        for (int i = 0; i < 200; ++i) {
+            core::MetricPoint p;
+            p.percent = float(30 + 20 * std::sin(i / 7.0));
+            p.totalBytes = 32.0 * 1024 * 1024 * 1024;
+            p.usedBytes = p.totalBytes * p.percent / 100;
+            deskFake.push(p);
+        }
+        ui::widgets::setMetricsSource([](core::Metric) { return &deskFake; }, [](bool) {});
+        ui::DesktopBackdrop desk; // never attached: nothing reaches the real desktop
+        const QSize screen(1920, 1080);
+        QImage wallpaper(screen, QImage::Format_ARGB32_Premultiplied);
+        {
+            QPainter wp(&wallpaper);
+            QLinearGradient g(0, 0, screen.width(), screen.height());
+            g.setColorAt(0, QColor(0x1E, 0x3A, 0x5F));
+            g.setColorAt(0.6, QColor(0x6A, 0x8F, 0xB8));
+            g.setColorAt(1, QColor(0xE8, 0xD9, 0xB5));
+            wp.fillRect(wallpaper.rect(), g);
+        }
+        desk.setWallpaper(wallpaper);
+        desk.setDrawFreeIcons(true);
+        desk.setGestureEnabled(true);
+        desk.setDesktopWidgetCell(QSize(95, 100));
+        core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        clock.widgetSettings.insert(QStringLiteral("date"), true);
+        core::DesktopItem cpu = ui::widgets::create(QStringLiteral("cpu"));
+        cpu.widgetSettings.insert(QStringLiteral("mode"), QStringLiteral("graph"));
+        core::DesktopItem group = ui::widgets::create(QStringLiteral("system"));
+        core::DesktopItem note = ui::widgets::withNoteText(ui::widgets::create(QStringLiteral("notes")),
+                                                           QStringLiteral("Penser au rendu du 12"));
+        note.widgetSettings.insert(QStringLiteral("backdrop"), true);
+        core::DesktopItem ram = ui::widgets::create(QStringLiteral("ram"));
+        ram.widgetSettings.insert(QStringLiteral("backdrop"), true);
+        desk.setDesktopWidgets({{clock, QPoint(1500, 100)}, {cpu, QPoint(1500, 200)}, {group, QPoint(1500, 300)},
+                                {note, QPoint(1100, 700)}, {ram, QPoint(1500, 760)}});
+        QImage shot = wallpaper.copy();
+        {
+            QPainter sp(&shot);
+            desk.paintDesktopWidgets(sp, QRect(QPoint(0, 0), screen), QRect(QPoint(0, 0), screen));
+        }
+        shot.copy(QRect(1050, 60, 840, 920)).save(captures + QStringLiteral("/s91_desktop_widgets.png"));
+        bool changed = false;
+        for (int y = 100; y < 200 && !changed; y += 3)
+            for (int x = 1500; x < 1690 && !changed; x += 3)
+                changed = shot.pixel(x, y) != wallpaper.pixel(x, y);
+        check(QStringLiteral("desktop widgets paint on the wallpaper, no panel; optional readable backdrop (session 91)"),
+              changed && desk.desktopWidgetAt(QPoint(1510, 110)) == 0 && desk.desktopWidgetAt(QPoint(10, 10)) < 0
+                  && desk.desktopWidgetRect(desk.desktopWidgets().at(2)).size() == QSize(190, 200),
+              QStringLiteral("s91_desktop_widgets.png"));
+
+        // The mouse, as the surface posts it (Qt events to the object, no input
+        // injected into Windows): a drag past the icons' threshold, the menu,
+        // a double-click on the note.
+        QString droppedPath, menuPath, editPath;
+        QPoint droppedAt;
+        int dragUpdates = 0;
+        QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetDropped, &desk,
+                         [&](const QString& path, const QPoint& pos) { droppedPath = path; droppedAt = pos; });
+        QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetDragged, &desk,
+                         [&](const QString&, const QRect&, bool active) { dragUpdates += active ? 1 : 0; });
+        QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetMenuRequested, &desk,
+                         [&](const QString& path, const QPoint&) { menuPath = path; });
+        QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetEditRequested, &desk,
+                         [&](const QString& path) { editPath = path; });
+        const auto send = [&](QEvent::Type type, const QPoint& at, Qt::MouseButton button, Qt::MouseButtons buttons) {
+            QMouseEvent event(type, QPointF(at), QPointF(at), button, buttons, Qt::NoModifier);
+            QCoreApplication::sendEvent(&desk, &event);
+        };
+        const QPoint grab(1520, 220);
+        send(QEvent::MouseButtonPress, grab, Qt::LeftButton, Qt::LeftButton);
+        send(QEvent::MouseMove, grab + QPoint(3, 0), Qt::NoButton, Qt::LeftButton); // under the threshold
+        const bool stillBefore = desk.desktopWidgets().at(1).pos == QPoint(1500, 200);
+        send(QEvent::MouseMove, grab + QPoint(-200, 120), Qt::NoButton, Qt::LeftButton);
+        send(QEvent::MouseButtonRelease, grab + QPoint(-200, 120), Qt::LeftButton, Qt::NoButton);
+        send(QEvent::MouseButtonPress, QPoint(1510, 110), Qt::RightButton, Qt::RightButton);
+        send(QEvent::MouseButtonRelease, QPoint(1510, 110), Qt::RightButton, Qt::NoButton);
+        send(QEvent::MouseButtonDblClick, QPoint(1120, 720), Qt::LeftButton, Qt::LeftButton);
+        check(QStringLiteral("a desktop widget: dragged past the threshold, dropped, menu, note double-click (session 91)"),
+              stillBefore && dragUpdates >= 1 && droppedPath == cpu.path && droppedAt == QPoint(1300, 320)
+                  && menuPath == clock.path && editPath == note.path,
+              QStringLiteral("drop %1 at %2,%3, menu %4, edit %5")
+                  .arg(droppedPath).arg(droppedAt.x()).arg(droppedAt.y()).arg(menuPath, editPath));
+        check(QStringLiteral("desktop widgets do not tick while the StarFish desktop is not shown (sampler released) (session 91)"),
+              !desk.desktopWidgetsTicking(), {});
+
+        // In the document, through the container: saved, restored, an obstacle
+        // for the icons, cleared by a reset.
+        ui::FenceContainer first;
+        first.backdrop()->setDesktopWidgetCell(QSize(95, 100));
+        int changes = 0;
+        QObject::connect(&first, &ui::FenceContainer::desktopWidgetsChanged, &first, [&changes] { ++changes; });
+        first.addDesktopWidget(cpu, QPoint(1500, 200));
+        first.addDesktopWidget(note, QPoint(1100, 700));
+        first.moveDesktopWidget(cpu.path, QPoint(1405, 205));
+        const core::Layout doc = first.toLayout();
+        ui::FenceContainer second;
+        second.applyLayout(*core::JsonStore::fromJson(core::JsonStore::toJson(doc)));
+        const bool restored = second.desktopWidgets().size() == 2
+                              && second.desktopWidgets().at(0).pos == QPoint(1405, 205)
+                              && second.desktopWidgets().at(1).item.widgetSettings.value(QStringLiteral("backdrop")).toBool();
+        const bool obstacle = first.fenceObstacleRects().contains(QRect(QPoint(1405, 205), QSize(190, 100)));
+        first.clearDesktopWidgets();
+        check(QStringLiteral("desktop widgets: saved in layout.json, restored, icons avoid them, reset clears (session 91)"),
+              restored && obstacle && first.desktopWidgets().isEmpty() && changes == 4
+                  && doc.desktopWidgets.size() == 2,
+              QStringLiteral("%1 change(s)").arg(changes));
+    }
+
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);
     QFile report(QStringLiteral("build/ui-probe.txt"));

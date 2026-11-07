@@ -889,17 +889,19 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2717"/>
+        <location filename="../app/product_app.cpp" line="+2762"/>
+        <location line="+152"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-149"/>
+        <location line="+151"/>
         <source>Configure widget…</source>
         <translation>Configurer le widget…</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-142"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -915,16 +917,23 @@
     </message>
     <message>
         <location line="+2"/>
+        <location line="+142"/>
         <source>Size</source>
         <translation>Taille</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-130"/>
+        <location line="+142"/>
         <source>Remove the widget</source>
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="-15"/>
+        <source>Readable backdrop</source>
+        <translation>Fond discret (lisibilité)</translation>
+    </message>
+    <message>
+        <location line="+60"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -976,7 +985,7 @@
 <context>
     <name>starfish::app::ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+578"/>
+        <location filename="../app/product_app.cpp" line="+597"/>
         <source>Show more options</source>
         <translation>Afficher plus d&apos;options</translation>
     </message>
@@ -986,12 +995,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3196"/>
+        <location line="-3400"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+502"/>
+        <location line="+503"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -1017,7 +1026,12 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+514"/>
+        <location filename="../app/product_app.cpp" line="+28"/>
+        <source>Add a widget</source>
+        <translation>Ajouter un widget</translation>
+    </message>
+    <message>
+        <location line="+526"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1027,7 +1041,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+520"/>
+        <location line="+523"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1371,7 +1385,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1223"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1431"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
