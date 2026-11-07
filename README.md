@@ -23,7 +23,7 @@ before trying a new version.
 
 ## Installation
 
-1. Download `StarFish-<version>-setup.exe` from *Releases*.
+1. Download `StarFish-<version>-setup.exe` from [Releases](https://github.com/Narkotine/starfish/releases).
 2. Run it. It installs **per user, with no admin rights**, into `%LOCALAPPDATA%\Programs\StarFish`.
 3. Releases are not code-signed yet, so Windows SmartScreen may say "Windows protected your PC".
    Click **More info > Run anyway** (in French: *Informations complémentaires > Exécuter quand même*).

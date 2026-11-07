@@ -31,6 +31,17 @@ Copy-Item $exe $stage
 Get-ChildItem $build -Filter "starfish_*.qm" | Copy-Item -Destination $stage
 & $wdq.Source --release --no-system-d3d-compiler --no-opengl-sw --compiler-runtime (Join-Path $stage "starfish.exe") | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
+# MSVC build (CI): ship the VC++ runtime DLLs app-locally rather than the
+# vc_redist installer windeployqt drops (it would need admin rights to run).
+if ($env:VCToolsRedistDir) {
+    $crt = Get-ChildItem (Join-Path $env:VCToolsRedistDir "x64") -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+    if (-not $crt) { throw "no Microsoft.VC*.CRT under $env:VCToolsRedistDir" }
+    Copy-Item (Join-Path $crt.FullName "*.dll") $stage
+    Get-ChildItem $stage -Filter "vc_redist*.exe" | Remove-Item
+}
+if ($env:GITHUB_OUTPUT) {
+    "version=$version" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+}
 
 & $Iscc /Qp "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$out" (Join-Path $root "installer\starfish.iss")
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
@@ -38,3 +49,4 @@ $setup = Join-Path $out "StarFish-$version-setup.exe"
 $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
 "$hash  StarFish-$version-setup.exe" | Set-Content "$setup.sha256" -Encoding ascii
 Write-Host "$setup`nsha256 $hash"
+if ($env:GITHUB_OUTPUT) { "setup=$setup" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8 }

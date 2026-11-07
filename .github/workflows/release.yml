@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the CMake version
+        shell: pwsh
+        run: |
+          $m = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(StarFish\s+VERSION\s+([0-9.]+)')
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $base = ($tag -split '-', 2)[0]
+          if ($base -ne $m.Groups[1].Value) { throw "tag $tag does not match CMake version $($m.Groups[1].Value)" }
+          "TAG_VERSION=$tag" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+
+      # Same as ci.yml: vcvars64 from vswhere (no Node 20 action).
+      - name: Configure MSVC dev environment
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
+
+      - name: Build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build the installer
+        id: setup
+        shell: pwsh
+        run: ./tools/build_installer.ps1 -BuildDir build
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = "${{ steps.setup.outputs.setup }}"
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+          $notes = (Get-Content .github/release/notes.md -Raw).Replace('{VERSION}', $env:TAG_VERSION).Replace('{SHA256}', $hash)
+          $notes | Set-Content notes.md -Encoding utf8
+          $pre = @()
+          if ($env:TAG_VERSION -match '^0\.' -or $env:TAG_VERSION -match '-') { $pre = @('--prerelease') }
+          gh release create "${{ github.ref_name }}" $setup "$setup.sha256" --title "StarFish $env:TAG_VERSION" --notes-file notes.md @pre
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

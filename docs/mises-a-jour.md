@@ -15,6 +15,15 @@
   dans le dossier installé. Au lancement, StarFish repointe `Run` vers son propre exe s'il
   était inscrit : le démarrage avec Windows suit l'installation.
 
+## Publier une version
+
+1. Changer `project(StarFish VERSION x.y.z)` dans `CMakeLists.txt`, commit, push.
+2. `git tag vx.y.z` puis `git push origin vx.y.z`.
+3. Le workflow `release.yml` vérifie que le tag = la version CMake, compile (MSVC), teste, construit
+   le setup (runtime VC++ copié à côté de l'exe) et publie la Release avec le setup et son `.sha256`
+   (pré-version si 0.x ou suffixe). Texte : `.github/release/notes.md`.
+4. Échec : corriger, supprimer le tag (`git push origin :refs/tags/vx.y.z`, `git tag -d vx.y.z`), retaguer.
+
 ## Données et compatibilité (fait)
 
 - `layout.json` porte `schema` (1) et `writtenBy` (version de l'app). Écriture atomique (QSaveFile).
