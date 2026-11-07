@@ -199,7 +199,7 @@ QPixmap ShellIconCache::iconFor(const QString& path, int sizePx, bool overlays)
 {
     // '\x1f' cannot appear in a path, so the key is unambiguous.
     const QString key = path + QLatin1Char('\x1f') + QString::number(sizePx)
-                        + (overlays ? QLatin1String("") : QLatin1String("\x1fbare"));
+                        + (overlays ? QLatin1String("") : QLatin1String("\x1f" "bare"));
 
     const auto it = m_cache.constFind(key);
     if (it != m_cache.constEnd())
