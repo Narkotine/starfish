@@ -307,3 +307,8 @@ add_executable(test_starfish_layout_safety
 target_include_directories(test_starfish_layout_safety PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_starfish_layout_safety PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME core_layout_safety COMMAND test_starfish_layout_safety)
+
+add_executable(test_starfish_update_feed test_update_feed.cpp ../src/core/update_feed.cpp)
+target_include_directories(test_starfish_update_feed PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_update_feed PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME core_update_feed COMMAND test_starfish_update_feed)
