@@ -28,3 +28,12 @@ add_subdirectory(src)
 
 enable_testing()
 add_subdirectory(tests)
+
+# Per-user installer (Inno Setup, see installer/starfish.iss). Not part of ALL.
+if(WIN32)
+    add_custom_target(installer
+        COMMAND pwsh -NoProfile -File "${CMAKE_SOURCE_DIR}/tools/build_installer.ps1" -BuildDir "${CMAKE_BINARY_DIR}"
+        DEPENDS starfish
+        COMMENT "Building the StarFish setup"
+        USES_TERMINAL)
+endif()
