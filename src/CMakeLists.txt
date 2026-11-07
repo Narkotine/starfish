@@ -15,6 +15,7 @@ qt_add_executable(starfish WIN32
     app/drawn_desktop_probe.cpp
     app/context_menu_probe.cpp
     app/ui_probe.cpp
+    app/readme_probe.cpp
     core/desktop_item.cpp
     core/desktop_watcher.cpp
     core/icon_hiding_marker.cpp

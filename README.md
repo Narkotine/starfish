@@ -4,14 +4,20 @@ StarFish is a free, open-source desktop organizer for Windows 10/11. It groups y
 icons into translucent **zones** ("fences") that you can sort, style and roll up. It was inspired
 by desktop organizers such as Stardock Fences, but it is an independent project.
 
-<!-- Screenshot to add: a dummy desktop (no personal data). -->
+![StarFish: zones and widgets on a demo desktop](docs/images/hero.png)
+
+| Zones: tabs, colored title bars, roll-up | Desktop widgets: clock, CPU/RAM graphs, system group, note | Widget settings |
+|---|---|---|
+| [![Zones](docs/images/zones.png)](docs/images/zones.png) | [![Widgets](docs/images/widgets.png)](docs/images/widgets.png) | [![Widget settings](docs/images/widget-settings.png)](docs/images/widget-settings.png) |
+
+<sub>Screenshots are rendered from a synthetic demo (`starfish --readme-probe`): dummy files, generated wallpaper, simulated readings.</sub>
 
 ## Features
 
 - **Zones** on the desktop: drag icons in, sort, rename, icon grid, multiple monitors.
 - **Roll-up**: collapse a zone to its title bar, and optionally unroll it on hover.
 - **Appearance**: transparency, acrylic blur, colors, borders, a title bar on any side, and reusable **templates**.
-- **Widgets** inside zones: clock and notes.
+- **Widgets** in zones or directly on the desktop: clock, notes, CPU / RAM / GPU / VRAM (number, bar or history graph) and a compact system group, each with its own settings window.
 - **Rules** that file new desktop items automatically.
 - Filed shortcuts are **kept and restorable**. Desktop icons always come back if StarFish stops.
 - Splash screen, start with Windows, English and French UI.

@@ -34,6 +34,7 @@
 #include "ui/tray_icon.hpp"
 #include "app/context_menu_probe.hpp"
 #include "app/ui_probe.hpp"
+#include "app/readme_probe.hpp"
 #include "platform/win/shell_operations.hpp"
 #include "platform/win/autostart.hpp"
 #include "app/product_app.hpp"
@@ -1215,6 +1216,10 @@ int main(int argc, char* argv[])
         QStringLiteral("Session 59: photograph and check StarFish's own windows (tray menu, settings, "
                        "menu editor on a scratch file). Report: build/ui-probe.txt."));
     parser.addOption(uiProbeOption);
+    const QCommandLineOption readmeProbeOption(
+        QStringLiteral("readme-probe"),
+        QStringLiteral("Session 93: the README's screenshots, synthetic only. Output: docs/images/."));
+    parser.addOption(readmeProbeOption);
     const QCommandLineOption quitOption(
         QStringLiteral("quit"),
         QStringLiteral("Session 61: asks the running StarFish to quit cleanly (native icons "
@@ -7961,6 +7966,8 @@ int main(int argc, char* argv[])
         return starfish::app::runContextMenuProbe(app);
     if (parser.isSet(uiProbeOption))
         return starfish::app::runUiProbe(app);
+    if (parser.isSet(readmeProbeOption))
+        return starfish::app::runReadmeProbe(app);
 
     if (parser.isSet(crashVictimOption)) {
         // The child half of --crash-demo (T-046). It hides the native icons
