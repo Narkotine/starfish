@@ -18,6 +18,29 @@ QLocale uiLocale()
     return language.isEmpty() ? QLocale::system() : QLocale(language);
 }
 
+MetricsSource& metricsSource()
+{
+    static MetricsSource source;
+    return source;
+}
+
+std::function<void(bool)>& metricsDemand()
+{
+    static std::function<void(bool)> demand;
+    return demand;
+}
+
+QColor metricColour(core::Metric metric)
+{
+    switch (metric) {
+    case core::Metric::Cpu: return QColor(0x3B, 0x82, 0xF6);
+    case core::Metric::Ram: return QColor(0x22, 0xC5, 0x5E);
+    case core::Metric::Gpu: return QColor(0xF5, 0x9E, 0x0B);
+    case core::Metric::Vram: return QColor(0xA8, 0x55, 0xF7);
+    }
+    return QColor(0x3B, 0x82, 0xF6);
+}
+
 bool flag(const core::DesktopItem& item, const char* key)
 {
     return item.widgetSettings.value(QString::fromLatin1(key)).toBool();
@@ -113,6 +136,193 @@ void paintNotes(QPainter& painter, const QRect& rect, const core::DesktopItem& i
     }
 }
 
+// Session 88: a bar from 0 to 100 %.
+void paintBar(QPainter& painter, const QRectF& box, float percent, const QColor& colour, const PaintContext& c)
+{
+    const qreal radius = box.height() / 2.0;
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(c.text.red(), c.text.green(), c.text.blue(), 0x30));
+    painter.drawRoundedRect(box, radius, radius);
+    if (percent <= 0)
+        return;
+    QRectF fill = box;
+    fill.setWidth(qMax(box.height(), box.width() * qMin(100.0f, percent) / 100.0));
+    painter.setBrush(colour);
+    painter.drawRoundedRect(fill, radius, radius);
+}
+
+// Session 88: the history as a filled line, newest on the right.
+void paintGraph(QPainter& painter, const QRectF& box, const QVector<float>& values, int slotCount, const QColor& colour,
+                const PaintContext& c)
+{
+    painter.setPen(QPen(QColor(c.text.red(), c.text.green(), c.text.blue(), 0x28), 1));
+    painter.setBrush(QColor(0, 0, 0, 0x22));
+    painter.drawRoundedRect(box, 3, 3);
+    if (values.isEmpty() || slotCount < 2)
+        return;
+    const qreal step = box.width() / qreal(slotCount - 1);
+    QPainterPath line;
+    QPainterPath area;
+    bool open = false;
+    qreal lastX = 0;
+    const int offset = slotCount - int(values.size());
+    for (int i = 0; i < values.size(); ++i) {
+        const qreal x = box.left() + (offset + i) * step;
+        if (values.at(i) < 0) {
+            if (open) {
+                area.lineTo(lastX, box.bottom());
+                area.closeSubpath();
+            }
+            open = false;
+            continue;
+        }
+        const qreal y = box.bottom() - box.height() * qBound(0.0f, values.at(i), 100.0f) / 100.0;
+        if (!open) {
+            line.moveTo(x, y);
+            area.moveTo(x, box.bottom());
+            area.lineTo(x, y);
+            open = true;
+        } else {
+            line.lineTo(x, y);
+            area.lineTo(x, y);
+        }
+        lastX = x;
+    }
+    if (open) {
+        area.lineTo(lastX, box.bottom());
+        area.closeSubpath();
+    }
+    QColor fill = colour;
+    fill.setAlpha(0x55);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(fill);
+    painter.drawPath(area);
+    painter.setPen(QPen(colour, 1.5));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPath(line);
+}
+
+void drawAligned(QPainter& painter, const QRect& box, const QString& text, const QFont& font, Qt::Alignment align,
+                 const PaintContext& c, const QColor& colour)
+{
+    painter.setFont(font);
+    if (c.shadow) {
+        painter.setPen(QColor(0, 0, 0, 0xA0));
+        painter.drawText(box.translated(1, 1), align | Qt::TextSingleLine, text);
+    }
+    painter.setPen(colour);
+    painter.drawText(box, align | Qt::TextSingleLine, text);
+}
+
+core::MetricPoint latestOf(core::Metric metric)
+{
+    const core::MetricHistory* history = metricsSource() ? metricsSource()(metric) : nullptr;
+    return history ? history->latest() : core::MetricPoint();
+}
+
+QVector<float> graphOf(core::Metric metric, const core::MetricSettings& s)
+{
+    const core::MetricHistory* history = metricsSource() ? metricsSource()(metric) : nullptr;
+    if (!history)
+        return {};
+    return core::downsample(history->last(s.history * s.interval), s.interval, s.history, s.showFree);
+}
+
+QString metricLabel(core::Metric metric, bool free)
+{
+    const QString name = core::metricShortName(metric);
+    if (!free)
+        return name;
+    return QCoreApplication::translate("FenceWidgets", "%1 free").arg(name);
+}
+
+// One metric, alone in its widget: the label and value, then the bar or graph.
+void paintMetric(QPainter& painter, const QRect& rect, const core::DesktopItem& item, core::Metric metric,
+                 const PaintContext& c)
+{
+    const core::MetricSettings s = core::MetricSettings::fromMap(item.widgetSettings, item.widgetType);
+    const QRect inner = rect.adjusted(4, 3, -4, -3);
+    if (inner.width() < 16 || inner.height() < 12)
+        return;
+    const core::MetricPoint point = latestOf(metric);
+    const QString value = core::formatMetric(metric, point, s.showFree, s.bytes, uiLocale());
+    const QString label = metricLabel(metric, s.showFree);
+    const QColor colour = metricColour(metric);
+    QFont base = c.font;
+    base.setWeight(QFont::DemiBold);
+    if (s.mode == core::MetricSettings::Mode::Number) {
+        const int labelHeight = inner.height() * 30 / 100;
+        const QRect labelBox(inner.x(), inner.y(), inner.width(), labelHeight);
+        const QRect valueBox(inner.x(), inner.y() + labelHeight, inner.width(), inner.height() - labelHeight);
+        QFont small = c.font;
+        drawText(painter, labelBox, label, fitted(small, label, labelBox.size(), 0.8), c);
+        drawText(painter, valueBox, value, fitted(base, value, valueBox.size(), 0.78), c);
+        return;
+    }
+    // Header line: label left, value right.
+    const int header = qBound(12, inner.height() / 3, 22);
+    const QRect head(inner.x(), inner.y(), inner.width(), header);
+    QFont headFont = c.font;
+    headFont.setPixelSize(qMax(9, header - 3));
+    drawAligned(painter, head, label, headFont, Qt::AlignLeft | Qt::AlignVCenter, c, c.text);
+    headFont.setWeight(QFont::DemiBold);
+    drawAligned(painter, head, value, headFont, Qt::AlignRight | Qt::AlignVCenter, c, c.text);
+    const QRect body(inner.x(), inner.y() + header + 2, inner.width(), inner.height() - header - 2);
+    if (body.height() < 4)
+        return;
+    if (s.mode == core::MetricSettings::Mode::Bar) {
+        const qreal h = qBound(4.0, body.height() * 0.45, 12.0);
+        paintBar(painter, QRectF(body.x(), body.center().y() - h / 2, body.width(), h),
+                 core::shownPercent(point, s.showFree), colour, c);
+        return;
+    }
+    paintGraph(painter, QRectF(body).adjusted(0.5, 0.5, -0.5, -0.5), graphOf(metric, s), s.history, colour, c);
+}
+
+// The compact group: one row per chosen metric -- name, value, bar or sparkline.
+void paintGroup(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& c)
+{
+    const core::MetricSettings s = core::MetricSettings::fromMap(item.widgetSettings, item.widgetType);
+    const QRect inner = rect.adjusted(4, 3, -4, -3);
+    if (s.metrics.isEmpty() || inner.width() < 24 || inner.height() < 10)
+        return;
+    const int rows = int(s.metrics.size());
+    const int rowHeight = inner.height() / rows;
+    QFont font = c.font;
+    font.setPixelSize(qBound(9, rowHeight * 55 / 100, 14));
+    QFont bold = font;
+    bold.setWeight(QFont::DemiBold);
+    const QFontMetrics fm(font);
+    const int nameWidth = fm.horizontalAdvance(QStringLiteral("VRAM")) + 6;
+    const int valueWidth = QFontMetrics(bold).horizontalAdvance(QStringLiteral("00.0 GB")) + 4;
+    for (int i = 0; i < rows; ++i) {
+        const core::Metric metric = s.metrics.at(i);
+        const QRect row(inner.x(), inner.y() + i * rowHeight, inner.width(), rowHeight);
+        const core::MetricPoint point = latestOf(metric);
+        const bool bytes = s.bytes && core::hasBytes(metric);
+        const QString value = core::formatMetric(metric, point, s.showFree, bytes, uiLocale());
+        drawAligned(painter, QRect(row.x(), row.y(), nameWidth, row.height()), core::metricShortName(metric), font,
+                    Qt::AlignLeft | Qt::AlignVCenter, c, c.text);
+        if (s.mode == core::MetricSettings::Mode::Number) {
+            drawAligned(painter, row.adjusted(nameWidth, 0, 0, 0), value, bold, Qt::AlignRight | Qt::AlignVCenter, c,
+                        c.text);
+            continue;
+        }
+        drawAligned(painter, QRect(row.right() - valueWidth + 1, row.y(), valueWidth, row.height()), value, bold,
+                    Qt::AlignRight | Qt::AlignVCenter, c, c.text);
+        const QRect band(row.x() + nameWidth, row.y() + 2, row.width() - nameWidth - valueWidth - 4, row.height() - 4);
+        if (band.width() < 8)
+            continue;
+        if (s.mode == core::MetricSettings::Mode::Bar) {
+            const qreal h = qBound(3.0, band.height() * 0.5, 8.0);
+            paintBar(painter, QRectF(band.x(), band.center().y() - h / 2, band.width(), h),
+                     core::shownPercent(point, s.showFree), metricColour(metric), c);
+        } else {
+            paintGraph(painter, QRectF(band), graphOf(metric, s), s.history, metricColour(metric), c);
+        }
+    }
+}
+
 void paintUnknown(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& c)
 {
     // A widget this version does not know (a newer StarFish wrote it): kept in
@@ -143,7 +353,24 @@ QList<Kind> kinds()
     notes.defaultSpan = QSize(2, 2);
     notes.defaults = {{QStringLiteral("text"), QString()}};
     notes.editable = true;
-    return {clock, notes};
+
+    // Session 88: system widgets.
+    const auto system = [](const QString& type, const QString& label, const QSize& span) {
+        Kind kind;
+        kind.type = type;
+        kind.label = label;
+        kind.defaultSpan = span;
+        kind.defaults = core::MetricSettings::defaults(type);
+        return kind;
+    };
+    return {clock,
+            notes,
+            system(QStringLiteral("cpu"), QCoreApplication::translate("FenceWidgets", "CPU usage"), QSize(2, 1)),
+            system(QStringLiteral("ram"), QCoreApplication::translate("FenceWidgets", "Memory (RAM)"), QSize(2, 1)),
+            system(QStringLiteral("gpu"), QCoreApplication::translate("FenceWidgets", "GPU usage"), QSize(2, 1)),
+            system(QStringLiteral("vram"), QCoreApplication::translate("FenceWidgets", "Video memory (VRAM)"), QSize(2, 1)),
+            system(QStringLiteral("system"), QCoreApplication::translate("FenceWidgets", "System (compact)"),
+                   QSize(2, 2))};
 }
 
 bool isKnown(const QString& type)
@@ -366,13 +593,43 @@ void paint(QPainter& painter, const QRect& rect, const core::DesktopItem& item, 
         paintClock(painter, rect, item, context);
     else if (item.widgetType == QLatin1String("notes"))
         paintNotes(painter, rect, item, context);
+    else if (core::Metric metric; core::metricFromType(item.widgetType, &metric))
+        paintMetric(painter, rect, item, metric, context);
+    else if (item.widgetType == QLatin1String("system"))
+        paintGroup(painter, rect, item, context);
     else
         paintUnknown(painter, rect, item, context);
     painter.restore();
 }
 
+void setMetricsSource(const MetricsSource& source, const std::function<void(bool)>& demand)
+{
+    metricsSource() = source;
+    metricsDemand() = demand;
+}
+
+bool isSystemWidget(const QString& type)
+{
+    return core::isSystemWidgetType(type);
+}
+
+QString metricText(const core::DesktopItem& item, core::Metric metric)
+{
+    const core::MetricSettings s = core::MetricSettings::fromMap(item.widgetSettings, item.widgetType);
+    return core::formatMetric(metric, latestOf(metric), s.showFree, s.bytes && core::hasBytes(metric), uiLocale());
+}
+
 int msUntilNextChange(const core::DesktopItem& item, const QDateTime& now)
 {
+    if (isSystemWidget(item.widgetType)) {
+        // Session 88: keeps the shared sampler alive while this is painted, and
+        // repaints once a second, like the sampler ticks.
+        if (metricsDemand()) {
+            const core::MetricSettings s = core::MetricSettings::fromMap(item.widgetSettings, item.widgetType);
+            metricsDemand()(s.metrics.contains(core::Metric::Gpu) || s.metrics.contains(core::Metric::Vram));
+        }
+        return 1000 - now.time().msec() + 40;
+    }
     if (item.widgetType != QLatin1String("clock"))
         return -1;
     const QTime t = now.time();

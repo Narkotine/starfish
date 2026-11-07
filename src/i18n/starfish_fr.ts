@@ -758,7 +758,12 @@
 <context>
     <name>FenceWidgets</name>
     <message>
-        <location filename="../ui/fence_widgets.cpp" line="+134"/>
+        <location filename="../ui/fence_widgets.cpp" line="+236"/>
+        <source>%1 free</source>
+        <translation>%1 libre</translation>
+    </message>
+    <message>
+        <location line="+108"/>
         <source>Clock</source>
         <translation>Horloge</translation>
     </message>
@@ -768,12 +773,37 @@
         <translation>Notes</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+16"/>
+        <source>CPU usage</source>
+        <translation>Utilisation CPU</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Memory (RAM)</source>
+        <translation>Mémoire (RAM)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>GPU usage</source>
+        <translation>Utilisation GPU</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Video memory (VRAM)</source>
+        <translation>Mémoire vidéo (VRAM)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>System (compact)</source>
+        <translation>Système (compact)</translation>
+    </message>
+    <message>
+        <location line="+85"/>
         <source>Double-click to write</source>
         <translation>Double-cliquez pour écrire</translation>
     </message>
     <message>
-        <location line="+187"/>
+        <location line="+217"/>
         <source>%1, running</source>
         <translation>%1, en marche</translation>
     </message>
@@ -859,12 +889,17 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2714"/>
+        <location filename="../app/product_app.cpp" line="+2717"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+3"/>
+        <source>Configure widget…</source>
+        <translation>Configurer le widget…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -889,7 +924,7 @@
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+47"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -926,6 +961,19 @@
     </message>
 </context>
 <context>
+    <name>SystemMetrics</name>
+    <message>
+        <location filename="../core/system_metrics.cpp" line="+170"/>
+        <source>n/a</source>
+        <translation>n.d.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>%1 GB</source>
+        <translation>%1 Go</translation>
+    </message>
+</context>
+<context>
     <name>starfish::app::ProductApp</name>
     <message>
         <location filename="../app/product_app.cpp" line="+578"/>
@@ -938,7 +986,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3187"/>
+        <location line="-3196"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1879,6 +1927,119 @@
         <location line="+3"/>
         <source>StarFish -- %1 fence(s)</source>
         <translation>StarFish -- %1 zone(s)</translation>
+    </message>
+</context>
+<context>
+    <name>starfish::ui::WidgetSettingsDialog</name>
+    <message>
+        <location filename="../ui/widget_settings_dialog.cpp" line="+28"/>
+        <source>Configure widget - %1</source>
+        <translation>Configurer le widget - %1</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Size (cells)</source>
+        <translation>Taille (cases)</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Show seconds</source>
+        <translation>Afficher les secondes</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show the date</source>
+        <translation>Afficher la date</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>12-hour clock</source>
+        <translation>Format 12 heures</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Metrics shown</source>
+        <translation>Mesures affichées</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Used</source>
+        <translation>Utilisé</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Free / remaining</source>
+        <translation>Libre / restant</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show</source>
+        <translation>Afficher</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Number only</source>
+        <translation>Nombre seul</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Bar</source>
+        <translation>Barre</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>History graph</source>
+        <translation>Graphique avec historique</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Display</source>
+        <translation>Affichage</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Percent</source>
+        <translation>Pourcentage</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Gigabytes (GB)</source>
+        <translation>Gigaoctets (Go)</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unit</source>
+        <translation>Unité</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Unit (RAM, VRAM)</source>
+        <translation>Unité (RAM, VRAM)</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source> points</source>
+        <translation> points</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Graph length</source>
+        <translation>Longueur du graphique</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source> s per point</source>
+        <translation> s par point</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Graph step</source>
+        <translation>Pas du graphique</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Read once a second by StarFish itself (no extra program). &quot;n/a&quot;: this PC does not report the value.</source>
+        <translation>Lu une fois par seconde par StarFish lui-même (aucun programme en plus). « n.d. » : ce PC ne fournit pas la valeur.</translation>
     </message>
 </context>
 </TS>

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <functional>
 #include <cmath>
+#include <windows.h>
+#include <psapi.h>
 #include <QLinearGradient>
 #include <QToolButton>
 #include <QMenu>
@@ -61,6 +63,12 @@
 #include "ui/fence_menu.hpp"
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/system_monitor.hpp"
+#include "ui/widget_settings_dialog.hpp"
+#include "core/system_metrics.hpp"
+#include <QComboBox>
+#include <QSpinBox>
+#include <cmath>
 #include "core/jsonstore.hpp"
 #include "core/overlap_planner.hpp"
 #include <windows.h>
@@ -2587,6 +2595,162 @@ int runUiProbe(QApplication& app)
           !QFile::exists(realConfig)
               || core::ContextMenuConfig::load(realConfig).background.custom.size() < saved.background.custom.size(),
           {});
+
+    // --- session 88: system widgets (fake readings) and their settings window --
+    {
+        static core::MetricHistory fake[core::kMetricCount] = {core::MetricHistory(400), core::MetricHistory(400),
+                                                               core::MetricHistory(400), core::MetricHistory(400)};
+        const double gb = 1024.0 * 1024.0 * 1024.0;
+        for (int i = 0; i < 400; ++i) {
+            const double t = i / 9.0;
+            core::MetricPoint cpu, ram, gpu, vram;
+            cpu.percent = float(22 + 18 * std::sin(t) + (i % 7) * 2);
+            ram.percent = float(48 + 3 * std::sin(t / 5));
+            ram.totalBytes = 32 * gb;
+            ram.usedBytes = ram.totalBytes * ram.percent / 100;
+            gpu.percent = float(qMax(0.0, 35 + 30 * std::sin(t / 2)));
+            vram.percent = 31.0f;
+            vram.totalBytes = 12 * gb;
+            vram.usedBytes = vram.totalBytes * 0.31;
+            fake[0].push(cpu); fake[1].push(ram); fake[2].push(gpu); fake[3].push(vram);
+        }
+        ui::widgets::setMetricsSource([](core::Metric m) { return &fake[int(m)]; }, [](bool) {});
+        const QSize cell(92, 80);
+        auto render = [&](core::DesktopItem item) {
+            QImage image(cell.width() * item.span.width(), cell.height() * item.span.height(),
+                         QImage::Format_ARGB32_Premultiplied);
+            image.fill(QColor(0x1F, 0x29, 0x37, 0xE6));
+            QPainter painter(&image);
+            painter.setRenderHint(QPainter::Antialiasing);
+            ui::widgets::PaintContext context;
+            context.text = QColor(0xE5, 0xE7, 0xEB);
+            QFont font(QStringLiteral("Segoe UI"));
+            font.setPixelSize(13);
+            context.font = font;
+            context.now = QDateTime::currentDateTime();
+            ui::widgets::paint(painter, image.rect().adjusted(6, 6, -6, -6), item, context);
+            return image;
+        };
+        QStringList saved;
+        bool painted = true;
+        for (const char* type : {"cpu", "ram", "gpu", "vram"}) {
+            for (const char* mode : {"number", "bar", "graph"}) {
+                core::DesktopItem item = ui::widgets::create(QLatin1String(type));
+                item.widgetSettings.insert(QStringLiteral("mode"), QLatin1String(mode));
+                if (QLatin1String(type) == QLatin1String("vram") && QLatin1String(mode) == QLatin1String("bar"))
+                    item.widgetSettings.insert(QStringLiteral("show"), QStringLiteral("free"));
+                const QImage image = render(item);
+                painted = painted && !image.isNull();
+                const QString name = QStringLiteral("s88_%1_%2.png").arg(QLatin1String(type), QLatin1String(mode));
+                image.save(captures + QLatin1Char('/') + name);
+                saved << name;
+            }
+        }
+        for (const char* mode : {"bar", "graph"}) {
+            core::DesktopItem group = ui::widgets::create(QStringLiteral("system"));
+            group.widgetSettings.insert(QStringLiteral("mode"), QLatin1String(mode));
+            render(group).save(captures + QStringLiteral("/s88_system_%1.png").arg(QLatin1String(mode)));
+        }
+        check(QStringLiteral("system widgets: CPU / RAM / GPU / VRAM, number / bar / graph, and the group, paint (session 88)"),
+              painted && ui::widgets::metricText(ui::widgets::create(QStringLiteral("ram")), core::Metric::Ram)
+                             .contains(QLatin1Char('1')),
+              saved.join(QLatin1Char(' ')));
+
+        // The settings window: a RAM graph and the group, grabbed offscreen.
+        core::DesktopItem ram = ui::widgets::create(QStringLiteral("ram"));
+        ram.widgetSettings.insert(QStringLiteral("future"), QStringLiteral("kept"));
+        ui::WidgetSettingsDialog dialog(ram);
+        dialog.setAttribute(Qt::WA_DontShowOnScreen);
+        dialog.show();
+        wait(80);
+        dialog.findChild<QComboBox*>(QStringLiteral("mode"))->setCurrentIndex(2);
+        dialog.findChild<QComboBox*>(QStringLiteral("show"))->setCurrentIndex(1);
+        dialog.findChild<QSpinBox*>(QStringLiteral("history"))->setValue(120);
+        wait(50);
+        dialog.grab().save(captures + QStringLiteral("/s88_settings_ram.png"));
+        const core::DesktopItem changed = dialog.result();
+        const core::MetricSettings back = core::MetricSettings::fromMap(changed.widgetSettings, changed.widgetType);
+        dialog.hide();
+        core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        ui::WidgetSettingsDialog clockDialog(clock);
+        clockDialog.setAttribute(Qt::WA_DontShowOnScreen);
+        clockDialog.show();
+        wait(50);
+        clockDialog.grab().save(captures + QStringLiteral("/s88_settings_clock.png"));
+        clockDialog.hide();
+        ui::WidgetSettingsDialog groupDialog(ui::widgets::create(QStringLiteral("system")));
+        groupDialog.setAttribute(Qt::WA_DontShowOnScreen);
+        groupDialog.show();
+        wait(50);
+        groupDialog.grab().save(captures + QStringLiteral("/s88_settings_system.png"));
+        groupDialog.hide();
+        check(QStringLiteral("widget settings window: graph / free / history applied, unknown keys kept, clock and group too (session 88)"),
+              back.mode == core::MetricSettings::Mode::Graph && back.showFree && back.history == 120
+                  && changed.widgetSettings.value(QStringLiteral("future")).toString() == QLatin1String("kept"),
+              {});
+
+        // The real sampler, briefly (reads only; idle again 3 s after).
+        // Its cost: this process's CPU time and working set across 10 s of
+        // sampling, against 10 s idle just before (same process, same windows).
+        auto cpuMs = [] {
+            FILETIME created, exited, kernel, user;
+            GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
+            auto ms = [](const FILETIME& f) { return ((quint64(f.dwHighDateTime) << 32) | f.dwLowDateTime) / 10000.0; };
+            return ms(kernel) + ms(user);
+        };
+        auto workingSet = [] {
+            PROCESS_MEMORY_COUNTERS counters{};
+            counters.cb = sizeof(counters);
+            K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
+            return double(counters.WorkingSetSize) / (1024.0 * 1024.0);
+        };
+        const double idleCpu0 = cpuMs();
+        wait(10000);
+        const double idleCpu = (cpuMs() - idleCpu0) / 10000.0 * 100.0;
+        const double set0 = workingSet();
+        ui::SystemMonitor::install();
+        const double startCpu0 = cpuMs();
+        for (int i = 0; i < 30; ++i) { // the start: PDH opens its query
+            ui::SystemMonitor::instance().demand();
+            wait(100);
+        }
+        const double startCpu = cpuMs() - startCpu0;
+        const double busyCpu0 = cpuMs();
+        for (int i = 0; i < 100; ++i) {
+            ui::SystemMonitor::instance().demand();
+            wait(100);
+        }
+        const double busyCpu = (cpuMs() - busyCpu0) / 10000.0 * 100.0;
+        const double setDelta = workingSet() - set0;
+        for (int i = 0; i < 40; ++i) { // the GPU lease runs out
+            ui::SystemMonitor::instance().demand(false);
+            wait(100);
+        }
+        const double lightCpu0 = cpuMs();
+        for (int i = 0; i < 100; ++i) {
+            ui::SystemMonitor::instance().demand(false);
+            wait(100);
+        }
+        const double lightCpu = (cpuMs() - lightCpu0) / 10000.0 * 100.0;
+        lines << QStringLiteral("      CPU / RAM widgets only (no PDH): %1 % CPU (one core)").arg(lightCpu, 0, 'f', 3);
+        for (int i = 0; i < 30; ++i) { // GPU again, for the check below
+            ui::SystemMonitor::instance().demand();
+            wait(100);
+        }
+        lines << QStringLiteral("      sampler cost: idle %1 % CPU, sampling %2 % CPU (one core, steady), start %4 ms CPU, working set %3 MB")
+                     .arg(idleCpu, 0, 'f', 3).arg(busyCpu, 0, 'f', 3).arg(setDelta, 0, 'f', 2).arg(startCpu, 0, 'f', 0);
+        QStringList read;
+        for (int i = 0; i < core::kMetricCount; ++i) {
+            const core::MetricHistory* h = ui::SystemMonitor::instance().history(core::Metric(i));
+            read << core::metricShortName(core::Metric(i)) + QLatin1Char('=')
+                        + (h ? core::formatMetric(core::Metric(i), h->latest(), false, false, QLocale::c())
+                             : QStringLiteral("-"));
+        }
+        const core::MetricHistory* cpuH = ui::SystemMonitor::instance().history(core::Metric::Cpu);
+        const core::MetricHistory* ramH = ui::SystemMonitor::instance().history(core::Metric::Ram);
+        check(QStringLiteral("the sampler reads CPU and RAM (GPU / VRAM or n/a) (session 88)"),
+              cpuH && ramH && cpuH->latest().valid() && ramH->latest().valid(), read.join(QLatin1Char(' ')));
+    }
 
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);

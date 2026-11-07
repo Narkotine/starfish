@@ -10,6 +10,7 @@
 #include <QVariantMap>
 
 #include "core/desktop_item.hpp"
+#include "core/system_metrics.hpp"
 
 namespace starfish::ui::widgets {
 
@@ -77,6 +78,20 @@ QString notePlaceholder();
 // the probe measures the same wrapping the paint does.
 QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines,
                       bool* elided = nullptr);
+
+// --- system widgets (session 88) -------------------------------------------
+//
+// "cpu", "ram", "gpu", "vram" and the compact "system" group draw readings
+// from one shared sampler (ui::SystemMonitor). The painter only sees it through
+// these two hooks, so tests and probes can feed it their own history:
+//   source(metric) -> the readings so far (nullptr: none yet)
+//   demand()       -> called whenever a system widget is scheduled to repaint;
+//                     the sampler runs only while somebody keeps calling it.
+using MetricsSource = std::function<const core::MetricHistory*(core::Metric)>;
+void setMetricsSource(const MetricsSource& source, const std::function<void(bool gpu)>& demand);
+bool isSystemWidget(const QString& type);
+// The text a system widget shows for `metric` right now (probe / tests).
+QString metricText(const core::DesktopItem& item, core::Metric metric);
 
 // --- engines (session 80) ---------------------------------------------------
 //

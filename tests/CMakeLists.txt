@@ -59,6 +59,7 @@ add_executable(test_starfish_icon_grid
     ../src/core/desktop_item.cpp
     ../src/ui/icon_grid.cpp
     ../src/ui/fence_widgets.cpp
+    ../src/core/system_metrics.cpp
     ../src/core/i18n.cpp
 )
 
@@ -286,6 +287,7 @@ add_test(NAME core_context_menu COMMAND test_starfish_context_menu)
 add_executable(test_starfish_fence_widgets
     test_fence_widgets.cpp
     ../src/ui/fence_widgets.cpp
+    ../src/core/system_metrics.cpp
     ../src/ui/note_editor.cpp
     ../src/core/i18n.cpp
 )
@@ -312,3 +314,26 @@ add_executable(test_starfish_update_feed test_update_feed.cpp ../src/core/update
 target_include_directories(test_starfish_update_feed PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_starfish_update_feed PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME core_update_feed COMMAND test_starfish_update_feed)
+
+# System widgets (session 88): history ring, downsampling, formatting, settings
+# round-trip (unknown keys kept) and their paint with a fake source. Pure.
+add_executable(test_starfish_system_metrics
+    test_system_metrics.cpp
+    ../src/core/system_metrics.cpp
+    ../src/core/desktop_item.cpp
+    ../src/ui/fence_widgets.cpp
+    ../src/ui/note_editor.cpp
+    ../src/core/i18n.cpp
+)
+target_include_directories(test_starfish_system_metrics PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_system_metrics PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+add_test(NAME core_system_metrics COMMAND test_starfish_system_metrics)
+
+# Session 88: the painting tests never need a desktop window -- the offscreen
+# platform from the Qt install, and any Qt fatal error to stderr (never a modal
+# message box on the user's screen while ctest runs).
+get_filename_component(STARFISH_QT_PLUGINS "${Qt6_DIR}/../../../plugins" ABSOLUTE)
+set_tests_properties(core_system_metrics PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${STARFISH_QT_PLUGINS};QT_FORCE_STDERR_LOGGING=1")
+# These two measure Segoe UI text: the real platform, but errors to stderr.
+set_tests_properties(ui_fence_widgets ui_icon_grid PROPERTIES ENVIRONMENT "QT_FORCE_STDERR_LOGGING=1")

@@ -60,6 +60,8 @@
 #include "ui/settings_dialog.hpp"
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/system_monitor.hpp"
+#include "ui/widget_settings_dialog.hpp"
 #include "ui/note_editor.hpp"
 #include <QActionGroup>
 #include "platform/win/startup_timeline.hpp"
@@ -177,6 +179,7 @@ void ProductApp::refreshScreens()
 
 bool ProductApp::start(const Options& options, QString* error)
 {
+    ui::SystemMonitor::install(); // session 88: system widgets read it (idle until one paints)
     if (m_started)
         return true;
 
@@ -2713,6 +2716,8 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     QAction* edit = ui::widgets::isEditable(widget.widgetType)
                         ? menu.addAction(QCoreApplication::translate("ProductApp", "Edit the note"))
                         : nullptr;
+    // Session 88: every option of the widget, in a window of its own.
+    QAction* configure = menu.addAction(QCoreApplication::translate("ProductApp", "Configure widget…"));
     QList<QPair<QAction*, QString>> toggles;
     if (widget.widgetType == QLatin1String("clock")) {
         const auto toggle = [&](const QString& key, const QString& label) {
@@ -2747,6 +2752,13 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     }
     if (chosen == remove) {
         m_container->releaseItems(fenceId, {path}); // the widget only: no file behind it
+        return;
+    }
+    if (chosen == configure) {
+        ui::WidgetSettingsDialog dialog(widget);
+        dialog.move(logicalFromPhysical(point));
+        if (dialog.exec() == QDialog::Accepted && m_container->contains(fenceId))
+            m_container->replaceFenceItem(fenceId, path, dialog.result());
         return;
     }
     for (const auto& toggle : std::as_const(toggles)) {

@@ -1,0 +1,167 @@
+#include "ui/widget_settings_dialog.hpp"
+
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QSpinBox>
+#include <QVBoxLayout>
+
+#include "core/system_metrics.hpp"
+#include "ui/fence_widgets.hpp"
+
+namespace starfish::ui {
+
+bool WidgetSettingsDialog::hasOptions(const QString& type)
+{
+    return type == QLatin1String("clock") || core::isSystemWidgetType(type);
+}
+
+WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWidget* parent)
+    : QDialog(parent)
+    , m_widget(widget)
+{
+    setObjectName(QStringLiteral("widgetSettings"));
+    setWindowTitle(tr("Configure widget - %1").arg(widgets::displayName(widget.widgetType)));
+    auto* layout = new QVBoxLayout(this);
+    auto* form = new QFormLayout;
+    layout->addLayout(form);
+
+    m_size = new QComboBox(this);
+    m_size->setObjectName(QStringLiteral("size"));
+    for (const QSize& span : widgets::spanChoices()) {
+        m_size->addItem(QStringLiteral("%1 \u00D7 %2").arg(span.width()).arg(span.height()), span);
+        if (span == widget.span)
+            m_size->setCurrentIndex(m_size->count() - 1);
+    }
+    form->addRow(tr("Size (cells)"), m_size);
+
+    const QVariantMap& settings = widget.widgetSettings;
+    if (widget.widgetType == QLatin1String("clock")) {
+        m_seconds = new QCheckBox(tr("Show seconds"), this);
+        m_seconds->setChecked(settings.value(QStringLiteral("seconds")).toBool());
+        m_date = new QCheckBox(tr("Show the date"), this);
+        m_date->setChecked(settings.value(QStringLiteral("date")).toBool());
+        m_h12 = new QCheckBox(tr("12-hour clock"), this);
+        m_h12->setChecked(settings.value(QStringLiteral("h12")).toBool());
+        form->addRow(QString(), m_seconds);
+        form->addRow(QString(), m_date);
+        form->addRow(QString(), m_h12);
+    } else if (core::isSystemWidgetType(widget.widgetType)) {
+        const core::MetricSettings s = core::MetricSettings::fromMap(settings, widget.widgetType);
+        core::Metric single;
+        const bool isSingle = core::metricFromType(widget.widgetType, &single);
+        if (!isSingle) {
+            auto* box = new QGroupBox(tr("Metrics shown"), this);
+            auto* row = new QHBoxLayout(box);
+            for (int i = 0; i < core::kMetricCount; ++i) {
+                auto* check = new QCheckBox(core::metricShortName(core::Metric(i)), box);
+                check->setObjectName(QStringLiteral("metric_") + core::metricType(core::Metric(i)));
+                check->setChecked(s.metrics.contains(core::Metric(i)));
+                connect(check, &QCheckBox::toggled, this, &WidgetSettingsDialog::updateEnabled);
+                row->addWidget(check);
+                m_metrics << check;
+            }
+            layout->insertWidget(0, box);
+        }
+        m_show = new QComboBox(this);
+        m_show->setObjectName(QStringLiteral("show"));
+        m_show->addItem(tr("Used"), false);
+        m_show->addItem(tr("Free / remaining"), true);
+        m_show->setCurrentIndex(s.showFree ? 1 : 0);
+        form->addRow(tr("Show"), m_show);
+
+        m_mode = new QComboBox(this);
+        m_mode->setObjectName(QStringLiteral("mode"));
+        m_mode->addItem(tr("Number only"), int(core::MetricSettings::Mode::Number));
+        m_mode->addItem(tr("Bar"), int(core::MetricSettings::Mode::Bar));
+        m_mode->addItem(tr("History graph"), int(core::MetricSettings::Mode::Graph));
+        m_mode->setCurrentIndex(qMax(0, m_mode->findData(int(s.mode))));
+        connect(m_mode, &QComboBox::currentIndexChanged, this, &WidgetSettingsDialog::updateEnabled);
+        form->addRow(tr("Display"), m_mode);
+
+        if (!isSingle || core::hasBytes(single)) {
+            m_unit = new QComboBox(this);
+            m_unit->setObjectName(QStringLiteral("unit"));
+            m_unit->addItem(tr("Percent"), false);
+            m_unit->addItem(tr("Gigabytes (GB)"), true);
+            m_unit->setCurrentIndex(s.bytes ? 1 : 0);
+            form->addRow(isSingle ? tr("Unit") : tr("Unit (RAM, VRAM)"), m_unit);
+        }
+
+        m_history = new QSpinBox(this);
+        m_history->setObjectName(QStringLiteral("history"));
+        m_history->setRange(10, 600);
+        m_history->setValue(s.history);
+        m_history->setSuffix(tr(" points"));
+        form->addRow(tr("Graph length"), m_history);
+
+        m_interval = new QSpinBox(this);
+        m_interval->setObjectName(QStringLiteral("interval"));
+        m_interval->setRange(1, 5);
+        m_interval->setValue(s.interval);
+        m_interval->setSuffix(tr(" s per point"));
+        form->addRow(tr("Graph step"), m_interval);
+
+        auto* hint = new QLabel(tr("Read once a second by StarFish itself (no extra program). "
+                                   "\"n/a\": this PC does not report the value."),
+                                this);
+        hint->setWordWrap(true);
+        hint->setObjectName(QStringLiteral("hint"));
+        layout->addWidget(hint);
+    }
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    layout->addWidget(buttons);
+    updateEnabled();
+}
+
+void WidgetSettingsDialog::updateEnabled()
+{
+    if (m_history && m_mode) {
+        const bool graph = m_mode->currentData().toInt() == int(core::MetricSettings::Mode::Graph);
+        m_history->setEnabled(graph);
+        m_interval->setEnabled(graph);
+    }
+    // The group keeps at least one metric.
+    int checked = 0;
+    for (QCheckBox* check : std::as_const(m_metrics))
+        checked += check->isChecked() ? 1 : 0;
+    for (QCheckBox* check : std::as_const(m_metrics))
+        check->setEnabled(!(checked == 1 && check->isChecked()));
+}
+
+core::DesktopItem WidgetSettingsDialog::result() const
+{
+    core::DesktopItem widget = m_widget;
+    widget.span = m_size->currentData().toSize();
+    if (m_seconds) {
+        widget.widgetSettings.insert(QStringLiteral("seconds"), m_seconds->isChecked());
+        widget.widgetSettings.insert(QStringLiteral("date"), m_date->isChecked());
+        widget.widgetSettings.insert(QStringLiteral("h12"), m_h12->isChecked());
+    }
+    if (m_mode) {
+        core::MetricSettings s = core::MetricSettings::fromMap(widget.widgetSettings, widget.widgetType);
+        s.showFree = m_show->currentData().toBool();
+        s.mode = core::MetricSettings::Mode(m_mode->currentData().toInt());
+        if (m_unit)
+            s.bytes = m_unit->currentData().toBool();
+        s.history = m_history->value();
+        s.interval = m_interval->value();
+        if (!m_metrics.isEmpty()) {
+            s.metrics.clear();
+            for (int i = 0; i < m_metrics.size(); ++i)
+                if (m_metrics.at(i)->isChecked())
+                    s.metrics << core::Metric(i);
+        }
+        s.writeTo(widget.widgetSettings, widget.widgetType);
+    }
+    return widget;
+}
+
+} // namespace starfish::ui

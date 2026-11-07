@@ -54,6 +54,10 @@ qt_add_executable(starfish WIN32
     ui/fence_view.cpp
     ui/icon_grid.cpp
     ui/fence_widgets.cpp
+    ui/system_monitor.cpp
+    ui/widget_settings_dialog.cpp
+    core/system_metrics.cpp
+    platform/win/system_sampler.cpp
     ui/note_editor.cpp
 )
 
@@ -209,6 +213,10 @@ target_link_libraries(starfish PRIVATE
     dwmapi
     comctl32
     shlwapi
+    #   pdh      GPU usage / VRAM counters (session 88)
+    #   dxgi     video memory size of the adapter (session 88)
+    pdh
+    dxgi
     advapi32
     gdi32
 )
