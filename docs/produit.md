@@ -81,8 +81,8 @@ Référence : Fences 6 (fonctionnalités consolidées des versions 4/5/6). Prior
 
 | ID | Fonctionnalité | Prio |
 |---|---|---|
-| F-017 | Règles d'auto-organisation : par type, nom (motif), date, emplacement cible | P1 |
-| F-018 | Application des règles aux nouveaux éléments du bureau (surveillance du dossier) | P1 |
+| F-017 | Règles d'auto-organisation : par type, nom (motif), date, emplacement cible — **moteur seul (T-010), aucune interface pour en créer : non proposé à l'utilisateur (s95)** | P1 |
+| F-018 | Application des règles aux nouveaux éléments du bureau (surveillance du dossier) — **idem : inerte sans règle (s95)** ; un nouvel élément se place comme Windows le place | P1 |
 | F-019 | Création rapide de zones prédéfinies (haut / milieu / bas, gauche / droite) | P1 |
 
 ### D. Navigation
@@ -136,7 +136,7 @@ Spécifiquement **hors périmètre** : édition entreprise (déploiement par GPO
 ## 7. Périmètre par version
 
 - **v0.1 (MVP)** : noyau desktop (F-032, F-037, **F-039**) + zones basiques (F-001…F-004, F-007, F-013) + icônes drag & drop (F-010, F-011) + roll-up/Peek/quick hide (F-020…F-022) + snapshots (F-027) + tray/réglages minimaux (F-034).
-- **v0.2** : apparence fine (F-005, F-006, **F-038**), tri (F-012, F-014), règles (F-017…F-019), portails (F-024), raccourcis (F-033, F-035), i18n (F-036).
+- **v0.2** : apparence fine (F-005, F-006, **F-038**), tri (F-012, F-014), règles (F-017…F-019, **non exposées**), portails (F-024), raccourcis (F-033, F-035), i18n (F-036).
 - **v1.0** : onglets (F-008), teinte/fondu (F-015, F-016), dispositions par moniteur (F-029), export/import (F-028), accessibilité clavier (F-023).
 - **Plus tard** : pages de bureau (F-030, F-031), Chameleon (F-009), navigation portails (F-025, F-026).
 

@@ -5,17 +5,17 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 91 (2026-11-07) - widgets posés sur le bureau (clic droit bureau > « Ajouter un widget », T-149) ; avant : widgets système et « Configurer le widget… » (88). Un seul build, `build\dev` = StarFish quotidien + tests : `docs/workflow-dev.md`. `ctest` **23/23**.
+- **Dernière session de code livrée :** 95 (2026-11-08) - enroulement réglable sans saccades (mesuré), widget Image, widgets zone ↔ bureau (T-150), « Gestionnaire des tâches » + liste complète dans l'éditeur du menu, libellés de remise à zéro, verrou (94). Un seul build, `build\dev` : `docs/workflow-dev.md`. `ctest` **23/23**.
 - **ADR-21 (session 58) : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. Lots 1-4 livrés (T-089 → T-092) ; restent des validations humaines (deux écrans, vrai redémarrage d'Explorer, vraie souris).
 - **Sessions 59-82 (récits dans `devlog/`) :** apps empaquetées, icône, Réglages + éditeur du menu, `--quit` (59-61) · « Démarrer avec Windows », image de glisser (62) · rectangle fluide, zone translucide composée (T-098), curseurs, superposition cohérente (63-64) · liste de l'utilisateur, menus, Apparence…, curseurs, langue, aperçu du tracé (65) · apparence, `crash.log`, barre de titre 4 côtés, onglet, survols, double-clic bureau, contour uniforme, modèles (66-70) · grain sous les icônes, déroulé au survol, largeur stable, suppr, enroulement, renommage, raccourcis conservés, lancement shell, noms, +N, splash, horloge (71-79) · barre d'insertion, grille du bureau, témoin des moteurs (80) · **widget Notes** (81) · menu clic droit : aperçu gardé, 33 icônes, entrées prêtes à l'emploi (82).
-- **Dernière mise à jour :** 2026-11-07 (session 91)
+- **Dernière mise à jour :** 2026-11-08 (session 95)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**public**, MIT, 2026-11-07) ; historique réécrit : **re-cloner, jamais pousser depuis un ancien clone**. Release : tag `vX.Y.Z` (`docs/mises-a-jour.md`).
 
 ## 3 prochaines actions
 
 1. **Décisions** (`docs/mises-a-jour.md`) : canal de publication, signature de code, pousser `9601661`. **À essayer à la vraie souris** : **coller un long texte dans une note** (« Ajouter un widget → Notes », double-clic pour écrire, `Ctrl+Entrée` / `Échap`) puis quitter et relancer — la note doit être là, entière ; le tracé d'une zone qui garde son aperçu pendant le menu ; l'éditeur du menu clic droit (icône, « Ajouter depuis la liste… », mode clair/sombre) ; la grille du bureau et la barre d'insertion de la session 80.
 2. **Reste humain sur l'ADR-21** : deux écrans, vrai redémarrage d'Explorer, vrai glisser OLE, le menu dessiné à la vraie souris et au clavier. Menu : Réglages → Menu clic droit (fichier `%LOCALAPPDATA%\StarFish\context-menu.json`).
-3. ❓ Questions ouvertes : `T-095`, `T-096`, `T-013`, `T-031`, `T-036`, `T-015`. En suspens (idées gardées) : **T-141** grille du bureau, **T-142** entrées du menu clic droit.
+3. ❓ Questions ouvertes : `T-095`, `T-096`, `T-013`, `T-031`, `T-036`, `T-015`. En suspens : **T-141**, **T-142**, **T-147**, **T-152** (feuille de route locale de l'utilisateur, voir `AGENTS.md`).
 ## Où lire quoi (à la demande)
 
 | Besoin | Fichier |
