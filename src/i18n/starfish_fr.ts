@@ -780,7 +780,17 @@
 <context>
     <name>FenceWidgets</name>
     <message>
-        <location filename="../ui/fence_widgets.cpp" line="+236"/>
+        <location filename="../ui/fence_widgets.cpp" line="+181"/>
+        <source>No image yet (Configure widget...)</source>
+        <translation>Pas encore d’image (Configurer le widget…)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Image not found</source>
+        <translation>Image introuvable</translation>
+    </message>
+    <message>
+        <location line="+132"/>
         <source>%1 free</source>
         <translation>%1 libre</translation>
     </message>
@@ -791,11 +801,16 @@
     </message>
     <message>
         <location line="+8"/>
+        <source>Image</source>
+        <translation>Image</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Notes</source>
         <translation>Notes</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <source>CPU usage</source>
         <translation>Utilisation CPU</translation>
     </message>
@@ -820,12 +835,12 @@
         <translation>Système (compact)</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+95"/>
         <source>Double-click to write</source>
         <translation>Double-cliquez pour écrire</translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+219"/>
         <source>%1, running</source>
         <translation>%1, en marche</translation>
     </message>
@@ -911,19 +926,19 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2777"/>
-        <location line="+152"/>
+        <location filename="../app/product_app.cpp" line="+2820"/>
+        <location line="+158"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="-149"/>
-        <location line="+151"/>
+        <location line="-155"/>
+        <location line="+157"/>
         <source>Configure widget…</source>
         <translation>Configurer le widget…</translation>
     </message>
     <message>
-        <location line="-142"/>
+        <location line="-148"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -939,13 +954,13 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+142"/>
+        <location line="+148"/>
         <source>Size</source>
         <translation>Taille</translation>
     </message>
     <message>
-        <location line="-130"/>
-        <location line="+142"/>
+        <location line="-136"/>
+        <location line="+148"/>
         <source>Remove the widget</source>
         <translation>Retirer le widget</translation>
     </message>
@@ -1017,7 +1032,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3415"/>
+        <location line="-3464"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1053,7 +1068,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+530"/>
+        <location line="+565"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1063,7 +1078,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+524"/>
+        <location line="+532"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1887,18 +1902,20 @@
         <translation>Vos fichiers et le bureau Windows ne sont jamais touchés. La disposition actuelle est d&apos;abord copiée dans le dossier des sauvegardes.</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location filename="../app/ui_probe.cpp" line="+3143"/>
+        <location filename="../ui/settings_dialog.cpp" line="+6"/>
         <source>Start over from the Windows desktop</source>
         <translation>Se rebaser sur le bureau de Windows</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+1"/>
+        <location filename="../ui/settings_dialog.cpp" line="+2"/>
         <location line="+13"/>
         <source>Reset the StarFish desktop</source>
         <translation>Réinitialiser le bureau de StarFish</translation>
     </message>
     <message>
-        <location line="-4"/>
+        <location filename="../ui/settings_dialog.cpp" line="-4"/>
         <source>Remove every zone and every widget (notes included), and any automatic filing rule? Every icon goes back to the place Windows keeps for it.</source>
         <translation>Supprimer toutes les zones et tous les widgets (notes comprises), ainsi que les éventuelles règles de rangement automatique ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
     </message>
@@ -1989,7 +2006,7 @@
 <context>
     <name>starfish::ui::WidgetSettingsDialog</name>
     <message>
-        <location filename="../ui/widget_settings_dialog.cpp" line="+28"/>
+        <location filename="../ui/widget_settings_dialog.cpp" line="+45"/>
         <source>Configure widget - %1</source>
         <translation>Configurer le widget - %1</translation>
     </message>
@@ -1997,6 +2014,26 @@
         <location line="+12"/>
         <source>Size (cells)</source>
         <translation>Taille (cases)</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Browse...</source>
+        <translation>Parcourir…</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Image</source>
+        <translation>Image</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Fit (whole picture)</source>
+        <translation>Ajuster (image entière)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fill (cropped)</source>
+        <translation>Remplir (rognée)</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -2049,12 +2086,28 @@
         <translation>Graphique avec historique</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+52"/>
+        <source>(none)</source>
+        <translation>(aucune)</translation>
+    </message>
+    <message>
+        <location line="-91"/>
+        <location line="+42"/>
         <source>Display</source>
         <translation>Affichage</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-89"/>
+        <source>Choose an image</source>
+        <translation>Choisir une image</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Images (%1)</source>
+        <translation>Images (%1)</translation>
+    </message>
+    <message>
+        <location line="+93"/>
         <source>Percent</source>
         <translation>Pourcentage</translation>
     </message>

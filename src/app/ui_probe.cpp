@@ -3050,6 +3050,101 @@ int runUiProbe(QApplication& app)
               QStringLiteral("%1 change(s)").arg(changes));
     }
 
+    // --- session 95: the image widget (a picture drawn here, in a temp folder) --
+    {
+        QTemporaryDir pics;
+        const QString picture = QDir::fromNativeSeparators(pics.path()) + QStringLiteral("/sunset.png");
+        {
+            QImage wide(800, 400, QImage::Format_ARGB32);
+            QPainter wp(&wide);
+            QLinearGradient g(0, 0, 0, 400);
+            g.setColorAt(0, QColor(0xFF, 0x8A, 0x3D));
+            g.setColorAt(1, QColor(0x5B, 0x2A, 0x86));
+            wp.fillRect(wide.rect(), g);
+            wp.setBrush(QColor(0xFF, 0xE0, 0x7A));
+            wp.setPen(Qt::NoPen);
+            wp.drawEllipse(QPoint(400, 260), 70, 70);
+            wp.end();
+            wide.save(picture);
+        }
+        core::DesktopItem image = ui::widgets::create(QStringLiteral("image"));
+        ui::WidgetSettingsDialog dialog(image);
+        dialog.setImagePath(picture);
+        auto* fit = dialog.findChild<QComboBox*>(QStringLiteral("fit"));
+        if (fit)
+            fit->setCurrentIndex(1); // fill
+        if (offscreen)
+            dialog.setAttribute(Qt::WA_DontShowOnScreen);
+        dialog.show();
+        wait(150);
+        dialog.grab().save(captures + QStringLiteral("/s95_image_settings.png"));
+        const core::DesktopItem filled = dialog.result();
+        dialog.hide();
+        core::DesktopItem fitted = filled;
+        fitted.widgetSettings.insert(QStringLiteral("fit"), QStringLiteral("fit"));
+        ui::widgets::PaintContext pc;
+        pc.text = Qt::white;
+        pc.font = QApplication::font();
+        const auto draw = [&pc](const core::DesktopItem& item) {
+            QImage out(200, 200, QImage::Format_ARGB32_Premultiplied);
+            out.fill(QColor(0x20, 0x30, 0x40));
+            QPainter p(&out);
+            ui::widgets::paint(p, out.rect(), item, pc);
+            p.end();
+            return out;
+        };
+        const QImage a = draw(fitted), b = draw(filled), none = draw(image);
+        QImage sheet(640, 200, QImage::Format_ARGB32_Premultiplied);
+        sheet.fill(QColor(0x20, 0x30, 0x40));
+        {
+            QPainter sp(&sheet);
+            sp.drawImage(0, 0, a);
+            sp.drawImage(220, 0, b);
+            sp.drawImage(440, 0, none);
+        }
+        sheet.save(captures + QStringLiteral("/s95_image_widget.png"));
+        const QColor bg(0x20, 0x30, 0x40);
+        const bool fitLetterbox = a.pixelColor(100, 20) == bg && a.pixelColor(100, 100) != bg;
+        const bool fillCovers = b.pixelColor(100, 20) != bg && b.pixelColor(100, 180) != bg;
+        // T-150 (container side): a widget let go on the bare desktop is handed
+        // over; a desktop widget filed into a zone lands there, a locked one refuses.
+        ui::FenceContainer box;
+        const QString zone = box.createFence(QStringLiteral("Zone"), QRect(0, 0, 400, 300));
+        box.addWidget(zone, filled);
+        QList<core::DesktopItem> handed;
+        QObject::connect(&box, &ui::FenceContainer::widgetsDroppedOnDesktop, &box,
+                         [&handed](const QString&, const QList<core::DesktopItem>& w, const QPoint&) { handed = w; });
+        box.dragTilesOutside(zone, {filled.path}, QPoint(900, 600), true);
+        core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        const int in = box.fileIntoAt(zone, {clock}, QPoint(200, 150));
+        box.setFenceLocked(zone, true);
+        core::DesktopItem cpu = ui::widgets::create(QStringLiteral("cpu"));
+        const int refused = box.fileIntoAt(zone, {cpu}, QPoint(200, 150));
+        const bool t150 = handed.size() == 1 && handed.first().path == filled.path
+                          && handed.first().widgetSettings.value(QStringLiteral("path")).toString() == picture
+                          && in == 1 && refused == 0;
+        // Saved like any widget setting.
+        const core::Layout doc = box.toLayout();
+        bool saved = false;
+        for (const core::FenceItem& item : doc.fences.value(0).items)
+            saved = saved || item.widgetSettings.value(QStringLiteral("path")).toString() == picture;
+        check(QStringLiteral("image widget: fit letterboxes, fill covers, placeholder, chosen in its settings, saved (session 95)"),
+              fitLetterbox && fillCovers && filled.widgetSettings.value(QStringLiteral("fit")).toString() == QLatin1String("fill")
+                  && saved,
+              QStringLiteral("fit %1 fill %2 saved %3 [s95_image_widget.png]").arg(fitLetterbox).arg(fillCovers).arg(saved));
+        check(QStringLiteral("widgets between a zone and the desktop: handed to the desktop, filed into a zone, locked refuses (T-150, session 95)"),
+              t150, QStringLiteral("handed %1 in %2 refused %3").arg(handed.size()).arg(in).arg(refused));
+    }
+    // Session 95: About > reset, the labels that say what happens.
+    {
+        auto* fromWindows = settings.findChild<QPushButton*>(QStringLiteral("resetFromWindows"));
+        auto* wipe = settings.findChild<QPushButton*>(QStringLiteral("resetWipe"));
+        check(QStringLiteral("About: 'Start over from the Windows desktop' and 'Reset the StarFish desktop' (session 95)"),
+              fromWindows && wipe && fromWindows->text() == ui::SettingsDialog::tr("Start over from the Windows desktop")
+                  && wipe->text() == ui::SettingsDialog::tr("Reset the StarFish desktop"),
+              fromWindows && wipe ? fromWindows->text() + QStringLiteral(" | ") + wipe->text() : QString());
+    }
+
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);
     QFile report(QStringLiteral("build/ui-probe.txt"));

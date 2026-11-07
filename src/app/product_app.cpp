@@ -997,16 +997,31 @@ void ProductApp::wireBackdrop()
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetMenuRequested, this, &ProductApp::showDesktopWidgetMenu);
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDragged, this,
             [this](const QString&, const QRect& rect, bool active) {
-                if (active)
+                // Session 95 (T-150): over a fence, its insertion bar instead of the grid.
+                const bool overFence = active && !m_container->fenceAt(rect.center()).isEmpty();
+                m_container->showWidgetDropAt(rect.center(), active);
+                if (active && !overFence)
                     showDesktopWidgetGrid(rect);
                 else
                     hideDesktopDropGrid();
             });
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDropped, this, [this](const QString& path, const QPoint& pos) {
-        QSize span(1, 1);
+        core::DesktopItem item;
         for (const ui::DesktopWidget& widget : m_container->desktopWidgets())
             if (widget.item.path == path)
-                span = widget.item.span;
+                item = widget.item;
+        const QSize span = item.isWidget() ? item.span : QSize(1, 1);
+        // Session 95 (T-150): let go over a fence, the widget moves into it (a
+        // locked one refuses; it then stays on the desktop, where it was let go).
+        const QSize cell = desktopSlot().spacing;
+        const QPoint centre = pos + QPoint(span.width() * cell.width() / 2, span.height() * cell.height() / 2);
+        m_container->showWidgetDropAt(centre, false);
+        const QString fence = m_container->fenceAt(centre);
+        if (item.isWidget() && !fence.isEmpty() && m_container->fileIntoAt(fence, {item}, centre) > 0) {
+            m_container->removeDesktopWidget(path);
+            qCInfo(lc).noquote() << QStringLiteral("desktop widget %1 moved into %2").arg(path, fence);
+            return;
+        }
         m_container->moveDesktopWidget(path, snapDesktopWidget(pos, span));
     });
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetEditRequested, this,
@@ -1183,6 +1198,26 @@ void ProductApp::wireFenceMenu()
     // Session 76: tiles dropped out of a fence go where they were let go (on
     // the grid, never under a fence unless allowed), not to the place the
     // hidden icon last had on the desktop.
+    // Session 95 (T-150): a widget dragged out of a fence lands on the desktop.
+    connect(m_container, &ui::FenceContainer::widgetsDroppedOnDesktop, this,
+            [this](const QString& sourceId, const QList<core::DesktopItem>& widgets, const QPoint& point) {
+                if (!m_container->backdrop())
+                    return; // no desktop layer to hold it: the widget stays in its fence
+                syncDesktopWidgetCell();
+                QStringList moved;
+                QPoint at = point;
+                for (const core::DesktopItem& widget : widgets) {
+                    const QSize cell = desktopSlot().spacing;
+                    const QPoint topLeft = snapDesktopWidget(
+                        at - QPoint(widget.span.width() * cell.width() / 2, widget.span.height() * cell.height() / 2),
+                        widget.span);
+                    if (m_container->addDesktopWidget(widget, topLeft))
+                        moved << widget.path;
+                    at += QPoint(cell.width(), 0);
+                }
+                if (!moved.isEmpty())
+                    m_container->releaseItems(sourceId, moved);
+            });
     connect(m_container, &ui::FenceContainer::tilesDroppedOnDesktop, this,
             [this](const QStringList& paths, const QPoint& point) {
                 if (!drawnDesktop() || !m_shellView || paths.isEmpty())
@@ -1494,8 +1529,16 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         }
         break;
     case ui::FenceMenu::Action::AddWidgetChoice: // session 79
-        if (value >= 0 && value < ui::widgets::kinds().size())
-            m_container->addWidget(id, ui::widgets::create(ui::widgets::kinds().at(value).type));
+        if (value >= 0 && value < ui::widgets::kinds().size()) {
+            core::DesktopItem widget = ui::widgets::create(ui::widgets::kinds().at(value).type);
+            if (widget.widgetType == QLatin1String("image")) { // session 95: the picture first
+                const QString picture = ui::WidgetSettingsDialog::chooseImage(nullptr, {});
+                if (picture.isEmpty())
+                    break;
+                widget.widgetSettings.insert(QStringLiteral("path"), picture);
+            }
+            m_container->addWidget(id, widget);
+        }
         break;
     case ui::FenceMenu::Action::AddWidget:
     case ui::FenceMenu::Action::Resize:
@@ -2900,6 +2943,12 @@ QString ProductApp::addDesktopWidgetAt(const QString& type, const QPoint& point)
     core::DesktopItem widget = ui::widgets::create(type);
     if (!widget.isWidget())
         return {};
+    if (type == QLatin1String("image")) { // session 95: the picture first
+        const QString picture = ui::WidgetSettingsDialog::chooseImage(nullptr, {});
+        if (picture.isEmpty())
+            return {};
+        widget.widgetSettings.insert(QStringLiteral("path"), picture);
+    }
     syncDesktopWidgetCell();
     // Centred on the click's slot, then on the grid like an icon.
     const QPoint at = snapDesktopWidget(point - QPoint(desktopSlot().spacing.width() / 2, desktopSlot().spacing.height() / 2),
