@@ -692,13 +692,6 @@ void FenceView::paintEvent(QPaintEvent* event)
             const int pad = tabPadding();
             titleRect = QRect(span.first + pad, 0, qMax(0, span.second - 2 * pad), m_metrics.titleBarHeight);
         }
-        if (m_locked) { // session 94: room for the padlock
-            const int room = 16;
-            if (!tabbed() && (m_titleAlign & Qt::AlignRight))
-                titleRect.setLeft(titleRect.left() + room);
-            else
-                titleRect.setRight(titleRect.right() - room);
-        }
         const QString titleText_ = painter.fontMetrics().elidedText(
             m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
         const Qt::Alignment align =
@@ -709,28 +702,8 @@ void FenceView::paintEvent(QPaintEvent* event)
         }
         painter.setPen(titleText);
         painter.drawText(titleRect, align, titleText_);
-        if (m_locked) {
-            // Session 94: a small, discreet padlock at the far end of the bar
-            // (the near end when the title sits on the right).
-            const int h = m_metrics.titleBarHeight;
-            const qreal s = qBound(8.0, h * 0.42, 12.0);
-            const bool atStart = !tabbed() && (m_titleAlign & Qt::AlignRight);
-            const qreal x = tabbed() ? titleRect.right() + 4.0
-                            : atStart ? inset
-                                      : bandLength() - inset - s;
-            const QRectF body(x, h / 2.0 - s * 0.05, s, s * 0.55);
-            QColor ink = titleText;
-            ink.setAlphaF(0.55);
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            painter.setPen(QPen(ink, 1.3));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawArc(QRectF(x + s * 0.2, body.top() - s * 0.45, s * 0.6, s * 0.8), 0, 180 * 16);
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(ink);
-            painter.drawRoundedRect(body, 1.5, 1.5);
-        }
         painter.restore();
-    } else if (m_hovered && !m_locked) {
+    } else if (m_hovered) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
         painter.save();
         painter.setTransform(bandTransform(), true);

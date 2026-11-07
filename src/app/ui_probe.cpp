@@ -705,14 +705,6 @@ int runUiProbe(QApplication& app)
         for (const core::Fence& f : container.toLayout().fences)
             if (f.id == id)
                 saved = f.locked;
-        {
-            QImage shot(300, 220, QImage::Format_ARGB32_Premultiplied);
-            shot.fill(QColor(0x9A, 0xC8, 0x2A));
-            QPainter sp(&shot);
-            view->render(&sp, QPoint(), QRegion(), QWidget::DrawChildren);
-            sp.end();
-            shot.save(captures + QStringLiteral("/s94_locked.png")); // the padlock
-        }
         container.setFenceLocked(id, false);
         const bool unlocked = view->handleAt(QPoint(298, 110)) != ui::FenceHandle::None
                               && container.fileIntoAt(id, {core::itemFromPathOnly(QStringLiteral("C:/s94/d.txt"))},
