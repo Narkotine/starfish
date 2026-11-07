@@ -353,8 +353,8 @@ inline QList<Entry> entries(const State& state)
 
     Entry lock;
     lock.action = Action::ToggleLock;
-    lock.label = state.locked ? QCoreApplication::translate("FenceMenu", "Unlock the zone")
-                              : QCoreApplication::translate("FenceMenu", "Lock the zone");
+    lock.label = state.locked ? QCoreApplication::translate("FenceMenu", "Unlock")
+                              : QCoreApplication::translate("FenceMenu", "Lock");
     if (state.locked) {
         // Session 94 (the user): on a locked zone the menu's first entry is the
         // way out; only rolling stays, the rest waits for the unlock.
@@ -366,6 +366,9 @@ inline QList<Entry> entries(const State& state)
         return out;
     }
 
+    // Session 94 (t104u): the lock is the menu's first entry, locked or not.
+    out << lock << separator;
+
     Entry rename;
     rename.action = Action::Rename;
     rename.label = QCoreApplication::translate("FenceMenu", "Rename...");
@@ -376,7 +379,6 @@ inline QList<Entry> entries(const State& state)
     roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
                                 : QCoreApplication::translate("FenceMenu", "Roll up");
     out.append(roll);
-    out.append(lock);
 
     // Session 68 (the user asked for it here): the title bar, shown or not.
     Entry titleBar;

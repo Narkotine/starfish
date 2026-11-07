@@ -56,11 +56,15 @@ private slots:
         // Session 94: unlocked, "Lock the zone" is offered; locked, "Unlock the
         // zone" is the first entry and only rolling remains besides it.
         FenceMenu::State state;
-        QCOMPARE(countOf(FenceMenu::entries(state), FenceMenu::Action::ToggleLock), 1);
+        const QList<FenceMenu::Entry> unlocked = FenceMenu::entries(state);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::ToggleLock), 1);
+        QCOMPARE(unlocked.first().action, FenceMenu::Action::ToggleLock);
+        QCOMPARE(unlocked.first().label, QStringLiteral("Lock"));
         state.locked = true;
         const QList<FenceMenu::Entry> locked = FenceMenu::entries(state);
         QVERIFY(!locked.isEmpty());
         QCOMPARE(locked.first().action, FenceMenu::Action::ToggleLock);
+        QCOMPARE(locked.first().label, QStringLiteral("Unlock"));
         QCOMPARE(countOf(locked, FenceMenu::Action::ToggleRoll), 1);
         QCOMPARE(countOf(locked, FenceMenu::Action::Rename), 0);
         QCOMPARE(countOf(locked, FenceMenu::Action::Remove), 0);
@@ -238,8 +242,11 @@ private slots:
         const QList<FenceMenu::Entry> entries = FenceMenu::entries(state);
         QVERIFY(entries.size() >= 4);
 
-        // Session 65: first entry, rename (behaviour first).
-        QCOMPARE(entries.first().action, FenceMenu::Action::Rename);
+        // Session 94 (t104u): the lock first, a separator, then rename (session 65:
+        // behaviour first).
+        QCOMPARE(entries.at(0).action, FenceMenu::Action::ToggleLock);
+        QCOMPARE(entries.at(1).kind, FenceMenu::Kind::Separator);
+        QCOMPARE(entries.at(2).action, FenceMenu::Action::Rename);
 
         // The last entry is the destructive one, and it is not a neighbour of a
         // toggle: a slip of the mouse must not be able to reach it.

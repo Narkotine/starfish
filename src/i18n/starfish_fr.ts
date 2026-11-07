@@ -617,14 +617,24 @@
         <translation>Barre de titre : comme le panneau</translation>
     </message>
     <message>
-        <location line="+29"/>
-        <location line="+13"/>
+        <location line="+22"/>
+        <source>Unlock</source>
+        <translation>Déverrouiller</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lock</source>
+        <translation>Verrouiller</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <location line="+16"/>
         <source>Roll down</source>
         <translation>Dérouler</translation>
     </message>
     <message>
-        <location line="-12"/>
-        <location line="+13"/>
+        <location line="-15"/>
+        <location line="+16"/>
         <source>Roll up</source>
         <translation>Enrouler</translation>
     </message>
@@ -634,7 +644,7 @@
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="-211"/>
+        <location line="-214"/>
         <source>Default (whole icons)</source>
         <translation>Par défaut (icônes entières)</translation>
     </message>
@@ -699,17 +709,7 @@
         <translation>Nom</translation>
     </message>
     <message>
-        <location line="+124"/>
-        <source>Unlock the zone</source>
-        <translation>Déverrouiller la zone</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Lock the zone</source>
-        <translation>Verrouiller la zone</translation>
-    </message>
-    <message>
-        <location line="+27"/>
+        <location line="+154"/>
         <source>Show the title bar</source>
         <translation>Afficher la barre de titre</translation>
     </message>
