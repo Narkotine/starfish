@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <optional>
+#include <QElapsedTimer>
+#include <QTimer>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -58,7 +60,17 @@ struct FenceWindow {
     // `rolledUp` already say where it is going and are never animated).
     QRect animatedVisible;
     bool animating = false;
-    QVariantAnimation* rollAnimation = nullptr;
+    // Session 95: driven by our own fine timer, positioned by the clock (a late
+    // frame lands where it should be, it never "catches up" in a jump).
+    QTimer* rollAnimation = nullptr;
+    QRect rollFrom;
+    QRect rollTo;
+    int rollDurationMs = 0;
+    // Session 95: what one roll / unroll really cost (frame gaps, apply time).
+    QElapsedTimer rollClock;
+    qint64 rollLastNs = 0;
+    QList<double> rollGaps;
+    QList<double> rollApplies;
     int hoverSerial = 0;
     // T-011: the folder portals this fence mirrors, in declaration order. Each
     // one carries its last listing, which is how the tiles a portal
@@ -269,6 +281,16 @@ public:
     void setRollOppositeDefault(bool on) { m_rollOppositeDefault = on; }
     bool rollOppositeDefault() const { return m_rollOppositeDefault; }
     void setAnimateRoll(bool on) { m_animateRoll = on; }
+    // Session 95: the roll's speed in pixels per second -- the duration follows
+    // the distance (a tall zone takes longer than a short one), bounded.
+    void setRollSpeed(int pixelsPerSecond) { m_rollSpeed = qBound(200, pixelsPerSecond, 10000); }
+    int rollSpeed() const { return m_rollSpeed; }
+    static constexpr int kRollSpeedDefault = 1600;
+    static int rollDurationFor(int distance, int pixelsPerSecond);
+private:
+    void fineTimer(bool on);
+    void stepRoll(const QString& id);
+public:
     bool animateRoll() const { return m_animateRoll; }
     void setSnapToCellsDefault(bool on) { m_snapToCellsDefault = on; }
     // Session 76: the icons' names (style.showLabels overrides; shown by default).
@@ -284,7 +306,18 @@ public:
     bool snapToCellsDefault() const { return m_snapToCellsDefault; }
     bool fenceSnapsToCells(const QString& id) const;
     bool fenceAnimating(const QString& id) const;
-    static constexpr int kRollAnimationMs = 150;
+    // Session 95: the last roll animation, measured (logged, and read by the probe).
+    struct RollStats {
+        int frames = 0;
+        int distance = 0;       // pixels travelled by the moving edge
+        int plannedMs = 0;      // the duration asked for
+        double elapsedMs = 0;   // first to last frame
+        double maxGapMs = 0;    // the longest wait between two frames
+        double meanGapMs = 0;
+        double maxApplyMs = 0;  // the dearest frame (geometry + render + push)
+        double meanApplyMs = 0;
+    };
+    RollStats lastRollStats() const { return m_lastRollStats; }
     // Session 73: resize gesture entry points, public for the probe.
     void resizeFenceBy(const QString& id, FenceHandle handle, const QPoint& delta);
     // Session 73: Delete from a fence -- tiles whose file is gone leave it.
@@ -741,6 +774,9 @@ private:
     bool m_hoverUnrollDefault = false;
     bool m_rollOppositeDefault = false;
     bool m_animateRoll = false; // the product turns it on (Settings); off headless
+    RollStats m_lastRollStats;  // session 95
+    int m_rollSpeed = kRollSpeedDefault;
+    int m_rollsRunning = 0;     // session 95: fine system timer while > 0
     bool m_snapToCellsDefault = false;
     bool m_showLabelsDefault = true;
     int m_iconFlowDefault = 0;

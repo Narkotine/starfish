@@ -371,6 +371,20 @@ QWidget* SettingsDialog::buildFences()
            tr("Off: a rolled-up fence keeps its title bar's edge. A fence can choose for itself (Appearance)."));
     toggle(m_rollAnimated, "rollAnimationSwitch", true, &SettingsDialog::rollAnimatedToggled, QChar(0xE916),
            tr("Animate rolling up and down"), tr("A short slide; off: at once."));
+    // Session 95: how fast a roll goes; its duration follows the distance.
+    m_rollSpeed = new QComboBox;
+    m_rollSpeed->setObjectName(QStringLiteral("rollSpeedCombo"));
+    m_rollSpeed->addItem(tr("Slow"), 900);
+    m_rollSpeed->addItem(tr("Normal"), 1600);
+    m_rollSpeed->addItem(tr("Fast"), 2800);
+    m_rollSpeed->setCurrentIndex(1);
+    connect(m_rollSpeed, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_updating)
+            emit rollSpeedChosen(m_rollSpeed->currentData().toInt());
+    });
+    l->addWidget(row(QString(QChar(0xEC4A)), tr("Rolling speed"),
+                     tr("The same speed for every fence: a tall one takes a little longer than a short one."),
+                     m_rollSpeed, p));
     toggle(m_snapToCells, "snapToCellsSwitch", false, &SettingsDialog::snapToCellsToggled, QChar(0xE80A),
            tr("Resize fences in whole icons"),
            tr("Width and height land on whole columns and rows. A fence can choose for itself (Appearance)."));
@@ -583,9 +597,9 @@ QWidget* SettingsDialog::buildAbout()
     resetHint->setObjectName(QStringLiteral("hint"));
     resetHint->setWordWrap(true);
     l->addWidget(resetHint);
-    auto* fromWindows = new QPushButton(tr("Start again from the Windows desktop"), p);
+    auto* fromWindows = new QPushButton(tr("Start over from the Windows desktop"), p);
     fromWindows->setObjectName(QStringLiteral("resetFromWindows"));
-    auto* wipe = new QPushButton(tr("Wipe the StarFish desktop"), p);
+    auto* wipe = new QPushButton(tr("Reset the StarFish desktop"), p);
     wipe->setObjectName(QStringLiteral("resetWipe"));
     auto* resetRow = new QHBoxLayout;
     resetRow->addWidget(fromWindows);
@@ -594,9 +608,10 @@ QWidget* SettingsDialog::buildAbout()
     l->addLayout(resetRow);
     auto confirm = [this](bool wipeAll) {
         const QString text = wipeAll
-            ? tr("Remove every zone, widget (notes included) and rule? Every icon goes back to the desktop.")
-            : tr("Remove every zone? Every icon goes back to the place Windows keeps for it; "
-                 "the rules are kept.");
+            ? tr("Remove every zone and every widget (notes included), and any automatic filing rule? "
+                 "Every icon goes back to the place Windows keeps for it.")
+            : tr("Remove every zone and every widget (notes included)? Every icon goes back to the place "
+                 "Windows keeps for it.");
         if (QMessageBox::question(this, tr("Reset the StarFish desktop"), text,
                                   QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel)
             == QMessageBox::Yes)
@@ -643,6 +658,19 @@ void SettingsDialog::setRollAnimated(bool on)
 {
     m_updating = true;
     m_rollAnimated->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setRollSpeed(int pixelsPerSecond)
+{
+    m_updating = true;
+    int best = 1;
+    for (int i = 0; i < m_rollSpeed->count(); ++i) {
+        if (qAbs(m_rollSpeed->itemData(i).toInt() - pixelsPerSecond)
+            < qAbs(m_rollSpeed->itemData(best).toInt() - pixelsPerSecond))
+            best = i;
+    }
+    m_rollSpeed->setCurrentIndex(best);
     m_updating = false;
 }
 

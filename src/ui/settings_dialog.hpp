@@ -64,6 +64,7 @@ public:
     void setWidgetEngineStatus(const QString& text); // session 80
     QString widgetEngineStatus() const;
     void setIconFlow(const QString& key);     // session 76
+    void setRollSpeed(int pixelsPerSecond);   // session 95
     void setLanguage(const QString& code); // "" = Windows', "fr", "en"
     void setDefaultBorder(int width, const QString& color);
     void setFenceShortcutArrows(bool shown);
@@ -98,6 +99,7 @@ signals:
     void splashToggled(bool on);                  // session 76
     void desktopDragGridToggled(bool on);         // session 80
     void iconFlowChosen(const QString& key);      // session 76
+    void rollSpeedChosen(int pixelsPerSecond);    // session 95
     void languageChosen(const QString& code);
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
@@ -144,6 +146,7 @@ private:
     QCheckBox* m_desktopDragGrid = nullptr; // session 80
     QLabel* m_widgetEngine = nullptr;       // session 80
     QComboBox* m_iconFlow = nullptr;
+    QComboBox* m_rollSpeed = nullptr; // session 95
     QComboBox* m_language = nullptr;
     QSpinBox* m_borderWidth = nullptr;
     QPushButton* m_borderColour = nullptr;

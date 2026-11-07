@@ -220,4 +220,6 @@ target_link_libraries(starfish PRIVATE
     dxgi
     advapi32
     gdi32
+    #   winmm    timeBeginPeriod: a fine timer during roll animations (session 95)
+    winmm
 )

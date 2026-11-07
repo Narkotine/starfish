@@ -3,6 +3,7 @@
 #include <QJsonObject>
 
 #include <algorithm>
+#include <cmath>
 
 #include <QColor>
 #include <QDebug>
@@ -29,6 +30,11 @@
 
 #if defined(_WIN32)
 #include "platform/win/desktop_scanner.hpp"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <timeapi.h>
 #endif
 
 namespace starfish::ui {
@@ -837,6 +843,7 @@ void FenceContainer::finishRollAnimation(FenceWindow& fence)
 {
     if (!fence.animating)
         return;
+    fineTimer(false);
     if (fence.rollAnimation)
         fence.rollAnimation->stop();
     fence.animating = false;
@@ -844,10 +851,39 @@ void FenceContainer::finishRollAnimation(FenceWindow& fence)
     applyVisibleGeometry(fence);
 }
 
+int FenceContainer::rollDurationFor(int distance, int pixelsPerSecond)
+{
+    // Session 95: proportional to the distance, so every roll moves at the same
+    // speed; bounded so a strip of a few pixels still shows a slide and a very
+    // tall zone does not crawl.
+    const int speed = qMax(1, pixelsPerSecond);
+    return qBound(90, qRound(qAbs(distance) * 1000.0 / speed), 700);
+}
+
+void FenceContainer::fineTimer(bool on)
+{
+    // Session 95, measured: with the default ~15.6 ms system tick the animation
+    // timer fired every 16 *or 31* ms (max gap 31 ms over a 150 ms roll) -- the
+    // jumps the user saw. A 1 ms tick only while a roll runs.
+#if defined(_WIN32)
+    if (on) {
+        if (m_rollsRunning++ == 0)
+            ::timeBeginPeriod(1);
+    } else if (m_rollsRunning > 0) {
+        if (--m_rollsRunning == 0)
+            ::timeEndPeriod(1);
+    }
+#else
+    Q_UNUSED(on);
+#endif
+}
+
 void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
 {
-    // Session 73: roll / unroll in ~150 ms, ease-out. Only the rect shown moves;
-    // the document (rect, rolledUp) already holds the end state.
+    // Session 73: roll / unroll with an ease-out. Only the rect shown moves; the
+    // document (rect, rolledUp) already holds the end state.
+    if (fence.rollAnimation && fence.animating)
+        fineTimer(false); // the one it replaces
     if (fence.rollAnimation)
         fence.rollAnimation->stop();
     fence.animating = false;
@@ -858,32 +894,77 @@ void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
         return;
     }
     if (!fence.rollAnimation) {
+        // Session 95, measured: QVariantAnimation's shared 16 ms tick delivered
+        // frames 16 *or 31* ms apart even with a 1 ms system timer -- the jumps.
+        // A precise 8 ms timer leaves no 60 Hz refresh without a fresh frame.
         const QString id = fence.id;
-        auto* animation = new QVariantAnimation(this);
-        animation->setDuration(kRollAnimationMs);
-        animation->setEasingCurve(QEasingCurve::OutCubic);
-        connect(animation, &QVariantAnimation::valueChanged, this, [this, id](const QVariant& value) {
-            FenceWindow* f = find(id);
-            if (!f || !f->animating)
-                return;
-            f->animatedVisible = value.toRect();
-            applyVisibleGeometry(*f);
-        });
-        connect(animation, &QVariantAnimation::finished, this, [this, id] {
-            FenceWindow* f = find(id);
-            if (!f || !f->animating)
-                return;
-            f->animating = false;
-            f->animatedVisible = QRect();
-            applyVisibleGeometry(*f);
-        });
-        fence.rollAnimation = animation;
+        auto* timer = new QTimer(this);
+        timer->setTimerType(Qt::PreciseTimer);
+        timer->setInterval(8);
+        connect(timer, &QTimer::timeout, this, [this, id] { stepRoll(id); });
+        fence.rollAnimation = timer;
     }
     fence.animating = true;
     fence.animatedVisible = from;
-    fence.rollAnimation->setStartValue(from);
-    fence.rollAnimation->setEndValue(to);
+    fence.rollFrom = from;
+    fence.rollTo = to;
+    fence.rollDurationMs =
+        rollDurationFor(qAbs(from.height() - to.height()) + qAbs(from.width() - to.width()), m_rollSpeed);
+    fence.rollClock.start();
+    fence.rollLastNs = 0;
+    fence.rollGaps.clear();
+    fence.rollApplies.clear();
+    fineTimer(true);
     fence.rollAnimation->start();
+    stepRoll(fence.id); // the first frame now, not one tick later
+}
+
+void FenceContainer::stepRoll(const QString& id)
+{
+    FenceWindow* f = find(id);
+    if (!f || !f->animating)
+        return;
+    const qint64 now = f->rollClock.nsecsElapsed();
+    const double t = qBound(0.0, now / 1e6 / qMax(1, f->rollDurationMs), 1.0);
+    const double e = 1.0 - std::pow(1.0 - t, 3.0); // ease-out cubic
+    const auto lerp = [e](int a, int b) { return a + qRound((b - a) * e); };
+    const QRect a = f->rollFrom;
+    const QRect b = f->rollTo;
+    if (f->rollLastNs > 0)
+        f->rollGaps << (now - f->rollLastNs) / 1e6;
+    f->rollLastNs = now;
+    if (t < 1.0) {
+        f->animatedVisible = QRect(QPoint(lerp(a.left(), b.left()), lerp(a.top(), b.top())),
+                                   QPoint(lerp(a.right(), b.right()), lerp(a.bottom(), b.bottom())));
+        applyVisibleGeometry(*f);
+        f->rollApplies << (f->rollClock.nsecsElapsed() - now) / 1e6;
+        return;
+    }
+    f->rollAnimation->stop();
+    f->animating = false;
+    f->animatedVisible = QRect();
+    applyVisibleGeometry(*f);
+    f->rollApplies << (f->rollClock.nsecsElapsed() - now) / 1e6;
+    fineTimer(false);
+    RollStats s;
+    s.frames = f->rollApplies.size();
+    s.distance = qAbs(a.height() - b.height()) + qAbs(a.width() - b.width());
+    s.plannedMs = f->rollDurationMs;
+    s.elapsedMs = f->rollLastNs / 1e6;
+    for (double g : f->rollGaps) {
+        s.maxGapMs = qMax(s.maxGapMs, g);
+        s.meanGapMs += g / f->rollGaps.size();
+    }
+    for (double v : f->rollApplies) {
+        s.maxApplyMs = qMax(s.maxApplyMs, v);
+        s.meanApplyMs += v / f->rollApplies.size();
+    }
+    m_lastRollStats = s;
+    qCInfo(lc).noquote() << QStringLiteral("roll %1: %2 px, %3 ms planned, %4 frame(s) over %5 ms, gap mean %6 max %7 ms, "
+                                           "apply mean %8 max %9 ms")
+                                .arg(id).arg(s.distance).arg(s.plannedMs).arg(s.frames)
+                                .arg(s.elapsedMs, 0, 'f', 1).arg(s.meanGapMs, 0, 'f', 1).arg(s.maxGapMs, 0, 'f', 1)
+                                .arg(s.meanApplyMs, 0, 'f', 1).arg(s.maxApplyMs, 0, 'f', 1);
 }
 
 bool FenceContainer::fenceSnapsToCells(const QString& id) const

@@ -705,7 +705,26 @@ int runUiProbe(QApplication& app)
         for (const core::Fence& f : container.toLayout().fences)
             if (f.id == id)
                 saved = f.locked;
+        // Session 95: no move grip on a locked fence without a title bar.
+        core::FenceStyle bare = container.fenceStyle(id);
+        bare.titleBar = false;
+        container.setFenceStyle(id, bare);
+        const auto gripShown = [view] {
+            QEnterEvent enter(QPointF(150, 100), QPointF(150, 100), QPointF(150, 100));
+            QCoreApplication::sendEvent(view, &enter);
+            const QImage img = view->grab().toImage();
+            QEvent leave(QEvent::Leave);
+            QCoreApplication::sendEvent(view, &leave);
+            const int y = ui::FenceView::kHiddenTitleBand / 2 + 1;
+            return img.pixelColor(img.width() / 2, y) != img.pixelColor(img.width() / 2 + 40, y);
+        };
+        const bool lockedGrip = gripShown();
         container.setFenceLocked(id, false);
+        const bool unlockedGrip = gripShown();
+        check(QStringLiteral("a locked zone without title bar shows no move grip on hover; unlocked it does (session 95)"),
+              !lockedGrip && unlockedGrip, QStringLiteral("locked %1 unlocked %2").arg(lockedGrip).arg(unlockedGrip));
+        bare.titleBar = true;
+        container.setFenceStyle(id, bare);
         const bool unlocked = view->handleAt(QPoint(298, 110)) != ui::FenceHandle::None
                               && container.fileIntoAt(id, {core::itemFromPathOnly(QStringLiteral("C:/s94/d.txt"))},
                                                       QPoint(150, 120)) == 1;
@@ -1762,6 +1781,38 @@ int runUiProbe(QApplication& app)
               QStringLiteral("button %1, listed %2, icon %3, reloaded %4 [%5]")
                   .arg(presetsButton != nullptr).arg(listed).arg(withIcon).arg(saved).arg(switchLabel));
 
+        // Session 95: the whole ready-made list in the desktop tab, unticked;
+        // ticking one adds it as the user's entry; Task Manager is one of them.
+        {
+            QTemporaryDir fresh;
+            const QString freshConfig = QDir::fromNativeSeparators(fresh.path()) + QStringLiteral("/context-menu.json");
+            ui::ContextMenuEditor all;
+            all.setConfigPath(freshConfig);
+            all.selectKind(core::ContextMenuKind::Background);
+            bool everyOne = true, noneTicked = true, taskManager = false;
+            QString tmKey;
+            for (const core::MenuPreset& preset : core::menuPresets()) {
+                const QString k = QStringLiteral("custom:") + preset.label;
+                everyOne = everyOne && all.listedKeys().contains(k);
+                noneTicked = noneTicked && !all.isChecked(k);
+                if (preset.program == QLatin1String("taskmgr.exe")) {
+                    taskManager = true;
+                    tmKey = k;
+                }
+            }
+            all.setChecked(tmKey, true);
+            QCoreApplication::processEvents();
+            ui::ContextMenuEditor again;
+            again.setConfigPath(freshConfig);
+            again.selectKind(core::ContextMenuKind::Background);
+            const core::ContextMenuConfig cfg = core::ContextMenuConfig::load(freshConfig);
+            const bool added = again.isChecked(tmKey) && cfg.background.custom.size() == 1
+                               && cfg.background.custom.first().program == QLatin1String("taskmgr.exe");
+            check(QStringLiteral("the desktop menu editor lists every ready-made entry, unticked; ticking adds it; Task Manager included (session 95)"),
+                  everyOne && noneTicked && taskManager && added,
+                  QStringLiteral("all %1 unticked %2 taskmgr %3 added %4").arg(everyOne).arg(noneTicked).arg(taskManager).arg(added));
+        }
+
         // Reading the theme is harmless and tells the switch which way to go; the
         // write is the user's click, so no probe flips his colours.
         const platform::win::ThemeState theme = platform::win::readTheme();
@@ -2337,6 +2388,47 @@ int runUiProbe(QApplication& app)
                   && midOpen.height() > strip.height() && midOpen.height() < stored.height() && back == strip && open,
               QStringLiteral("mid %1, end %2, mid open %3, back %4").arg(mid.height()).arg(end.height())
                   .arg(midOpen.height()).arg(back.height()));
+    }
+    {
+        // Session 95: measure a roll the size of a real zone (30 dummy icons):
+        // frame gaps and the cost of each frame, reported as numbers.
+        QTemporaryDir dummies;
+        QList<core::DesktopItem> many;
+        for (int i = 0; i < 30; ++i) {
+            const QString path = QDir::fromNativeSeparators(dummies.path()) + QStringLiteral("/Item %1.txt").arg(i);
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly))
+                f.write("x");
+            f.close();
+            many << core::itemFromPathOnly(path);
+        }
+        ui::FenceContainer container;
+        container.setAnimateRoll(true);
+        const QRect stored(100, 100, 430, 520);
+        const QString id = container.createFence(QStringLiteral("Measure"), stored);
+        container.fileInto(id, many);
+        wait(100);
+        container.setFenceRolledUp(id, true);
+        wait(900);
+        const ui::FenceContainer::RollStats up = container.lastRollStats();
+        container.setFenceRolledUp(id, false);
+        wait(900);
+        const ui::FenceContainer::RollStats down = container.lastRollStats();
+        const auto line = [](const ui::FenceContainer::RollStats& s) {
+            return QStringLiteral("%1 px, planned %2 ms, %3 frames in %4 ms, gap mean %5 max %6, apply mean %7 max %8")
+                .arg(s.distance).arg(s.plannedMs).arg(s.frames).arg(s.elapsedMs, 0, 'f', 1)
+                .arg(s.meanGapMs, 0, 'f', 1).arg(s.maxGapMs, 0, 'f', 1).arg(s.meanApplyMs, 0, 'f', 1)
+                .arg(s.maxApplyMs, 0, 'f', 1);
+        };
+        const bool proportional = up.plannedMs == ui::FenceContainer::rollDurationFor(up.distance, container.rollSpeed())
+                                  && ui::FenceContainer::rollDurationFor(160, 1600)
+                                         < ui::FenceContainer::rollDurationFor(490, 1600)
+                                  && ui::FenceContainer::rollDurationFor(490, 2800)
+                                         < ui::FenceContainer::rollDurationFor(490, 900);
+        const bool smooth = up.maxGapMs < 25.0 && down.maxGapMs < 25.0;
+        check(QStringLiteral("roll animation: duration follows the distance and the speed, no frame gap over 25 ms (session 95)"),
+              up.frames > 2 && down.frames > 2 && proportional && smooth,
+              QStringLiteral("up: %1 | down: %2").arg(line(up), line(down)));
     }
     {
         // Whole icons: a resize lands on whole columns and rows; restore keeps it.

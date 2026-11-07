@@ -168,6 +168,11 @@
         <source>Store</source>
         <translation>Store</translation>
     </message>
+    <message>
+        <location line="+1"/>
+        <source>Task Manager</source>
+        <translation>Gestionnaire des tâches</translation>
+    </message>
 </context>
 <context>
     <name>ContextMenuPresets</name>
@@ -200,6 +205,11 @@
         <location line="+2"/>
         <source>Windows Update</source>
         <translation>Windows Update</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Task Manager</source>
+        <translation>Gestionnaire des tâches</translation>
     </message>
 </context>
 <context>
@@ -901,7 +911,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2768"/>
+        <location filename="../app/product_app.cpp" line="+2777"/>
         <location line="+152"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
@@ -1007,12 +1017,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3406"/>
+        <location line="-3415"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+505"/>
+        <location line="+513"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -1053,7 +1063,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+523"/>
+        <location line="+524"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1111,7 +1121,7 @@
 <context>
     <name>starfish::ui::ContextMenuEditor</name>
     <message>
-        <location filename="../ui/context_menu_editor.cpp" line="+95"/>
+        <location filename="../ui/context_menu_editor.cpp" line="+97"/>
         <source>Entry of my own</source>
         <translation>Entrée personnelle</translation>
     </message>
@@ -1384,7 +1394,7 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+80"/>
         <source>%1 (icon bar)</source>
         <translation>%1 (barre d&apos;icônes)</translation>
     </message>
@@ -1422,12 +1432,12 @@
     <message>
         <location filename="../ui/fence_view.cpp" line="+325"/>
         <location line="+160"/>
-        <location line="+218"/>
+        <location line="+211"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+32"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -1478,18 +1488,18 @@
     </message>
     <message>
         <location line="-114"/>
-        <location line="+334"/>
+        <location line="+348"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-333"/>
-        <location line="+352"/>
+        <location line="-347"/>
+        <location line="+366"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-324"/>
+        <location line="-338"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -1501,12 +1511,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+543"/>
+        <location line="+571"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-533"/>
+        <location line="-561"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1557,12 +1567,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+297"/>
+        <location line="+311"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-290"/>
+        <location line="-304"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1672,7 +1682,32 @@
         <translation>Un glissement bref ; désactivé : immédiat.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+4"/>
+        <source>Slow</source>
+        <translation>Lente</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Normal</source>
+        <translation>Normale</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fast</source>
+        <translation>Rapide</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Rolling speed</source>
+        <translation>Vitesse d&apos;enroulement</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The same speed for every fence: a tall one takes a little longer than a short one.</source>
+        <translation>La même vitesse pour toutes les zones : une grande met un peu plus de temps qu’une petite.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Resize fences in whole icons</source>
         <translation>Redimensionner les zones par icônes entières</translation>
     </message>
@@ -1853,31 +1888,27 @@
     </message>
     <message>
         <location line="+6"/>
-        <source>Start again from the Windows desktop</source>
-        <translation>Repartir du bureau Windows</translation>
+        <source>Start over from the Windows desktop</source>
+        <translation>Se rebaser sur le bureau de Windows</translation>
     </message>
     <message>
         <location line="+2"/>
-        <source>Wipe the StarFish desktop</source>
-        <translation>Effacer le bureau StarFish</translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>Remove every zone, widget (notes included) and rule? Every icon goes back to the desktop.</source>
-        <translation>Supprimer toutes les zones, tous les widgets (notes comprises) et toutes les règles ? Chaque icône retourne sur le bureau.</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Remove every zone? Every icon goes back to the place Windows keeps for it; the rules are kept.</source>
-        <translation>Supprimer toutes les zones ? Chaque icône retourne à l&apos;emplacement que Windows lui garde ; les règles sont conservées.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+13"/>
         <source>Reset the StarFish desktop</source>
-        <translation>Remettre à zéro le bureau StarFish</translation>
+        <translation>Réinitialiser le bureau de StarFish</translation>
     </message>
     <message>
-        <location line="+165"/>
+        <location line="-4"/>
+        <source>Remove every zone and every widget (notes included), and any automatic filing rule? Every icon goes back to the place Windows keeps for it.</source>
+        <translation>Supprimer toutes les zones et tous les widgets (notes comprises), ainsi que les éventuelles règles de rangement automatique ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Remove every zone and every widget (notes included)? Every icon goes back to the place Windows keeps for it.</source>
+        <translation>Supprimer toutes les zones et tous les widgets (notes comprises) ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
+    </message>
+    <message>
+        <location line="+180"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>

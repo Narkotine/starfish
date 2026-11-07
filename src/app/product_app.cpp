@@ -266,6 +266,8 @@ bool ProductApp::start(const Options& options, QString* error)
         m_container->setHoverUnrollDefault(settings.value(QStringLiteral("fenceHoverUnroll"), false).toBool());
         m_container->setRollOppositeDefault(settings.value(QStringLiteral("fenceRollOpposite"), false).toBool());
         m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
+        m_container->setRollSpeed(settings.value(QStringLiteral("fenceRollSpeed"),
+                                                 ui::FenceContainer::kRollSpeedDefault).toInt()); // session 95
         m_container->setSnapToCellsDefault(settings.value(QStringLiteral("fenceSnapToCells"), false).toBool());
         m_autoRestoreShortcuts = settings.value(QStringLiteral("fenceAutoRestoreShortcuts"), false).toBool();
         m_desktopDragGrid = settings.value(QStringLiteral("desktopDragGrid"), true).toBool(); // session 80
@@ -639,6 +641,12 @@ void ProductApp::wireSettings()
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
             .setValue(QStringLiteral("fenceAutoRestoreShortcuts"), on);
         m_autoRestoreShortcuts = on;
+    });
+    connect(m_settings, &ui::SettingsDialog::rollSpeedChosen, this, [this](int speed) { // session 95
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("fenceRollSpeed"), speed);
+        if (m_container)
+            m_container->setRollSpeed(speed);
     });
     connect(m_settings, &ui::SettingsDialog::iconFlowChosen, this, [this](const QString& key) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
@@ -1946,6 +1954,7 @@ void ProductApp::refreshStatus()
         m_settings->setSplash(QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
                                   .value(QStringLiteral("showSplash"), true).toBool());
         m_settings->setIconFlow(ui::IconLayout::flowKeys().value(m_container->iconFlowDefault()));
+        m_settings->setRollSpeed(m_container->rollSpeed()); // session 95
         m_settings->setDesktopDragGrid(m_desktopDragGrid);
         m_settings->setWidgetEngineStatus(widgetEngineSummary());
         m_settings->setDefaultBorder(m_container->defaultBorderWidth(), m_container->defaultBorderColor());
