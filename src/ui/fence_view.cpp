@@ -703,8 +703,9 @@ void FenceView::paintEvent(QPaintEvent* event)
         painter.setPen(titleText);
         painter.drawText(titleRect, align, titleText_);
         painter.restore();
-    } else if (m_hovered) {
+    } else if (m_hovered && !m_locked) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
+        // Session 95: none on a locked fence, which cannot be moved.
         painter.save();
         painter.setTransform(bandTransform(), true);
         painter.setPen(QPen(QColor(255, 255, 255, 0x70), 2, Qt::SolidLine, Qt::RoundCap));
