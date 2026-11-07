@@ -2596,6 +2596,32 @@ int runUiProbe(QApplication& app)
               || core::ContextMenuConfig::load(realConfig).background.custom.size() < saved.background.custom.size(),
           {});
 
+    // --- session 90: a lone metric widget, in a real fence, gets fresh readings --
+    // (t90u: "the CPU widget does not seem to work without the group")
+    for (const char* type : {"cpu", "ram", "gpu", "vram"}) {
+        ui::SystemMonitor::install();
+        ui::FenceContainer container;
+        const QString id = container.createFence(QStringLiteral("Lone"), QRect(0, 0, 300, 160));
+        core::DesktopItem lone = ui::widgets::create(QLatin1String(type));
+        lone.widgetSettings.insert(QStringLiteral("mode"), QStringLiteral("number"));
+        container.addWidget(id, lone);
+        ui::FenceView* view = container.view(id);
+        wait(300);
+        const qint64 samples0 = ui::SystemMonitor::instance().samples();
+        int repaints = 0;
+        QObject::connect(view, &ui::FenceView::widgetTick, view, [&repaints] { ++repaints; });
+        wait(4500);
+        core::Metric metric;
+        core::metricFromType(QLatin1String(type), &metric);
+        const core::MetricHistory* h = ui::SystemMonitor::instance().history(metric);
+        const qint64 fresh = ui::SystemMonitor::instance().samples() - samples0;
+        const bool gpuSide = metric == core::Metric::Gpu || metric == core::Metric::Vram;
+        check(QStringLiteral("a lone %1 widget in a fence: sampler runs, value read, repainted each second (session 90)").arg(QLatin1String(type)),
+              fresh >= 3 && repaints >= 3 && h && (gpuSide || h->latest().valid()),
+              QStringLiteral("%1 new samples, %2 ticks, now %3").arg(fresh).arg(repaints)
+                  .arg(ui::widgets::metricText(lone, metric)));
+    }
+
     // --- session 88: system widgets (fake readings) and their settings window --
     {
         static core::MetricHistory fake[core::kMetricCount] = {core::MetricHistory(400), core::MetricHistory(400),

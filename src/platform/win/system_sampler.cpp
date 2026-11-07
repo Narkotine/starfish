@@ -93,6 +93,9 @@ struct SystemSampler::Impl {
         }
     }
 
+    // The GPU side only: the CPU's previous times are kept, else a CPU-only
+    // sampler (no GPU / VRAM widget shown) never has two reads in a row and
+    // stays "n/a" (t90u, session 90).
     void closeQuery()
     {
         if (query)
@@ -101,7 +104,6 @@ struct SystemSampler::Impl {
         gpu = vram = nullptr;
         queryTried = false;
         collections = 0;
-        haveTimes = false;
     }
 };
 
@@ -119,6 +121,7 @@ SystemSampler::~SystemSampler()
 void SystemSampler::close()
 {
     d->closeQuery();
+    d->haveTimes = false; // a later start measures from its own first read
 }
 
 void SystemSampler::sample(core::MetricPoint out[core::kMetricCount], bool gpu)
