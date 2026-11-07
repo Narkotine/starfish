@@ -1,4 +1,11 @@
 configure_file(version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
+# The commit the binary was built from (About shows 0.1.0+<sha>), refreshed at
+# every build, rewritten only when it changes.
+add_custom_target(starfish_git_sha
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/git_sha.h
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/git_sha.cmake
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/git_sha.h
+    VERBATIM)
 
 qt_add_executable(starfish WIN32
     main.cpp
@@ -178,6 +185,8 @@ if(WIN32)
         message(STATUS "windeployqt not found: build/starfish.exe will need Qt's bin on PATH")
     endif()
 endif()
+
+add_dependencies(starfish starfish_git_sha)
 
 target_link_libraries(starfish PRIVATE
     Qt6::Core

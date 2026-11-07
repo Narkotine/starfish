@@ -65,6 +65,7 @@
 #include "ui/note_editor.hpp"
 #include "ui/settings_dialog.hpp"
 #include "version.h"
+#include "git_sha.h"
 
 #if defined(_WIN32)
 #include <cstdio>
@@ -905,6 +906,9 @@ int main(int argc, char* argv[])
     // Every window (settings, dialogs) carries StarFish's own mark (session 59).
     QApplication::setWindowIcon(starfish::ui::TrayIcon::buildIcon());
     QApplication::setApplicationVersion(QStringLiteral(STARFISH_VERSION));
+    // The data files keep the plain version (writtenBy); About and the log add
+    // the commit so a running build can be matched to the repository.
+    qApp->setProperty("starfishCommit", QStringLiteral(STARFISH_GIT_SHA));
 
     // qCInfo is not guaranteed to be on by default for custom categories.
     QLoggingCategory::setFilterRules(QStringLiteral("starfish.*=true"));

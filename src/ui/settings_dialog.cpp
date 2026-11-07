@@ -524,7 +524,7 @@ QWidget* SettingsDialog::buildAbout()
     icon->setPixmap(TrayIcon::buildIcon().pixmap(96, 96));
     auto* name = new QLabel(QStringLiteral("StarFish"), box);
     name->setStyleSheet(QStringLiteral("font-size: 18pt; font-weight: 600;"));
-    auto* version = new QLabel(tr("Version %1").arg(QCoreApplication::applicationVersion()), box);
+    auto* version = new QLabel(tr("Version %1").arg(QCoreApplication::applicationVersion() + QLatin1Char('+') + QCoreApplication::instance()->property("starfishCommit").toString()), box);
     version->setObjectName(QStringLiteral("hint"));
     auto* what = new QLabel(tr("Fences to tidy the Windows desktop. Your files never move: a fence shows "
                                "them, the desktop folder keeps them."),
