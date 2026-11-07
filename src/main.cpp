@@ -34,6 +34,7 @@
 #include "ui/tray_icon.hpp"
 #include "app/context_menu_probe.hpp"
 #include "app/ui_probe.hpp"
+#include "platform/win/shell_operations.hpp"
 #include "platform/win/autostart.hpp"
 #include "app/product_app.hpp"
 #include "core/desktop_item.hpp"
@@ -4907,6 +4908,12 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
+    // Session 92 (t94u): every probe is isolated from the user's Explorer
+    // session -- its renames / deletes of dummy files are not undoable there.
+    for (const QString& argument : QCoreApplication::arguments()) {
+        if (argument.endsWith(QLatin1String("-probe")))
+            starfish::platform::win::setShellOperationIsolation(true);
+    }
     if (parser.isSet(renderProbeOption)) {
 #if defined(_WIN32)
         auto* host = new starfish::platform::win::DesktopHost(&app);

@@ -58,8 +58,24 @@ IShellItem* itemFor(const QString& parsingName)
     return item;
 }
 
+// Session 92 (t94u): a probe's file operations on its own temp files must not
+// reach Explorer's undo history, which is shared with the user's session: a
+// probe rename left "Undo Rename" there, and the user's later Ctrl+Z / Undo on
+// the desktop tried to rename a file whose temp folder was gone ("Element
+// introuvable"). In isolation: no undo record, no shell UI, ever.
+bool& isolated()
+{
+    static bool on = false;
+    return on;
+}
+
 IFileOperation* newOperation(DWORD flags, quintptr owner)
 {
+    if (isolated()) {
+        flags &= ~DWORD(FOF_ALLOWUNDO | FOFX_ADDUNDORECORD);
+        flags |= FOF_NO_UI;
+        owner = 0;
+    }
     IFileOperation* op = nullptr;
     if (FAILED(::CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&op)))
         || !op)
@@ -548,6 +564,16 @@ void bringToForeground(quintptr hwnd)
 {
     if (hwnd)
         ::SetForegroundWindow(reinterpret_cast<HWND>(hwnd));
+}
+
+void setShellOperationIsolation(bool on)
+{
+    isolated() = on;
+}
+
+bool shellOperationIsolation()
+{
+    return isolated();
 }
 
 } // namespace starfish::platform::win

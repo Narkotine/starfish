@@ -2096,7 +2096,10 @@ int runUiProbe(QApplication& app)
         const bool asked = askedId == id && askedPath == bRenamed && !label.isEmpty()
                            && next.fenceVisibleRect(id).contains(label);
         QString newPath;
-        const bool renamed = platform::win::renameShellItem(bRenamed, QStringLiteral("b by F2 s74.txt"), 0, &newPath);
+        // Session 92: never in the user's Explorer undo history (t94u).
+        const bool isolated = platform::win::shellOperationIsolation();
+        const bool renamed = isolated
+                             && platform::win::renameShellItem(bRenamed, QStringLiteral("b by F2 s74.txt"), 0, &newPath);
         const QString cleanNew = QDir::fromNativeSeparators(newPath);
         const bool replaced = next.replaceFenceItem(id, bRenamed, resolve(cleanNew));
         const bool inPlace = view->items().size() == 3 && view->items().value(1).path == cleanNew

@@ -24,6 +24,11 @@ QString editingNameOf(const QString& parsingName);
 // Renames through IFileOperation. `newName` is an edited name in the sense
 // above: when the extension is hidden and the user did not type one, the
 // item's own extension is kept. `newPath` receives the new parsing name.
+// Session 92: probes run isolated -- their shell file operations leave no
+// undo record in Explorer's shared history and never show shell UI.
+void setShellOperationIsolation(bool on);
+bool shellOperationIsolation();
+
 bool renameShellItem(const QString& parsingName, const QString& newName, quintptr owner,
                      QString* newPath = nullptr);
 
