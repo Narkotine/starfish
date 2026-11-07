@@ -91,3 +91,4 @@
   - **Écartés** : région au pixel près (bords crénelés, halo), per-pixel (porte fermée, ADR-15), zones en fenêtres de premier niveau + DWM (sortent du bureau : Win+D, z-order), zones dessinées dans le fond (refonte entrées / dépôts).
 
 - [x] **T-143** (s85) Installateur par utilisateur (Inno), sauvegardes/migrations de `layout.json`, version unique, client de mise à jour (flux + SHA-256, opt-in). Reste : **T-144** canal de publication + signature (décision), réseau du client, test d'installation en bac à sable, job CI d'artefact, numéro de version du manifeste, version des réglages registre.
+- [x] **T-145** (s86) Glisser hors zone : plus de flash à l'ancienne place ; « +N » masqué quand la zone est enroulée ou s'enroule ; À propos > Remise à zéro (2 options, confirmation, sauvegarde). **À valider à la vraie souris** (le glisser hors zone n'est pas mesurable en sonde).

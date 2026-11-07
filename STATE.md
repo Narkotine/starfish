@@ -5,10 +5,10 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 85 (2026-11-07) - **installateur + sûreté des données** : setup Inno par utilisateur (`tools/build_installer.ps1`), sauvegardes versionnées + migrations + lecture seule si plus récent (`core_layout_safety`), version unique CMake  VERSIONINFO, flux de mise à jour vérifié SHA-256 (opt-in, sans réseau) ; voir `docs/mises-a-jour.md`. `ctest` **22/22**.
+- **Dernière session de code livrée :** 86 (2026-11-07) - pas de flash à l'ancienne place au lâcher hors zone ; pas de « +N » en enroulant ; À propos > Remise à zéro (sauvegarde avant). L'utilisateur tourne sur la **version installée** ; seul `build\dev` reste. `ctest` **22/22**.
 - **ADR-21 (session 58) : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. Lots 1-4 livrés (T-089 → T-092) ; restent des validations humaines (deux écrans, vrai redémarrage d'Explorer, vraie souris).
 - **Sessions 59-82 (récits dans `devlog/`) :** apps empaquetées, icône, Réglages + éditeur du menu, `--quit` (59-61) · « Démarrer avec Windows », image de glisser (62) · rectangle fluide, zone translucide composée (T-098), curseurs, superposition cohérente (63-64) · liste de l'utilisateur, menus, Apparence…, curseurs, langue, aperçu du tracé (65) · apparence, `crash.log`, barre de titre 4 côtés, onglet, survols, double-clic bureau, contour uniforme, modèles (66-70) · grain sous les icônes, déroulé au survol, largeur stable, suppr, enroulement, renommage, raccourcis conservés, lancement shell, noms, +N, splash, horloge (71-79) · barre d'insertion, grille du bureau, témoin des moteurs (80) · **widget Notes** (81) · menu clic droit : aperçu gardé, 33 icônes, entrées prêtes à l'emploi (82).
-- **Dernière mise à jour :** 2026-11-07 (session 85)
+- **Dernière mise à jour :** 2026-11-07 (session 86)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**public**, MIT, 2026-11-07) ; historique réécrit : **re-cloner, jamais pousser depuis un ancien clone**. Release : tag `vX.Y.Z` (`docs/mises-a-jour.md`).
 
 ## 3 prochaines actions
