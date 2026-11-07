@@ -1,6 +1,6 @@
 # AGENTS.md — StarFish
 
-> **Flux de travail (builds `build\` quotidien / `build\dev` test, instance unique, push sur demande) :** [`docs/workflow-dev.md`](docs/workflow-dev.md).
+> **Flux de travail (un seul build `build\dev` = StarFish quotidien + tests ; `--quit` puis relance à chaque lot ; push sur demande) :** [`docs/workflow-dev.md`](docs/workflow-dev.md).
 >
 > **Reprise rapide (nouvel agent) :** lire [`docs/reprise.md`](docs/reprise.md) - ordre de lecture, commandes, données, règles, pièges.
 

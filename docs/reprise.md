@@ -16,10 +16,10 @@
 
 ```powershell
 $env:PATH="C:\Users\<user>\Qt\Tools\mingw1310_64\bin;C:\Users\<user>\Qt\6.8.3\mingw_64\bin;$env:PATH"
-Start-Process build\starfish.exe -ArgumentList '--quit' -Wait -WindowStyle Hidden; Start-Sleep 2  # libère build\starfish.exe (le StarFish quotidien)
-cmake --build build/dev      # build de travail (Release, Ninja)
-cmake --build build          # StarFish quotidien de l'utilisateur : relancer build\starfish.exe ensuite
-ctest --test-dir build/dev ; ctest --test-dir build          # 19/19 chacun
+Start-Process build\dev\starfish.exe -ArgumentList '--quit' -Wait -WindowStyle Hidden; Start-Sleep 2  # arrête le StarFish quotidien
+cmake --build build/dev      # seul build : StarFish quotidien + tests (Release, Ninja)
+ctest --test-dir build/dev
+# fin de lot : relancer build\dev\starfish.exe (voir workflow-dev.md)
 ```
 
 - **Sonde UI** (hors écran, dev) → `build\ui-probe.txt`, compter `^PASS` / `^FAIL` (sensible à la casse) :
@@ -34,7 +34,7 @@ ctest --test-dir build/dev ; ctest --test-dir build          # 19/19 chacun
 
 - Quitter proprement : `starfish.exe --quit` (n'importe quel exe ; l'instance en cours restaure les icônes du bureau).
 - Relancer **le build que l'utilisateur utilisait** (en général la release) :
-  `Start-Process -FilePath "$PWD\build\starfish.exe" -WorkingDirectory "$PWD\build"`
+  `Start-Process -FilePath "$PWD\build\dev\starfish.exe" -WorkingDirectory "$PWD\build\dev"`
 - Vérifier : `listVisible=False marker=True running=True` (liste d'icônes native masquée, marqueur présent, processus vivant).
 - Raccourci d'urgence côté utilisateur : tray → « Restaurer mes icônes ».
 
@@ -78,7 +78,7 @@ ctest --test-dir build/dev ; ctest --test-dir build          # 19/19 chacun
 - Un widget `WA_DontShowOnScreen` montré reçoit de vraies peintures : `setUpdatesEnabled(false)` dans les sondes (s77).
 - Lier un test qui touche `IconGrid` : ajouter `fence_widgets.cpp` + `i18n.cpp` dans `tests/CMakeLists.txt` (s79).
 - Rayon demandé ≠ rayon dessiné : la région reçoit le rayon borné (T-080).
-- `build\starfish.exe` verrouillé à l'édition de liens = il tourne : `--quit` d'abord.
+- `build\dev\starfish.exe` verrouillé à l'édition de liens = il tourne : `--quit` d'abord.
 - Splash sauté au relancement quand une fenêtre agrandie est au premier plan : voulu (s78).
 - STATE dépasse vite 6000 octets : condenser, ne pas monter le cap.
 - PowerShell : pas de `\"` dans `python -c "..."` ; écrire les scripts dans un fichier.
