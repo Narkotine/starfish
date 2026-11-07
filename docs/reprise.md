@@ -12,17 +12,19 @@
 
 ## 2. Construire et tester (PowerShell, à la racine du dépôt)
 
+> Rôles des builds et règles de cohabitation avec le StarFish quotidien : [`workflow-dev.md`](workflow-dev.md).
+
 ```powershell
 $env:PATH="C:\Users\<user>\Qt\Tools\mingw1310_64\bin;C:\Users\<user>\Qt\6.8.3\mingw_64\bin;$env:PATH"
-Start-Process build\dev\starfish.exe -ArgumentList '--quit' -Wait -WindowStyle Hidden; Start-Sleep 2  # libère build\starfish.exe
+Start-Process build\starfish.exe -ArgumentList '--quit' -Wait -WindowStyle Hidden; Start-Sleep 2  # libère build\starfish.exe (le StarFish quotidien)
 cmake --build build/dev      # build de travail (Release, Ninja)
-cmake --build build          # build que l'utilisateur lance (Release, Ninja)
+cmake --build build          # StarFish quotidien de l'utilisateur : relancer build\starfish.exe ensuite
 ctest --test-dir build/dev ; ctest --test-dir build          # 19/19 chacun
 ```
 
 - **Sonde UI** (hors écran, dev) → `build\ui-probe.txt`, compter `^PASS` / `^FAIL` (sensible à la casse) :
   `$env:STARFISH_UI_PROBE_OFFSCREEN='1'; Start-Process "$PWD\build\dev\starfish.exe" -ArgumentList '--ui-probe' -Wait -WindowStyle Hidden`
-- **Sonde produit** (release) → `build\product_probe.txt` (37/37) : `build\starfish.exe --product-probe` (lancé caché, stderr redirigé, attendre la fin). Elle compte les interrupteurs des Réglages (18) et la liste des combos autorisés : tout nouvel interrupteur / combo s'y ajoute (`src/main.cpp`).
+- **Sonde produit** (dev) → `build\product_probe.txt` : `build\dev\starfish.exe --product-probe`, puis relancer le StarFish de l'utilisateur (lancé caché, stderr redirigé, attendre la fin). Elle compte les interrupteurs des Réglages (18) et la liste des combos autorisés : tout nouvel interrupteur / combo s'y ajoute (`src/main.cpp`).
 - Autres sondes : `--drawn-desktop-probe`, `--context-menu-probe`, `--render-probe`. **Ne pas lancer** `--icons-demo`, `--fence-demo --host`, `--snapshot-demo`.
 - Docs : `python tools\docs_size.py` (caps STATE 6000, TODO 50000, README 45000). i18n : `cmake --build build/dev --target starfish_lupdate`, remplir `src/i18n/starfish_fr.ts`, puis `python tools\i18n_check.py`.
 - Captures de sonde : `build\captures\` (rendu hors écran ou PrintWindow des zones, **jamais** une capture de l'écran).
