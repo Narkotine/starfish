@@ -1,5 +1,6 @@
 #include "platform/win/shell_operations.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QLoggingCategory>
@@ -18,6 +19,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <knownfolders.h>
 
 #ifndef FOFX_ADDUNDORECORD
 #define FOFX_ADDUNDORECORD 0x20000000
@@ -503,7 +505,7 @@ void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect)
     }
 }
 
-void setDropDescription(void* dataObject, const QString& message)
+void setDropDescription(void* dataObject, const QString& message, int image)
 {
     auto* data = static_cast<IDataObject*>(dataObject);
     if (!data)
@@ -517,7 +519,9 @@ void setDropDescription(void* dataObject, const QString& message)
         return;
     }
     // DROPIMAGE_INVALID with no text: the shell's own label comes back.
-    description->type = message.isEmpty() ? DROPIMAGE_INVALID : DROPIMAGE_MOVE;
+    description->type = message.isEmpty() ? DROPIMAGE_INVALID
+                        : image < 0       ? DROPIMAGE_MOVE
+                                          : static_cast<DROPIMAGETYPE>(image);
     const std::wstring text = message.left(MAX_PATH - 1).toStdWString();
     wcsncpy_s(description->szMessage, MAX_PATH, text.c_str(), _TRUNCATE);
     ::GlobalUnlock(global);
@@ -528,6 +532,175 @@ void setDropDescription(void* dataObject, const QString& message)
     medium.hGlobal = global;
     if (FAILED(data->SetData(&format, &medium, TRUE)))
         ::GlobalFree(global); // not taken: ours to free
+}
+
+namespace {
+
+// Session 98: what a copy or a move created, as the shell reports it.
+class CreatedItems : public IFileOperationProgressSink {
+public:
+    QStringList created;
+    ULONG STDMETHODCALLTYPE AddRef() override { return ::InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override { return ::InterlockedDecrement(&m_ref); } // on the stack
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv)
+            return E_POINTER;
+        if (riid == IID_IUnknown || riid == __uuidof(IFileOperationProgressSink)) {
+            *ppv = static_cast<IFileOperationProgressSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    HRESULT STDMETHODCALLTYPE StartOperations() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostRenameItem(DWORD, IShellItem*, LPCWSTR, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR, HRESULT hr, IShellItem* made) override
+    {
+        note(hr, made);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE PreCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR, HRESULT hr, IShellItem* made) override
+    {
+        note(hr, made);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD, IShellItem*, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostNewItem(DWORD, IShellItem*, LPCWSTR, LPCWSTR, DWORD, HRESULT, IShellItem*) override
+    {
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE UpdateProgress(UINT, UINT) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResetTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PauseTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResumeTimer() override { return S_OK; }
+
+private:
+    void note(HRESULT hr, IShellItem* made)
+    {
+        if (FAILED(hr) || !made)
+            return;
+        PWSTR name = nullptr;
+        if (SUCCEEDED(made->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &name)) && name) {
+            created << QString::fromWCharArray(name);
+            ::CoTaskMemFree(name);
+        }
+    }
+    LONG m_ref = 1;
+};
+
+// Copies (or moves) every item into `folder`, the shell's undo included.
+QStringList transfer(const QStringList& parsingNames, const QString& folder, quintptr owner, bool copy)
+{
+    IShellItem* destination = itemFor(folder);
+    if (!destination)
+        return {};
+    IFileOperation* op = newOperation(FOF_ALLOWUNDO | FOFX_ADDUNDORECORD | FOF_RENAMEONCOLLISION, owner);
+    if (!op) {
+        destination->Release();
+        return {};
+    }
+    int queued = 0;
+    for (const QString& name : parsingNames) {
+        if (IShellItem* item = itemFor(name)) {
+            const HRESULT hr = copy ? op->CopyItem(item, destination, nullptr, nullptr)
+                                    : op->MoveItem(item, destination, nullptr, nullptr);
+            if (SUCCEEDED(hr))
+                ++queued;
+            item->Release();
+        }
+    }
+    destination->Release();
+    if (queued == 0) {
+        op->Release();
+        return {};
+    }
+    CreatedItems sink;
+    DWORD cookie = 0;
+    const bool advised = SUCCEEDED(op->Advise(&sink, &cookie));
+    const HRESULT hr = op->PerformOperations();
+    if (advised)
+        op->Unadvise(cookie);
+    op->Release();
+    if (FAILED(hr))
+        qCWarning(lc).noquote() << QStringLiteral("%1 into %2 failed (hr 0x%3)")
+                                       .arg(copy ? QLatin1String("copy") : QLatin1String("move"), folder)
+                                       .arg(static_cast<quint32>(hr), 8, 16, QLatin1Char('0'));
+    return sink.created;
+}
+
+} // namespace
+
+QString userDesktopFolder()
+{
+    PWSTR path = nullptr;
+    QString folder;
+    if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path)) && path)
+        folder = QString::fromWCharArray(path);
+    ::CoTaskMemFree(path);
+    return folder;
+}
+
+QStringList copyShellItemsInto(const QStringList& parsingNames, const QString& folder, quintptr owner)
+{
+    const QStringList made = transfer(parsingNames, folder, owner, true);
+    qCInfo(lc).noquote() << QStringLiteral("copied %1 item(s) into %2").arg(made.size()).arg(folder);
+    return made;
+}
+
+QStringList createShortcutsIn(const QStringList& parsingNames, const QString& folder, quintptr owner)
+{
+    // Each shortcut is written in a folder of our own first, then moved in by
+    // the shell: the move is what the desktop's Undo takes back.
+    const QString staging = QDir::temp().filePath(QStringLiteral("starfish-links-%1")
+                                                      .arg(QCoreApplication::applicationPid()));
+    QDir().mkpath(staging);
+    QStringList written;
+    for (const QString& name : parsingNames) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (FAILED(::SHParseDisplayName(wide(nativeName(name)), nullptr, &pidl, 0, nullptr)) || !pidl)
+            continue;
+        QString display;
+        PWSTR shown = nullptr;
+        if (SUCCEEDED(::SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &shown)) && shown) {
+            display = QString::fromWCharArray(shown);
+            ::CoTaskMemFree(shown);
+        }
+        if (display.isEmpty())
+            display = QFileInfo(name).completeBaseName();
+        for (const QChar bad : QStringLiteral("\\/:*?\"<>|"))
+            display.replace(bad, QLatin1Char('_'));
+        IShellLinkW* link = nullptr;
+        if (SUCCEEDED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)))
+            && link) {
+            link->SetIDList(pidl);
+            const QFileInfo info(nativeName(name));
+            if (info.exists())
+                link->SetWorkingDirectory(wide(QDir::toNativeSeparators(info.absolutePath())));
+            IPersistFile* file = nullptr;
+            if (SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&file))) && file) {
+                const QString target = QDir::toNativeSeparators(QDir(staging).filePath(
+                    QCoreApplication::translate("ShellOperations", "%1 - Shortcut").arg(display)
+                    + QStringLiteral(".lnk")));
+                if (SUCCEEDED(file->Save(wide(target), TRUE)))
+                    written << target;
+                file->Release();
+            }
+            link->Release();
+        }
+        ::CoTaskMemFree(pidl);
+    }
+    const QStringList made = written.isEmpty() ? QStringList() : transfer(written, folder, owner, false);
+    QDir(staging).removeRecursively();
+    qCInfo(lc).noquote() << QStringLiteral("%1 shortcut(s) created in %2").arg(made.size()).arg(folder);
+    return made;
 }
 
 int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner,

@@ -36,6 +36,14 @@ public:
     // Session 94: asked at each drag whether anything may land at all (a locked
     // fence says no: the cursor shows "no drop", no bar, no handler call).
     void setAcceptHandler(std::function<bool()> accept) { m_accept = std::move(accept); }
+    // Session 98 (T-160): Ctrl copies, Alt makes a shortcut, a right-button
+    // drag asks (Move here / Copy here / Create shortcuts here / Cancel).
+    // Copies and shortcuts go to `folder` (empty: the user's Desktop) and the
+    // fence gets them. `chooser` answers the menu instead of the user (probes).
+    enum class Action { Insert = 0, Copy = 1, Link = 2, Cancel = 3 };
+    void setFileFolder(const QString& folder) { m_fileFolder = folder; }
+    void setMenuChooser(std::function<int()> chooser) { m_menuChooser = std::move(chooser); }
+    Action lastAction() const { return m_lastAction; }
 
     // IUnknown.
     ULONG STDMETHODCALLTYPE AddRef() override;
@@ -51,6 +59,12 @@ public:
                                    DWORD* pdwEffect) override;
 
 private:
+    Action actionFor(DWORD keys) const;
+    DWORD effectFor(DWORD keys, DWORD allowed) const;
+    void describe(IDataObject* data, DWORD keys);
+    Action askOnDrop(const QPoint& screen);
+    Action m_described = Action::Cancel;
+    Action m_lastAction = Action::Cancel;
     static bool dataHasHdrop(IDataObject* data);
     static QStringList pathsFromHdrop(IDataObject* data);
 
@@ -61,6 +75,10 @@ private:
     QPoint clientOf(const POINTL& pt) const;
     LONG m_ref = 1;
     bool m_canDrop = false;
+    DWORD m_keys = 0;    // session 98: the keys and buttons while dragging
+    DWORD m_allowed = 0; // what the source allows
+    QString m_fileFolder;
+    std::function<int()> m_menuChooser;
     IDataObject* m_data = nullptr; // session 97: held from DragEnter to DragLeave / Drop
 };
 

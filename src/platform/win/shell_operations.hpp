@@ -71,7 +71,17 @@ void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect)
 // Session 97: the words under the dragged picture (DROPDESCRIPTION on the data
 // object) -- "Insert" over a fence instead of the shell's "Copy". An empty
 // message hands the label back to the shell.
-void setDropDescription(void* dataObject, const QString& message);
+// `image` is a DROPIMAGETYPE (-1: DROPIMAGE_MOVE, the "Insert" arrow).
+void setDropDescription(void* dataObject, const QString& message, int image = -1);
+
+// Session 98 (T-160): the drop menu's Copy and Create shortcut. Copies the
+// items into `folder` (a name taken gets the shell's " - Copy"), or puts a
+// shortcut to each there, through IFileOperation with the shell's undo
+// (none in probe isolation). Returns the new items' paths.
+QStringList copyShellItemsInto(const QStringList& parsingNames, const QString& folder, quintptr owner);
+QStringList createShortcutsIn(const QStringList& parsingNames, const QString& folder, quintptr owner);
+// The user's Desktop folder (FOLDERID_Desktop).
+QString userDesktopFolder();
 bool internalDragActive();
 QStringList internalDragPaths();
 QPoint internalDragOrigin();

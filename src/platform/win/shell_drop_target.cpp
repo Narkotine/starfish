@@ -89,26 +89,69 @@ QStringList ShellDropTarget::pathsFromHdrop(IDataObject* data)
     return paths;
 }
 
-HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWORD /*grfKeyState*/,
+// Session 98 (T-160): what letting go would do, by Windows' rules -- Alt (or
+// Ctrl+Shift) makes a shortcut, Ctrl copies, otherwise the item goes into the
+// fence as it always did. A right-button drag asks on drop (the menu).
+ShellDropTarget::Action ShellDropTarget::actionFor(DWORD keys) const
+{
+    if ((keys & MK_ALT) || ((keys & MK_CONTROL) && (keys & MK_SHIFT)))
+        return Action::Link;
+    if (keys & MK_CONTROL)
+        return Action::Copy;
+    return Action::Insert;
+}
+
+void ShellDropTarget::describe(IDataObject* data, DWORD keys)
+{
+    if (!data || !m_canDrop)
+        return;
+    const Action action = (keys & MK_RBUTTON) ? Action::Insert : actionFor(keys);
+    if (action == m_described)
+        return;
+    m_described = action;
+    switch (action) {
+    case Action::Copy:
+        setDropDescription(data, QCoreApplication::translate("ShellDropTarget", "Copy"), DROPIMAGE_COPY);
+        break;
+    case Action::Link:
+        setDropDescription(data, QCoreApplication::translate("ShellDropTarget", "Create shortcut"), DROPIMAGE_LINK);
+        break;
+    default:
+        // Session 97: "Insert", not the shell's "Copy".
+        setDropDescription(data, QCoreApplication::translate("ShellDropTarget", "Insert"));
+        break;
+    }
+}
+
+DWORD ShellDropTarget::effectFor(DWORD keys, DWORD allowed) const
+{
+    if (!m_canDrop)
+        return DROPEFFECT_NONE;
+    if (!(keys & MK_RBUTTON) && actionFor(keys) == Action::Link && (allowed & DROPEFFECT_LINK))
+        return DROPEFFECT_LINK;
+    return kCopyEffect; // never MOVE: the source must not delete what the fence now shows
+}
+
+HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWORD grfKeyState,
                                                     POINTL pt, DWORD* pdwEffect)
 {
     // ADR-21 lot 3: a drag of the drawn desktop's own icons may carry virtual
     // items (This PC) that no CF_HDROP can name: what is carried is known here.
     m_canDrop = (!m_accept || m_accept()) && (internalDragActive() || dataHasHdrop(pDataObj));
+    m_keys = grfKeyState;
+    m_allowed = pdwEffect ? *pdwEffect : DROPEFFECT_COPY;
     if (pdwEffect)
-        *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
-    // Session 62: the picture follows the cursor over the fence too.
-    // Session 97: "Insert", not the shell's "Copy" -- what happens to the
-    // files is unchanged (a move, decided by the handler).
+        *pdwEffect = effectFor(m_keys, m_allowed);
     if (m_data)
         m_data->Release();
     m_data = pDataObj;
     if (m_data)
         m_data->AddRef();
-    if (m_canDrop)
-        setDropDescription(pDataObj, QCoreApplication::translate("ShellDropTarget", "Insert"));
+    m_described = Action::Cancel; // nothing said yet
+    describe(pDataObj, m_keys);
+    // Session 62: the picture follows the cursor over the fence too.
     dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), pDataObj, QPoint(pt.x, pt.y),
-                   m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
+                   pdwEffect ? *pdwEffect : DROPEFFECT_NONE);
     if (m_canDrop && m_hover)
         m_hover(clientOf(pt), true);
     return S_OK;
@@ -123,12 +166,16 @@ QPoint ShellDropTarget::clientOf(const POINTL& pt) const
     return client;
 }
 
-HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD /*grfKeyState*/, POINTL pt,
+HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD grfKeyState, POINTL pt,
                                                    DWORD* pdwEffect)
 {
-    if (pdwEffect)
-        *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
-    dragImageOver(QPoint(pt.x, pt.y), m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
+    m_keys = grfKeyState;
+    if (pdwEffect) {
+        m_allowed = *pdwEffect;
+        *pdwEffect = effectFor(m_keys, m_allowed);
+    }
+    describe(m_data, m_keys); // Ctrl / Alt may change while the drag runs
+    dragImageOver(QPoint(pt.x, pt.y), pdwEffect ? *pdwEffect : DROPEFFECT_NONE);
     if (m_canDrop && m_hover)
         m_hover(clientOf(pt), true);
     return S_OK;
@@ -148,15 +195,41 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*grfKeyState*/,
+ShellDropTarget::Action ShellDropTarget::askOnDrop(const QPoint& screen)
+{
+    if (m_menuChooser) // the probes: no popup
+        return static_cast<Action>(m_menuChooser());
+    HMENU menu = ::CreatePopupMenu();
+    if (!menu)
+        return Action::Cancel;
+    const auto add = [menu](Action action, const QString& text) {
+        ::AppendMenuW(menu, MF_STRING, UINT_PTR(int(action) + 1), reinterpret_cast<LPCWSTR>(text.utf16()));
+    };
+    add(Action::Insert, QCoreApplication::translate("ShellDropTarget", "Move here"));
+    add(Action::Copy, QCoreApplication::translate("ShellDropTarget", "Copy here"));
+    add(Action::Link, QCoreApplication::translate("ShellDropTarget", "Create shortcuts here"));
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    add(Action::Cancel, QCoreApplication::translate("ShellDropTarget", "Cancel"));
+    ::SetMenuDefaultItem(menu, UINT(int(Action::Insert) + 1), FALSE);
+    HWND owner = m_hwnd;
+    if (owner)
+        ::SetForegroundWindow(owner);
+    const int chosen = int(::TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+                                              screen.x(), screen.y(), owner, nullptr));
+    ::DestroyMenu(menu);
+    return chosen <= 0 ? Action::Cancel : static_cast<Action>(chosen - 1);
+}
+
+HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD grfKeyState,
                                                 POINTL pt, DWORD* pdwEffect)
 {
     const bool accepted = !m_accept || m_accept();
-    const QStringList paths = !accepted ? QStringList()
-                              : internalDragActive() ? internalDragPaths()
-                                                     : pathsFromHdrop(pDataObj);
-    if (pdwEffect)
-        *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
+    QStringList paths = !accepted ? QStringList()
+                        : internalDragActive() ? internalDragPaths()
+                                               : pathsFromHdrop(pDataObj);
+    // The keys as they were while dragging: on drop the button is already up.
+    const DWORD keys = m_keys | (grfKeyState & (MK_CONTROL | MK_SHIFT | MK_ALT));
+    const bool rightDrag = (m_keys & MK_RBUTTON) != 0;
     m_canDrop = false;
     setDropDescription(pDataObj, QString());
     if (m_data) {
@@ -165,8 +238,32 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*g
     }
     if (m_hover)
         m_hover(QPoint(), false);
-    dragImageDrop(pDataObj, QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)),
-                  pdwEffect ? *pdwEffect : DROPEFFECT_NONE);
+    Action action = paths.isEmpty() ? Action::Cancel
+                    : rightDrag     ? askOnDrop(QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)))
+                                    : actionFor(keys);
+    DWORD effect = DROPEFFECT_NONE;
+    switch (action) {
+    case Action::Insert:
+        effect = kCopyEffect; // as before: nothing for the source to delete
+        break;
+    case Action::Copy:
+        paths = copyShellItemsInto(paths, m_fileFolder.isEmpty() ? userDesktopFolder() : m_fileFolder,
+                                   reinterpret_cast<quintptr>(m_hwnd));
+        effect = paths.isEmpty() ? DROPEFFECT_NONE : DROPEFFECT_COPY;
+        break;
+    case Action::Link:
+        paths = createShortcutsIn(paths, m_fileFolder.isEmpty() ? userDesktopFolder() : m_fileFolder,
+                                  reinterpret_cast<quintptr>(m_hwnd));
+        effect = paths.isEmpty() ? DROPEFFECT_NONE : DROPEFFECT_LINK;
+        break;
+    case Action::Cancel:
+        paths.clear();
+        break;
+    }
+    m_lastAction = action;
+    if (pdwEffect)
+        *pdwEffect = effect;
+    dragImageDrop(pDataObj, QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)), effect);
 
     if (!paths.isEmpty() && m_handler) {
         // OLE reports screen coordinates; the handler wants client coordinates
