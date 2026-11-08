@@ -1000,6 +1000,19 @@ void ProductApp::wireBackdrop()
     connect(backdrop, &ui::DesktopBackdrop::iconMenuRequested, this, &ProductApp::onIconMenu);
     // Session 91: the desktop widgets -- menu, drag (with the grid), drop, edit.
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetMenuRequested, this, &ProductApp::showDesktopWidgetMenu);
+    // Session 98: an edge pulled in a desktop widget's resize mode.
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetResized, this,
+            [this, backdrop](const QString& path, const QSize& span) {
+                for (const ui::DesktopWidget& d : m_container->desktopWidgets()) {
+                    if (d.item.path != path)
+                        continue;
+                    core::DesktopItem resized = d.item;
+                    resized.span = span;
+                    m_container->replaceDesktopWidget(path, resized);
+                    backdrop->beginWidgetResize(path); // still in the mode, on the new size
+                    return;
+                }
+            });
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDragged, this,
             [this](const QString&, const QRect& rect, bool active) {
                 // Session 95 (T-150): over a fence, its insertion bar instead of the grid.
@@ -2930,6 +2943,9 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     }
     sizes->addSeparator(); // session 96: any other size, in the widget's settings
     QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
+    // Session 98: pull its edges by hand, for a few seconds (the outline shows its bounds).
+    QAction* resize = menu.addAction(QCoreApplication::translate("ProductApp", "Resize"));
+    resize->setEnabled(!m_container->fenceLocked(fenceId)); // a locked fence: no resize mode
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
@@ -2941,6 +2957,10 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     }
     if (chosen == remove) {
         m_container->releaseItems(fenceId, {path}); // the widget only: no file behind it
+        return;
+    }
+    if (chosen == resize) {
+        m_container->beginWidgetResize(fenceId, path);
         return;
     }
     if (chosen == configure || chosen == otherSize) {
@@ -3080,6 +3100,8 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
     }
     sizes->addSeparator(); // session 96: any other size, in the widget's settings
     QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
+    // Session 98: pull its edges by hand, for a few seconds (the outline shows its bounds).
+    QAction* resize = menu.addAction(QCoreApplication::translate("ProductApp", "Resize"));
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
@@ -3091,6 +3113,11 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
     }
     if (chosen == remove) {
         m_container->removeDesktopWidget(path);
+        return;
+    }
+    if (chosen == resize) {
+        if (ui::DesktopBackdrop* backdrop = m_container->backdrop())
+            backdrop->beginWidgetResize(path);
         return;
     }
     if (chosen == configure || chosen == otherSize) {

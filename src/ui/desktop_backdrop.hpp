@@ -258,6 +258,11 @@ public:
     QList<QRect> desktopWidgetRects() const;
     // The index of the widget under `screen`, or -1 (topmost = last).
     int desktopWidgetAt(const QPoint& screen) const;
+    // Session 98: a desktop widget's short resize mode (ui/widget_resize.hpp).
+    bool beginWidgetResize(const QString& path);
+    void endWidgetResize();
+    QString widgetResizePath() const { return m_resizePath; }
+    QRect widgetResizeRect() const; // screen pixels; the preview while pulled
     // Whether the widgets' clock runs (they repaint themselves), for the probes.
     bool desktopWidgetsTicking() const { return m_widgetTimer.isActive(); }
     int desktopWidgetRepaints() const { return m_widgetRepaints; }
@@ -332,6 +337,7 @@ signals:
     void desktopWidgetDragged(const QString& path, const QRect& rect, bool active);
     void desktopWidgetDropped(const QString& path, const QPoint& pos);
     void desktopWidgetEditRequested(const QString& path);
+    void desktopWidgetResized(const QString& path, const QSize& span); // session 98
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -444,6 +450,17 @@ private:
     QPoint m_widgetOrigin;
     bool m_widgetMoving = false;
     QString m_widgetRight;     // right press on this widget
+    // Session 98: resize mode.
+    QString m_resizePath;
+    QTimer m_resizeIdle;
+    int m_resizeEdges = 0;
+    bool m_resizeDragging = false;
+    bool m_resizeCursor = false; // an override cursor is set
+    QPoint m_resizeStart;
+    QSize m_resizeStartSpan;
+    QSize m_resizePreview;
+    void setResizeCursor(int edges);
+    bool handleResizeMouse(QMouseEvent* mouse, const QPoint& screen);
 };
 
 } // namespace starfish::ui

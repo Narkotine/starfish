@@ -250,6 +250,13 @@ public:
     void setExternalDropIndex(int index, bool afterCell = false);
     void setDragOverOtherFence(bool over);
 
+    // Session 98: a widget's short resize mode (see ui/widget_resize.hpp).
+    // False when the fence is locked or the widget is not here.
+    bool beginWidgetResize(const QString& path);
+    void endWidgetResize();
+    QString widgetResizePath() const { return m_resizePath; }
+    QRect widgetResizeRect() const; // the outline, widget coordinates (the preview while pulled)
+
 public:
     // Session 62: the picture a drag of tile `index` carries (device pixels at
     // `dpr`), and where the press sits in it (logical). For the ghost and the probe.
@@ -273,6 +280,9 @@ signals:
     // notes). The view cannot edit it -- it is an image on the desktop -- so the
     // product lays its own editor over the widget's cell.
     void widgetEditRequested(const QString& path);
+    // Session 98: an edge pulled in resize mode -- the new span, in cells.
+    void widgetResized(const QString& path, const QSize& span);
+    void widgetResizeModeChanged(bool on);
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the
@@ -378,6 +388,16 @@ private:
     bool m_titleLocked = false; // session 76
     bool m_locked = false;      // session 94
     QTimer m_widgetTimer;       // session 79
+    // Session 98: resize mode.
+    QString m_resizePath;
+    QTimer m_resizeIdle;
+    int m_resizeEdges = 0;
+    bool m_resizeDragging = false;
+    QPoint m_resizeStart;
+    QSize m_resizeStartSpan;
+    QSize m_resizePreview;
+    int widgetResizeIndex() const;
+    QSize widgetResizePitch() const;
     void scheduleWidgetTick();
     void showHiddenItemsMenu();
     int m_tipIndex = -1; // session 74: the missing tile whose tooltip is up

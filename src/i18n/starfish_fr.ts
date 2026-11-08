@@ -951,19 +951,19 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2904"/>
-        <location line="+160"/>
+        <location filename="../app/product_app.cpp" line="+2917"/>
+        <location line="+167"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="-157"/>
-        <location line="+159"/>
+        <location line="-164"/>
+        <location line="+166"/>
         <source>Configure widget…</source>
         <translation>Configurer le widget…</translation>
     </message>
     <message>
-        <location line="-150"/>
+        <location line="-157"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -979,29 +979,35 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+150"/>
+        <location line="+157"/>
         <source>Size</source>
         <translation>Taille</translation>
     </message>
     <message>
-        <location line="-138"/>
-        <location line="+150"/>
+        <location line="-145"/>
+        <location line="+157"/>
         <source>Other size…</source>
         <translation>Autre taille…</translation>
     </message>
     <message>
-        <location line="-148"/>
-        <location line="+150"/>
+        <location line="-155"/>
+        <location line="+157"/>
+        <source>Resize</source>
+        <translation>Redimensionner</translation>
+    </message>
+    <message>
+        <location line="-154"/>
+        <location line="+156"/>
         <source>Remove the widget</source>
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-19"/>
         <source>Readable backdrop</source>
         <translation>Fond discret (lisibilité)</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+69"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1034,9 +1040,50 @@
     <message>
         <location filename="../app/ui_probe.cpp" line="+3209"/>
         <location line="+26"/>
-        <location filename="../platform/win/shell_drop_target.cpp" line="+109"/>
+        <location line="+79"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+121"/>
         <source>Insert</source>
         <translation>Insérer</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="-7"/>
+        <source>Copy</source>
+        <translation>Copier</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+3"/>
+        <source>Create shortcut</source>
+        <translation>Créer un lien</translation>
+    </message>
+    <message>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+91"/>
+        <source>Move here</source>
+        <translation>Déplacer ici</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Copy here</source>
+        <translation>Copier ici</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Create shortcuts here</source>
+        <translation>Créer des raccourcis ici</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Cancel</source>
+        <translation>Annuler</translation>
+    </message>
+</context>
+<context>
+    <name>ShellOperations</name>
+    <message>
+        <location filename="../platform/win/shell_operations.cpp" line="+690"/>
+        <source>%1 - Shortcut</source>
+        <translation>%1 - Raccourci</translation>
     </message>
 </context>
 <context>
@@ -1073,7 +1120,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3550"/>
+        <location line="-3577"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1109,7 +1156,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+578"/>
+        <location line="+591"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1463,7 +1510,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1431"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1576"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -1486,8 +1533,8 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+325"/>
-        <location line="+160"/>
+        <location filename="../ui/fence_view.cpp" line="+327"/>
+        <location line="+162"/>
         <location line="+211"/>
         <source>Fence</source>
         <translation>Zone</translation>
@@ -1498,7 +1545,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+547"/>
+        <location line="+675"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1567,12 +1614,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+576"/>
+        <location line="+565"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-566"/>
+        <location line="-555"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1948,13 +1995,13 @@
         <translation>Supprimer toutes les zones et tous les widgets (notes comprises) ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+177"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
     <message>
-        <location filename="../app/ui_probe.cpp" line="-89"/>
-        <location filename="../ui/settings_dialog.cpp" line="-196"/>
+        <location filename="../app/ui_probe.cpp" line="-174"/>
+        <location filename="../ui/settings_dialog.cpp" line="-185"/>
         <location line="+7"/>
         <source>Remove every zone and widget</source>
         <translation>Retirer toutes les zones et tous les widgets</translation>

@@ -329,6 +329,9 @@ public:
     // never dropped, nothing deleted. Returns how many tiles changed.
     int reconcileMissingItems(const QList<core::DesktopItem>& desktopItems);
     bool replaceFenceItem(const QString& id, const QString& oldPath, const core::DesktopItem& item);
+    // Session 98: a widget's short resize mode (none in a locked fence).
+    bool beginWidgetResize(const QString& id, const QString& path);
+    QString widgetResizePath(const QString& id) const;
     // Session 75: every file a fence holds (no portal mirror, no virtual item).
     QStringList fencedFilePaths() const;
     // Session 75: a missing tile says whether StarFish can put its shortcut back.

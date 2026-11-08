@@ -3,6 +3,11 @@
 #include <QPainterPath>
 #include "ui/drag_image.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/modern_menu.hpp"
+#include "ui/widget_resize.hpp"
+
+#include <QGuiApplication>
+#include <windows.h>
 
 #include <QColor>
 #include <QFont>
@@ -764,6 +769,10 @@ void DesktopBackdrop::cancelGesture()
 
 bool DesktopBackdrop::handleKey(QKeyEvent* key)
 {
+    if (key->key() == Qt::Key_Escape && !m_resizePath.isEmpty()) { // session 98
+        endWidgetResize();
+        return true;
+    }
     if (!drawsWholeDesktop())
         return false;
     const Qt::KeyboardModifiers mods = key->modifiers();
@@ -844,6 +853,8 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
     const QPoint screen = mouse->globalPosition().toPoint();
     // Session 91: a widget on the desktop takes its clicks first (drawn above
     // the icons).
+    if (drawsWholeDesktop() && !m_resizePath.isEmpty() && handleResizeMouse(mouse, screen))
+        return true; // session 98
     if (drawsWholeDesktop() && handleWidgetMouse(mouse, screen))
         return true;
     // Which icons are under the cursor depends on which ones are *there*: the
@@ -1289,7 +1300,141 @@ void DesktopBackdrop::paintDesktopWidgets(QPainter& painter, const QRect& box, c
         widgets::paint(painter, QRect(QPoint(0, 0), inner.size()), widget.item, context);
         painter.restore();
     }
+    if (!m_resizePath.isEmpty()) { // session 98: the exact bounds, in the accent colour
+        const QRect r = widgetResizeRect();
+        if (!r.isEmpty())
+            widget_resize::paintOutline(painter, r, accentColor(), s);
+    }
     painter.restore();
+}
+
+QRect DesktopBackdrop::widgetResizeRect() const
+{
+    for (const DesktopWidget& widget : m_widgets) {
+        if (widget.item.path != m_resizePath)
+            continue;
+        const QRect r = desktopWidgetRect(widget);
+        if (!m_resizeDragging)
+            return r;
+        return QRect(r.topLeft(), QSize(m_resizePreview.width() * m_widgetCell.width(),
+                                        m_resizePreview.height() * m_widgetCell.height()));
+    }
+    return {};
+}
+
+bool DesktopBackdrop::beginWidgetResize(const QString& path)
+{
+    bool found = false;
+    for (const DesktopWidget& widget : std::as_const(m_widgets))
+        found = found || widget.item.path == path;
+    if (!found)
+        return false;
+    endWidgetResize();
+    m_resizePath = path;
+    if (!m_resizeIdle.isSingleShot()) {
+        m_resizeIdle.setSingleShot(true);
+        connect(&m_resizeIdle, &QTimer::timeout, this, &DesktopBackdrop::endWidgetResize);
+    }
+    m_resizeIdle.start(widget_resize::kIdleMs);
+    const int pad = qRound(8 * scale());
+    invalidate(widgetResizeRect().adjusted(-pad, -pad, pad, pad));
+    return true;
+}
+
+void DesktopBackdrop::endWidgetResize()
+{
+    if (m_resizePath.isEmpty())
+        return;
+    const int pad = qRound(8 * scale());
+    const QRect was = widgetResizeRect().adjusted(-pad, -pad, pad, pad);
+    m_resizeIdle.stop();
+    m_resizePath.clear();
+    m_resizeDragging = false;
+    setResizeCursor(0);
+    invalidate(was);
+}
+
+void DesktopBackdrop::setResizeCursor(int edges)
+{
+    if (!edges) {
+        if (m_resizeCursor)
+            QGuiApplication::restoreOverrideCursor();
+        m_resizeCursor = false;
+        return;
+    }
+    const Qt::CursorShape shape = edges == widget_resize::Corner ? Qt::SizeFDiagCursor
+                                  : edges == widget_resize::Right ? Qt::SizeHorCursor
+                                                                  : Qt::SizeVerCursor;
+    if (m_resizeCursor)
+        QGuiApplication::changeOverrideCursor(QCursor(shape));
+    else
+        QGuiApplication::setOverrideCursor(QCursor(shape));
+    m_resizeCursor = true;
+    // The desktop surface is a native window: say it to Windows too.
+    ::SetCursor(::LoadCursorW(nullptr, edges == widget_resize::Corner ? IDC_SIZENWSE
+                                       : edges == widget_resize::Right ? IDC_SIZEWE
+                                                                       : IDC_SIZENS));
+}
+
+bool DesktopBackdrop::handleResizeMouse(QMouseEvent* mouse, const QPoint& screen)
+{
+    const int margin = qRound(6 * scale());
+    const int pad = qRound(8 * scale());
+    switch (mouse->type()) {
+    case QEvent::MouseButtonPress: {
+        const int edges = mouse->button() == Qt::LeftButton
+                              ? widget_resize::edgesAt(widgetResizeRect(), screen, margin)
+                              : 0;
+        if (!edges) {
+            endWidgetResize(); // a click elsewhere
+            return false;
+        }
+        for (const DesktopWidget& widget : std::as_const(m_widgets))
+            if (widget.item.path == m_resizePath)
+                m_resizeStartSpan = widget.item.span.isValid() ? widget.item.span : QSize(1, 1);
+        m_resizeEdges = edges;
+        m_resizeDragging = true;
+        m_resizeStart = screen;
+        m_resizePreview = m_resizeStartSpan;
+        m_resizeIdle.start(widget_resize::kIdleMs);
+        return true;
+    }
+    case QEvent::MouseMove: {
+        if (m_resizeDragging) {
+            const QSize preview = widget_resize::spanAfter(m_resizeStartSpan, m_widgetCell, screen - m_resizeStart,
+                                                           m_resizeEdges);
+            m_resizeIdle.start(widget_resize::kIdleMs);
+            setResizeCursor(m_resizeEdges);
+            if (preview != m_resizePreview) {
+                const QRect before = widgetResizeRect();
+                m_resizePreview = preview;
+                invalidate(before.united(widgetResizeRect()).adjusted(-pad, -pad, pad, pad));
+            }
+            return true;
+        }
+        const int edges = widget_resize::edgesAt(widgetResizeRect(), screen, margin);
+        setResizeCursor(edges);
+        if (edges) {
+            m_resizeIdle.start(widget_resize::kIdleMs);
+            return true;
+        }
+        return false;
+    }
+    case QEvent::MouseButtonRelease:
+        if (mouse->button() == Qt::LeftButton && m_resizeDragging) {
+            m_resizeDragging = false;
+            m_resizeIdle.start(widget_resize::kIdleMs);
+            const QString path = m_resizePath;
+            const QSize span = m_resizePreview;
+            invalidate(widgetResizeRect().adjusted(-pad, -pad, pad, pad));
+            if (span != m_resizeStartSpan)
+                emit desktopWidgetResized(path, span);
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
 }
 
 void DesktopBackdrop::scheduleWidgetTick()

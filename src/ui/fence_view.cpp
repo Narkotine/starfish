@@ -1,5 +1,7 @@
 #include "ui/fence_view.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/modern_menu.hpp"
+#include "ui/widget_resize.hpp"
 
 #include <QKeyEvent>
 #include <QMetaMethod>
@@ -419,6 +421,8 @@ void FenceView::setLocked(bool locked)
     if (m_locked == locked)
         return;
     m_locked = locked;
+    if (locked)
+        endWidgetResize(); // session 98
     setCursor(Qt::ArrowCursor);
     if (locked) {
         m_dragOriginIndex = -1;
@@ -765,11 +769,107 @@ void FenceView::paintEvent(QPaintEvent* event)
     // sorts what it receives (the bar would lie then).
     if (m_externalDropIndex >= 0 && !m_sortOnAdd)
         paintInsertionBar(m_externalDropIndex, m_externalAfterCell, painter);
+    // Session 98: the resize mode's outline -- the widget's exact bounds.
+    if (!m_resizePath.isEmpty()) {
+        const QRect r = widgetResizeRect();
+        if (!r.isEmpty())
+            widget_resize::paintOutline(painter, r, accentColor(), 1.0);
+    }
+}
+
+int FenceView::widgetResizeIndex() const
+{
+    if (m_resizePath.isEmpty())
+        return -1;
+    const QList<core::DesktopItem>& items = m_grid.items();
+    for (int i = 0; i < items.size(); ++i)
+        if (items.at(i).path == m_resizePath)
+            return i;
+    return -1;
+}
+
+QSize FenceView::widgetResizePitch() const
+{
+    // From one cell to the next: the widget's own cells plus the gaps between.
+    const int i = widgetResizeIndex();
+    const QVector<QRect> rects = tileRects();
+    if (i < 0 || i >= rects.size())
+        return {};
+    const QSize span = m_grid.items().at(i).span.isValid() ? m_grid.items().at(i).span : QSize(1, 1);
+    const int gap = m_grid.gap();
+    return QSize((rects.at(i).width() + gap) / qMax(1, span.width()),
+                 (rects.at(i).height() + gap) / qMax(1, span.height()));
+}
+
+QRect FenceView::widgetResizeRect() const
+{
+    const int i = widgetResizeIndex();
+    const QVector<QRect> rects = tileRects();
+    if (i < 0 || i >= rects.size())
+        return {};
+    if (!m_resizeDragging)
+        return rects.at(i);
+    const QSize pitch = widgetResizePitch();
+    const int gap = m_grid.gap();
+    return QRect(rects.at(i).topLeft(), QSize(m_resizePreview.width() * pitch.width() - gap,
+                                              m_resizePreview.height() * pitch.height() - gap));
+}
+
+bool FenceView::beginWidgetResize(const QString& path)
+{
+    if (m_locked || !core::isWidgetPath(path))
+        return false;
+    const QString before = m_resizePath;
+    m_resizePath = path;
+    if (widgetResizeIndex() < 0) {
+        m_resizePath = before;
+        return false;
+    }
+    if (!m_resizeIdle.isSingleShot()) {
+        m_resizeIdle.setSingleShot(true);
+        connect(&m_resizeIdle, &QTimer::timeout, this, &FenceView::endWidgetResize);
+    }
+    m_resizeIdle.start(widget_resize::kIdleMs);
+    m_resizeDragging = false;
+    update();
+    emit contentChanged();
+    emit widgetResizeModeChanged(true);
+    return true;
+}
+
+void FenceView::endWidgetResize()
+{
+    if (m_resizePath.isEmpty())
+        return;
+    m_resizeIdle.stop();
+    m_resizePath.clear();
+    m_resizeDragging = false;
+    setCursor(Qt::ArrowCursor);
+    update();
+    emit contentChanged();
+    emit widgetResizeModeChanged(false);
 }
 
 void FenceView::mousePressEvent(QMouseEvent* event)
 {
     emit pressed();
+    if (!m_resizePath.isEmpty()) { // session 98: an edge, or the mode ends
+        const int edges = event->button() == Qt::LeftButton
+                              ? widget_resize::edgesAt(widgetResizeRect(), event->pos(), 6)
+                              : 0;
+        if (edges) {
+            const int i = widgetResizeIndex();
+            m_resizeEdges = edges;
+            m_resizeDragging = true;
+            m_resizeStart = event->pos();
+            m_resizeStartSpan = m_grid.items().at(i).span.isValid() ? m_grid.items().at(i).span : QSize(1, 1);
+            m_resizePreview = m_resizeStartSpan;
+            m_resizeIdle.start(widget_resize::kIdleMs);
+            event->accept();
+            return;
+        }
+        endWidgetResize();
+    }
     if (event->button() == Qt::LeftButton && hiddenItemCount() > 0
         && hiddenBadgeRect().contains(event->pos())) {
         showHiddenItemsMenu(); // session 76
@@ -866,6 +966,27 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
 {
     // Fence gesture (T-007) takes priority: while the title bar or a border
     // grip is held, the pointer moves the fence, never an icon.
+    if (m_resizeDragging) { // session 98: the outline follows, in whole cells
+        const QSize preview = widget_resize::spanAfter(m_resizeStartSpan, widgetResizePitch(),
+                                                       event->pos() - m_resizeStart, m_resizeEdges);
+        m_resizeIdle.start(widget_resize::kIdleMs);
+        if (preview != m_resizePreview) {
+            m_resizePreview = preview;
+            update();
+            emit contentChanged();
+        }
+        return;
+    }
+    if (!m_resizePath.isEmpty() && !(event->buttons() & Qt::LeftButton)) {
+        const int edges = widget_resize::edgesAt(widgetResizeRect(), event->pos(), 6);
+        if (edges) {
+            setCursor(edges == widget_resize::Corner ? Qt::SizeFDiagCursor
+                      : edges == widget_resize::Right ? Qt::SizeHorCursor
+                                                      : Qt::SizeVerCursor);
+            m_resizeIdle.start(widget_resize::kIdleMs); // hovering a grip is a touch
+            return;
+        }
+    }
     if (m_geometryDragging) {
         // Measured against the *screen*, not against this widget: the widget
         // moves with the fence, so a widget-local delta (`event->pos()`) shrinks
@@ -931,6 +1052,17 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() != Qt::LeftButton) {
         QWidget::mouseReleaseEvent(event);
+        return;
+    }
+    if (m_resizeDragging) { // session 98
+        m_resizeDragging = false;
+        m_resizeIdle.start(widget_resize::kIdleMs);
+        const QString path = m_resizePath;
+        const QSize span = m_resizePreview;
+        update();
+        emit contentChanged();
+        if (span != m_resizeStartSpan)
+            emit widgetResized(path, span);
         return;
     }
 
@@ -1490,6 +1622,7 @@ namespace starfish::ui {
 
 void FenceView::clearSelection()
 {
+    endWidgetResize(); // session 98: a click elsewhere ends the resize mode
     if (m_grid.selectedIndices().isEmpty())
         return;
     m_grid.clearSelection();
@@ -1556,6 +1689,11 @@ void FenceView::enterEvent(QEnterEvent* event)
 
 void FenceView::keyPressEvent(QKeyEvent* event)
 {
+    if (event->key() == Qt::Key_Escape && !m_resizePath.isEmpty()) { // session 98
+        endWidgetResize();
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_F2) {
         // Session 74: rename the selected icon (the edit is the product's).
         const QStringList selected = selectedPaths();

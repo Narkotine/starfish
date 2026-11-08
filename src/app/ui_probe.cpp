@@ -3238,6 +3238,164 @@ int runUiProbe(QApplication& app)
               trayEn && trayFr && titleEn != titleFr && insertFr == QString::fromUtf8("Ins\xc3\xa9rer"),
               QStringLiteral("tray en %1 fr %2, '%3' / '%4', '%5'").arg(trayEn).arg(trayFr).arg(titleEn, titleFr, insertFr));
     }
+    // Session 98 (T-160): Ctrl copies, Alt makes a shortcut, a right-button
+    // drag asks; the drop description follows. Dummy files in a temp folder,
+    // shell operations isolated (no undo record, no UI).
+    {
+        QTemporaryDir sandbox;
+        const QString in = QDir(sandbox.path()).filePath(QStringLiteral("in"));
+        const QString out = QDir(sandbox.path()).filePath(QStringLiteral("out"));
+        QDir().mkpath(in);
+        QDir().mkpath(out);
+        const QString dummy = QDir::toNativeSeparators(QDir(in).filePath(QStringLiteral("s98 dummy.txt")));
+        {
+            QFile f(dummy);
+            f.open(QIODevice::WriteOnly);
+            f.write("probe");
+        }
+        const bool wasIsolated = platform::win::shellOperationIsolation();
+        platform::win::setShellOperationIsolation(true);
+        QStringList received;
+        auto* target = new platform::win::ShellDropTarget(nullptr, [&received](const QPoint&, const QStringList& p) {
+            received = p;
+        });
+        target->setFileFolder(QDir::toNativeSeparators(out));
+        const auto descriptionOf = [](IDataObject* data) {
+            FORMATETC format{static_cast<CLIPFORMAT>(::RegisterClipboardFormatW(CFSTR_DROPDESCRIPTION)), nullptr,
+                             DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+            STGMEDIUM medium{};
+            QString text;
+            if (SUCCEEDED(data->GetData(&format, &medium))) {
+                if (auto* d = static_cast<DROPDESCRIPTION*>(::GlobalLock(medium.hGlobal))) {
+                    text = QString::fromWCharArray(d->szMessage) + QLatin1Char('/') + QString::number(d->type);
+                    ::GlobalUnlock(medium.hGlobal);
+                }
+                ::ReleaseStgMedium(&medium);
+            }
+            return text;
+        };
+        // One drag: enter with `keys`, read the label, drop; the effect and what the fence got.
+        const auto play = [&](DWORD keys, QString* label) {
+            received.clear();
+            auto* data = static_cast<IDataObject*>(platform::win::createShellDataObject({dummy}));
+            if (!data)
+                return DWORD(0xFFFF);
+            const POINTL pt{20, 20};
+            DWORD effect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+            target->DragEnter(data, keys, pt, &effect);
+            effect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+            target->DragOver(keys, pt, &effect);
+            if (label)
+                *label = descriptionOf(data);
+            effect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+            target->Drop(data, keys & ~DWORD(MK_LBUTTON | MK_RBUTTON), pt, &effect);
+            data->Release();
+            return effect;
+        };
+        QString insertLabel, copyLabel, linkLabel;
+        const DWORD insertEffect = play(MK_LBUTTON, &insertLabel);
+        const bool insertKept = received == QStringList{dummy};
+        const DWORD copyEffect = play(MK_LBUTTON | MK_CONTROL, &copyLabel);
+        const QStringList copied = received;
+        const DWORD linkEffect = play(MK_LBUTTON | MK_ALT, &linkLabel);
+        const QStringList linked = received;
+        target->setMenuChooser([] { return int(platform::win::ShellDropTarget::Action::Cancel); });
+        const DWORD cancelEffect = play(MK_RBUTTON, nullptr);
+        const bool cancelled = received.isEmpty();
+        target->setMenuChooser([] { return int(platform::win::ShellDropTarget::Action::Copy); });
+        play(MK_RBUTTON, nullptr);
+        const QStringList menuCopied = received;
+        target->Release();
+        platform::win::setShellOperationIsolation(wasIsolated);
+        const auto inOut = [&out](const QStringList& paths, const QString& suffix) {
+            return paths.size() == 1 && QFileInfo(paths.first()).absolutePath() == QFileInfo(out).absoluteFilePath()
+                   && paths.first().endsWith(suffix, Qt::CaseInsensitive) && QFileInfo::exists(paths.first());
+        };
+        const QString tr0 = QCoreApplication::translate("ShellDropTarget", "Insert");
+        check(QStringLiteral("drop on a fence: plain = insert, Ctrl = copy, Alt = shortcut, right drag asks, labels follow (T-160, session 98)"),
+              insertKept && insertEffect == DROPEFFECT_COPY && insertLabel.startsWith(tr0)
+                  && inOut(copied, QStringLiteral(".txt")) && copyEffect == DROPEFFECT_COPY
+                  && copyLabel.startsWith(QCoreApplication::translate("ShellDropTarget", "Copy"))
+                  && inOut(linked, QStringLiteral(".lnk")) && linkEffect == DROPEFFECT_LINK
+                  && linkLabel.startsWith(QCoreApplication::translate("ShellDropTarget", "Create shortcut"))
+                  && cancelled && cancelEffect == DROPEFFECT_NONE && menuCopied.size() == 1,
+              QStringLiteral("'%1' '%2' '%3' | copy %4 link %5 menu %6 | %7")
+                  .arg(insertLabel, copyLabel, linkLabel)
+                  .arg(copied.value(0).section(QLatin1Char('\\'), -1), linked.value(0).section(QLatin1Char('\\'), -1),
+                       menuCopied.value(0).section(QLatin1Char('\\'), -1))
+                  .arg(cancelled));
+    }
+    // Session 98: a widget's resize mode -- outline on its exact bounds, an
+    // edge pulled in whole cells, Esc ends it, a locked fence refuses, 10 s idle.
+    {
+        const QString pic = QDir(QStringLiteral("build")).absoluteFilePath(QStringLiteral("s98_dummy.png"));
+        {
+            QImage wide(800, 400, QImage::Format_ARGB32);
+            QPainter wp(&wide);
+            QLinearGradient g(0, 0, 800, 0);
+            g.setColorAt(0, QColor(0x3D, 0x8A, 0xFF));
+            g.setColorAt(1, QColor(0x86, 0x2A, 0x5B));
+            wp.fillRect(wide.rect(), g);
+            wp.end();
+            wide.save(pic);
+        }
+        ui::FenceContainer box;
+        const QString zone = box.createFence(QStringLiteral("Zone"), QRect(0, 0, 460, 360));
+        core::DesktopItem img = ui::widgets::create(QStringLiteral("image"));
+        img.widgetSettings.insert(QStringLiteral("path"), pic);
+        img.widgetSettings.insert(QStringLiteral("fit"), QStringLiteral("fit"));
+        img.span = QSize(2, 2);
+        box.addWidget(zone, img);
+        ui::FenceView* v = box.view(zone);
+        QString wpath;
+        QSize spanAfter;
+        bool began = false, followed = false, escEnds = false, lockedRefused = false, idleEnds = false;
+        QRect outline;
+        if (v) {
+            for (const core::DesktopItem& item : v->items())
+                if (item.isWidget())
+                    wpath = item.path;
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->show();
+            wait(150);
+            began = box.beginWidgetResize(zone, wpath);
+            outline = v->widgetResizeRect();
+            v->grab().save(captures + QStringLiteral("/s98_resize_outline.png"));
+            const QPoint corner = outline.bottomRight();
+            const QPoint to = corner + QPoint(outline.width() / 2 + 4, outline.height() / 2 + 4);
+            const auto mouse = [v](QEvent::Type type, const QPoint& at, Qt::MouseButtons buttons) {
+                QMouseEvent e(type, QPointF(at), QPointF(v->mapToGlobal(at)),
+                              type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons, Qt::NoModifier);
+                QApplication::sendEvent(v, &e);
+            };
+            mouse(QEvent::MouseButtonPress, corner, Qt::LeftButton);
+            mouse(QEvent::MouseMove, to, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, to, Qt::NoButton);
+            wait(80);
+            for (const core::DesktopItem& item : v->items())
+                if (item.path == wpath)
+                    spanAfter = item.span;
+            followed = v->widgetResizePath() == wpath && v->widgetResizeRect().width() > outline.width();
+            v->grab().save(captures + QStringLiteral("/s98_resize_after.png"));
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(v, &esc);
+            escEnds = v->widgetResizePath().isEmpty();
+            box.setFenceLocked(zone, true);
+            lockedRefused = !box.beginWidgetResize(zone, wpath);
+            box.setFenceLocked(zone, false);
+            box.beginWidgetResize(zone, wpath);
+            wait(10400);
+            idleEnds = v->widgetResizePath().isEmpty();
+            v->hide();
+        }
+        QFile::remove(pic);
+        check(QStringLiteral("widget resize mode: outline = its bounds, corner pulled one cell = 3 x 3, Esc ends, locked refuses, ends after 10 s (session 98)"),
+              began && !outline.isEmpty() && spanAfter == QSize(3, 3) && followed && escEnds && lockedRefused && idleEnds,
+              QStringLiteral("outline %1x%2 span %3x%4 esc %5 locked %6 idle %7 [s98_resize_outline.png]")
+                  .arg(outline.width()).arg(outline.height()).arg(spanAfter.width()).arg(spanAfter.height())
+                  .arg(escEnds).arg(lockedRefused).arg(idleEnds));
+    }
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);
     QFile report(QStringLiteral("build/ui-probe.txt"));

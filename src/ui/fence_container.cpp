@@ -654,6 +654,18 @@ QList<QRect> FenceContainer::fenceObstacleRects() const
     return rects;
 }
 
+bool FenceContainer::beginWidgetResize(const QString& id, const QString& path)
+{
+    FenceWindow* fence = find(id);
+    return fence && fence->view && !fence->locked && fence->view->beginWidgetResize(path);
+}
+
+QString FenceContainer::widgetResizePath(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->view ? fence->view->widgetResizePath() : QString();
+}
+
 QList<QRect> FenceContainer::desktopWidgetRects() const
 {
     QList<QRect> rects;
@@ -2261,6 +2273,23 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // Session 81: a widget written in place (the notes) -- the product's editor.
     connect(view, &FenceView::widgetEditRequested, this,
             [this, id](const QString& path) { emit fenceWidgetEditRequested(id, path); });
+    // Session 98: an edge pulled in a widget's resize mode -- its new span.
+    connect(view, &FenceView::widgetResized, this, [this, id](const QString& path, const QSize& span) {
+        FenceWindow* fence = find(id);
+        if (!fence || !fence->view || fence->locked)
+            return;
+        for (const core::DesktopItem& item : fence->view->items()) {
+            if (item.path != path)
+                continue;
+            core::DesktopItem resized = item;
+            resized.span = span;
+            replaceFenceItem(id, path, resized);
+            fence->view->beginWidgetResize(path); // still in the mode, on the new size
+            qCInfo(lc).noquote() << QStringLiteral("widget %1 resized to %2 x %3 in %4")
+                                        .arg(path).arg(span.width()).arg(span.height()).arg(id);
+            return;
+        }
+    });
     // T-076: the fence's own menu, reported with the fence it belongs to. Nothing
     // is built here -- the container has no interface (it renders an image) and
     // the actions are the product's, exactly like the tray's entries.
