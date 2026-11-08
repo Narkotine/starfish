@@ -503,6 +503,33 @@ void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect)
     }
 }
 
+void setDropDescription(void* dataObject, const QString& message)
+{
+    auto* data = static_cast<IDataObject*>(dataObject);
+    if (!data)
+        return;
+    HGLOBAL global = ::GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DROPDESCRIPTION));
+    if (!global)
+        return;
+    auto* description = static_cast<DROPDESCRIPTION*>(::GlobalLock(global));
+    if (!description) {
+        ::GlobalFree(global);
+        return;
+    }
+    // DROPIMAGE_INVALID with no text: the shell's own label comes back.
+    description->type = message.isEmpty() ? DROPIMAGE_INVALID : DROPIMAGE_MOVE;
+    const std::wstring text = message.left(MAX_PATH - 1).toStdWString();
+    wcsncpy_s(description->szMessage, MAX_PATH, text.c_str(), _TRUNCATE);
+    ::GlobalUnlock(global);
+    FORMATETC format{static_cast<CLIPFORMAT>(::RegisterClipboardFormatW(CFSTR_DROPDESCRIPTION)), nullptr,
+                     DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    medium.tymed = TYMED_HGLOBAL;
+    medium.hGlobal = global;
+    if (FAILED(data->SetData(&format, &medium, TRUE)))
+        ::GlobalFree(global); // not taken: ours to free
+}
+
 int dragShellItems(const QStringList& parsingNames, const QPoint& origin, quintptr owner,
                    const QImage& image, const QPoint& hotspot)
 {

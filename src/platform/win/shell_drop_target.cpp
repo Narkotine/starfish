@@ -2,6 +2,7 @@
 #include "platform/win/shell_operations.hpp"
 
 #include <objbase.h>
+#include <QCoreApplication>
 #include <shlobj.h> // CF_HDROP, DROPEFFECT_*
 #include <windowsx.h>
 
@@ -20,7 +21,11 @@ ShellDropTarget::ShellDropTarget(HWND hwnd,
 {
 }
 
-ShellDropTarget::~ShellDropTarget() = default;
+ShellDropTarget::~ShellDropTarget()
+{
+    if (m_data)
+        m_data->Release();
+}
 
 ULONG STDMETHODCALLTYPE ShellDropTarget::AddRef()
 {
@@ -93,6 +98,15 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWOR
     if (pdwEffect)
         *pdwEffect = m_canDrop ? kCopyEffect : DROPEFFECT_NONE;
     // Session 62: the picture follows the cursor over the fence too.
+    // Session 97: "Insert", not the shell's "Copy" -- what happens to the
+    // files is unchanged (a move, decided by the handler).
+    if (m_data)
+        m_data->Release();
+    m_data = pDataObj;
+    if (m_data)
+        m_data->AddRef();
+    if (m_canDrop)
+        setDropDescription(pDataObj, QCoreApplication::translate("ShellDropTarget", "Insert"));
     dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), pDataObj, QPoint(pt.x, pt.y),
                    m_canDrop ? kCopyEffect : DROPEFFECT_NONE);
     if (m_canDrop && m_hover)
@@ -123,6 +137,11 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragOver(DWORD /*grfKeyState*/, POINT
 HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
 {
     m_canDrop = false;
+    if (m_data) { // the label is the shell's again outside the fence
+        setDropDescription(m_data, QString());
+        m_data->Release();
+        m_data = nullptr;
+    }
     dragImageLeave();
     if (m_hover)
         m_hover(QPoint(), false);
@@ -139,6 +158,11 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD /*g
     if (pdwEffect)
         *pdwEffect = paths.isEmpty() ? DROPEFFECT_NONE : kCopyEffect;
     m_canDrop = false;
+    setDropDescription(pDataObj, QString());
+    if (m_data) {
+        m_data->Release();
+        m_data = nullptr;
+    }
     if (m_hover)
         m_hover(QPoint(), false);
     dragImageDrop(pDataObj, QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)),

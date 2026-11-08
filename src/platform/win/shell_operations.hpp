@@ -68,6 +68,10 @@ void dragImageEnter(quintptr hwnd, void* dataObject, const QPoint& screen, unsig
 void dragImageOver(const QPoint& screen, unsigned long effect);
 void dragImageLeave();
 void dragImageDrop(void* dataObject, const QPoint& screen, unsigned long effect);
+// Session 97: the words under the dragged picture (DROPDESCRIPTION on the data
+// object) -- "Insert" over a fence instead of the shell's "Copy". An empty
+// message hands the label back to the shell.
+void setDropDescription(void* dataObject, const QString& message);
 bool internalDragActive();
 QStringList internalDragPaths();
 QPoint internalDragOrigin();

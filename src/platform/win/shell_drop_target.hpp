@@ -61,6 +61,7 @@ private:
     QPoint clientOf(const POINTL& pt) const;
     LONG m_ref = 1;
     bool m_canDrop = false;
+    IDataObject* m_data = nullptr; // session 97: held from DragEnter to DragLeave / Drop
 };
 
 } // namespace starfish::platform::win
