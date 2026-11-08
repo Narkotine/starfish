@@ -145,6 +145,27 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     rollCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Toward the title bar"), QStringLiteral("bar"));
     rollCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Toward the opposite side"), QStringLiteral("opposite"));
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Roll up"), rollCombo);
+    // Session 96: the user looked for the speed here. One speed for every
+    // fence (the same as Settings > Fences), applied at once and kept.
+    auto* rollSpeed = new QComboBox(dialog);
+    rollSpeed->setObjectName(QStringLiteral("rollSpeedAll"));
+    rollSpeed->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Slow"), 900);
+    rollSpeed->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Normal"), 1600);
+    rollSpeed->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Fast"), 2800);
+    {
+        int best = 0;
+        for (int i = 0; i < rollSpeed->count(); ++i)
+            if (qAbs(rollSpeed->itemData(i).toInt() - container->rollSpeed())
+                < qAbs(rollSpeed->itemData(best).toInt() - container->rollSpeed()))
+                best = i;
+        rollSpeed->setCurrentIndex(best);
+    }
+    rollSpeed->setToolTip(QCoreApplication::translate("FenceAppearanceDialog", "Every fence rolls at this speed (also in Settings > Fences)."));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Rolling speed (all fences)"), rollSpeed);
+    QObject::connect(rollSpeed, &QComboBox::currentIndexChanged, dialog, [safe, rollSpeed](int) {
+        if (safe)
+            safe->setRollSpeed(rollSpeed->currentData().toInt());
+    });
     auto* snapCombo = new QComboBox(dialog);
     snapCombo->setObjectName(QStringLiteral("snapToCells"));
     snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());

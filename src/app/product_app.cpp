@@ -1568,6 +1568,11 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         if (m_container->contains(id))
             m_container->setFenceTitleLocked(id, false);
         m_container->setNewFenceStyle(ui::FenceTemplates::newFenceStyle()); // it may have changed
+        // Session 96: the dialog also sets the (global) rolling speed.
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("fenceRollSpeed"), m_container->rollSpeed());
+        if (m_settings)
+            m_settings->setRollSpeed(m_container->rollSpeed());
         break;
     }
     case ui::FenceMenu::Action::HoverUnrollChoice:
