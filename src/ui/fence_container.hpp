@@ -635,6 +635,7 @@ signals:
     // wires this to the same auto-save as the other lifecycle signals.
     void fenceRolledUpChanged(const QString& id, bool rolledUp);
     void fenceLockedChanged(const QString& id, bool locked); // session 94
+    void widgetHoversDesktop(const QSize& span, const QPoint& screenPoint, bool active); // session 96
     void fencesVisibilityChanged(bool visible);
     void peekChanged(bool active);
     // T-076: the user asked for the fence's **own** menu -- a right-click that

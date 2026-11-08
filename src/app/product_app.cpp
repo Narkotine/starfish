@@ -1271,6 +1271,19 @@ void ProductApp::wireFenceMenu()
                 const QPoint wanted = point - QPoint(icon / 2, icon / 2);
                 showDesktopDropGrid(files, wanted - m_itemPositions.value(first), point);
             });
+    // Session 96: a widget held out of a fence over the bare desktop shows the
+    // grid and the slots it would cover, as a desktop widget's own drag does.
+    connect(m_container, &ui::FenceContainer::widgetHoversDesktop, this,
+            [this](const QSize& span, const QPoint& point, bool active) {
+                const QSize cell = desktopSlot().spacing;
+                if (!active || !cell.isValid() || span.isEmpty()) {
+                    hideDesktopDropGrid();
+                    return;
+                }
+                syncDesktopWidgetCell();
+                const QSize size(span.width() * cell.width(), span.height() * cell.height());
+                showDesktopWidgetGrid(QRect(point - QPoint(size.width() / 2, size.height() / 2), size));
+            });
     // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
     connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
             [this](const QString& id, const QString& path) {

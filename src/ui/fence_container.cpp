@@ -233,7 +233,16 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
         source->view->setDragOverOtherFence(!dropped && (into || refused));
     // Session 80: over no fence at all (its own included), the desktop shows
     // its grid while the tiles are held.
-    emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
+    // Session 96: widgets only -- the grid with the slots the first one covers.
+    QSize widgetSpan;
+    if (source && source->view && std::all_of(paths.cbegin(), paths.cend(), core::isWidgetPath))
+        for (const core::DesktopItem& item : source->view->items())
+            if (!paths.isEmpty() && item.path == paths.first())
+                widgetSpan = item.span;
+    if (widgetSpan.isValid())
+        emit widgetHoversDesktop(widgetSpan, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
+    else
+        emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
     if (!dropped) {
         if (into && into->view) {
             const QRect visible = visibleRectOf(*into);
