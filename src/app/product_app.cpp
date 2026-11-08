@@ -1,5 +1,6 @@
 #include "app/product_app.hpp"
 
+#include <utility>
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
@@ -2380,14 +2381,21 @@ void ProductApp::setAllowDesktopOverlap(bool allowed)
 
 void ProductApp::scheduleOverlapSweep()
 {
-    if (!m_allowDesktopOverlap && drawnDesktop())
+    if (!drawnDesktop())
+        return;
+    if (!m_allowDesktopOverlap
+        || (!m_newShellItems.isEmpty() && m_container && !m_container->desktopWidgetRects().isEmpty()))
         m_overlapTimer.start();
 }
 
 int ProductApp::resolveDesktopOverlaps()
 {
-    if (m_allowDesktopOverlap || !drawnDesktop() || !m_shellView || !m_container
-        || !m_shellIconsShown || m_itemPositions.isEmpty())
+    if (!drawnDesktop() || !m_shellView || !m_container || !m_shellIconsShown || m_itemPositions.isEmpty())
+        return 0;
+    // Session 96 (T-150): overlap allowed, only the icons that just appeared,
+    // and only out from under a desktop widget.
+    const bool newOnly = m_allowDesktopOverlap;
+    if (newOnly && m_newShellItems.isEmpty())
         return 0;
     ui::DesktopBackdrop* backdrop = m_container->backdrop();
     if (!backdrop)
@@ -2398,7 +2406,8 @@ int ProductApp::resolveDesktopOverlaps()
         m_overlapTimer.start();
         return 0;
     }
-    const QList<QRect> obstacles = m_container->fenceObstacleRects();
+    const QList<QRect> obstacles = newOnly ? m_container->desktopWidgetRects() : m_container->fenceObstacleRects();
+    const QSet<QString> fresh = std::exchange(m_newShellItems, {});
     if (obstacles.isEmpty())
         return 0;
     const QList<QRect> areas = desktopWorkAreas();
@@ -2410,7 +2419,9 @@ int ProductApp::resolveDesktopOverlaps()
         if (!filed.contains(ui::BackdropLayout::pathKey(it.key())))
             items.append({it.key(), it.value()});
     }
-    const QList<core::OverlapMove> moves = core::OverlapPlanner::plan(items, obstacles, areas, slot);
+    QList<core::OverlapMove> moves = core::OverlapPlanner::plan(items, obstacles, areas, slot);
+    if (newOnly) // the icons already there stay where they are
+        moves.removeIf([&fresh](const core::OverlapMove& move) { return !fresh.contains(move.key); });
     int moved = 0;
     for (const core::OverlapMove& move : moves) {
         if (m_shellView->positionItem(move.key, move.to)) {
@@ -2419,7 +2430,8 @@ int ProductApp::resolveDesktopOverlaps()
         }
     }
     if (moved > 0) {
-        qCInfo(lc) << moved << "desktop icon(s) moved out from under a fence";
+        qCInfo(lc) << moved << (newOnly ? "new desktop icon(s) moved out from under a desktop widget"
+                                        : "desktop icon(s) moved out from under a fence");
         m_shellSignature.clear();
         m_shellResync.start();
     }
@@ -2633,7 +2645,11 @@ void ProductApp::syncShellView()
     m_shellIconsShown = state.iconsShown;
     // Session 60: a new icon (an installer's shortcut) or one put back may land
     // under a fence -- checked once the view is quiet.
-    scheduleOverlapSweep();
+    // Session 96 (T-150): icons that just appeared (a new file, a shortcut an
+    // installer put down) -- never left under a desktop widget, which hides
+    // them whole, even when icons may sit under fences.
+    const QList<QString> before = m_itemPositions.keys();
+    const bool firstRead = m_itemPositions.isEmpty();
     m_itemPositions.clear();
     m_shellNames.clear();
     m_shellSnap = state.snapToGrid;
@@ -2642,6 +2658,13 @@ void ProductApp::syncShellView()
         m_itemPositions.insert(item.parsingName, item.position);
         m_shellNames.insert(ui::BackdropLayout::pathKey(item.parsingName), item.parsingName);
     }
+    if (!firstRead) {
+        const QSet<QString> known(before.cbegin(), before.cend());
+        for (auto it = m_itemPositions.constBegin(); it != m_itemPositions.constEnd(); ++it)
+            if (!known.contains(it.key()))
+                m_newShellItems.insert(it.key());
+    }
+    scheduleOverlapSweep();
     // A drop from elsewhere: what it created goes under the cursor, side by
     // side, as on the native desktop (the hidden view would put it in a free slot).
     if (m_foreignDropUntil > 0) {

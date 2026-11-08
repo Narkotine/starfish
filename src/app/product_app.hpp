@@ -447,6 +447,7 @@ private:
     QString m_noteEditPath;
     void applyWidgetText(const QString& text);
     QHash<QString, QPoint> m_itemPositions;   // by the shell's parsing name
+    QSet<QString> m_newShellItems; // session 96: appeared since the last read
     QHash<QString, QString> m_shellNames;     // BackdropLayout::pathKey -> parsing name
     bool m_shellSnap = false;
     bool m_shellAutoArrange = false;
