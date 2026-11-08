@@ -3137,14 +3137,33 @@ int runUiProbe(QApplication& app)
     }
     // Session 95: About > reset, the labels that say what happens.
     {
-        auto* fromWindows = settings.findChild<QPushButton*>(QStringLiteral("resetFromWindows"));
-        auto* wipe = settings.findChild<QPushButton*>(QStringLiteral("resetWipe"));
-        check(QStringLiteral("About: 'Start over from the Windows desktop' and 'Reset the StarFish desktop' (session 95)"),
-              fromWindows && wipe && fromWindows->text() == ui::SettingsDialog::tr("Start over from the Windows desktop")
-                  && wipe->text() == ui::SettingsDialog::tr("Reset the StarFish desktop"),
-              fromWindows && wipe ? fromWindows->text() + QStringLiteral(" | ") + wipe->text() : QString());
+        auto* reset = settings.findChild<QPushButton*>(QStringLiteral("resetDesktop"));
+        check(QStringLiteral("About: one reset button, 'Remove every zone and widget' (session 96)"),
+              reset && !settings.findChild<QPushButton*>(QStringLiteral("resetWipe"))
+                  && reset->text() == ui::SettingsDialog::tr("Remove every zone and widget"),
+              reset ? reset->text() : QString());
     }
 
+    // Session 96: any widget size from the settings window (width x height).
+    {
+        ui::WidgetSettingsDialog sized(ui::widgets::create(QStringLiteral("notes")));
+        sized.setAttribute(Qt::WA_DontShowOnScreen);
+        sized.show();
+        wait(50);
+        auto* w = sized.findChild<QSpinBox*>(QStringLiteral("sizeWidth"));
+        auto* h = sized.findChild<QSpinBox*>(QStringLiteral("sizeHeight"));
+        if (w && h) {
+            w->setValue(5);
+            h->setValue(3);
+        }
+        wait(30);
+        sized.grab().save(captures + QStringLiteral("/s96_widget_size.png"));
+        const QSize got = sized.result().span;
+        sized.hide();
+        check(QStringLiteral("widget settings: width and height in cells, any size up to 8 x 6 (session 96)"),
+              w && h && got == QSize(5, 3) && w->maximum() == 8 && h->maximum() == 6,
+              QStringLiteral("%1 x %2 [s96_widget_size.png]").arg(got.width()).arg(got.height()));
+    }
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);
     QFile report(QStringLiteral("build/ui-probe.txt"));

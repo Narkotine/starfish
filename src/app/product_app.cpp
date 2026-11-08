@@ -2844,6 +2844,8 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
         group->addAction(action);
         spanOf.insert(action, span);
     }
+    sizes->addSeparator(); // session 96: any other size, in the widget's settings
+    QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
@@ -2857,7 +2859,7 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
         m_container->releaseItems(fenceId, {path}); // the widget only: no file behind it
         return;
     }
-    if (chosen == configure) {
+    if (chosen == configure || chosen == otherSize) {
         ui::WidgetSettingsDialog dialog(widget);
         dialog.move(logicalFromPhysical(point));
         if (dialog.exec() == QDialog::Accepted && m_container->contains(fenceId))
@@ -2992,6 +2994,8 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
         group->addAction(action);
         spanOf.insert(action, span);
     }
+    sizes->addSeparator(); // session 96: any other size, in the widget's settings
+    QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
@@ -3005,7 +3009,7 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
         m_container->removeDesktopWidget(path);
         return;
     }
-    if (chosen == configure) {
+    if (chosen == configure || chosen == otherSize) {
         ui::WidgetSettingsDialog dialog(widget);
         dialog.move(logicalFromPhysical(point));
         if (dialog.exec() == QDialog::Accepted)

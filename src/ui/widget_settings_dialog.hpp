@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QSize>
 
 #include "core/desktop_item.hpp"
 
@@ -25,6 +26,7 @@ public:
     core::DesktopItem result() const;
     // Whether the dialog has anything beyond the size to offer for `type`.
     static bool hasOptions(const QString& type);
+    static constexpr QSize kMaxSpan{8, 6}; // session 96
     // Session 95: the picture chooser (image widget); empty when cancelled.
     static QString chooseImage(QWidget* parent, const QString& current);
     void setImagePath(const QString& path); // the probe, without the file dialog
@@ -33,7 +35,8 @@ private:
     void updateEnabled();
 
     core::DesktopItem m_widget;
-    QComboBox* m_size = nullptr;
+    QSpinBox* m_sizeW = nullptr; // session 96: width and height in cells
+    QSpinBox* m_sizeH = nullptr;
     // clock
     QCheckBox* m_seconds = nullptr;
     QCheckBox* m_date = nullptr;

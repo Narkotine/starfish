@@ -47,14 +47,24 @@ WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWid
     auto* form = new QFormLayout;
     layout->addLayout(form);
 
-    m_size = new QComboBox(this);
-    m_size->setObjectName(QStringLiteral("size"));
-    for (const QSize& span : widgets::spanChoices()) {
-        m_size->addItem(QStringLiteral("%1 \u00D7 %2").arg(span.width()).arg(span.height()), span);
-        if (span == widget.span)
-            m_size->setCurrentIndex(m_size->count() - 1);
-    }
-    form->addRow(tr("Size (cells)"), m_size);
+    // Session 96: any size from 1 x 1 to 8 x 6 cells, without flooding the
+    // widget's menu (which keeps a few common sizes).
+    m_sizeW = new QSpinBox(this);
+    m_sizeW->setObjectName(QStringLiteral("sizeWidth"));
+    m_sizeW->setRange(1, kMaxSpan.width());
+    m_sizeW->setValue(qBound(1, widget.span.width(), kMaxSpan.width()));
+    m_sizeH = new QSpinBox(this);
+    m_sizeH->setObjectName(QStringLiteral("sizeHeight"));
+    m_sizeH->setRange(1, kMaxSpan.height());
+    m_sizeH->setValue(qBound(1, widget.span.height(), kMaxSpan.height()));
+    auto* sizeRow = new QHBoxLayout;
+    sizeRow->addWidget(new QLabel(tr("Width"), this));
+    sizeRow->addWidget(m_sizeW);
+    sizeRow->addSpacing(12);
+    sizeRow->addWidget(new QLabel(tr("Height"), this));
+    sizeRow->addWidget(m_sizeH);
+    sizeRow->addStretch(1);
+    form->addRow(tr("Size (cells)"), sizeRow);
 
     const QVariantMap& settings = widget.widgetSettings;
     if (widget.widgetType == QLatin1String("image")) { // session 95
@@ -190,7 +200,7 @@ void WidgetSettingsDialog::updateEnabled()
 core::DesktopItem WidgetSettingsDialog::result() const
 {
     core::DesktopItem widget = m_widget;
-    widget.span = m_size->currentData().toSize();
+    widget.span = QSize(m_sizeW->value(), m_sizeH->value());
     if (m_fit) {
         widget.widgetSettings.insert(QStringLiteral("path"), m_imagePath);
         widget.widgetSettings.insert(QStringLiteral("fit"), m_fit->currentData().toString());
