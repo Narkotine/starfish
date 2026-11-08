@@ -13,6 +13,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSpinBox>
+
+#include "ui/widget_resize.hpp"
 #include <QVBoxLayout>
 
 #include "core/system_metrics.hpp"
@@ -57,6 +59,9 @@ WidgetSettingsDialog::WidgetSettingsDialog(const core::DesktopItem& widget, QWid
     m_sizeH->setObjectName(QStringLiteral("sizeHeight"));
     m_sizeH->setRange(1, kMaxSpan.height());
     m_sizeH->setValue(qBound(1, widget.span.height(), kMaxSpan.height()));
+    // Session 100: a locked widget keeps its size; the rest stays configurable.
+    m_sizeW->setEnabled(!widget_resize::isLocked(widget));
+    m_sizeH->setEnabled(!widget_resize::isLocked(widget));
     auto* sizeRow = new QHBoxLayout;
     sizeRow->addWidget(new QLabel(tr("Width"), this));
     sizeRow->addWidget(m_sizeW);

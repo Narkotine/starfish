@@ -59,6 +59,7 @@
 #include "ui/fence_menu.hpp"
 #include "ui/icon_grid.hpp"
 #include "ui/modern_menu.hpp"
+#include "ui/widget_resize.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
@@ -1019,12 +1020,25 @@ void ProductApp::wireBackdrop()
                     return;
                 }
             });
+    // Session 100: an Image widget pulled to the pixel.
+    connect(backdrop, &ui::DesktopBackdrop::desktopWidgetResizedFree, this,
+            [this, backdrop](const QString& path, const QSize& size) {
+                for (const ui::DesktopWidget& d : m_container->desktopWidgets()) {
+                    if (d.item.path != path)
+                        continue;
+                    core::DesktopItem resized = d.item;
+                    resized.widgetSettings.insert(QStringLiteral("pixelWidth"), size.width());
+                    resized.widgetSettings.insert(QStringLiteral("pixelHeight"), size.height());
+                    m_container->replaceDesktopWidget(path, resized);
+                    backdrop->beginWidgetResize(path);
+                    return;
+                }
+            });
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetDragged, this,
             [this](const QString&, const QRect& rect, bool active) {
-                // Session 95 (T-150): over a fence, its insertion bar instead of the grid.
-                const bool overFence = active && !m_container->fenceAt(rect.center()).isEmpty();
-                m_container->showWidgetDropAt(rect.center(), active);
-                if (active && !overFence)
+                // Session 100 (t122u): a desktop widget stays on the desktop (it may
+                // pass behind the fences): the grid only, over a fence too.
+                if (active)
                     showDesktopWidgetGrid(rect);
                 else
                     hideDesktopDropGrid();
@@ -1035,17 +1049,8 @@ void ProductApp::wireBackdrop()
             if (widget.item.path == path)
                 item = widget.item;
         const QSize span = item.isWidget() ? item.span : QSize(1, 1);
-        // Session 95 (T-150): let go over a fence, the widget moves into it (a
-        // locked one refuses; it then stays on the desktop, where it was let go).
-        const QSize cell = desktopSlot().spacing;
-        const QPoint centre = pos + QPoint(span.width() * cell.width() / 2, span.height() * cell.height() / 2);
-        m_container->showWidgetDropAt(centre, false);
-        const QString fence = m_container->fenceAt(centre);
-        if (item.isWidget() && !fence.isEmpty() && m_container->fileIntoAt(fence, {item}, centre) > 0) {
-            m_container->removeDesktopWidget(path);
-            qCInfo(lc).noquote() << QStringLiteral("desktop widget %1 moved into %2").arg(path, fence);
-            return;
-        }
+        // Session 100 (t122u): never into a fence -- it stays on the desktop,
+        // over a fence's place too (drawn behind it).
         m_container->moveDesktopWidget(path, snapDesktopWidget(pos, span));
     });
     connect(backdrop, &ui::DesktopBackdrop::desktopWidgetEditRequested, this,
@@ -1223,25 +1228,6 @@ void ProductApp::wireFenceMenu()
     // the grid, never under a fence unless allowed), not to the place the
     // hidden icon last had on the desktop.
     // Session 95 (T-150): a widget dragged out of a fence lands on the desktop.
-    connect(m_container, &ui::FenceContainer::widgetsDroppedOnDesktop, this,
-            [this](const QString& sourceId, const QList<core::DesktopItem>& widgets, const QPoint& point) {
-                if (!m_container->backdrop())
-                    return; // no desktop layer to hold it: the widget stays in its fence
-                syncDesktopWidgetCell();
-                QStringList moved;
-                QPoint at = point;
-                for (const core::DesktopItem& widget : widgets) {
-                    const QSize cell = desktopSlot().spacing;
-                    const QPoint topLeft = snapDesktopWidget(
-                        at - QPoint(widget.span.width() * cell.width() / 2, widget.span.height() * cell.height() / 2),
-                        widget.span);
-                    if (m_container->addDesktopWidget(widget, topLeft))
-                        moved << widget.path;
-                    at += QPoint(cell.width(), 0);
-                }
-                if (!moved.isEmpty())
-                    m_container->releaseItems(sourceId, moved);
-            });
     connect(m_container, &ui::FenceContainer::tilesDroppedOnDesktop, this,
             [this](const QStringList& paths, const QPoint& point) {
                 if (!drawnDesktop() || !m_shellView || paths.isEmpty())
@@ -1297,17 +1283,6 @@ void ProductApp::wireFenceMenu()
             });
     // Session 96: a widget held out of a fence over the bare desktop shows the
     // grid and the slots it would cover, as a desktop widget's own drag does.
-    connect(m_container, &ui::FenceContainer::widgetHoversDesktop, this,
-            [this](const QSize& span, const QPoint& point, bool active) {
-                const QSize cell = desktopSlot().spacing;
-                if (!active || !cell.isValid() || span.isEmpty()) {
-                    hideDesktopDropGrid();
-                    return;
-                }
-                syncDesktopWidgetCell();
-                const QSize size(span.width() * cell.width(), span.height() * cell.height());
-                showDesktopWidgetGrid(QRect(point - QPoint(size.width() / 2, size.height() / 2), size));
-            });
     // Session 74: F2 on a fence's selection -- the same edit as the desktop's.
     connect(m_container, &ui::FenceContainer::fenceRenameRequested, this,
             [this](const QString& id, const QString& path) {
@@ -2942,6 +2917,11 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
         return;
     QMenu menu;
     ui::styleModernMenu(&menu, ui::ModernMenuStyle::current());
+    // Session 100: its size and its place, held (first, as for a fence).
+    const bool locked = ui::widget_resize::isLocked(widget);
+    QAction* lock = menu.addAction(locked ? QCoreApplication::translate("ProductApp", "Unlock")
+                                          : QCoreApplication::translate("ProductApp", "Lock"));
+    menu.addSeparator();
     QAction* title = menu.addAction(widget.name);
     title->setEnabled(false);
     menu.addSeparator();
@@ -2978,12 +2958,18 @@ void ProductApp::showWidgetMenu(const QString& fenceId, const QString& path, con
     QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
     // Session 98: pull its edges by hand, for a few seconds (the outline shows its bounds).
     QAction* resize = menu.addAction(QCoreApplication::translate("ProductApp", "Resize"));
-    resize->setEnabled(!m_container->fenceLocked(fenceId)); // a locked fence: no resize mode
+    resize->setEnabled(!m_container->fenceLocked(fenceId) && !locked); // a locked fence or widget: none
+    sizes->setEnabled(!locked);
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
     if (!chosen || !m_container->contains(fenceId))
         return;
+    if (chosen == lock) {
+        widget.widgetSettings.insert(QStringLiteral("locked"), !locked);
+        m_container->replaceFenceItem(fenceId, path, widget);
+        return;
+    }
     if (edit && chosen == edit) {
         startWidgetEdit(fenceId, path);
         return;
@@ -3110,6 +3096,11 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
         return;
     QMenu menu;
     ui::styleModernMenu(&menu, ui::ModernMenuStyle::current());
+    // Session 100: its size and its place, held (first, as for a fence).
+    const bool locked = ui::widget_resize::isLocked(widget);
+    QAction* lock = menu.addAction(locked ? QCoreApplication::translate("ProductApp", "Unlock")
+                                          : QCoreApplication::translate("ProductApp", "Lock"));
+    menu.addSeparator();
     QAction* title = menu.addAction(widget.name);
     title->setEnabled(false);
     menu.addSeparator();
@@ -3135,11 +3126,18 @@ void ProductApp::showDesktopWidgetMenu(const QString& path, const QPoint& point)
     QAction* otherSize = sizes->addAction(QCoreApplication::translate("ProductApp", "Other size…"));
     // Session 98: pull its edges by hand, for a few seconds (the outline shows its bounds).
     QAction* resize = menu.addAction(QCoreApplication::translate("ProductApp", "Resize"));
+    resize->setEnabled(!locked);
+    sizes->setEnabled(!locked);
     menu.addSeparator();
     QAction* remove = menu.addAction(QCoreApplication::translate("ProductApp", "Remove the widget"));
     QAction* chosen = menu.exec(logicalFromPhysical(point));
     if (!chosen)
         return;
+    if (chosen == lock) {
+        widget.widgetSettings.insert(QStringLiteral("locked"), !locked);
+        m_container->replaceDesktopWidget(path, widget);
+        return;
+    }
     if (edit && chosen == edit) {
         startWidgetEdit(desktopWidgetOwner(), path);
         return;

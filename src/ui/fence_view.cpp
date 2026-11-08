@@ -730,36 +730,42 @@ void FenceView::paintEvent(QPaintEvent* event)
         // it goes through tr() like a menu label. It was a QStringLiteral -- the
         // one kind of user-visible text a translation catalogue cannot see.
         painter.drawText(content, Qt::AlignCenter, tr("empty fence -- no icons yet"));
-        return;
     }
+    // Session 100: an empty fence went on to show nothing of a drop either --
+    // the bar below was never reached. It is now.
+    if (!m_grid.items().isEmpty()) {
 
-    // Session 66: "the material on the icons too" fades the icons, and only them.
-    painter.setOpacity(m_iconOpacity);
-    m_grid.paint(painter, content, m_iconProvider);
-    painter.setOpacity(1.0);
-    scheduleWidgetTick(); // session 79: the next minute (second) of a clock
-    if (const int hidden = hiddenItemCount(); hidden > 0) {
-        // Session 76: the fence is too small for all its icons -- say how many
-        // are out of sight; a click on the badge lists them.
-        const QRect badge = hiddenBadgeRect();
-        painter.save();
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(QPen(QColor(0x3B, 0x82, 0xF6), 1.0));
-        painter.setBrush(QColor(0x11, 0x18, 0x27, 0xE0));
-        painter.drawRoundedRect(QRectF(badge).adjusted(0.5, 0.5, -0.5, -0.5), badge.height() / 2.0, badge.height() / 2.0);
-        QFont bold = font();
-        bold.setBold(true);
-        bold.setPixelSize(11);
-        painter.setFont(bold);
-        painter.setPen(QColor(0xFF, 0xFF, 0xFF));
-        painter.drawText(badge, Qt::AlignCenter, QStringLiteral("+%1").arg(hidden));
-        painter.restore();
+        // Session 66: "the material on the icons too" fades the icons, and only them.
+        painter.setOpacity(m_iconOpacity);
+        m_grid.paint(painter, content, m_iconProvider);
+        painter.setOpacity(1.0);
+        scheduleWidgetTick(); // session 79: the next minute (second) of a clock
+        if (const int hidden = hiddenItemCount(); hidden > 0) {
+            // Session 76: the fence is too small for all its icons -- say how many
+            // are out of sight; a click on the badge lists them.
+            const QRect badge = hiddenBadgeRect();
+            painter.save();
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setPen(QPen(QColor(0x3B, 0x82, 0xF6), 1.0));
+            painter.setBrush(QColor(0x11, 0x18, 0x27, 0xE0));
+            painter.drawRoundedRect(QRectF(badge).adjusted(0.5, 0.5, -0.5, -0.5), badge.height() / 2.0, badge.height() / 2.0);
+            QFont bold = font();
+            bold.setBold(true);
+            bold.setPixelSize(11);
+            painter.setFont(bold);
+            painter.setPen(QColor(0xFF, 0xFF, 0xFF));
+            painter.drawText(badge, Qt::AlignCenter, QStringLiteral("+%1").arg(hidden));
+            painter.restore();
+        }
     }
     if (m_dragging) {
         // Either the grid is about to receive the tile, or the desktop is:
         // never both, so the two hints are mutually exclusive by construction.
         if (m_releaseArmed) {
-            if (!m_dragOverOtherFence)
+            // Session 100 (t122u): a fence's widgets never go to the desktop --
+            // no "let go here" for them.
+            const bool widgetsOnly = std::all_of(m_dragPaths.cbegin(), m_dragPaths.cend(), core::isWidgetPath);
+            if (!m_dragOverOtherFence && !widgetsOnly)
                 paintReleaseHint(painter);
         } else {
             paintInsertionBar(m_dropTargetIndex, m_dropAfterCell, painter);
@@ -821,8 +827,8 @@ bool FenceView::beginWidgetResize(const QString& path)
         return false;
     const QString before = m_resizePath;
     m_resizePath = path;
-    if (widgetResizeIndex() < 0) {
-        m_resizePath = before;
+    if (widgetResizeIndex() < 0 || widget_resize::isLocked(m_grid.items().at(widgetResizeIndex()))) {
+        m_resizePath = before; // session 100: a locked widget has no resize mode
         return false;
     }
     if (!m_resizeIdle.isSingleShot()) {
@@ -1017,9 +1023,18 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
             return;
         // Session 65: the selection is what moves (the dragged icon always
         // belongs to it -- see the press).
+        // Session 100: a locked widget stays where it is; the rest of a
+        // selection still moves.
+        const core::DesktopItem& origin = m_grid.items().at(m_dragOriginIndex);
+        if (origin.isWidget() && widget_resize::isLocked(origin))
+            return;
         if (!m_grid.isSelected(m_dragOriginIndex))
             m_grid.selectOnly(m_dragOriginIndex);
-        m_dragPaths = selectedPaths();
+        QStringList paths = selectedPaths();
+        for (const core::DesktopItem& item : m_grid.items())
+            if (item.isWidget() && widget_resize::isLocked(item))
+                paths.removeAll(item.path);
+        m_dragPaths = paths;
         m_dragging = true;
     }
     updateDragGhost(true);

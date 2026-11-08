@@ -13,6 +13,8 @@
 #include <QSize>
 #include <QtGlobal>
 
+#include "core/desktop_item.hpp"
+
 namespace starfish::ui::widget_resize {
 
 inline constexpr int kIdleMs = 10000;   // the mode ends this long after the last touch
@@ -45,6 +47,37 @@ inline QSize spanAfter(const QSize& start, const QSize& pitch, const QPoint& del
     if ((edges & Bottom) && pitch.height() > 0)
         span.setHeight(start.height() + qRound(double(delta.y()) / pitch.height()));
     return QSize(qBound(1, span.width(), kMaxColumns), qBound(1, span.height(), kMaxRows));
+}
+
+// Session 100: a widget's lock (its size and its place), in its settings so
+// the layout keeps it, in a fence as on the desktop.
+inline bool isLocked(const core::DesktopItem& widget)
+{
+    return widget.widgetSettings.value(QStringLiteral("locked")).toBool();
+}
+
+// Session 100: an Image widget on the desktop is sized to the pixel, freely
+// (its own width and height, physical pixels); the others keep whole cells.
+constexpr int kMinFreePx = 32;
+inline bool resizesFreely(const core::DesktopItem& widget)
+{
+    return widget.widgetType == QLatin1String("image");
+}
+inline QSize freeSize(const core::DesktopItem& widget)
+{
+    const QSize size(widget.widgetSettings.value(QStringLiteral("pixelWidth")).toInt(),
+                     widget.widgetSettings.value(QStringLiteral("pixelHeight")).toInt());
+    return size.width() > 0 && size.height() > 0 ? size : QSize();
+}
+// The size after pulling `edges` by `delta`, to the pixel: at least
+// kMinFreePx, at most `max` (what is left of the desktop from its corner).
+inline QSize freeSizeAfter(const QSize& start, const QPoint& delta, int edges, const QSize& max)
+{
+    int w = start.width() + ((edges & Right) ? delta.x() : 0);
+    int h = start.height() + ((edges & Bottom) ? delta.y() : 0);
+    w = qBound(kMinFreePx, w, qMax(kMinFreePx, max.width()));
+    h = qBound(kMinFreePx, h, qMax(kMinFreePx, max.height()));
+    return QSize(w, h);
 }
 
 // The outline in the accent colour, with a grip on the right edge, the bottom

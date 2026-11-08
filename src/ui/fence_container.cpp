@@ -244,17 +244,9 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
     if (source && source->view)
         source->view->setDragOverOtherFence(!dropped && (into || refused));
     // Session 80: over no fence at all (its own included), the desktop shows
-    // its grid while the tiles are held.
-    // Session 96: widgets only -- the grid with the slots the first one covers.
-    QSize widgetSpan;
-    if (source && source->view && std::all_of(paths.cbegin(), paths.cend(), core::isWidgetPath))
-        for (const core::DesktopItem& item : source->view->items())
-            if (!paths.isEmpty() && item.path == paths.first())
-                widgetSpan = item.span;
-    if (widgetSpan.isValid())
-        emit widgetHoversDesktop(widgetSpan, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
-    else
-        emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
+    // its grid while the tiles are held. Session 100 (t122u): a fence's widgets
+    // never go to the desktop, so they show none (the product shows files only).
+    emit tilesHoverDesktop(paths, screenPoint, !dropped && fenceAt(screenPoint).isEmpty());
     if (!dropped) {
         if (into && into->view) {
             const QRect visible = visibleRectOf(*into);
@@ -274,22 +266,12 @@ int FenceContainer::dragTilesOutside(const QString& sourceId, const QStringList&
     if (refused)
         return 0;
     if (!into || !source || !source->view) {
-        // Session 79: a widget had no place on the desktop; session 95 (T-150):
-        // it goes there, like an icon, where the product keeps desktop widgets.
+        // Session 100 (t122u): fence widgets and desktop widgets are apart -- a
+        // fence's widget let go on the desktop stays in its fence; files go.
         QStringList files;
-        QList<core::DesktopItem> widgets;
-        for (const QString& path : paths) {
-            if (!core::isWidgetPath(path)) {
+        for (const QString& path : paths)
+            if (!core::isWidgetPath(path))
                 files << path;
-                continue;
-            }
-            if (source && source->view)
-                for (const core::DesktopItem& item : source->view->items())
-                    if (item.path == path)
-                        widgets << item;
-        }
-        if (!widgets.isEmpty())
-            emit widgetsDroppedOnDesktop(sourceId, widgets, screenPoint);
         if (files.isEmpty())
             return 0;
         emit tilesDroppedOnDesktop(files, screenPoint); // session 76: where they were let go
@@ -458,29 +440,6 @@ int FenceContainer::fileInto(const QString& fenceId, const QList<core::DesktopIt
         qCInfo(lc).noquote()
             << QStringLiteral("filed %1 item(s) into %2").arg(filed).arg(fence->id);
     return filed;
-}
-
-void FenceContainer::showWidgetDropAt(const QPoint& screenPoint, bool active)
-{
-    QString target = active ? fenceAt(screenPoint) : QString();
-    FenceWindow* into = target.isEmpty() ? nullptr : find(target);
-    if (into && into->locked) {
-        into = nullptr;
-        target.clear();
-    }
-    if (m_tileDropTarget != target) {
-        if (FenceWindow* old = find(m_tileDropTarget); old && old->view)
-            old->view->setExternalDropIndex(-1);
-        m_tileDropTarget = target;
-    }
-    if (!into || !into->view)
-        return;
-    const QRect visible = visibleRectOf(*into);
-    const qreal dpr = m_screens.devicePixelRatioFor(into->rect);
-    const QPoint local(qRound((screenPoint.x() - visible.x()) / dpr), qRound((screenPoint.y() - visible.y()) / dpr));
-    bool after = false;
-    const int at = into->view->insertionIndexAt(local, &after);
-    into->view->setExternalDropIndex(at >= 0 ? at : into->view->items().size(), after);
 }
 
 QString FenceContainer::fenceAt(const QPoint& point) const
@@ -713,7 +672,12 @@ bool FenceContainer::replaceDesktopWidget(const QString& path, const core::Deskt
     for (DesktopWidget& widget : m_desktopWidgets) {
         if (widget.item.path != path)
             continue;
-        widget.item = item;
+        core::DesktopItem next = item;
+        if (next.span != widget.item.span) { // session 100: a size in cells replaces a size to the pixel
+            next.widgetSettings.remove(QStringLiteral("pixelWidth"));
+            next.widgetSettings.remove(QStringLiteral("pixelHeight"));
+        }
+        widget.item = next;
         pushDesktopWidgets();
         emit desktopWidgetsChanged();
         return true;

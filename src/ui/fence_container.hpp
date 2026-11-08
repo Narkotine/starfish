@@ -428,9 +428,6 @@ public:
     // searched in reverse creation order, so the one drawn last -- the one on top
     // -- is the one that answers where two overlap.
     QString fenceAt(const QPoint& point) const;
-    // Session 95 (T-150): a desktop widget held over a fence shows where it
-    // would land (nothing over a locked one); `active` false clears it.
-    void showWidgetDropAt(const QPoint& screenPoint, bool active);
 
     // T-042: files items into a named fence, the way a rule does, without a rule --
     // the other half of dragging one of the icons the backdrop draws onto a fence
@@ -627,10 +624,6 @@ signals:
     // Session 76: tiles let go over the desktop (before they leave the fence):
     // the product puts them where they were dropped.
     void tilesDroppedOnDesktop(const QStringList& paths, const QPoint& screenPoint);
-    // Session 95 (T-150): widgets let go on the bare desktop -- the product puts
-    // them there; they are still in `sourceId` until it releases them.
-    void widgetsDroppedOnDesktop(const QString& sourceId, const QList<core::DesktopItem>& widgets,
-                                 const QPoint& screenPoint);
     // Session 80: tiles held over the bare desktop (`active` false: no longer).
     void tilesHoverDesktop(const QStringList& paths, const QPoint& screenPoint, bool active);
     void fenceRectChanged(const QString& id, const QRect& rect);
@@ -639,7 +632,6 @@ signals:
     // wires this to the same auto-save as the other lifecycle signals.
     void fenceRolledUpChanged(const QString& id, bool rolledUp);
     void fenceLockedChanged(const QString& id, bool locked); // session 94
-    void widgetHoversDesktop(const QSize& span, const QPoint& screenPoint, bool active); // session 96
     void fencesVisibilityChanged(bool visible);
     void peekChanged(bool active);
     // T-076: the user asked for the fence's **own** menu -- a right-click that

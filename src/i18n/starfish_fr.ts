@@ -974,19 +974,31 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2950"/>
-        <location line="+167"/>
+        <location filename="../app/product_app.cpp" line="+2922"/>
+        <location line="+179"/>
+        <source>Unlock</source>
+        <translation>Déverrouiller</translation>
+    </message>
+    <message>
+        <location line="-178"/>
+        <location line="+179"/>
+        <source>Lock</source>
+        <translation>Verrouiller</translation>
+    </message>
+    <message>
+        <location line="-172"/>
+        <location line="+178"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="-164"/>
-        <location line="+166"/>
+        <location line="-175"/>
+        <location line="+177"/>
         <source>Configure widget…</source>
         <translation>Configurer le widget…</translation>
     </message>
     <message>
-        <location line="-157"/>
+        <location line="-168"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -1002,35 +1014,35 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+157"/>
+        <location line="+168"/>
         <source>Size</source>
         <translation>Taille</translation>
     </message>
     <message>
-        <location line="-145"/>
-        <location line="+157"/>
+        <location line="-156"/>
+        <location line="+168"/>
         <source>Other size…</source>
         <translation>Autre taille…</translation>
     </message>
     <message>
-        <location line="-155"/>
-        <location line="+157"/>
+        <location line="-166"/>
+        <location line="+168"/>
         <source>Resize</source>
         <translation>Redimensionner</translation>
     </message>
     <message>
-        <location line="-154"/>
-        <location line="+156"/>
+        <location line="-164"/>
+        <location line="+168"/>
         <source>Remove the widget</source>
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="-19"/>
+        <location line="-21"/>
         <source>Readable backdrop</source>
         <translation>Fond discret (lisibilité)</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+76"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1061,7 +1073,7 @@
 <context>
     <name>ShellDropTarget</name>
     <message>
-        <location filename="../app/ui_probe.cpp" line="+3209"/>
+        <location filename="../app/ui_probe.cpp" line="+3293"/>
         <location line="+26"/>
         <location line="+114"/>
         <location filename="../platform/win/shell_drop_target.cpp" line="+129"/>
@@ -1129,7 +1141,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3610"/>
+        <location line="-3607"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1165,7 +1177,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+591"/>
+        <location line="+565"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1519,7 +1531,7 @@
 <context>
     <name>starfish::ui::DesktopBackdrop</name>
     <message>
-        <location filename="../ui/desktop_backdrop.cpp" line="+1576"/>
+        <location filename="../ui/desktop_backdrop.cpp" line="+1605"/>
         <source>desktop backdrop off</source>
         <translation>fond de bureau désactivé</translation>
     </message>
@@ -1554,7 +1566,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+675"/>
+        <location line="+690"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -2103,12 +2115,12 @@
 <context>
     <name>starfish::ui::WidgetSettingsDialog</name>
     <message>
-        <location filename="../ui/widget_settings_dialog.cpp" line="+45"/>
+        <location filename="../ui/widget_settings_dialog.cpp" line="+47"/>
         <source>Configure widget - %1</source>
         <translation>Configurer le widget - %1</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+19"/>
         <source>Width</source>
         <translation>Largeur</translation>
     </message>
@@ -2204,7 +2216,7 @@
         <translation>Affichage</translation>
     </message>
     <message>
-        <location line="-99"/>
+        <location line="-102"/>
         <source>Choose an image</source>
         <translation>Choisir une image</translation>
     </message>
@@ -2214,7 +2226,7 @@
         <translation>Images (%1)</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+106"/>
         <source>Percent</source>
         <translation>Pourcentage</translation>
     </message>

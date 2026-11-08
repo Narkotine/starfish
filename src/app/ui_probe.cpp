@@ -53,6 +53,7 @@
 #include <QFontMetrics>
 #include <QPushButton>
 #include "ui/modern_menu.hpp"
+#include "ui/widget_resize.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 #include "platform/win/shell_operations.hpp"
@@ -3029,6 +3030,86 @@ int runUiProbe(QApplication& app)
                   .arg(droppedPath).arg(droppedAt.x()).arg(droppedAt.y()).arg(menuPath, editPath));
         check(QStringLiteral("desktop widgets do not tick while the StarFish desktop is not shown (sampler released) (session 91)"),
               !desk.desktopWidgetsTicking(), {});
+        // Session 100: an Image widget on the desktop pulled to the pixel; a
+        // locked desktop widget keeps its place and has no resize mode.
+        {
+            core::DesktopItem picture = ui::widgets::create(QStringLiteral("image"));
+            picture.span = QSize(2, 2);
+            core::DesktopItem held = ui::widgets::create(QStringLiteral("cpu"));
+            held.widgetSettings.insert(QStringLiteral("locked"), true);
+            QList<ui::DesktopWidget> all = desk.desktopWidgets();
+            all.append({picture, QPoint(200, 600)});
+            all.append({held, QPoint(700, 600)});
+            desk.setDesktopWidgets(all);
+            QSize freeSize;
+            int cellEmits = 0;
+            QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetResizedFree, &desk,
+                             [&freeSize](const QString&, const QSize& size) { freeSize = size; });
+            QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetResized, &desk,
+                             [&cellEmits](const QString&, const QSize&) { ++cellEmits; });
+            const bool began = desk.beginWidgetResize(picture.path);
+            const QRect r = desk.widgetResizeRect();
+            send(QEvent::MouseButtonPress, r.bottomRight(), Qt::LeftButton, Qt::LeftButton);
+            send(QEvent::MouseMove, r.bottomRight() + QPoint(37, 23), Qt::NoButton, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, r.bottomRight() + QPoint(37, 23), Qt::LeftButton, Qt::NoButton);
+            desk.endWidgetResize();
+            // Pulled far in: the minimum.
+            desk.beginWidgetResize(picture.path);
+            const QRect r2 = desk.widgetResizeRect();
+            QSize tiny;
+            QObject::disconnect(&desk, &ui::DesktopBackdrop::desktopWidgetResizedFree, nullptr, nullptr);
+            QObject::connect(&desk, &ui::DesktopBackdrop::desktopWidgetResizedFree, &desk,
+                             [&tiny](const QString&, const QSize& size) { tiny = size; });
+            send(QEvent::MouseButtonPress, r2.bottomRight(), Qt::LeftButton, Qt::LeftButton);
+            send(QEvent::MouseMove, r2.bottomRight() - QPoint(1000, 1000), Qt::NoButton, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, r2.bottomRight() - QPoint(1000, 1000), Qt::LeftButton, Qt::NoButton);
+            desk.endWidgetResize();
+            {   // The picture at its new size, in its resize mode: the capture.
+                QList<ui::DesktopWidget> shown = desk.desktopWidgets();
+                for (ui::DesktopWidget& d : shown)
+                    if (d.item.path == picture.path) {
+                        d.item.widgetSettings.insert(QStringLiteral("path"), QDir(QStringLiteral("build")).absoluteFilePath(QStringLiteral("s100_dummy.png")));
+                        d.item.widgetSettings.insert(QStringLiteral("pixelWidth"), 260);
+                        d.item.widgetSettings.insert(QStringLiteral("pixelHeight"), 150);
+                    }
+                QImage wide(800, 450, QImage::Format_ARGB32);
+                {
+                    QPainter wp(&wide);
+                    QLinearGradient g(0, 0, 800, 450);
+                    g.setColorAt(0, QColor(0x2E, 0x8B, 0x57));
+                    g.setColorAt(1, QColor(0x1E, 0x3A, 0x8A));
+                    wp.fillRect(wide.rect(), g);
+                }
+                wide.save(QDir(QStringLiteral("build")).absoluteFilePath(QStringLiteral("s100_dummy.png")));
+                desk.setDesktopWidgets(shown);
+                desk.beginWidgetResize(picture.path);
+                QImage full(1920, 1080, QImage::Format_ARGB32_Premultiplied);
+                full.fill(QColor(0x30, 0x40, 0x50));
+                {
+                    QPainter sp(&full);
+                    desk.paintDesktopWidgets(sp, full.rect(), full.rect());
+                }
+                const QImage shot = full.copy(QRect(150, 570, 360, 230));
+                shot.save(captures + QStringLiteral("/s100_image_free_resize.png"));
+                desk.endWidgetResize();
+                QFile::remove(QDir(QStringLiteral("build")).absoluteFilePath(QStringLiteral("s100_dummy.png")));
+            }
+            const bool lockedNoMode = !desk.beginWidgetResize(held.path);
+            send(QEvent::MouseButtonPress, QPoint(720, 620), Qt::LeftButton, Qt::LeftButton);
+            send(QEvent::MouseMove, QPoint(900, 700), Qt::NoButton, Qt::LeftButton);
+            send(QEvent::MouseButtonRelease, QPoint(900, 700), Qt::LeftButton, Qt::NoButton);
+            QPoint heldAt;
+            for (const ui::DesktopWidget& d : desk.desktopWidgets())
+                if (d.item.path == held.path)
+                    heldAt = d.pos;
+            check(QStringLiteral("desktop Image widget resized to the pixel (min 32 px); a locked desktop widget stays, no resize mode (session 100)"),
+                  began && freeSize == r.size() + QSize(37, 23) && cellEmits == 0
+                      && tiny == QSize(ui::widget_resize::kMinFreePx, ui::widget_resize::kMinFreePx) && lockedNoMode
+                      && heldAt == QPoint(700, 600),
+                  QStringLiteral("from %1x%2 to %3x%4, tiny %5x%6, locked mode %7, held at %8,%9")
+                      .arg(r.width()).arg(r.height()).arg(freeSize.width()).arg(freeSize.height())
+                      .arg(tiny.width()).arg(tiny.height()).arg(!lockedNoMode).arg(heldAt.x()).arg(heldAt.y()));
+        }
 
         // In the document, through the container: saved, restored, an obstacle
         // for the icons, cleared by a reset.
@@ -3109,23 +3190,26 @@ int runUiProbe(QApplication& app)
         const QColor bg(0x20, 0x30, 0x40);
         const bool fitLetterbox = a.pixelColor(100, 20) == bg && a.pixelColor(100, 100) != bg;
         const bool fillCovers = b.pixelColor(100, 20) != bg && b.pixelColor(100, 180) != bg;
-        // T-150 (container side): a widget let go on the bare desktop is handed
-        // over; a desktop widget filed into a zone lands there, a locked one refuses.
+        // Session 100 (t122u): a zone's widget let go on the bare desktop stays
+        // in its zone (zone widgets and desktop widgets are apart); a widget
+        // filed into a zone lands there, a locked zone refuses.
         ui::FenceContainer box;
         const QString zone = box.createFence(QStringLiteral("Zone"), QRect(0, 0, 400, 300));
         box.addWidget(zone, filled);
-        QList<core::DesktopItem> handed;
-        QObject::connect(&box, &ui::FenceContainer::widgetsDroppedOnDesktop, &box,
-                         [&handed](const QString&, const QList<core::DesktopItem>& w, const QPoint&) { handed = w; });
+        int hovers = 0;
+        QObject::connect(&box, &ui::FenceContainer::tilesDroppedOnDesktop, &box,
+                         [&hovers](const QStringList&, const QPoint&) { ++hovers; });
         box.dragTilesOutside(zone, {filled.path}, QPoint(900, 600), true);
+        bool stayed = false;
+        if (ui::FenceView* v = box.view(zone))
+            for (const core::DesktopItem& item : v->items())
+                stayed = stayed || item.path == filled.path;
         core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
         const int in = box.fileIntoAt(zone, {clock}, QPoint(200, 150));
         box.setFenceLocked(zone, true);
         core::DesktopItem cpu = ui::widgets::create(QStringLiteral("cpu"));
         const int refused = box.fileIntoAt(zone, {cpu}, QPoint(200, 150));
-        const bool t150 = handed.size() == 1 && handed.first().path == filled.path
-                          && handed.first().widgetSettings.value(QStringLiteral("path")).toString() == picture
-                          && in == 1 && refused == 0;
+        const bool t150 = stayed && hovers == 0 && in == 1 && refused == 0;
         // Saved like any widget setting.
         const core::Layout doc = box.toLayout();
         bool saved = false;
@@ -3135,8 +3219,8 @@ int runUiProbe(QApplication& app)
               fitLetterbox && fillCovers && filled.widgetSettings.value(QStringLiteral("fit")).toString() == QLatin1String("fill")
                   && saved,
               QStringLiteral("fit %1 fill %2 saved %3 [s95_image_widget.png]").arg(fitLetterbox).arg(fillCovers).arg(saved));
-        check(QStringLiteral("widgets between a zone and the desktop: handed to the desktop, filed into a zone, locked refuses (T-150, session 95)"),
-              t150, QStringLiteral("handed %1 in %2 refused %3").arg(handed.size()).arg(in).arg(refused));
+        check(QStringLiteral("a zone's widget let go on the desktop stays in its zone; filed into a zone; a locked zone refuses (session 100)"),
+              t150, QStringLiteral("stayed %1 handed %2 in %3 refused %4").arg(stayed).arg(hovers).arg(in).arg(refused));
     }
     // Session 95: About > reset, the labels that say what happens.
     {
@@ -3365,6 +3449,102 @@ int runUiProbe(QApplication& app)
                   .arg(rightNoMenu)
                   .arg(ctrlNoMenu)
                   .arg(deskCancelled));
+    }
+    // Session 100: a widget goes into an EMPTY fence too -- from another fence
+    // (the drag of its tile) and from the desktop (filed where it was let go).
+    {
+        ui::FenceContainer box;
+        const QString from = box.createFence(QStringLiteral("From"), QRect(0, 0, 400, 300));
+        const QString empty = box.createFence(QStringLiteral("Empty"), QRect(600, 0, 400, 300));
+        const QString empty2 = box.createFence(QStringLiteral("Empty2"), QRect(0, 500, 400, 300));
+        core::DesktopItem clock = ui::widgets::create(QStringLiteral("clock"));
+        box.addWidget(from, clock);
+        QString wpath;
+        if (ui::FenceView* v = box.view(from))
+            for (const core::DesktopItem& item : v->items())
+                if (item.isWidget())
+                    wpath = item.path;
+        for (const QString& id : {from, empty, empty2})
+            if (ui::FenceView* v = box.view(id)) {
+                if (offscreen)
+                    v->setAttribute(Qt::WA_DontShowOnScreen);
+                v->show();
+            }
+        wait(100);
+        const QPoint target = box.fenceRect(empty).center();
+        // The gesture itself, as the fence's widget sees it: press on the tile,
+        // move past the drag distance, out over the empty fence, let go.
+        int moved = 0;
+        if (ui::FenceView* v = box.view(from)) {
+            const QRect tile = v->tileRects().value(0);
+            const QPoint origin = box.physicalFromFenceLocal(from, QPoint(0, 0));
+            const QPoint outside = target - origin; // the source's local frame (dpr 1 here)
+            const auto mouse = [v](QEvent::Type type, const QPoint& at, Qt::MouseButton b, Qt::MouseButtons held) {
+                QMouseEvent e(type, QPointF(at), QPointF(v->mapToGlobal(at)), b, held, Qt::NoModifier);
+                QApplication::sendEvent(v, &e);
+            };
+            mouse(QEvent::MouseButtonPress, tile.center(), Qt::LeftButton, Qt::LeftButton);
+            mouse(QEvent::MouseMove, tile.center() + QPoint(12, 12), Qt::NoButton, Qt::LeftButton);
+            mouse(QEvent::MouseMove, outside, Qt::NoButton, Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, outside, Qt::LeftButton, Qt::NoButton);
+            moved = box.view(empty) ? box.view(empty)->items().size() : -1;
+        }
+        const int inEmpty = box.view(empty) ? box.view(empty)->items().size() : -1;
+        const int left = box.view(from) ? box.view(from)->items().size() : -1;
+        core::DesktopItem cpu = ui::widgets::create(QStringLiteral("cpu"));
+        const int filed = box.fileIntoAt(empty2, {cpu}, box.fenceRect(empty2).center());
+        // The empty fence shows where it would land (the bar), as a full one does.
+        bool barShown = false;
+        if (ui::FenceView* e2 = box.view(empty2)) {
+            core::DesktopItem gone = ui::widgets::create(QStringLiteral("clock"));
+            const QString emptier = box.createFence(QStringLiteral("Empty3"), QRect(600, 500, 400, 300));
+            if (ui::FenceView* e3 = box.view(emptier)) {
+                if (offscreen)
+                    e3->setAttribute(Qt::WA_DontShowOnScreen);
+                e3->show();
+                wait(50);
+                const QImage before = e3->grab().toImage();
+                e3->setExternalDropIndex(0, false);
+                const QImage during = e3->grab().toImage();
+                during.save(captures + QStringLiteral("/s100_empty_fence_bar.png"));
+                barShown = before != during;
+                e3->setExternalDropIndex(-1, false);
+            }
+            Q_UNUSED(e2);
+            Q_UNUSED(gone);
+        }
+        check(QStringLiteral("a widget goes into an empty fence (the whole gesture), and the empty fence shows the bar (session 100)"),
+              moved == 1 && inEmpty == 1 && left == 0 && filed == 1 && barShown,
+              QStringLiteral("moved %1 inEmpty %2 left %3 filed %4 bar %5").arg(moved).arg(inEmpty).arg(left).arg(filed).arg(barShown));
+        // Session 100: a locked widget -- no drag, no resize mode, kept in the layout.
+        bool lockHeld = false, noResize = false, lockSaved = false;
+        if (ui::FenceView* v = box.view(empty)) {
+            QList<core::DesktopItem> items = v->items();
+            if (!items.isEmpty()) {
+                core::DesktopItem w = items.first();
+                w.widgetSettings.insert(QStringLiteral("locked"), true);
+                box.replaceFenceItem(empty, w.path, w);
+                noResize = !box.beginWidgetResize(empty, w.path);
+                const QRect tile = v->tileRects().value(0);
+                const QPoint origin = box.physicalFromFenceLocal(empty, QPoint(0, 0));
+                const QPoint over = box.fenceRect(from).center() - origin;
+                const auto mouse = [v](QEvent::Type type, const QPoint& at, Qt::MouseButton b, Qt::MouseButtons held) {
+                    QMouseEvent e(type, QPointF(at), QPointF(v->mapToGlobal(at)), b, held, Qt::NoModifier);
+                    QApplication::sendEvent(v, &e);
+                };
+                mouse(QEvent::MouseButtonPress, tile.center(), Qt::LeftButton, Qt::LeftButton);
+                mouse(QEvent::MouseMove, tile.center() + QPoint(12, 12), Qt::NoButton, Qt::LeftButton);
+                mouse(QEvent::MouseMove, over, Qt::NoButton, Qt::LeftButton);
+                mouse(QEvent::MouseButtonRelease, over, Qt::LeftButton, Qt::NoButton);
+                lockHeld = v->items().size() == 1 && box.view(from)->items().isEmpty();
+                for (const core::Fence& fence : box.toLayout().fences)
+                    for (const core::FenceItem& item : fence.items)
+                        lockSaved = lockSaved || item.widgetSettings.value(QStringLiteral("locked")).toBool();
+            }
+        }
+        check(QStringLiteral("a locked widget in a fence: not dragged, no resize mode, saved locked (session 100)"),
+              lockHeld && noResize && lockSaved,
+              QStringLiteral("held %1 noResize %2 saved %3").arg(lockHeld).arg(noResize).arg(lockSaved));
     }
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.

@@ -1238,6 +1238,9 @@ void DesktopBackdrop::setDesktopWidgetCell(const QSize& cell)
 
 QRect DesktopBackdrop::desktopWidgetRect(const DesktopWidget& widget) const
 {
+    if (widget_resize::resizesFreely(widget.item)) // session 100: its own size, to the pixel
+        if (const QSize free = widget_resize::freeSize(widget.item); free.isValid())
+            return QRect(widget.pos, free);
     const QSize span = widget.item.span.isValid() ? widget.item.span : QSize(1, 1);
     return QRect(widget.pos, QSize(span.width() * m_widgetCell.width(), span.height() * m_widgetCell.height()));
 }
@@ -1316,6 +1319,8 @@ QRect DesktopBackdrop::widgetResizeRect() const
         const QRect r = desktopWidgetRect(widget);
         if (!m_resizeDragging)
             return r;
+        if (m_resizeFree)
+            return QRect(r.topLeft(), m_resizePreviewPx);
         return QRect(r.topLeft(), QSize(m_resizePreview.width() * m_widgetCell.width(),
                                         m_resizePreview.height() * m_widgetCell.height()));
     }
@@ -1326,7 +1331,7 @@ bool DesktopBackdrop::beginWidgetResize(const QString& path)
 {
     bool found = false;
     for (const DesktopWidget& widget : std::as_const(m_widgets))
-        found = found || widget.item.path == path;
+        found = found || (widget.item.path == path && !widget_resize::isLocked(widget.item)); // session 100
     if (!found)
         return false;
     endWidgetResize();
@@ -1390,16 +1395,34 @@ bool DesktopBackdrop::handleResizeMouse(QMouseEvent* mouse, const QPoint& screen
             return false;
         }
         for (const DesktopWidget& widget : std::as_const(m_widgets))
-            if (widget.item.path == m_resizePath)
+            if (widget.item.path == m_resizePath) {
                 m_resizeStartSpan = widget.item.span.isValid() ? widget.item.span : QSize(1, 1);
+                m_resizeFree = widget_resize::resizesFreely(widget.item);
+                m_resizeStartPx = desktopWidgetRect(widget).size();
+            }
         m_resizeEdges = edges;
         m_resizeDragging = true;
         m_resizeStart = screen;
         m_resizePreview = m_resizeStartSpan;
+        m_resizePreviewPx = m_resizeStartPx;
         m_resizeIdle.start(widget_resize::kIdleMs);
         return true;
     }
     case QEvent::MouseMove: {
+        if (m_resizeDragging && m_resizeFree) { // session 100: to the pixel, inside the desktop
+            const QRect r = widgetResizeRect();
+            const QRect desk = area();
+            const QSize max = desk.isEmpty() ? QSize(1 << 15, 1 << 15)
+                                             : QSize(desk.right() + 1 - r.left(), desk.bottom() + 1 - r.top());
+            const QSize px = widget_resize::freeSizeAfter(m_resizeStartPx, screen - m_resizeStart, m_resizeEdges, max);
+            m_resizeIdle.start(widget_resize::kIdleMs);
+            setResizeCursor(m_resizeEdges);
+            if (px != m_resizePreviewPx) {
+                m_resizePreviewPx = px;
+                invalidate(r.united(widgetResizeRect()).adjusted(-pad, -pad, pad, pad));
+            }
+            return true;
+        }
         if (m_resizeDragging) {
             const QSize preview = widget_resize::spanAfter(m_resizeStartSpan, m_widgetCell, screen - m_resizeStart,
                                                            m_resizeEdges);
@@ -1427,8 +1450,12 @@ bool DesktopBackdrop::handleResizeMouse(QMouseEvent* mouse, const QPoint& screen
             const QString path = m_resizePath;
             const QSize span = m_resizePreview;
             invalidate(widgetResizeRect().adjusted(-pad, -pad, pad, pad));
-            if (span != m_resizeStartSpan)
+            if (m_resizeFree) {
+                if (m_resizePreviewPx != m_resizeStartPx)
+                    emit desktopWidgetResizedFree(path, m_resizePreviewPx);
+            } else if (span != m_resizeStartSpan) {
                 emit desktopWidgetResized(path, span);
+            }
             return true;
         }
         return false;
@@ -1492,6 +1519,8 @@ bool DesktopBackdrop::handleWidgetMouse(QMouseEvent* mouse, const QPoint& screen
             m_widgetPressed.clear();
             return i >= 0;
         }
+        if (widget_resize::isLocked(m_widgets.at(i).item))
+            return true; // session 100: a locked widget keeps its place
         const QPoint delta = screen - m_widgetPressAt;
         if (!m_widgetMoving && delta.manhattanLength() >= m_gesture.metrics().dragThreshold)
             m_widgetMoving = true; // the icons' own threshold

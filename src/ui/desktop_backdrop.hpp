@@ -338,6 +338,8 @@ signals:
     void desktopWidgetDropped(const QString& path, const QPoint& pos);
     void desktopWidgetEditRequested(const QString& path);
     void desktopWidgetResized(const QString& path, const QSize& span); // session 98
+    // Session 100: an Image widget pulled to the pixel (physical pixels).
+    void desktopWidgetResizedFree(const QString& path, const QSize& size);
 
 protected:
     // The surface posts its mouse events here (DesktopSurface::setInputTarget),
@@ -459,6 +461,9 @@ private:
     QPoint m_resizeStart;
     QSize m_resizeStartSpan;
     QSize m_resizePreview;
+    bool m_resizeFree = false; // session 100: an Image widget, to the pixel
+    QSize m_resizeStartPx;
+    QSize m_resizePreviewPx;
     void setResizeCursor(int edges);
     bool handleResizeMouse(QMouseEvent* mouse, const QPoint& screen);
 };
