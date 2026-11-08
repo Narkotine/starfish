@@ -360,14 +360,14 @@
     <message>
         <location line="+4"/>
         <location line="+11"/>
-        <location line="+6"/>
+        <location line="+27"/>
         <location line="+6"/>
         <location line="+6"/>
         <source>Default (Settings)</source>
         <translation>Par défaut (Réglages)</translation>
     </message>
     <message>
-        <location line="-28"/>
+        <location line="-49"/>
         <source>Nothing</source>
         <translation>Aucun</translation>
     </message>
@@ -417,7 +417,32 @@
         <translation>Enroulement</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Slow</source>
+        <translation>Lente</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Normal</source>
+        <translation>Normale</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fast</source>
+        <translation>Rapide</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Every fence rolls at this speed (also in Settings &gt; Fences).</source>
+        <translation>Toutes les zones s&apos;enroulent à cette vitesse (aussi dans Paramètres &gt; Zones).</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Rolling speed (all fences)</source>
+        <translation>Vitesse d&apos;enroulement (toutes les zones)</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Whole icons</source>
         <translation>Icônes entières</translation>
     </message>
@@ -790,7 +815,7 @@
         <translation>Image introuvable</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+139"/>
         <source>%1 free</source>
         <translation>%1 libre</translation>
     </message>
@@ -926,19 +951,19 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2820"/>
-        <location line="+158"/>
+        <location filename="../app/product_app.cpp" line="+2840"/>
+        <location line="+160"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
     </message>
     <message>
-        <location line="-155"/>
-        <location line="+157"/>
+        <location line="-157"/>
+        <location line="+159"/>
         <source>Configure widget…</source>
         <translation>Configurer le widget…</translation>
     </message>
     <message>
-        <location line="-148"/>
+        <location line="-150"/>
         <source>Show seconds</source>
         <translation>Afficher les secondes</translation>
     </message>
@@ -954,23 +979,29 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+148"/>
+        <location line="+150"/>
         <source>Size</source>
         <translation>Taille</translation>
     </message>
     <message>
-        <location line="-136"/>
-        <location line="+148"/>
+        <location line="-138"/>
+        <location line="+150"/>
+        <source>Other size…</source>
+        <translation>Autre taille…</translation>
+    </message>
+    <message>
+        <location line="-148"/>
+        <location line="+150"/>
         <source>Remove the widget</source>
         <translation>Retirer le widget</translation>
     </message>
     <message>
-        <location line="-15"/>
+        <location line="-17"/>
         <source>Readable backdrop</source>
         <translation>Fond discret (lisibilité)</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+62"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1032,7 +1063,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3464"/>
+        <location line="-3488"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1068,7 +1099,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+565"/>
+        <location line="+580"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1078,7 +1109,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+532"/>
+        <location line="+537"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1526,12 +1557,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+571"/>
+        <location line="+565"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-561"/>
+        <location line="-555"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1902,32 +1933,21 @@
         <translation>Vos fichiers et le bureau Windows ne sont jamais touchés. La disposition actuelle est d&apos;abord copiée dans le dossier des sauvegardes.</translation>
     </message>
     <message>
-        <location filename="../app/ui_probe.cpp" line="+3143"/>
-        <location filename="../ui/settings_dialog.cpp" line="+6"/>
-        <source>Start over from the Windows desktop</source>
-        <translation>Se rebaser sur le bureau de Windows</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <location filename="../ui/settings_dialog.cpp" line="+2"/>
-        <location line="+13"/>
-        <source>Reset the StarFish desktop</source>
-        <translation>Réinitialiser le bureau de StarFish</translation>
-    </message>
-    <message>
-        <location filename="../ui/settings_dialog.cpp" line="-4"/>
-        <source>Remove every zone and every widget (notes included), and any automatic filing rule? Every icon goes back to the place Windows keeps for it.</source>
-        <translation>Supprimer toutes les zones et tous les widgets (notes comprises), ainsi que les éventuelles règles de rangement automatique ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+16"/>
         <source>Remove every zone and every widget (notes included)? Every icon goes back to the place Windows keeps for it.</source>
         <translation>Supprimer toutes les zones et tous les widgets (notes comprises) ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+177"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
+    </message>
+    <message>
+        <location filename="../app/ui_probe.cpp" line="+3143"/>
+        <location filename="../ui/settings_dialog.cpp" line="-185"/>
+        <location line="+7"/>
+        <source>Remove every zone and widget</source>
+        <translation>Retirer toutes les zones et tous les widgets</translation>
     </message>
 </context>
 <context>
@@ -2011,7 +2031,17 @@
         <translation>Configurer le widget - %1</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+16"/>
+        <source>Width</source>
+        <translation>Largeur</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Height</source>
+        <translation>Hauteur</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Size (cells)</source>
         <translation>Taille (cases)</translation>
     </message>
@@ -2097,7 +2127,7 @@
         <translation>Affichage</translation>
     </message>
     <message>
-        <location line="-89"/>
+        <location line="-99"/>
         <source>Choose an image</source>
         <translation>Choisir une image</translation>
     </message>
@@ -2107,7 +2137,7 @@
         <translation>Images (%1)</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+103"/>
         <source>Percent</source>
         <translation>Pourcentage</translation>
     </message>

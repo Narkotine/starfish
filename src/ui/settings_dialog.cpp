@@ -597,28 +597,22 @@ QWidget* SettingsDialog::buildAbout()
     resetHint->setObjectName(QStringLiteral("hint"));
     resetHint->setWordWrap(true);
     l->addWidget(resetHint);
-    auto* fromWindows = new QPushButton(tr("Start over from the Windows desktop"), p);
-    fromWindows->setObjectName(QStringLiteral("resetFromWindows"));
-    auto* wipe = new QPushButton(tr("Reset the StarFish desktop"), p);
-    wipe->setObjectName(QStringLiteral("resetWipe"));
+    // Session 96 (the user agreed): one button -- the two did the same, the
+    // second also clearing filing rules nobody can create.
+    auto* reset = new QPushButton(tr("Remove every zone and widget"), p);
+    reset->setObjectName(QStringLiteral("resetDesktop"));
     auto* resetRow = new QHBoxLayout;
-    resetRow->addWidget(fromWindows);
-    resetRow->addWidget(wipe);
+    resetRow->addWidget(reset);
     resetRow->addStretch(1);
     l->addLayout(resetRow);
-    auto confirm = [this](bool wipeAll) {
-        const QString text = wipeAll
-            ? tr("Remove every zone and every widget (notes included), and any automatic filing rule? "
-                 "Every icon goes back to the place Windows keeps for it.")
-            : tr("Remove every zone and every widget (notes included)? Every icon goes back to the place "
-                 "Windows keeps for it.");
-        if (QMessageBox::question(this, tr("Reset the StarFish desktop"), text,
+    connect(reset, &QPushButton::clicked, this, [this] {
+        if (QMessageBox::question(this, tr("Remove every zone and widget"),
+                                  tr("Remove every zone and every widget (notes included)? Every icon goes back to the place "
+                                     "Windows keeps for it."),
                                   QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel)
             == QMessageBox::Yes)
-            emit resetDesktopRequested(wipeAll);
-    };
-    connect(fromWindows, &QPushButton::clicked, this, [confirm] { confirm(false); });
-    connect(wipe, &QPushButton::clicked, this, [confirm] { confirm(true); });
+            emit resetDesktopRequested(true);
+    });
     l->addStretch(1);
     return p;
 }
