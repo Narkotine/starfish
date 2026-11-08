@@ -155,6 +155,7 @@ public:
     // Every fence draws its tiles again (an icon setting changed).
     void refreshFenceIcons();
     // Session 60: the desktop's icons again (the desktop's arrow setting).
+    void retranslate(); // session 97: the language changed
     void refreshBackdropIcons();
     // What the desktop must keep clear of (session 60, overlap off): the
     // visible rects of the fences on screen, physical px -- none while hidden.

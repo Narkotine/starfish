@@ -951,7 +951,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2840"/>
+        <location filename="../app/product_app.cpp" line="+2904"/>
         <location line="+160"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
@@ -1030,6 +1030,16 @@
     </message>
 </context>
 <context>
+    <name>ShellDropTarget</name>
+    <message>
+        <location filename="../app/ui_probe.cpp" line="+3209"/>
+        <location line="+26"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+109"/>
+        <source>Insert</source>
+        <translation>Insérer</translation>
+    </message>
+</context>
+<context>
     <name>SplashScreen</name>
     <message>
         <location filename="../ui/splash_screen.cpp" line="+95"/>
@@ -1063,12 +1073,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3488"/>
+        <location line="-3550"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+513"/>
+        <location line="+516"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -1099,7 +1109,7 @@
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+580"/>
+        <location line="+578"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1109,7 +1119,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+537"/>
+        <location line="+576"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1557,12 +1567,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+565"/>
+        <location line="+576"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-555"/>
+        <location line="-566"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1573,8 +1583,8 @@
     </message>
     <message>
         <location line="+0"/>
-        <source>Applied the next time StarFish starts.</source>
-        <translation>Appliquée au prochain démarrage de StarFish.</translation>
+        <source>Applied at once.</source>
+        <translation>Appliquée immédiatement.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -1938,13 +1948,13 @@
         <translation>Supprimer toutes les zones et tous les widgets (notes comprises) ? Chaque icône retourne à l&apos;emplacement que Windows lui garde.</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+188"/>
         <source>Turned off in Task Manager; switching it on here turns it back on.</source>
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
     <message>
-        <location filename="../app/ui_probe.cpp" line="+3143"/>
-        <location filename="../ui/settings_dialog.cpp" line="-185"/>
+        <location filename="../app/ui_probe.cpp" line="-89"/>
+        <location filename="../ui/settings_dialog.cpp" line="-196"/>
         <location line="+7"/>
         <source>Remove every zone and widget</source>
         <translation>Retirer toutes les zones et tous les widgets</translation>
@@ -1953,7 +1963,7 @@
 <context>
     <name>starfish::ui::TrayIcon</name>
     <message>
-        <location filename="../ui/tray_icon.cpp" line="+89"/>
+        <location filename="../ui/tray_icon.cpp" line="+82"/>
         <source>New fence</source>
         <translation>Nouvelle zone</translation>
     </message>
@@ -2008,7 +2018,7 @@
         <translation>Quitter StarFish</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+41"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -2018,7 +2028,8 @@
         <translation>%1 zone(s)</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-92"/>
+        <location line="+95"/>
         <source>StarFish -- %1 fence(s)</source>
         <translation>StarFish -- %1 zone(s)</translation>
     </message>

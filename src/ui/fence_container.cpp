@@ -158,6 +158,18 @@ void FenceContainer::refreshFenceIcons()
     }
 }
 
+void FenceContainer::retranslate()
+{
+    // Session 97: the texts the fences and widgets draw come from tr() at
+    // paint time -- a repaint is the whole change.
+    for (FenceWindow& fence : m_fences)
+        if (fence.view)
+            fence.view->update();
+    pushDesktopWidgets();
+    if (m_backdrop)
+        m_backdrop->refresh();
+}
+
 void FenceContainer::refreshBackdropIcons()
 {
     if (!m_backdrop)

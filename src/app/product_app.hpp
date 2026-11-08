@@ -316,6 +316,7 @@ private:
 
     void syncWatchedFolders();
     void refreshStatus();
+    void applyLanguage(const QString& code); // session 97: live
     void showSettings();
 
     // T-039: reads the real desktop folder and hands it to the container, which

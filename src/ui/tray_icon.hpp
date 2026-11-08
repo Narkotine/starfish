@@ -81,6 +81,8 @@ public:
     // A short balloon message, for an action whose effect is on the desktop and
     // therefore easy to miss.
     void notify(const QString& title, const QString& message);
+    // Session 97: the language changed -- every entry in the new one.
+    void retranslate();
 
 signals:
     void newFenceRequested();
@@ -109,6 +111,7 @@ private:
     // Session 59: the menu in Windows 11's style, in the theme of the moment
     // (re-read each time it opens), with glyphs on its entries.
     void restyle();
+    void buildMenu();
 
     QSystemTrayIcon* m_tray = nullptr;
     QMenu* m_menu = nullptr;

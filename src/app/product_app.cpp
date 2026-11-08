@@ -34,6 +34,7 @@
 #include "core/desktop_watcher.hpp"
 #include "core/icon_hiding_marker.hpp"
 #include "core/layout_store.hpp"
+#include "core/i18n.hpp"
 #include "core/overlap_planner.hpp"
 #include "platform/win/desktop_icons.hpp"
 #include "platform/win/desktop_scanner.hpp"
@@ -616,9 +617,12 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::defaultTransparencyChanged, this,
             &ProductApp::setDefaultFenceTransparency);
     connect(m_settings, &ui::SettingsDialog::fenceOverlapToggled, this, &ProductApp::setAllowFenceOverlap);
-    connect(m_settings, &ui::SettingsDialog::languageChosen, this, [](const QString& code) {
+    connect(m_settings, &ui::SettingsDialog::languageChosen, this, [this](const QString& code) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
             .setValue(QStringLiteral("language"), code);
+        // Session 97: at once -- after the combo's signal has returned, since
+        // the settings window is built again.
+        QTimer::singleShot(0, this, [this, code] { applyLanguage(code); });
     });
     connect(m_settings, &ui::SettingsDialog::desktopDoubleClickHidesToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
@@ -1976,6 +1980,45 @@ void ProductApp::restoreDesktopIcons()
         m_tray->setDesktopIconsHidden(m_iconsHidden);
 
     refreshStatus();
+}
+
+void ProductApp::applyLanguage(const QString& code)
+{
+    QString error;
+    if (!core::i18n::install(code, &error))
+        qCWarning(lc).noquote() << error;
+    if (m_tray) {
+        m_tray->retranslate();
+        m_tray->setFenceShortcutArrows(m_fenceShortcutArrows);
+        m_tray->setFenceCount(m_container ? m_container->fenceCount() : 0);
+        if (m_container) {
+            m_tray->setFencesVisible(m_container->fencesVisible());
+            m_tray->setPeekActive(m_container->peekActive());
+        }
+        m_tray->setDesktopIconsHidden(desktopIconsHidden());
+        m_tray->setFenceMaterial(sharedFenceMaterial());
+    }
+    if (m_container)
+        m_container->retranslate();
+    if (m_settings) { // built again, on the same page, where it was
+        const bool shown = m_settings->isVisible();
+        const auto page = m_settings->currentPage();
+        const QRect where = m_settings->geometry();
+        m_settings->hide();
+        m_settings->deleteLater();
+        m_settings = nullptr;
+        wireSettings();
+        if (m_settings) {
+            m_settings->showPage(page);
+            if (shown) {
+                m_settings->setGeometry(where);
+                showSettings();
+            }
+        }
+    }
+    qCInfo(lc).noquote() << QStringLiteral("interface language applied live: %1")
+                                .arg(core::i18n::installedLanguage().isEmpty() ? QStringLiteral("en")
+                                                                              : core::i18n::installedLanguage());
 }
 
 void ProductApp::showSettings()

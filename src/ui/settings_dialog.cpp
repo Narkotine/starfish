@@ -227,7 +227,7 @@ QWidget* SettingsDialog::buildGeneral()
     }
     l->addWidget(startRow);
 
-    // Session 65: the interface language, applied at the next start.
+    // Session 65: the interface language; applied at once since session 97.
     m_language = new QComboBox;
     m_language->setObjectName(QStringLiteral("languageCombo"));
     m_language->addItem(tr("Automatic (Windows)"), QString());
@@ -238,7 +238,7 @@ QWidget* SettingsDialog::buildGeneral()
         if (!m_updating)
             emit languageChosen(m_language->currentData().toString());
     });
-    l->addWidget(row(QString(QChar(0xF2B7)), tr("Language"), tr("Applied the next time StarFish starts."),
+    l->addWidget(row(QString(QChar(0xF2B7)), tr("Language"), tr("Applied at once."),
                      m_language, p));
 
     // Session 80: what runs the widgets, and what it weighs -- native widgets

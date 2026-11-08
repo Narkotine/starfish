@@ -4,6 +4,7 @@
 #include <functional>
 #include <cmath>
 #include <windows.h>
+#include <shlobj.h>
 #include <psapi.h>
 #include <QLinearGradient>
 #include <QToolButton>
@@ -55,6 +56,8 @@
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 #include "platform/win/shell_operations.hpp"
+#include "core/i18n.hpp"
+#include "platform/win/shell_drop_target.hpp"
 #include "platform/win/desktop_scanner.hpp"
 #include "core/shortcut_vault.hpp"
 #include <QKeyEvent>
@@ -3163,6 +3166,77 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("widget settings: width and height in cells, any size up to 8 x 6 (session 96)"),
               w && h && got == QSize(5, 3) && w->maximum() == 8 && h->maximum() == 6,
               QStringLiteral("%1 x %2 [s96_widget_size.png]").arg(got.width()).arg(got.height()));
+    }
+    // Session 97: over a fence, the drag says "Insert" (DROPDESCRIPTION),
+    // and the shell's own word comes back when it leaves. Dummy file only.
+    {
+        const QString dummy = QDir(QStringLiteral("build")).absoluteFilePath(QStringLiteral("s97_drop_dummy.txt"));
+        QFile f(dummy);
+        f.open(QIODevice::WriteOnly);
+        f.write("probe");
+        f.close();
+        const auto readDescription = [](IDataObject* data, int* type) {
+            FORMATETC format{static_cast<CLIPFORMAT>(::RegisterClipboardFormatW(CFSTR_DROPDESCRIPTION)), nullptr,
+                             DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+            STGMEDIUM medium{};
+            QString text;
+            *type = -2;
+            if (SUCCEEDED(data->GetData(&format, &medium))) {
+                if (auto* d = static_cast<DROPDESCRIPTION*>(::GlobalLock(medium.hGlobal))) {
+                    text = QString::fromWCharArray(d->szMessage);
+                    *type = d->type;
+                    ::GlobalUnlock(medium.hGlobal);
+                }
+                ::ReleaseStgMedium(&medium);
+            }
+            return text;
+        };
+        auto* data = static_cast<IDataObject*>(platform::win::createShellDataObject({QDir::toNativeSeparators(dummy)}));
+        auto* target = new platform::win::ShellDropTarget(nullptr, [](const QPoint&, const QStringList&) {});
+        QString over, after;
+        int overType = -2, afterType = -2;
+        if (data) {
+            const POINTL pt{10, 10};
+            DWORD effect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+            target->DragEnter(data, MK_LBUTTON, pt, &effect);
+            over = readDescription(data, &overType);
+            target->DragLeave();
+            after = readDescription(data, &afterType);
+            data->Release();
+        }
+        target->Release();
+        QFile::remove(dummy);
+        const QString expected = QCoreApplication::translate("ShellDropTarget", "Insert");
+        check(QStringLiteral("drag over a fence says 'Insert', not 'Copy'; the shell's label back on leaving (session 97)"),
+              over == expected && overType == DROPIMAGE_MOVE && afterType == DROPIMAGE_INVALID,
+              QStringLiteral("over '%1' (%2), after (%3)").arg(over).arg(overType).arg(afterType));
+    }
+    // Session 97: the language applies at once -- tray menu rebuilt, settings
+    // window rebuilt, both in the other language; then back.
+    {
+        const QString before = core::i18n::installedLanguage();
+        const auto trayHas = [](ui::TrayIcon& t, const QString& text) {
+            for (QAction* action : t.menu()->actions())
+                if (action->text() == text)
+                    return true;
+            return false;
+        };
+        core::i18n::install(QStringLiteral("en"));
+        ui::TrayIcon live;
+        live.retranslate();
+        const bool trayEn = trayHas(live, QStringLiteral("Settings..."));
+        ui::SettingsDialog en(nullptr);
+        const QString titleEn = en.windowTitle();
+        core::i18n::install(QStringLiteral("fr"));
+        live.retranslate();
+        const bool trayFr = trayHas(live, QString::fromUtf8("R\xc3\xa9glages..."));
+        ui::SettingsDialog fr(nullptr);
+        const QString titleFr = fr.windowTitle();
+        const QString insertFr = QCoreApplication::translate("ShellDropTarget", "Insert");
+        core::i18n::install(before.isEmpty() ? QStringLiteral("en") : before);
+        check(QStringLiteral("language switch EN <-> FR without restarting: tray menu and settings window follow (session 97)"),
+              trayEn && trayFr && titleEn != titleFr && insertFr == QString::fromUtf8("Ins\xc3\xa9rer"),
+              QStringLiteral("tray en %1 fr %2, '%3' / '%4', '%5'").arg(trayEn).arg(trayFr).arg(titleEn, titleFr, insertFr));
     }
     settings.hide();
     lines << QStringLiteral("%1 failure(s)").arg(failures);
