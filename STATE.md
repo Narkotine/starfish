@@ -5,10 +5,10 @@
 > **Ce fichier est court par construction (cap 6 Ko, vérifié par `tools/docs-size.sh` en CI).** Il ne raconte pas les sessions : le récit va dans `devlog/AAAA-MM-JJ.md`. Le détail vit dans `docs/state/` et se lit **à la demande** (table ci-dessous) — une session n'a jamais besoin de tout lire.
 
 - **Phase courante :** Phase 5 — Finitions fonctionnelles, **EN COURS**.
-- **Dernière session de code livrée :** 97 (2026-11-08) - **v0.1.2** : « Insérer » au glisser sur une zone, langue appliquée sans redémarrage (96 : taille libre des widgets, vitesse dans Apparence, un seul bouton de remise à zéro). Un seul build, `build\dev` : `docs/workflow-dev.md`. `ctest` **23/23**.
+- **Dernière session de code livrée :** 98 (2026-11-08, local, non poussé) : menu au dépôt sur une zone (T-160), mode « Redimensionner » d'un widget (T-165) ; v0.1.2 publiée en 97. Un seul build, `build\dev` : `docs/workflow-dev.md`. `ctest` **23/23**.
 - **ADR-21 (session 58) : StarFish dessine le bureau**, piloté par la vue du shell (`desktop_shell_view`, `IFolderView2`) : vrais menus, verbes, rangement sans bouger le fichier, filet T-046. Lots 1-4 livrés (T-089 → T-092) ; restent des validations humaines (deux écrans, vrai redémarrage d'Explorer, vraie souris).
 - **Sessions 59-82 (récits dans `devlog/`) :** apps empaquetées, icône, Réglages + éditeur du menu, `--quit` (59-61) · « Démarrer avec Windows », image de glisser (62) · rectangle fluide, zone translucide composée (T-098), curseurs, superposition cohérente (63-64) · liste de l'utilisateur, menus, Apparence…, curseurs, langue, aperçu du tracé (65) · apparence, `crash.log`, barre de titre 4 côtés, onglet, survols, double-clic bureau, contour uniforme, modèles (66-70) · grain sous les icônes, déroulé au survol, largeur stable, suppr, enroulement, renommage, raccourcis conservés, lancement shell, noms, +N, splash, horloge (71-79) · barre d'insertion, grille du bureau, témoin des moteurs (80) · **widget Notes** (81) · menu clic droit : aperçu gardé, 33 icônes, entrées prêtes à l'emploi (82).
-- **Dernière mise à jour :** 2026-11-08 (session 97, v0.1.2)
+- **Dernière mise à jour :** 2026-11-08 (session 98)
 - **Branche :** `main` ; remote `origin` = github.com/Narkotine/starfish (**public**, MIT, 2026-11-07) ; historique réécrit : **re-cloner, jamais pousser depuis un ancien clone**. Release : tag `vX.Y.Z` (`docs/mises-a-jour.md`).
 
 ## 3 prochaines actions
