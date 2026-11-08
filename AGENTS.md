@@ -18,7 +18,7 @@
 - [ ] Ajouter une entrée datée dans `devlog/AAAA-MM-JJ.md` (créer le fichier si absent).
 - [ ] Mettre à jour `STATE.md` : phase courante, décisions, prochaines actions.
 - [ ] Commiter si `git` est initialisé (Conventional Commits, en anglais).
-- [ ] Après des tâches terminées : mettre à jour la feuille de route **locale** de l'utilisateur (le fichier `starfish road.txt` sur son Bureau) avec ce qui reste et les décisions en attente, **si elle est accessible** ; sinon ne pas bloquer. Ce fichier n'entre **jamais** dans le dépôt.
+- [ ] Après des tâches terminées : mettre à jour la feuille de route **locale** de l'utilisateur (le fichier `starfish road.txt` sur son Bureau) avec ce qui reste et les décisions en attente, **si elle est accessible** ; sinon ne pas bloquer. Ce fichier n'entre **jamais** dans le dépôt. À chaque écriture, mettre en tête la date et l'heure de la modification (fuseau de l'utilisateur).
 
 Une session qui ne met pas à jour ces fichiers est considérée comme perdue pour la reprise.
 

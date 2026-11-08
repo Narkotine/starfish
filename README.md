@@ -17,7 +17,7 @@ by desktop organizers such as Stardock Fences, but it is an independent project.
 - **Zones** on the desktop: drag icons in, sort, rename, icon grid, multiple monitors; **lock** a zone so it cannot be moved, resized or changed by accident.
 - **Roll-up**: double-click a zone's title bar to roll it up or unroll it, at the speed you choose; optionally unroll on hover.
 - **Appearance**: transparency, acrylic blur, colors, borders, a title bar on any side (or none at all), and reusable **templates**.
-- **Widgets** in zones or directly on the desktop (drag them between the two): clock, notes, image, CPU / RAM / GPU / VRAM (number, bar or history graph) and a compact system group, each with its own settings window.
+- **Widgets** in zones or directly on the desktop (a zone's widgets move between zones; desktop widgets stay on the desktop and can sit behind zones), lockable, Image widgets on the desktop sized freely: clock, notes, image, CPU / RAM / GPU / VRAM (number, bar or history graph) and a compact system group, each with its own settings window.
 - Filed shortcuts are **kept and restorable**. Desktop icons always come back if StarFish stops.
 - **Leaves Explorer alone**: no code injected into `explorer.exe`, no patching. StarFish draws its own
   desktop layer and only hides Explorer's icon view while it runs; your icons come back as soon as it stops.
