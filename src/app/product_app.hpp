@@ -151,6 +151,10 @@ public:
     static bool desktopShortcutArrowsSetting();
     static bool allowDesktopOverlapSetting();
     void setSortOnAdd(bool sorted);
+    // Session 99 (T-160): the drop menu for a left drag from the Explorer
+    // (HKCU\Software\StarFish\explorerDropMenu, off by default).
+    static bool explorerDropMenuSetting();
+    void setExplorerDropMenu(bool on);
     // Session 62: "Démarrer avec Windows" -- HKCU Run\StarFish, read each time.
     void setStartWithWindows(bool on);
     void setDesktopShortcutArrows(bool shown);

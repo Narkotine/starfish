@@ -1,6 +1,7 @@
 #include "ui/modern_menu.hpp"
 
 #include <QAction>
+#include <QCoreApplication>
 #include <QLabel>
 #include <QFontDatabase>
 #include <QHBoxLayout>
@@ -197,6 +198,28 @@ QIcon glyphIcon(const QString& glyph, const QColor& color, int px)
     painter.drawText(QRect(0, 0, px, px), Qt::AlignCenter, glyph);
     painter.end();
     return QIcon(pixmap);
+}
+
+std::vector<core::ContextMenuItem> dropMenuItems()
+{
+    std::vector<core::ContextMenuItem> items;
+    const auto add = [&items](int id, const char* key, const char* text, ushort glyph) {
+        core::ContextMenuItem item;
+        item.key = QString::fromLatin1(key);
+        item.label = QCoreApplication::translate("DropMenu", text);
+        item.glyph = QString(QChar(glyph));
+        item.ownId = id;
+        items.push_back(item);
+    };
+    add(0, "drop:move", QT_TRANSLATE_NOOP("DropMenu", "Move here"), 0xE8DE);
+    items.back().isDefault = true;
+    add(1, "drop:copy", QT_TRANSLATE_NOOP("DropMenu", "Copy here"), 0xE8C8);
+    add(2, "drop:link", QT_TRANSLATE_NOOP("DropMenu", "Create shortcuts here"), 0xE71B);
+    core::ContextMenuItem line;
+    line.separator = true;
+    items.push_back(line);
+    add(3, "drop:cancel", QT_TRANSLATE_NOOP("DropMenu", "Cancel"), 0xE711);
+    return items;
 }
 
 QMenu* buildModernMenu(const std::vector<core::ContextMenuItem>& items, const ModernMenuStyle& style,

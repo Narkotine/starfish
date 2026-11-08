@@ -89,15 +89,20 @@ QStringList ShellDropTarget::pathsFromHdrop(IDataObject* data)
     return paths;
 }
 
-// Session 98 (T-160): what letting go would do, by Windows' rules -- Alt (or
-// Ctrl+Shift) makes a shortcut, Ctrl copies, otherwise the item goes into the
-// fence as it always did. A right-button drag asks on drop (the menu).
+// T-160 (sessions 98-99): what letting go would do. StarFish's own items only
+// ever insert. From outside: Alt (or Ctrl+Shift) makes a shortcut, Ctrl
+// copies, a plain left drag asks when the user wants the menu, otherwise the
+// item goes into the fence as it always did.
 ShellDropTarget::Action ShellDropTarget::actionFor(DWORD keys) const
 {
+    if (!m_external)
+        return Action::Insert;
     if ((keys & MK_ALT) || ((keys & MK_CONTROL) && (keys & MK_SHIFT)))
         return Action::Link;
     if (keys & MK_CONTROL)
         return Action::Copy;
+    if ((keys & MK_LBUTTON) && explorerDropMenu())
+        return Action::Ask;
     return Action::Insert;
 }
 
@@ -105,7 +110,7 @@ void ShellDropTarget::describe(IDataObject* data, DWORD keys)
 {
     if (!data || !m_canDrop)
         return;
-    const Action action = (keys & MK_RBUTTON) ? Action::Insert : actionFor(keys);
+    const Action action = actionFor(keys);
     if (action == m_described)
         return;
     m_described = action;
@@ -115,6 +120,9 @@ void ShellDropTarget::describe(IDataObject* data, DWORD keys)
         break;
     case Action::Link:
         setDropDescription(data, QCoreApplication::translate("ShellDropTarget", "Create shortcut"), DROPIMAGE_LINK);
+        break;
+    case Action::Ask: // session 99: the menu says what happens
+        setDropDescription(data, QCoreApplication::translate("ShellDropTarget", "Drop here"), DROPIMAGE_LABEL);
         break;
     default:
         // Session 97: "Insert", not the shell's "Copy".
@@ -127,7 +135,7 @@ DWORD ShellDropTarget::effectFor(DWORD keys, DWORD allowed) const
 {
     if (!m_canDrop)
         return DROPEFFECT_NONE;
-    if (!(keys & MK_RBUTTON) && actionFor(keys) == Action::Link && (allowed & DROPEFFECT_LINK))
+    if (actionFor(keys) == Action::Link && (allowed & DROPEFFECT_LINK))
         return DROPEFFECT_LINK;
     return kCopyEffect; // never MOVE: the source must not delete what the fence now shows
 }
@@ -137,7 +145,8 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragEnter(IDataObject* pDataObj, DWOR
 {
     // ADR-21 lot 3: a drag of the drawn desktop's own icons may carry virtual
     // items (This PC) that no CF_HDROP can name: what is carried is known here.
-    m_canDrop = (!m_accept || m_accept()) && (internalDragActive() || dataHasHdrop(pDataObj));
+    m_external = !internalDragActive();
+    m_canDrop = (!m_accept || m_accept()) && (!m_external || dataHasHdrop(pDataObj));
     m_keys = grfKeyState;
     m_allowed = pdwEffect ? *pdwEffect : DROPEFFECT_COPY;
     if (pdwEffect)
@@ -195,31 +204,6 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::DragLeave()
     return S_OK;
 }
 
-ShellDropTarget::Action ShellDropTarget::askOnDrop(const QPoint& screen)
-{
-    if (m_menuChooser) // the probes: no popup
-        return static_cast<Action>(m_menuChooser());
-    HMENU menu = ::CreatePopupMenu();
-    if (!menu)
-        return Action::Cancel;
-    const auto add = [menu](Action action, const QString& text) {
-        ::AppendMenuW(menu, MF_STRING, UINT_PTR(int(action) + 1), reinterpret_cast<LPCWSTR>(text.utf16()));
-    };
-    add(Action::Insert, QCoreApplication::translate("ShellDropTarget", "Move here"));
-    add(Action::Copy, QCoreApplication::translate("ShellDropTarget", "Copy here"));
-    add(Action::Link, QCoreApplication::translate("ShellDropTarget", "Create shortcuts here"));
-    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    add(Action::Cancel, QCoreApplication::translate("ShellDropTarget", "Cancel"));
-    ::SetMenuDefaultItem(menu, UINT(int(Action::Insert) + 1), FALSE);
-    HWND owner = m_hwnd;
-    if (owner)
-        ::SetForegroundWindow(owner);
-    const int chosen = int(::TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
-                                              screen.x(), screen.y(), owner, nullptr));
-    ::DestroyMenu(menu);
-    return chosen <= 0 ? Action::Cancel : static_cast<Action>(chosen - 1);
-}
-
 HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD grfKeyState,
                                                 POINTL pt, DWORD* pdwEffect)
 {
@@ -229,7 +213,6 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD grf
                                                : pathsFromHdrop(pDataObj);
     // The keys as they were while dragging: on drop the button is already up.
     const DWORD keys = m_keys | (grfKeyState & (MK_CONTROL | MK_SHIFT | MK_ALT));
-    const bool rightDrag = (m_keys & MK_RBUTTON) != 0;
     m_canDrop = false;
     setDropDescription(pDataObj, QString());
     if (m_data) {
@@ -238,9 +221,10 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD grf
     }
     if (m_hover)
         m_hover(QPoint(), false);
-    Action action = paths.isEmpty() ? Action::Cancel
-                    : rightDrag     ? askOnDrop(QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)))
-                                    : actionFor(keys);
+    Action action = paths.isEmpty() ? Action::Cancel : actionFor(keys);
+    if (action == Action::Ask) // session 99: the menu, in StarFish's style
+        action = static_cast<Action>(
+            int(explorerDropMenu()(QPoint(static_cast<int>(pt.x), static_cast<int>(pt.y)))));
     DWORD effect = DROPEFFECT_NONE;
     switch (action) {
     case Action::Insert:
@@ -257,6 +241,7 @@ HRESULT STDMETHODCALLTYPE ShellDropTarget::Drop(IDataObject* pDataObj, DWORD grf
         effect = paths.isEmpty() ? DROPEFFECT_NONE : DROPEFFECT_LINK;
         break;
     case Action::Cancel:
+    case Action::Ask:
         paths.clear();
         break;
     }

@@ -30,6 +30,11 @@ QMenu* buildModernMenu(const std::vector<core::ContextMenuItem>& items, const Mo
                        std::function<void(const core::ContextMenuItem&)> chosen,
                        QWidget* parent = nullptr);
 
+// Session 99 (T-160): the menu a drop from the Explorer asks with -- Move here
+// (default), Copy here, Create shortcuts here, Cancel; `ownId` is the
+// platform::win::DropChoice. Shown by buildModernMenu, like the desktop's.
+std::vector<core::ContextMenuItem> dropMenuItems();
+
 // A Segoe Fluent Icons (or Segoe MDL2 Assets) glyph as an icon.
 QIcon glyphIcon(const QString& glyph, const QColor& color, int px = 16);
 

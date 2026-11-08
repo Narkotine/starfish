@@ -82,6 +82,15 @@ QStringList copyShellItemsInto(const QStringList& parsingNames, const QString& f
 QStringList createShortcutsIn(const QStringList& parsingNames, const QString& folder, quintptr owner);
 // The user's Desktop folder (FOLDERID_Desktop).
 QString userDesktopFolder();
+
+// Session 99 (T-160): what a left-button drag from outside StarFish (the
+// Explorer) does when let go on a fence or on the drawn desktop, when the user
+// asked to be asked (Settings > Fences). The menu answers with a DropChoice;
+// empty (the default): no menu, the drop behaves as before.
+enum class DropChoice { Move = 0, Copy = 1, Link = 2, Cancel = 3 };
+using DropMenu = std::function<DropChoice(const QPoint& screen)>;
+void setExplorerDropMenu(DropMenu menu);
+const DropMenu& explorerDropMenu();
 bool internalDragActive();
 QStringList internalDragPaths();
 QPoint internalDragOrigin();

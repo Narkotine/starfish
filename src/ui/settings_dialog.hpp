@@ -70,6 +70,7 @@ public:
     void setFenceShortcutArrows(bool shown);
     // Session 60.
     void setSortOnAdd(bool sorted);
+    void setExplorerDropMenu(bool on); // session 99 (T-160)
     // Session 62: what the registry says (Run + Task Manager's StartupApproved).
     void setStartWithWindows(bool on, bool disabledByUser);
     void setDesktopShortcutArrows(bool shown);
@@ -104,6 +105,7 @@ signals:
     void defaultBorderChanged(int width, const QString& color);
     void fenceShortcutArrowsToggled(bool shown);
     void sortOnAddToggled(bool sorted);
+    void explorerDropMenuToggled(bool on);
     void startWithWindowsToggled(bool on);
     void desktopShortcutArrowsToggled(bool shown);
     void desktopOverlapToggled(bool allowed);
@@ -129,6 +131,7 @@ private:
     QCheckBox* m_showFences = nullptr;
     QCheckBox* m_arrows = nullptr;
     QCheckBox* m_sortOnAdd = nullptr;
+    QCheckBox* m_explorerDropMenu = nullptr;
     QCheckBox* m_startWithWindows = nullptr;
     QLabel* m_startHint = nullptr;
     QCheckBox* m_desktopArrows = nullptr;

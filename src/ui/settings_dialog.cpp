@@ -318,6 +318,18 @@ QWidget* SettingsDialog::buildFences()
                      tr("Off: an icon goes where it is dropped and the order stays yours."),
                      m_sortOnAdd, p));
 
+    // Session 99 (T-160): ask what to do with files dragged in from the Explorer.
+    m_explorerDropMenu = new ToggleSwitch;
+    m_explorerDropMenu->setObjectName(QStringLiteral("explorerDropMenuSwitch"));
+    connect(m_explorerDropMenu, &QCheckBox::toggled, this, [this](bool on) {
+        if (!m_updating)
+            emit explorerDropMenuToggled(on);
+    });
+    l->addWidget(row(QString(QChar(0xE8DE)), tr("Ask what to do with files dragged in from the Explorer"),
+                     tr("On a fence or the desktop: Move here, Copy here, Create shortcuts here or Cancel. "
+                        "Off: as before (Ctrl copies, Alt makes a shortcut)."),
+                     m_explorerDropMenu, p));
+
     // Session 64.
     m_fenceOverlap = new ToggleSwitch;
     m_fenceOverlap->setObjectName(QStringLiteral("fenceOverlapSwitch"));
@@ -786,6 +798,13 @@ void SettingsDialog::setStartWithWindows(bool on, bool disabledByUser)
         m_startHint->setText(on && disabledByUser
                                  ? tr("Turned off in Task Manager; switching it on here turns it back on.")
                                  : tr("StarFish opens when you sign in."));
+}
+
+void SettingsDialog::setExplorerDropMenu(bool on)
+{
+    m_updating = true;
+    m_explorerDropMenu->setChecked(on);
+    m_updating = false;
 }
 
 void SettingsDialog::setSortOnAdd(bool sorted)

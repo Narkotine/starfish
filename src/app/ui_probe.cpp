@@ -3292,19 +3292,54 @@ int runUiProbe(QApplication& app)
             data->Release();
             return effect;
         };
-        QString insertLabel, copyLabel, linkLabel;
+        const platform::win::DropMenu previousMenu = platform::win::explorerDropMenu();
+        platform::win::setExplorerDropMenu({}); // the setting off: as before
+        QString insertLabel, copyLabel, linkLabel, askLabel;
         const DWORD insertEffect = play(MK_LBUTTON, &insertLabel);
         const bool insertKept = received == QStringList{dummy};
         const DWORD copyEffect = play(MK_LBUTTON | MK_CONTROL, &copyLabel);
         const QStringList copied = received;
         const DWORD linkEffect = play(MK_LBUTTON | MK_ALT, &linkLabel);
         const QStringList linked = received;
-        target->setMenuChooser([] { return int(platform::win::ShellDropTarget::Action::Cancel); });
-        const DWORD cancelEffect = play(MK_RBUTTON, nullptr);
-        const bool cancelled = received.isEmpty();
-        target->setMenuChooser([] { return int(platform::win::ShellDropTarget::Action::Copy); });
+        // Session 99: the setting on -- a plain LEFT drag asks; a right drag
+        // never does (no menu, inserted); Ctrl still copies without asking.
+        int asked = 0;
+        platform::win::setExplorerDropMenu([&asked](const QPoint&) {
+            ++asked;
+            return platform::win::DropChoice::Cancel;
+        });
+        const DWORD cancelEffect = play(MK_LBUTTON, &askLabel);
+        const bool cancelled = received.isEmpty() && asked == 1;
         play(MK_RBUTTON, nullptr);
+        const bool rightNoMenu = received == QStringList{dummy} && asked == 1;
+        play(MK_LBUTTON | MK_CONTROL, nullptr);
+        const bool ctrlNoMenu = received.size() == 1 && asked == 1;
+        platform::win::setExplorerDropMenu([](const QPoint&) { return platform::win::DropChoice::Copy; });
+        play(MK_LBUTTON, nullptr);
         const QStringList menuCopied = received;
+        // The drawn desktop asks too (Cancel only: nothing reaches the Desktop folder).
+        int foreign = 0, deskAsked = 0;
+        platform::win::setExplorerDropMenu([&deskAsked](const QPoint&) {
+            ++deskAsked;
+            return platform::win::DropChoice::Cancel;
+        });
+        DWORD deskEffect = 0xFF;
+        if (auto* desk = static_cast<IDropTarget*>(platform::win::createDesktopDropTarget(
+                0, {}, [&foreign](const QPoint&, const QStringList&) { ++foreign; }))) {
+            if (auto* data = static_cast<IDataObject*>(platform::win::createShellDataObject({dummy}))) {
+                const POINTL pt{20, 20};
+                DWORD e = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+                desk->DragEnter(data, MK_LBUTTON, pt, &e);
+                e = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+                desk->DragOver(MK_LBUTTON, pt, &e);
+                deskEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+                desk->Drop(data, 0, pt, &deskEffect);
+                data->Release();
+            }
+            desk->Release();
+        }
+        const bool deskCancelled = deskAsked == 1 && foreign == 0 && deskEffect == DROPEFFECT_NONE;
+        platform::win::setExplorerDropMenu(previousMenu);
         target->Release();
         platform::win::setShellOperationIsolation(wasIsolated);
         const auto inOut = [&out](const QStringList& paths, const QString& suffix) {
@@ -3312,18 +3347,80 @@ int runUiProbe(QApplication& app)
                    && paths.first().endsWith(suffix, Qt::CaseInsensitive) && QFileInfo::exists(paths.first());
         };
         const QString tr0 = QCoreApplication::translate("ShellDropTarget", "Insert");
-        check(QStringLiteral("drop on a fence: plain = insert, Ctrl = copy, Alt = shortcut, right drag asks, labels follow (T-160, session 98)"),
+        check(QStringLiteral("drop from the Explorer: insert, Ctrl = copy, Alt = shortcut; setting on: a left drag asks, a right drag never (T-160, session 99)"),
               insertKept && insertEffect == DROPEFFECT_COPY && insertLabel.startsWith(tr0)
                   && inOut(copied, QStringLiteral(".txt")) && copyEffect == DROPEFFECT_COPY
                   && copyLabel.startsWith(QCoreApplication::translate("ShellDropTarget", "Copy"))
                   && inOut(linked, QStringLiteral(".lnk")) && linkEffect == DROPEFFECT_LINK
                   && linkLabel.startsWith(QCoreApplication::translate("ShellDropTarget", "Create shortcut"))
-                  && cancelled && cancelEffect == DROPEFFECT_NONE && menuCopied.size() == 1,
-              QStringLiteral("'%1' '%2' '%3' | copy %4 link %5 menu %6 | %7")
+                  && cancelled && cancelEffect == DROPEFFECT_NONE && menuCopied.size() == 1
+                  && askLabel.startsWith(QCoreApplication::translate("ShellDropTarget", "Drop here"))
+                  && rightNoMenu && ctrlNoMenu && deskCancelled,
+              QStringLiteral("'%1' '%2' '%3' '%8' | copy %4 link %5 menu %6 | cancel %7 right %9 ctrl %10 desk %11")
                   .arg(insertLabel, copyLabel, linkLabel)
                   .arg(copied.value(0).section(QLatin1Char('\\'), -1), linked.value(0).section(QLatin1Char('\\'), -1),
                        menuCopied.value(0).section(QLatin1Char('\\'), -1))
-                  .arg(cancelled));
+                  .arg(cancelled)
+                  .arg(askLabel)
+                  .arg(rightNoMenu)
+                  .arg(ctrlNoMenu)
+                  .arg(deskCancelled));
+    }
+    // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
+    // the setting is in Settings > Fences. Side by side for the eye.
+    {
+        const ui::ModernMenuStyle style = ui::ModernMenuStyle::current();
+        const std::vector<core::ContextMenuItem> dropItems = ui::dropMenuItems();
+        std::vector<core::ContextMenuItem> deskItems;
+        const auto deskItem = [&deskItems](const QString& label, ushort glyph) {
+            core::ContextMenuItem item;
+            item.label = label;
+            item.glyph = QString(QChar(glyph));
+            deskItems.push_back(item);
+        };
+        deskItem(QStringLiteral("View"), 0xE8FD);
+        deskItem(QStringLiteral("Sort by"), 0xE8CB);
+        deskItem(QStringLiteral("Refresh"), 0xE72C);
+        deskItems.push_back([] { core::ContextMenuItem l; l.separator = true; return l; }());
+        deskItem(QStringLiteral("New"), 0xE710);
+        deskItem(QStringLiteral("StarFish: create a fence here"), 0xE80A);
+        const auto shot = [&](const std::vector<core::ContextMenuItem>& items) {
+            std::unique_ptr<QMenu> m(ui::buildModernMenu(items, style, [](const core::ContextMenuItem&) {}));
+            if (offscreen)
+                m->setAttribute(Qt::WA_DontShowOnScreen);
+            m->popup(QPoint(40, 40));
+            wait(200);
+            const QPixmap px = m->grab();
+            const int rows = m->actions().size();
+            m->hide();
+            return std::make_pair(px, rows);
+        };
+        const auto [dropShot, dropRows] = shot(dropItems);
+        const auto [deskShot, deskRows] = shot(deskItems);
+        QImage pair(dropShot.width() + deskShot.width() + 30, std::max(dropShot.height(), deskShot.height()) + 20,
+                    QImage::Format_ARGB32_Premultiplied);
+        pair.fill(QColor(0x3A, 0x4A, 0x5A));
+        {
+            QPainter pp(&pair);
+            pp.drawPixmap(10, 10, dropShot);
+            pp.drawPixmap(20 + dropShot.width(), 10, deskShot);
+        }
+        const bool saved = pair.save(captures + QStringLiteral("/s99_drop_menu.png"));
+        int defaults = 0;
+        QStringList labels;
+        for (const core::ContextMenuItem& item : dropItems) {
+            defaults += item.isDefault ? 1 : 0;
+            if (!item.separator)
+                labels << item.label;
+        }
+        auto* box = settings.findChild<QCheckBox*>(QStringLiteral("explorerDropMenuSwitch"));
+        check(QStringLiteral("drop menu: the desktop menu's look, 4 entries, Move default; its switch in Settings (session 99)"),
+              saved && dropRows == 5 && deskRows == 6 && labels.size() == 4 && defaults == 1 && box,
+              QStringLiteral("%1 | rows %2/%3 | switch %4 [s99_drop_menu.png]")
+                  .arg(labels.join(QStringLiteral(" / ")))
+                  .arg(dropRows)
+                  .arg(deskRows)
+                  .arg(box != nullptr));
     }
     // Session 98: a widget's resize mode -- outline on its exact bounds, an
     // edge pulled in whole cells, Esc ends it, a locked fence refuses, 10 s idle.

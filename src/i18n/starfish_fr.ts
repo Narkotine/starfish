@@ -231,6 +231,29 @@
     </message>
 </context>
 <context>
+    <name>DropMenu</name>
+    <message>
+        <location filename="../ui/modern_menu.cpp" line="+214"/>
+        <source>Move here</source>
+        <translation>Déplacer ici</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Copy here</source>
+        <translation>Copier ici</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Create shortcuts here</source>
+        <translation>Créer des raccourcis ici</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Cancel</source>
+        <translation>Annuler</translation>
+    </message>
+</context>
+<context>
     <name>FenceAppearanceDialog</name>
     <message>
         <location filename="../ui/fence_appearance_dialog.hpp" line="+56"/>
@@ -951,7 +974,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2917"/>
+        <location filename="../app/product_app.cpp" line="+2950"/>
         <location line="+167"/>
         <source>Edit the note</source>
         <translation>Modifier la note</translation>
@@ -1040,14 +1063,14 @@
     <message>
         <location filename="../app/ui_probe.cpp" line="+3209"/>
         <location line="+26"/>
-        <location line="+79"/>
-        <location filename="../platform/win/shell_drop_target.cpp" line="+121"/>
+        <location line="+114"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+129"/>
         <source>Insert</source>
         <translation>Insérer</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../platform/win/shell_drop_target.cpp" line="-7"/>
+        <location filename="../platform/win/shell_drop_target.cpp" line="-10"/>
         <source>Copy</source>
         <translation>Copier</translation>
     </message>
@@ -1058,30 +1081,16 @@
         <translation>Créer un lien</translation>
     </message>
     <message>
-        <location filename="../platform/win/shell_drop_target.cpp" line="+91"/>
-        <source>Move here</source>
-        <translation>Déplacer ici</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Copy here</source>
-        <translation>Copier ici</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Create shortcuts here</source>
-        <translation>Créer des raccourcis ici</translation>
-    </message>
-    <message>
         <location line="+2"/>
-        <source>Cancel</source>
-        <translation>Annuler</translation>
+        <location filename="../platform/win/shell_drop_target.cpp" line="+3"/>
+        <source>Drop here</source>
+        <translation>Déposer ici</translation>
     </message>
 </context>
 <context>
     <name>ShellOperations</name>
     <message>
-        <location filename="../platform/win/shell_operations.cpp" line="+690"/>
+        <location filename="../platform/win/shell_operations.cpp" line="+712"/>
         <source>%1 - Shortcut</source>
         <translation>%1 - Raccourci</translation>
     </message>
@@ -1120,12 +1129,12 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3577"/>
+        <location line="-3610"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
     <message>
-        <location line="+516"/>
+        <location line="+522"/>
         <source>StarFish</source>
         <translation>StarFish</translation>
     </message>
@@ -1166,7 +1175,7 @@
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="+576"/>
+        <location line="+577"/>
         <source>not started</source>
         <translation>non démarré</translation>
     </message>
@@ -1591,18 +1600,18 @@
     </message>
     <message>
         <location line="-114"/>
-        <location line="+348"/>
+        <location line="+360"/>
         <source>Right-click menu</source>
         <translation>Menu clic droit</translation>
     </message>
     <message>
-        <location line="-347"/>
-        <location line="+366"/>
+        <location line="-359"/>
+        <location line="+378"/>
         <source>About</source>
         <translation>À propos</translation>
     </message>
     <message>
-        <location line="-338"/>
+        <location line="-350"/>
         <source>StarFish is running</source>
         <translation>StarFish est en marche</translation>
     </message>
@@ -1614,12 +1623,12 @@
     <message>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+565"/>
+        <location line="+577"/>
         <source>StarFish opens when you sign in.</source>
         <translation>StarFish s&apos;ouvre à l&apos;ouverture de session.</translation>
     </message>
     <message>
-        <location line="-555"/>
+        <location line="-567"/>
         <source>Automatic (Windows)</source>
         <translation>Automatique (Windows)</translation>
     </message>
@@ -1670,12 +1679,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+311"/>
+        <location line="+323"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-304"/>
+        <location line="-316"/>
         <source>Settings folder</source>
         <translation>Dossier des réglages</translation>
     </message>
@@ -1735,7 +1744,17 @@
         <translation>Désactivé : une icône va là où vous la déposez et l&apos;ordre reste le vôtre.</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
+        <source>Ask what to do with files dragged in from the Explorer</source>
+        <translation>Demander quoi faire des fichiers glissés depuis l&apos;Explorateur</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>On a fence or the desktop: Move here, Copy here, Create shortcuts here or Cancel. Off: as before (Ctrl copies, Alt makes a shortcut).</source>
+        <translation>Sur une zone ou le bureau : Déplacer ici, Copier ici, Créer des raccourcis ici ou Annuler. Désactivé : comme avant (Ctrl copie, Alt crée un raccourci).</translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>Allow fences to overlap</source>
         <translation>Autoriser la superposition des zones</translation>
     </message>
@@ -2000,7 +2019,7 @@
         <translation>Désactivé dans le Gestionnaire des tâches ; l&apos;activer ici le réactive.</translation>
     </message>
     <message>
-        <location filename="../app/ui_probe.cpp" line="-174"/>
+        <location filename="../app/ui_probe.cpp" line="-211"/>
         <location filename="../ui/settings_dialog.cpp" line="-185"/>
         <location line="+7"/>
         <source>Remove every zone and widget</source>

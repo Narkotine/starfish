@@ -260,6 +260,7 @@ bool ProductApp::start(const Options& options, QString* error)
     });
     m_sortOnAdd = sortOnAddSetting();
     m_container->setSortOnAdd(m_sortOnAdd);
+    setExplorerDropMenu(explorerDropMenuSetting());
     m_container->setDefaultFenceAlpha(ui::PercentSlider::alphaFromPercent(defaultTransparencySetting()));
     m_container->setAllowFenceOverlap(allowFenceOverlapSetting());
     {
@@ -698,6 +699,11 @@ void ProductApp::wireSettings()
     connect(m_settings, &ui::SettingsDialog::fenceShortcutArrowsToggled, this,
             &ProductApp::setFenceShortcutArrows);
     connect(m_settings, &ui::SettingsDialog::sortOnAddToggled, this, &ProductApp::setSortOnAdd);
+    connect(m_settings, &ui::SettingsDialog::explorerDropMenuToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("explorerDropMenu"), on);
+        setExplorerDropMenu(on);
+    });
     connect(m_settings, &ui::SettingsDialog::startWithWindowsToggled, this,
             &ProductApp::setStartWithWindows);
     connect(m_settings, &ui::SettingsDialog::desktopShortcutArrowsToggled, this,
@@ -2079,6 +2085,7 @@ void ProductApp::refreshStatus()
     }
     m_settings->setFenceShortcutArrows(m_fenceShortcutArrows);
     m_settings->setSortOnAdd(m_sortOnAdd);
+    m_settings->setExplorerDropMenu(explorerDropMenuSetting());
     {
         const platform::win::AutostartState autostart = platform::win::Autostart().read();
         m_settings->setStartWithWindows(autostart.registered, autostart.disabledByUser);
@@ -2376,6 +2383,32 @@ void ProductApp::editFenceTransparency(const QString& id)
 bool ProductApp::sortOnAddSetting()
 {
     return QSettings(kSettingsKey, QSettings::NativeFormat).value(kSortOnAdd, false).toBool();
+}
+
+bool ProductApp::explorerDropMenuSetting()
+{
+    return QSettings(kSettingsKey, QSettings::NativeFormat).value(QStringLiteral("explorerDropMenu"), false).toBool();
+}
+
+// Session 99 (T-160): the menu a left drag from the Explorer asks with, drawn
+// by the desktop's own right-click menu code (buildModernMenu).
+void ProductApp::setExplorerDropMenu(bool on)
+{
+    if (!on) {
+        platform::win::setExplorerDropMenu({});
+    } else {
+        platform::win::setExplorerDropMenu([this](const QPoint& screen) {
+            int picked = int(platform::win::DropChoice::Cancel);
+            std::unique_ptr<QMenu> menu(ui::buildModernMenu(
+                ui::dropMenuItems(), ui::ModernMenuStyle::current(),
+                [&picked](const core::ContextMenuItem& item) { picked = item.ownId; }));
+            if (const quintptr owner = backdropOwner())
+                platform::win::bringToForeground(owner);
+            menu->exec(logicalFromPhysical(screen));
+            return static_cast<platform::win::DropChoice>(picked);
+        });
+    }
+    qCInfo(lc) << "drop menu for the Explorer's left drags:" << on;
 }
 
 bool ProductApp::desktopShortcutArrowsSetting()

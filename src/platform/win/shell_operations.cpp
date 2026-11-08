@@ -184,6 +184,8 @@ public:
             dragImageEnter(reinterpret_cast<quintptr>(m_hwnd), data, QPoint(pt.x, pt.y), *effect);
             return S_OK;
         }
+        m_keys = keys;
+        m_allowed = *effect;
         if (IDropTarget* shell = shellTarget())
             return shell->DragEnter(data, keys, pt, effect);
         *effect = DROPEFFECT_NONE;
@@ -198,6 +200,8 @@ public:
             dragImageOver(QPoint(pt.x, pt.y), *effect);
             return S_OK;
         }
+        m_keys = keys;
+        m_allowed = *effect;
         if (m_shell)
             return m_shell->DragOver(keys, pt, effect);
         *effect = DROPEFFECT_NONE;
@@ -230,6 +234,22 @@ public:
         }
         if (IDropTarget* shell = shellTarget()) {
             qCInfo(lc) << "a drop from outside goes to the desktop folder";
+            // Session 99 (T-160): a plain left drag asks first, when asked to;
+            // the answer becomes the keys the desktop folder understands
+            // (Shift moves, Ctrl copies, Alt links) -- its own undo included.
+            const DWORD mods = MK_CONTROL | MK_ALT | MK_SHIFT;
+            if ((m_keys & MK_LBUTTON) && !((m_keys | keys) & mods) && explorerDropMenu()) {
+                const DropChoice choice = explorerDropMenu()(QPoint(pt.x, pt.y));
+                if (choice == DropChoice::Cancel) {
+                    shell->DragLeave();
+                    *effect = DROPEFFECT_NONE;
+                    return S_OK;
+                }
+                keys = choice == DropChoice::Copy ? MK_CONTROL : choice == DropChoice::Link ? MK_ALT : MK_SHIFT;
+                DWORD over = m_allowed;
+                shell->DragOver(keys, pt, &over);
+                *effect = m_allowed;
+            }
             if (m_foreignDrop)
                 m_foreignDrop(QPoint(pt.x, pt.y), droppedStems(data));
             return shell->Drop(data, keys, pt, effect);
@@ -260,6 +280,8 @@ private:
     DropHover m_hover;
     IDropTarget* m_shell = nullptr;
     bool m_internal = false;
+    DWORD m_keys = 0;    // session 99: as while dragging (the button is up on drop)
+    DWORD m_allowed = 0; // what the source allows
     LONG m_ref = 1;
 };
 
@@ -764,6 +786,24 @@ void bringToForeground(quintptr hwnd)
 {
     if (hwnd)
         ::SetForegroundWindow(reinterpret_cast<HWND>(hwnd));
+}
+
+namespace {
+DropMenu& dropMenu()
+{
+    static DropMenu menu;
+    return menu;
+}
+} // namespace
+
+void setExplorerDropMenu(DropMenu menu)
+{
+    dropMenu() = std::move(menu);
+}
+
+const DropMenu& explorerDropMenu()
+{
+    return dropMenu();
 }
 
 void setShellOperationIsolation(bool on)
