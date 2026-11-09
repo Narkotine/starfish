@@ -1,5 +1,9 @@
 **StarFish {VERSION}: alpha.** Expect bugs. Back up `%APPDATA%\StarFish` before installing.
 
+### Nouveautés
+
+{CHANGELOG}
+
 ### Install
 
 1. Download `StarFish-{VERSION}-setup.exe` below and run it. It installs for your user only, with no admin rights, into `%LOCALAPPDATA%\Programs\StarFish`.

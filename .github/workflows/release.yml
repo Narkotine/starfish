@@ -65,8 +65,14 @@ jobs:
         run: |
           $setup = "${{ steps.setup.outputs.setup }}"
           $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
-          $notes = (Get-Content .github/release/notes.md -Raw).Replace('{VERSION}', $env:TAG_VERSION).Replace('{SHA256}', $hash)
-          $notes | Set-Content notes.md -Encoding utf8
+          # CHANGELOG.md: the "## X.Y.Z" section for this tag (Correctifs / Nouveautés).
+          $ver = ($env:TAG_VERSION -split '-', 2)[0]
+          $log = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $m = [regex]::Match($log, "(?ms)^##\s+$([regex]::Escape($ver))\b.*?(?=^##\s|\z)")
+          if (-not $m.Success) { throw "CHANGELOG.md has no section for $ver (required for a release)" }
+          $section = ($m.Value -split "`n", 2)[1].Trim()
+          $notes = (Get-Content .github/release/notes.md -Raw -Encoding utf8).Replace('{VERSION}', $env:TAG_VERSION).Replace('{SHA256}', $hash).Replace('{CHANGELOG}', $section)
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'notes.md'), $notes, [System.Text.UTF8Encoding]::new($false))
           $pre = @()
           if ($env:TAG_VERSION -match '^0\.' -or $env:TAG_VERSION -match '-') { $pre = @('--prerelease') }
           gh release create "${{ github.ref_name }}" $setup "$setup.sha256" --title "StarFish $env:TAG_VERSION" --notes-file notes.md @pre
