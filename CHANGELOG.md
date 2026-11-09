@@ -5,6 +5,15 @@
 > (`### Nouveautés`). Voir `AGENTS.md`. Ne pas y mettre de chemins personnels
 > ni de noms d'utilisateur.
 
+## Non publié
+
+### Correctifs
+- Titres de zone à gauche / droite : lettres debout empilées (plus de texte tourné).
+
+### Nouveautés
+- Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
+- **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneau.
+
 ## 0.1.3 — 9 novembre 2026
 
 ### Correctifs
