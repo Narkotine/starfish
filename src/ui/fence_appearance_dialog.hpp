@@ -115,17 +115,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "At the bottom"), QStringLiteral("bottom"));
     titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "On the left (vertical)"), QStringLiteral("left"));
     titleSide->addItem(QCoreApplication::translate("FenceAppearanceDialog", "On the right (vertical)"), QStringLiteral("right"));
-    auto* titleVertical = new QComboBox(dialog);
-    titleVertical->setObjectName(QStringLiteral("titleVertical"));
-    titleVertical->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Rotated text"), QString());
-    titleVertical->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Stacked letters"), QStringLiteral("stack"));
-    titleVertical->setToolTip(QCoreApplication::translate(
-        "FenceAppearanceDialog",
-        "For a left or right title bar: rotated (default) or upright letters stacked."));
     auto* titleRow = new QHBoxLayout;
     titleRow->addWidget(titleBar);
     titleRow->addWidget(titleSide, 1);
-    titleRow->addWidget(titleVertical, 1);
     titleRow->addWidget(titleAlign, 1);
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Title bar"), titleRow);
     // Session 69 (T-115): the bar across the whole side, or a tab as long as
@@ -322,11 +314,11 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleVertical, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, flowCombo] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, flowCombo] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
-            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign), b13(titleSide), b13b(titleVertical), b14(titleShape), b15(hoverCombo);
+            b7(borderWidth), b8(borderDefault), b9(cell), b10(effect), b11(titleBar), b12(titleAlign), b13(titleSide), b14(titleShape), b15(hoverCombo);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -358,11 +350,6 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleAlign->setCurrentIndex(qMax(0, titleAlign->findData(style.titleAlign)));
         titleAlign->setEnabled(style.titleBar);
         titleSide->setCurrentIndex(qMax(0, titleSide->findData(style.titleSide)));
-        titleVertical->setCurrentIndex(qMax(0, titleVertical->findData(style.titleVertical)));
-        {
-            const QString side = style.titleSide;
-            titleVertical->setEnabled(style.titleBar && (side == QLatin1String("left") || side == QLatin1String("right")));
-        }
         titleShape->setCurrentIndex(qMax(0, titleShape->findData(style.titleBarShape)));
         titleShape->setEnabled(style.titleBar);
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
@@ -478,14 +465,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         const QString chosen = snapCombo->currentData().toString();
         restyle([chosen](core::FenceStyle& style) { style.snapToCells = chosen; });
     });
-    QObject::connect(titleSide, &QComboBox::currentIndexChanged, dialog, [titleSide, titleVertical, restyle](int) {
+    QObject::connect(titleSide, &QComboBox::currentIndexChanged, dialog, [titleSide, restyle](int) {
         const QString chosen = titleSide->currentData().toString();
-        titleVertical->setEnabled(chosen == QLatin1String("left") || chosen == QLatin1String("right"));
         restyle([chosen](core::FenceStyle& style) { style.titleSide = chosen; });
-    });
-    QObject::connect(titleVertical, &QComboBox::currentIndexChanged, dialog, [titleVertical, restyle](int) {
-        const QString chosen = titleVertical->currentData().toString();
-        restyle([chosen](core::FenceStyle& style) { style.titleVertical = chosen; });
     });
     QObject::connect(titleAlign, &QComboBox::currentIndexChanged, dialog, [titleAlign, restyle](int) {
         const QString chosen = titleAlign->currentData().toString();

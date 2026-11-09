@@ -251,15 +251,6 @@ void FenceView::setTitleSide(TitleSide side)
     emit contentChanged();
 }
 
-void FenceView::setTitleStacked(bool stacked)
-{
-    if (m_titleStacked == stacked)
-        return;
-    m_titleStacked = stacked;
-    update();
-    emit contentChanged();
-}
-
 QRect FenceView::titleBandRect() const
 {
     const int band = titleBarHeight();
@@ -733,13 +724,7 @@ void FenceView::paintEvent(QPaintEvent* event)
         titleFont.setBold(true);
         painter.setFont(titleFont);
         const TitleSide side = titleSide();
-        // Session 102 (T-118): left/right default = rotated (as before); optional
-        // "stack" = upright letters. Rotated path is the else branch's transform.
-        if (m_titleStacked && (side == TitleSide::Left || side == TitleSide::Right)) {
-            if (m_grid.textShadow())
-                paintStackedTitle(painter, QColor(0, 0, 0, 0xA0));
-            paintStackedTitle(painter, titleText);
-        } else {
+        {
             const int inset = titleInset();
             painter.save();
             painter.setTransform(bandTransform(), true);
@@ -1647,121 +1632,6 @@ QImage FenceView::dragImageFor(int index, const QPoint& press, qreal dpr, QPoint
 bool FenceView::dragGhostVisible() const
 {
     return m_ghost && m_ghost->isVisible();
-}
-
-
-void FenceView::paintStackedTitle(QPainter& painter, const QColor& color)
-{
-    // Session 102: same inset as rotated titles; letter step ~ glyph height;
-    // slightly larger word gap; shrink or elide with "…" so short / rolled-up
-    // zones (Zone 4 / Zone 6) never cut the first letter or spill past the bar.
-    const QRect band = titleBandRect();
-    if (band.isEmpty())
-        return;
-    const int inset = titleInset();
-    const int y0 = band.top() + inset;
-    const int y1 = band.bottom() - inset + 1; // exclusive end
-    const int usable = y1 - y0;
-    if (usable <= 0)
-        return;
-
-    const QString raw = m_title.isEmpty() ? tr("Fence") : m_title;
-    QFont titleFont = font();
-    titleFont.setBold(true);
-    // Prefer pixel size so shrinking is predictable across DPI.
-    int px = titleFont.pixelSize();
-    if (px <= 0) {
-        const QFontMetrics base(titleFont);
-        px = qMax(8, base.height());
-        titleFont.setPixelSize(px);
-    }
-
-    auto letterStep = [](const QFontMetrics& fm) {
-        // Tight: roughly the capital glyph height, not fm.height() (which adds leading).
-        const int cap = fm.capHeight() > 0 ? int(fm.capHeight()) : 0;
-        return qMax(1, cap > 0 ? cap + 1 : fm.ascent());
-    };
-    auto wordExtra = [](int letter) {
-        // Slightly larger than the (zero) gap between letters in a word.
-        return qMax(4, letter / 2);
-    };
-    auto stackHeight = [&](const QString& text, int letter, int extra) {
-        int h = 0;
-        bool pendingGap = false;
-        for (int i = 0; i < text.size(); ++i) {
-            const QChar ch = text.at(i);
-            if (ch.isSpace()) {
-                pendingGap = h > 0;
-                continue;
-            }
-            if (h == 0) {
-                h = letter;
-            } else if (pendingGap) {
-                h += letter + extra;
-                pendingGap = false;
-            } else {
-                h += letter;
-            }
-        }
-        return h;
-    };
-
-    QString text = raw;
-    int letter = 0;
-    int extra = 0;
-    for (;;) {
-        const QFontMetrics fm(titleFont);
-        letter = letterStep(fm);
-        extra = wordExtra(letter);
-        if (stackHeight(text, letter, extra) <= usable || px <= 8)
-            break;
-        --px;
-        titleFont.setPixelSize(px);
-    }
-    if (stackHeight(text, letter, extra) > usable) {
-        // Elide from the end; keep a "…".
-        QString base = text;
-        while (base.size() > 0) {
-            while (!base.isEmpty() && base.back().isSpace())
-                base.chop(1);
-            if (base.isEmpty())
-                break;
-            const QString shown = base + QChar(0x2026);
-            if (stackHeight(shown, letter, extra) <= usable) {
-                text = shown;
-                break;
-            }
-            base.chop(1);
-            if (base.isEmpty()) {
-                text = QString(QChar(0x2026));
-                break;
-            }
-        }
-    }
-
-    painter.save();
-    painter.setClipRect(QRect(band.left(), y0, band.width(), usable));
-    painter.setFont(titleFont);
-    painter.setPen(color);
-    int y = y0;
-    bool pendingGap = false;
-    for (int i = 0; i < text.size(); ++i) {
-        const QChar ch = text.at(i);
-        if (ch.isSpace()) {
-            pendingGap = true;
-            continue;
-        }
-        if (pendingGap) {
-            y += extra;
-            pendingGap = false;
-        }
-        if (y + letter > y1)
-            break;
-        painter.drawText(QRect(band.left(), y, band.width(), letter),
-                         Qt::AlignHCenter | Qt::AlignVCenter, QString(ch));
-        y += letter;
-    }
-    painter.restore();
 }
 
 

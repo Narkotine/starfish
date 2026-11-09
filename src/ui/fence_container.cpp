@@ -1325,7 +1325,6 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
                              : fence.style.titleSide == QLatin1String("right") ? FenceView::TitleSide::Right
                                                                                : FenceView::TitleSide::Top);
     fence.view->setShape(fence.style.shape); // session 101
-    fence.view->setTitleStacked(fence.style.titleVertical == QLatin1String("stack")); // session 102
     // fadeIcons, composed: the icons alone at the fence's transparency.
     fence.view->setIconOpacity(m_composed && fence.style.fadeIcons ? alpha / 255.0 : 1.0);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.

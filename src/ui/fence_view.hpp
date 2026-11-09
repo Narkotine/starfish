@@ -140,9 +140,6 @@ public:
     enum class TitleSide { Top, Bottom, Left, Right };
     void setTitleSide(TitleSide side);
     TitleSide titleSide() const;
-    // Session 102: false = rotated (default), true = upright stacked letters.
-    void setTitleStacked(bool stacked);
-    bool titleStacked() const { return m_titleStacked; }
     // Session 70: the side chosen, whatever the roll-up; the bar's own switch.
     TitleSide storedTitleSide() const { return m_titleSide; }
     bool titleBarShown() const { return m_titleBarShown; }
@@ -414,13 +411,11 @@ private:
     PaintLayers m_paintLayers = PaintLayers::All;
     Qt::Alignment m_titleAlign = Qt::AlignLeft;
     TitleSide m_titleSide = TitleSide::Top;
-    bool m_titleStacked = false; // session 102
     bool m_tabTitle = false;
     qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
     QString m_shape; // session 101
     QVector<QRect> buttonItemRects() const;
-    void paintStackedTitle(QPainter& painter, const QColor& color);
     void paintButton(QPainter& painter);
     bool m_rolledUp = false;
     bool m_rolling = false;
