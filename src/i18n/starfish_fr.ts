@@ -361,6 +361,18 @@
         <translation>À droite (vertical)</translation>
     </message>
     <message>
+        <source>Rotated text</source>
+        <translation>Texte tourné</translation>
+    </message>
+    <message>
+        <source>Stacked letters</source>
+        <translation>Lettres empilées</translation>
+    </message>
+    <message>
+        <source>For a left or right title bar: rotated (default) or upright letters stacked.</source>
+        <translation>Pour une barre de titre à gauche ou à droite : texte tourné (défaut) ou lettres debout empilées.</translation>
+    </message>
+    <message>
         <location line="+5"/>
         <source>Title bar</source>
         <translation>Barre de titre</translation>

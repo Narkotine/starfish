@@ -48,6 +48,8 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["titleAlign"] = s.titleAlign;
     if (!s.titleSide.isEmpty())
         o["titleSide"] = s.titleSide;
+    if (!s.titleVertical.isEmpty())
+        o["titleVertical"] = s.titleVertical;
     if (!s.shape.isEmpty())
         o["shape"] = s.shape;
     if (!s.titleBarShape.isEmpty())
@@ -136,6 +138,7 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.effect = o["effect"].toString();
     s.titleAlign = o["titleAlign"].toString();
     s.titleSide = o["titleSide"].toString();
+    s.titleVertical = o["titleVertical"].toString();
     s.shape = o["shape"].toString();
     s.titleBarShape = o["titleBarShape"].toString();
     s.hoverEffect = o["hoverEffect"].toString();
@@ -362,7 +365,7 @@ const QStringList kDesktopWidgetKeys{"path", "x", "y", "widget", "fileId", "targ
 const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", "sortAscending", "rolledUp", "locked", "items"};
 const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap", "titleBar", "iconTint",
                              "fadeIcons", "titleBarColor", "defaultOpacity", "borderWidth", "borderColor",
-                             "cellWidth", "effect", "titleAlign", "titleSide", "titleBarShape", "shape", "hoverEffect",
+                             "cellWidth", "effect", "titleAlign", "titleSide", "titleVertical", "titleBarShape", "shape", "hoverEffect",
                              "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow"};
 const QStringList kItemKeys{"kind", "path", "fileId", "target", "widget"};
 const QStringList kWidgetKeys{"type", "span", "settings"};

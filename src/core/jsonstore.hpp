@@ -75,6 +75,9 @@ struct FenceStyle {
     QString titleAlign;
     // Session 68: the side of the title bar: "" top, "bottom", "left", "right".
     QString titleSide;
+    // Session 102 (T-118): for a left/right bar, "" = rotated text (default,
+    // as before), "stack" = upright letters stacked top to bottom.
+    QString titleVertical;
     // Session 69 (T-115): "" a full-width bar, "tab" a tab as long as the title.
     QString titleBarShape;
     // Session 69: "" the default (Settings), "none", "lighter", "opacity",

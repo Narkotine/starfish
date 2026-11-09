@@ -8,11 +8,12 @@
 ## Non publié
 
 ### Correctifs
-- Titres de zone à gauche / droite : lettres debout empilées (plus de texte tourné).
+- Titres verticaux (barre gauche / droite) : le mode par défaut reste le texte tourné ; option « Lettres empilées » (Apparence) ; espacement des lettres resserré ; titre long clipé dans la bande (zones 4 / 6).
 
 ### Nouveautés
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
 - **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneau.
+- Titres verticaux : choix Rotated text / Stacked letters (`titleVertical`, défaut = tourné).
 
 ## 0.1.3 — 9 novembre 2026
 
