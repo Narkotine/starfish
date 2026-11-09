@@ -974,7 +974,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2922"/>
+        <location filename="../app/product_app.cpp" line="+2938"/>
         <location line="+179"/>
         <source>Unlock</source>
         <translation>Déverrouiller</translation>
@@ -1073,7 +1073,7 @@
 <context>
     <name>ShellDropTarget</name>
     <message>
-        <location filename="../app/ui_probe.cpp" line="+3293"/>
+        <location filename="../app/ui_probe.cpp" line="+3294"/>
         <location line="+26"/>
         <location line="+114"/>
         <location filename="../platform/win/shell_drop_target.cpp" line="+129"/>
@@ -1141,7 +1141,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3607"/>
+        <location line="-3623"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1172,12 +1172,22 @@
         <translation>Créer une zone ici</translation>
     </message>
     <message>
-        <location filename="../app/product_app.cpp" line="+28"/>
+        <location filename="../app/product_app.cpp" line="+29"/>
         <source>Add a widget</source>
         <translation>Ajouter un widget</translation>
     </message>
     <message>
-        <location line="+565"/>
+        <location line="+1"/>
+        <source>New button</source>
+        <translation>Nouveau bouton</translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>Button</source>
+        <translation>Bouton</translation>
+    </message>
+    <message>
+        <location line="+541"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1554,14 +1564,15 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+327"/>
-        <location line="+162"/>
-        <location line="+211"/>
+        <location filename="../ui/fence_view.cpp" line="+337"/>
+        <location line="+172"/>
+        <location line="+234"/>
+        <location line="+910"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="-877"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
@@ -1589,6 +1600,11 @@
         <location line="+117"/>
         <source>release to put it back on the desktop</source>
         <translation>relâchez pour la remettre sur le bureau</translation>
+    </message>
+    <message>
+        <location line="+107"/>
+        <source>Button</source>
+        <translation>Bouton</translation>
     </message>
 </context>
 <context>

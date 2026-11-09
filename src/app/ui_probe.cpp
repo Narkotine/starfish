@@ -54,6 +54,7 @@
 #include <QPushButton>
 #include "ui/modern_menu.hpp"
 #include "ui/widget_resize.hpp"
+#include "ui/zone_shape.hpp"
 #include "ui/settings_dialog.hpp"
 #include "ui/tray_icon.hpp"
 #include "platform/win/shell_operations.hpp"
@@ -3545,6 +3546,88 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("a locked widget in a fence: not dragged, no resize mode, saved locked (session 100)"),
               lockHeld && noResize && lockSaved,
               QStringLiteral("held %1 noResize %2 saved %3").arg(lockHeld).arg(noResize).arg(lockSaved));
+    }
+
+    // Session 101 (T-118): a left title bar stacks upright letters (not rotated).
+    {
+        ui::FenceView view;
+        view.resize(40, 220);
+        view.setTitle(QStringLiteral("Apps Tools"));
+        view.setTitleSide(ui::FenceView::TitleSide::Left);
+        view.setTitleBarShown(true);
+        view.setPanelColor(QColor(0x1F, 0x29, 0x37));
+        if (offscreen)
+            view.setAttribute(Qt::WA_DontShowOnScreen);
+        view.show();
+        wait(80);
+        const QImage shot = view.grab().toImage();
+        shot.save(captures + QStringLiteral("/s101_vertical_title.png"));
+        // Stacked: ink near the top of the band and near the bottom (two words).
+        const int midX = 12;
+        int topInk = 0, botInk = 0;
+        for (int y = 8; y < 60; ++y)
+            if (qAbs(shot.pixelColor(midX, y).lightness() - shot.pixelColor(midX, 100).lightness()) > 25)
+                ++topInk;
+        for (int y = 140; y < 200; ++y)
+            if (qAbs(shot.pixelColor(midX, y).lightness() - shot.pixelColor(midX, 100).lightness()) > 25)
+                ++botInk;
+        check(QStringLiteral("vertical title: upright letters stacked, gap between words (T-118, session 101)"),
+              topInk > 5 && botInk > 2,
+              QStringLiteral("topInk %1 botInk %2 [s101_vertical_title.png]").arg(topInk).arg(botInk));
+    }
+    // Session 101: Bouton -- collapsed disc, expands, icons on a ring.
+    {
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Apps"), QPoint(400, 300));
+        ui::FenceView* v = box.view(id);
+        bool born = false, collapsed = false, expanded = false, ring = false;
+        QRect visCollapsed, visExpanded;
+        if (v) {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            born = ui::zone_shape::isButton(v->shape()) && v->rolledUp();
+            visCollapsed = box.fenceRect(id); // stored
+            // Visible collapsed size via geometry helper
+            const QRect small = ui::zone_shape::buttonCollapsedRect(box.fenceRect(id), 48);
+            collapsed = small.width() <= 48 * 2 + 16 && small.height() == small.width();
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < 5; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::s101/item%1").arg(i);
+                it.name = QStringLiteral("Item %1").arg(i);
+                items << it;
+            }
+            v->addDroppedItems(items);
+            box.setFenceRolledUp(id, false);
+            expanded = !v->rolledUp();
+            visExpanded = box.fenceRect(id);
+            const QVector<QRect> rects = ui::zone_shape::buttonItemRects(v->contentRect(), v->items().size(), 48);
+            ring = rects.size() == v->items().size() && rects.size() >= 3;
+            // Distinct positions (not a grid row)
+            if (ring) {
+                QSet<int> ys;
+                for (const QRect& r : rects)
+                    ys.insert(r.center().y() / 8);
+                ring = ys.size() >= 2;
+            }
+            v->show();
+            wait(100);
+            v->grab().save(captures + QStringLiteral("/s101_button_expanded.png"));
+            box.setFenceRolledUp(id, true);
+            wait(100);
+            v->grab().save(captures + QStringLiteral("/s101_button_collapsed.png"));
+            // layout keeps shape
+            bool saved = false;
+            for (const core::Fence& f : box.toLayout().fences)
+                saved = saved || f.style.shape == QLatin1String("button");
+            check(QStringLiteral("Bouton: born collapsed, expands, ring layout, shape in layout (session 101)"),
+                  born && collapsed && expanded && ring && saved,
+                  QStringLiteral("born %1 coll %2 exp %3 ring %4 saved %5 items %6 [s101_button_*.png]")
+                      .arg(born).arg(collapsed).arg(expanded).arg(ring).arg(saved).arg(v->items().size()));
+        } else {
+            check(QStringLiteral("Bouton: born collapsed, expands, ring layout, shape in layout (session 101)"),
+                  false, QStringLiteral("no view"));
+        }
     }
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.

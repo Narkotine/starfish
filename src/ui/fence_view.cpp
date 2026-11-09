@@ -1,6 +1,7 @@
 #include "ui/fence_view.hpp"
 #include "ui/fence_widgets.hpp"
 #include "ui/modern_menu.hpp"
+#include "ui/zone_shape.hpp"
 #include "ui/widget_resize.hpp"
 
 #include <QKeyEvent>
@@ -145,6 +146,15 @@ void FenceView::setPanelColor(const QColor& color)
     // what makes the corners *outside* the rounded panel transparent (T-075) --
     // and what keeps them reachable by the mouse (ADR-11).
     m_panelColor = QColor(color.red(), color.green(), color.blue(), color.alpha());
+    update();
+    emit contentChanged();
+}
+
+void FenceView::setShape(const QString& shape)
+{
+    if (m_shape == shape)
+        return;
+    m_shape = shape;
     update();
     emit contentChanged();
 }
@@ -435,6 +445,16 @@ void FenceView::setLocked(bool locked)
 
 FenceHandle FenceView::rawHandleAt(const QPoint& point) const
 {
+    if (zone_shape::isButton(m_shape)) {
+        if (m_locked)
+            return FenceHandle::None;
+        const QRect box = rect();
+        const QPoint c = box.center();
+        const int r = qMin(box.width(), box.height()) / 2;
+        const int dx = point.x() - c.x(), dy = point.y() - c.y();
+        return (dx * dx + dy * dy <= r * r) ? FenceHandle::TitleBar : FenceHandle::None;
+    }
+
     if (tabbed()) {
         // Session 69: the tab is the bar; the body has its grips; the rest of
         // the strip along the bar is not the fence's (the window region leaves
@@ -542,6 +562,15 @@ int FenceView::insertItems(const QList<core::DesktopItem>& items, int index)
 
 int FenceView::itemAt(const QPoint& localPoint) const
 {
+    if (zone_shape::isButton(m_shape)) {
+        if (m_rolledUp)
+            return -1;
+        const QVector<QRect> rects = buttonItemRects();
+        for (int i = rects.size() - 1; i >= 0; --i)
+            if (rects.at(i).contains(localPoint))
+                return i;
+        return -1;
+    }
     if (!contentRect().contains(localPoint))
         return -1;
     return m_grid.hitTest(localPoint - contentRect().topLeft(), contentRect().size());
@@ -577,6 +606,8 @@ QLine FenceView::shownInsertionBar() const
 
 QVector<QRect> FenceView::tileRects() const
 {
+    if (zone_shape::isButton(m_shape))
+        return buttonItemRects();
     // The grid lays its cells out from the content origin (hitTest subtracts it
     // above), so the tile rectangles are the cells moved there.
     const QRect content = contentRect();
@@ -595,6 +626,11 @@ void FenceView::paintEvent(QPaintEvent* event)
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    if (zone_shape::isButton(m_shape)) {
+        // Session 101: no classic panel / title bar -- the disc is the fence.
+        paintButton(painter);
+        return;
+    }
 
     // T-094: the border's own width and colour (0: none); session 65 hover:
     // a touch lighter, the border brighter.
@@ -687,26 +723,34 @@ void FenceView::paintEvent(QPaintEvent* event)
         QFont titleFont = font();
         titleFont.setBold(true);
         painter.setFont(titleFont);
-        const int inset = titleInset();
-        painter.save();
-        painter.setTransform(bandTransform(), true);
-        QRect titleRect(inset, 0, qMax(0, bandLength() - 2 * inset), m_metrics.titleBarHeight);
-        if (tabbed()) {
-            const QPair<int, int> span = tabSpan(bandLength());
-            const int pad = tabPadding();
-            titleRect = QRect(span.first + pad, 0, qMax(0, span.second - 2 * pad), m_metrics.titleBarHeight);
+        const TitleSide side = titleSide();
+        // Session 101 (T-118): left/right = upright letters stacked (gap between words).
+        if (side == TitleSide::Left || side == TitleSide::Right) {
+            if (m_grid.textShadow())
+                paintStackedTitle(painter, QColor(0, 0, 0, 0xA0));
+            paintStackedTitle(painter, titleText);
+        } else {
+            const int inset = titleInset();
+            painter.save();
+            painter.setTransform(bandTransform(), true);
+            QRect titleRect(inset, 0, qMax(0, bandLength() - 2 * inset), m_metrics.titleBarHeight);
+            if (tabbed()) {
+                const QPair<int, int> span = tabSpan(bandLength());
+                const int pad = tabPadding();
+                titleRect = QRect(span.first + pad, 0, qMax(0, span.second - 2 * pad), m_metrics.titleBarHeight);
+            }
+            const QString titleText_ = painter.fontMetrics().elidedText(
+                m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
+            const Qt::Alignment align =
+                Qt::AlignVCenter | (tabbed() ? Qt::AlignHCenter : (m_titleAlign ? m_titleAlign : Qt::AlignLeft));
+            if (m_grid.textShadow()) {
+                painter.setPen(QColor(0, 0, 0, 0xA0));
+                painter.drawText(titleRect.translated(1, 1), align, titleText_);
+            }
+            painter.setPen(titleText);
+            painter.drawText(titleRect, align, titleText_);
+            painter.restore();
         }
-        const QString titleText_ = painter.fontMetrics().elidedText(
-            m_title.isEmpty() ? tr("Fence") : m_title, Qt::ElideRight, titleRect.width());
-        const Qt::Alignment align =
-            Qt::AlignVCenter | (tabbed() ? Qt::AlignHCenter : (m_titleAlign ? m_titleAlign : Qt::AlignLeft));
-        if (m_grid.textShadow()) {
-            painter.setPen(QColor(0, 0, 0, 0xA0));
-            painter.drawText(titleRect.translated(1, 1), align, titleText_);
-        }
-        painter.setPen(titleText);
-        painter.drawText(titleRect, align, titleText_);
-        painter.restore();
     } else if (m_hovered && !m_locked) {
         // T-076: no title bar -- a small grip says where the fence is moved from.
         // Session 95: none on a locked fence, which cannot be moved.
@@ -1593,6 +1637,82 @@ QImage FenceView::dragImageFor(int index, const QPoint& press, qreal dpr, QPoint
 bool FenceView::dragGhostVisible() const
 {
     return m_ghost && m_ghost->isVisible();
+}
+
+
+void FenceView::paintStackedTitle(QPainter& painter, const QColor& color)
+{
+    const QRect band = titleBandRect();
+    if (band.isEmpty())
+        return;
+    QFont titleFont = font();
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(color);
+    const QFontMetrics fm(titleFont);
+    const QString text = m_title.isEmpty() ? tr("Fence") : m_title;
+    const int line = fm.height();
+    const int wordGap = qMax(6, line / 2);
+    int y = band.top() + qMax(2, (band.height() % line) / 2);
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar ch = text.at(i);
+        if (ch.isSpace()) {
+            y += wordGap;
+            continue;
+        }
+        if (y + line > band.bottom() + 1)
+            break;
+        painter.drawText(QRect(band.left(), y, band.width(), line), Qt::AlignCenter, QString(ch));
+        y += line;
+    }
+}
+
+QVector<QRect> FenceView::buttonItemRects() const
+{
+    if (!zone_shape::isButton(m_shape) || m_rolledUp)
+        return {};
+    return zone_shape::buttonItemRects(contentRect(), m_grid.items().size(), m_grid.iconSize());
+}
+
+void FenceView::paintButton(QPainter& painter)
+{
+    const QRect box = rect();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QColor fill = m_panelColor;
+    if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
+        fill = fill.lighter(112);
+    painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6),
+                        qMax(1, m_borderWidth)));
+    painter.setBrush(fill);
+    painter.drawEllipse(box.adjusted(1, 1, -1, -1));
+    if (m_rolledUp) {
+        QFont f = font();
+        f.setBold(true);
+        f.setPixelSize(qMax(11, box.height() / 5));
+        painter.setFont(f);
+        painter.setPen(QColor(0xE5, 0xE7, 0xEB));
+        const QString label = m_title.isEmpty() ? tr("Button") : m_title;
+        painter.drawText(box.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, label);
+        return;
+    }
+    const QVector<QRect> rects = buttonItemRects();
+    const QList<core::DesktopItem>& items = m_grid.items();
+    for (int i = 0; i < rects.size() && i < items.size(); ++i) {
+        const QPixmap icon = m_iconProvider ? m_iconProvider(items.at(i), m_grid.iconSize()) : QPixmap();
+        const QRect r = rects.at(i);
+        if (!icon.isNull())
+            painter.drawPixmap(r, icon);
+        else {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0x60, 0x70, 0x80));
+            painter.drawRoundedRect(r, 6, 6);
+        }
+        if (m_grid.isSelected(i)) {
+            painter.setPen(QPen(QColor(0x3B, 0x82, 0xF6), 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(r.adjusted(-2, -2, 2, 2), 8, 8);
+        }
+    }
 }
 
 void FenceView::updateDragGhost(bool dragging)

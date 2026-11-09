@@ -214,6 +214,8 @@ public:
     // Creates a fence with a fresh id and returns it. The rect is clamped to
     // the desktop bounds. When hosting is on, the surface is attached and the
     // first frame is pushed.
+    // Session 101: a circular Bouton (shape "button"), free pixel placement.
+    QString createButton(const QString& title, const QPoint& center);
     QString createFence(const QString& title, const QRect& rect,
                         const QList<core::DesktopItem>& items = {});
 

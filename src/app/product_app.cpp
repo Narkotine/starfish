@@ -909,9 +909,11 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
         if (!registered.isEmpty())
             hidden << registered;
         constexpr int kCreateFence = 1;
+        constexpr int kCreateButton = 2; // session 101: circular Bouton
         constexpr int kAddWidget = 100; // session 91: + the kind's index
         const QList<ui::widgets::Kind> kinds = ui::widgets::kinds();
         const QString addWidget = tr("Add a widget");
+        const QString newButton = tr("New button");
         int chosen = -1;
         if (modernContextMenuWanted()) {
             // T-092: Windows 11's menu, drawn by StarFish from the real one.
@@ -920,6 +922,11 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
             create.label = label;
             create.glyph = QString(QChar(0xE80A));
             create.ownId = kCreateFence;
+            core::ContextMenuItem button;
+            button.key = QStringLiteral("starfish:create-button");
+            button.label = newButton;
+            button.glyph = QString(QChar(0xEA3A));
+            button.ownId = kCreateButton;
             core::ContextMenuItem widgetsEntry;
             widgetsEntry.key = QStringLiteral("starfish:add-widget");
             widgetsEntry.label = addWidget;
@@ -931,14 +938,23 @@ void ProductApp::onDesktopMenu(const QRect& rect, const QPoint& point)
                 kind.ownId = kAddWidget + i;
                 widgetsEntry.children.push_back(kind);
             }
-            chosen = showModernContextMenu(core::ContextMenuKind::Background, {}, point, {create, widgetsEntry},
-                                           nullptr, hidden);
+            chosen = showModernContextMenu(core::ContextMenuKind::Background, {}, point,
+                                           {create, button, widgetsEntry}, nullptr, hidden);
         } else {
             platform::win::DesktopShellView::MenuEntry widgetsEntry{0, addWidget, true, false, {}};
             for (int i = 0; i < kinds.size(); ++i)
                 widgetsEntry.children.push_back({kAddWidget + i, kinds.at(i).label, false, false, {}});
             chosen = m_shellView->showBackgroundMenu(
-                point, backdropOwner(), {{kCreateFence, label, false, false, {}}, widgetsEntry}, hidden);
+                point, backdropOwner(),
+                {{kCreateFence, label, false, false, {}},
+                 {kCreateButton, newButton, false, false, {}}, widgetsEntry},
+                hidden);
+        }
+        if (chosen == kCreateButton) {
+            const QString id = m_container->createButton(tr("Button"), point);
+            if (!id.isEmpty())
+                qCInfo(lc).noquote() << QStringLiteral("created button %1 from the desktop menu").arg(id);
+            return;
         }
         if (chosen >= kAddWidget && chosen < kAddWidget + kinds.size()) {
             addDesktopWidgetAt(kinds.at(chosen - kAddWidget).type, point);

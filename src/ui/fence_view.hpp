@@ -2,6 +2,8 @@
 
 #include <QLine>
 #include <QColor>
+#include <QString>
+#include <QVector>
 #include <QPointF>
 #include <QStringList>
 #include <QTransform>
@@ -69,6 +71,9 @@ public:
     // what was chosen; the geometry decides what is possible, here, in the one
     // place both the paint and the window's region ask.
     void setCornerRadius(int px);
+    // Session 101: "" classic, "button" circular Bouton (see zone_shape.hpp).
+    void setShape(const QString& shape);
+    QString shape() const { return m_shape; }
     // T-094 (session 65): the border, 0 = none.
     void setBorder(int width, const QColor& color);
     // Session 65: a light highlight while the pointer is over the fence.
@@ -409,6 +414,10 @@ private:
     bool m_tabTitle = false;
     qreal m_iconOpacity = 1.0;
     int m_cornerRadius = kCornerRadius;
+    QString m_shape; // session 101
+    QVector<QRect> buttonItemRects() const;
+    void paintStackedTitle(QPainter& painter, const QColor& color);
+    void paintButton(QPainter& painter);
     bool m_rolledUp = false;
     bool m_rolling = false;
     IconGrid m_grid;

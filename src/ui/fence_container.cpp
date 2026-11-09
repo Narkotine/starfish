@@ -1,4 +1,5 @@
 #include "ui/fence_container.hpp"
+#include "ui/zone_shape.hpp"
 #include "ui/fence_widgets.hpp"
 #include <QJsonObject>
 
@@ -840,6 +841,13 @@ QRect FenceContainer::visibleRectOf(const FenceWindow& fence) const
 {
     if (fence.animating && fence.animatedVisible.isValid())
         return fence.animatedVisible;
+    // Session 101: a Bouton collapses to a disc centred in its stored square.
+    if (zone_shape::isButton(fence.style.shape)) {
+        const int icon = fence.style.iconSize > 0 ? fence.style.iconSize : 48;
+        if (fence.rolledUp)
+            return zone_shape::buttonCollapsedRect(fence.rect, icon);
+        return fence.rect;
+    }
     return FenceGeometry::visibleRect(fence.rect, fence.rolledUp, rollEdgeOf(fence));
 }
 
@@ -1316,6 +1324,7 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
                              : fence.style.titleSide == QLatin1String("left") ? FenceView::TitleSide::Left
                              : fence.style.titleSide == QLatin1String("right") ? FenceView::TitleSide::Right
                                                                                : FenceView::TitleSide::Top);
+    fence.view->setShape(fence.style.shape); // session 101
     // fadeIcons, composed: the icons alone at the fence's transparency.
     fence.view->setIconOpacity(m_composed && fence.style.fadeIcons ? alpha / 255.0 : 1.0);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
@@ -1978,6 +1987,32 @@ QList<QRect> FenceContainer::otherRects(const QString& excludeId) const
     return rects;
 }
 
+QString FenceContainer::createButton(const QString& title, const QPoint& center)
+{
+    const int icon = 48;
+    const int expanded = zone_shape::buttonExpandedDiameter(icon, 6);
+    const QRect rect(center.x() - expanded / 2, center.y() - expanded / 2, expanded, expanded);
+    const QString id = createFence(title, rect);
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return id;
+    fence->style.shape = QStringLiteral("button");
+    fence->style.titleBar = false;
+    fence->style.hoverUnroll = QStringLiteral("on"); // expand under the pointer
+    fence->rolledUp = true;
+    if (fence->view) {
+        fence->view->setShape(fence->style.shape);
+        fence->view->setTitleBarShown(false);
+        fence->view->setRolledUp(true);
+    }
+    applyStyleToView(*fence);
+    applyMaterialToSurface(*fence);
+    setFenceRect(id, rect, false);
+    renderFence(id);
+    qCInfo(lc).noquote() << QStringLiteral("button %1 at %2,%3").arg(id).arg(center.x()).arg(center.y());
+    return id;
+}
+
 QString FenceContainer::createFence(const QString& title, const QRect& rect,
                                     const QList<core::DesktopItem>& items)
 {
@@ -2507,6 +2542,10 @@ QPainterPath FenceContainer::physicalOutline(const FenceWindow& fence, const QSi
         path.addRect(QRectF(QPointF(0, 0), QSizeF(size)));
         return path;
     }
+    if (zone_shape::isButton(fence.style.shape)) {
+        path.addEllipse(QRectF(QPointF(0, 0), QSizeF(size)));
+        return path;
+    }
     if (!fence.view->tabbed()) {
         const qreal radius = fence.view->cornerRadius() * dpr;
         path.addRoundedRect(QRectF(QPointF(0, 0), QSizeF(size)), radius, radius);
@@ -2534,7 +2573,7 @@ void FenceContainer::applyOutline(FenceWindow& fence)
 {
     if (!fence.surface)
         return;
-    if (!fence.view || (!fence.view->tabbed() && !m_composed)) {
+    if (!fence.view || (!fence.view->tabbed() && !m_composed && !zone_shape::isButton(fence.style.shape))) {
         fence.surface->setShapePolygon(QPolygon());
         return;
     }

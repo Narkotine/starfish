@@ -90,6 +90,9 @@ struct FenceStyle {
     QString snapToCells;
     QString iconFlow;   // session 76: "" (Settings) or an IconLayout::flowKeys() key
     QString showLabels; // session 76: "" (Settings) | "on" | "off" -- the icons' names
+    // Session 101 (T-095): "" classic rectangle + title-bar roll-up, "button" =
+    // circular Bouton. Unknown values are kept and drawn as classic until known.
+    QString shape;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.
