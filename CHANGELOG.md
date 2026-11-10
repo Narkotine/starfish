@@ -7,6 +7,9 @@
 
 ## Non publié
 
+### Correctifs
+- Français : l’interface ne dit plus « fence » (menu « Apparence de la zone », réglages, infobulles). `tools/i18n_check.py` échoue si une traduction FR contient encore le mot.
+
 ### Nouveautés
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
 - **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneau.

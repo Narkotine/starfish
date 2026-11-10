@@ -258,7 +258,7 @@
     <message>
         <location filename="../ui/fence_appearance_dialog.hpp" line="+56"/>
         <source>Fence appearance</source>
-        <translation>Apparence de la fence</translation>
+        <translation>Apparence de la zone</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -298,7 +298,7 @@
     <message>
         <location line="+1"/>
         <source>Acrylic shows through a transparent fence.</source>
-        <translation>L&apos;acrylique se voit à travers une fence transparente.</translation>
+        <translation>L&apos;acrylique se voit à travers une zone transparente.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -323,7 +323,7 @@
     <message>
         <location line="+2"/>
         <source>Hidden: the fence moves by the thin band at its top.</source>
-        <translation>Masquée : la fence se déplace par la fine bande du haut.</translation>
+        <translation>Masquée : la zone se déplace par la fine bande du haut.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -554,7 +554,7 @@
     <message>
         <location line="+2"/>
         <source>For new fences</source>
-        <translation>Pour les nouvelles fences</translation>
+        <translation>Pour les nouvelles zones</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -1794,7 +1794,7 @@
     <message>
         <location line="+12"/>
         <source>Highlight the fence under the pointer</source>
-        <translation>Mettre en évidence la fence sous le pointeur</translation>
+        <translation>Mettre en évidence la zone sous le pointeur</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1929,7 +1929,7 @@
     <message>
         <location line="+3"/>
         <source>Fence border</source>
-        <translation>Bordure des fences</translation>
+        <translation>Bordure des zones</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -1984,7 +1984,7 @@
     <message>
         <location line="+8"/>
         <source>Background and title bar. Icons and their names stay opaque. 0 % = opaque. A fence&apos;s menu (Appearance...) can set its own value.</source>
-        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques. 0 % = opaque. Le menu d&apos;une fence (Apparence…) peut fixer sa propre valeur.</translation>
+        <translation>Fond et barre de titre. Les icônes et leurs noms restent opaques. 0 % = opaque. Le menu d&apos;une zone (Apparence…) peut fixer sa propre valeur.</translation>
     </message>
     <message>
         <location line="+6"/>

@@ -146,6 +146,27 @@ def main() -> int:
         for text in texts:
             print(f"           {text}")
 
+    # French UI must never show the English word "fence" — the product word is
+    # "zone" (and "zones"). StarFish itself is fine; this is a whole-word check.
+    fence_hits: list[tuple[str, str]] = []
+    tree = ElementTree.parse(root / CATALOG)
+    fence_re = re.compile(r"\bfences?\b", re.I)
+    for message in tree.getroot().iter("message"):
+        translation = message.find("translation")
+        if translation is None or translation.get("type") == "unfinished":
+            continue
+        text = translation.text or ""
+        if fence_re.search(text):
+            source = message.findtext("source") or ""
+            fence_hits.append((source, text))
+    if fence_hits:
+        failures = True
+        print(f"FRENCH-FENCE  {len(fence_hits)} French translation(s) still say "
+              f"'fence' — use 'zone' / 'zones':")
+        for source, text in fence_hits:
+            print(f"           {source!r}")
+            print(f"             -> {text!r}")
+
     if failures:
         print("\nThe catalogue is what the French interface speaks: fix it, "
               "do not drop the check.")
