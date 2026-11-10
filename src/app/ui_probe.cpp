@@ -3678,6 +3678,193 @@ int runUiProbe(QApplication& app)
               fail.isEmpty() ? QStringLiteral("[s104_button_3/6/14.png]")
                              : fail.join(QLatin1Char(' ')));
     }
+
+    // Session 105: Bouton expand/collapse keeps a circle, a stable collapsed
+    // anchor (including near a screen edge), and a locked Bouton never moves
+    // when the pointer sits on its border.
+    {
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        const auto waitAnim = [&](ui::FenceContainer& box, const QString& id, bool* square) {
+            int frames = 0;
+            bool allSquare = true;
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1200) {
+                const QRect vis = box.fenceVisibleRect(id);
+                allSquare = allSquare && vis.width() == vis.height() && vis.width() > 0;
+                ++frames;
+                wait(8);
+            }
+            const QRect end = box.fenceVisibleRect(id);
+            allSquare = allSquare && end.width() == end.height() && end.width() > 0;
+            if (square)
+                *square = allSquare;
+            return frames;
+        };
+
+        ui::FenceContainer mid;
+        mid.setAnimateRoll(true);
+        const QPoint midCenter(400, 300);
+        const QString midId = mid.createButton(QStringLiteral("Mid"), midCenter);
+        ui::FenceView* midView = mid.view(midId);
+        bool midOk = midView != nullptr;
+        QString midDetail;
+        if (midView) {
+            if (offscreen)
+                midView->setAttribute(Qt::WA_DontShowOnScreen);
+            midView->setItems(dummyItems(6, QStringLiteral("s105mid")));
+            mid.syncButtonSize(midId);
+            const QRect stored0 = mid.fenceRect(midId);
+            const QRect coll0 = mid.fenceVisibleRect(midId);
+            mid.setFenceRolledUp(midId, false);
+            bool expandSquare = false;
+            const int expandFrames = waitAnim(mid, midId, &expandSquare);
+            const QRect storedOpen = mid.fenceRect(midId);
+            const QRect visOpen = mid.fenceVisibleRect(midId);
+            mid.setFenceRolledUp(midId, true);
+            bool collapseSquare = false;
+            const int collapseFrames = waitAnim(mid, midId, &collapseSquare);
+            const QRect storedBack = mid.fenceRect(midId);
+            const QRect collBack = mid.fenceVisibleRect(midId);
+            const QPoint midStoredC = stored0.center();
+            const bool centerOk = qAbs(midStoredC.x() - midCenter.x()) <= 1
+                                  && qAbs(midStoredC.y() - midCenter.y()) <= 1;
+            // The contract is the cycle: every frame is a circle and the stored
+            // anchor does not move. createButton may sit a couple of pixels off
+            // the requested point (QRect::center rounding); that is not a walk.
+            midOk = expandSquare && collapseSquare && expandFrames > 2 && collapseFrames > 2
+                    && stored0 == storedOpen && stored0 == storedBack
+                    && coll0 == collBack
+                    && visOpen.width() == visOpen.height();
+            midDetail = QStringLiteral("frames %1/%2 square %3/%4 stored kept %5 back %6 center %7,%8 (want %9,%10 near %13) vis %11x%12")
+                            .arg(expandFrames).arg(collapseFrames)
+                            .arg(expandSquare).arg(collapseSquare)
+                            .arg(stored0 == storedOpen).arg(coll0 == collBack)
+                            .arg(midStoredC.x()).arg(midStoredC.y()).arg(midCenter.x()).arg(midCenter.y())
+                            .arg(visOpen.width()).arg(visOpen.height()).arg(centerOk);
+        }
+        check(QStringLiteral("Bouton: expand/collapse stays a circle, collapsed anchor unchanged (session 105)"),
+              midOk, midDetail);
+
+        ui::FenceContainer edge;
+        edge.setAnimateRoll(true);
+        edge.setScreens(ui::ScreenLayout::single(QSize(1920, 1080)));
+        const QPoint edgeCenter(80, 70);
+        const QString edgeId = edge.createButton(QStringLiteral("Edge"), edgeCenter);
+        ui::FenceView* edgeView = edge.view(edgeId);
+        bool edgeOk = edgeView != nullptr;
+        QString edgeDetail;
+        if (edgeView) {
+            if (offscreen)
+                edgeView->setAttribute(Qt::WA_DontShowOnScreen);
+            edgeView->setItems(dummyItems(8, QStringLiteral("s105edge")));
+            edge.syncButtonSize(edgeId);
+            const QRect stored0 = edge.fenceRect(edgeId);
+            const QRect coll0 = edge.fenceVisibleRect(edgeId);
+            const QRect screen(0, 0, 1920, 1080);
+            edge.setFenceRolledUp(edgeId, false);
+            bool expandSquare = false;
+            waitAnim(edge, edgeId, &expandSquare);
+            const QRect visOpen = edge.fenceVisibleRect(edgeId);
+            const QRect storedOpen = edge.fenceRect(edgeId);
+            const bool onScreen = screen.contains(visOpen);
+            const bool shifted = visOpen.center() != stored0.center();
+            edge.setFenceRolledUp(edgeId, true);
+            bool collapseSquare = false;
+            waitAnim(edge, edgeId, &collapseSquare);
+            const QRect storedBack = edge.fenceRect(edgeId);
+            const QRect collBack = edge.fenceVisibleRect(edgeId);
+            const QPoint edgeStoredC = stored0.center();
+            edgeOk = expandSquare && collapseSquare && onScreen && shifted
+                     && stored0 == storedOpen && stored0 == storedBack
+                     && coll0 == collBack
+                     && visOpen.width() == visOpen.height();
+            edgeDetail = QStringLiteral("onScreen %1 shifted %2 stored kept %3 back %4 center %5,%6 (want %7,%8) vis %9,%10 %11x%12 square %13/%14")
+                             .arg(onScreen).arg(shifted).arg(stored0 == storedOpen).arg(coll0 == collBack)
+                             .arg(edgeStoredC.x()).arg(edgeStoredC.y()).arg(edgeCenter.x()).arg(edgeCenter.y())
+                             .arg(visOpen.x()).arg(visOpen.y()).arg(visOpen.width()).arg(visOpen.height())
+                             .arg(expandSquare).arg(collapseSquare);
+        }
+        check(QStringLiteral("Bouton: near-edge expand stays on-screen and returns to the same anchor (session 105)"),
+              edgeOk, edgeDetail);
+
+        ui::FenceContainer locked;
+        locked.setAnimateRoll(true);
+        locked.setScreens(ui::ScreenLayout::single(QSize(1920, 1080)));
+        const QPoint lockCenter(90, 80);
+        const QString lockId = locked.createButton(QStringLiteral("Lock"), lockCenter);
+        ui::FenceView* lockView = locked.view(lockId);
+        bool lockOk = lockView != nullptr;
+        QString lockDetail;
+        if (lockView) {
+            if (offscreen)
+                lockView->setAttribute(Qt::WA_DontShowOnScreen);
+            lockView->setItems(dummyItems(8, QStringLiteral("s105lock")));
+            locked.syncButtonSize(lockId);
+            lockView->show();
+            wait(40);
+            locked.setFenceLocked(lockId, true);
+            const QRect stored0 = locked.fenceRect(lockId);
+            const QRect coll0 = locked.fenceVisibleRect(lockId);
+            const QPoint c = lockView->rect().center();
+            const int rad = qMin(lockView->width(), lockView->height()) / 2;
+            const QPoint rim(c.x() + qMax(0, rad - 1), c.y());
+            const bool noHandle = lockView->handleAt(rim) == ui::FenceHandle::None
+                                  && lockView->handleAt(c) == ui::FenceHandle::None
+                                  && lockView->rawHandleAt(rim) == ui::FenceHandle::None;
+            const auto mouse = [lockView](QEvent::Type type, const QPoint& at, Qt::MouseButtons buttons) {
+                QMouseEvent e(type, QPointF(at), QPointF(lockView->mapToGlobal(at)),
+                              type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons, Qt::NoModifier);
+                QApplication::sendEvent(lockView, &e);
+            };
+            mouse(QEvent::MouseButtonPress, rim, Qt::LeftButton);
+            mouse(QEvent::MouseMove, rim + QPoint(40, 25), Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease, rim + QPoint(40, 25), Qt::NoButton);
+            locked.resizeFenceBy(lockId, ui::FenceHandle::TitleBar, QPoint(50, 40));
+            locked.resizeFenceBy(lockId, ui::FenceHandle::BottomRight, QPoint(24, 24));
+            locked.setFenceRect(lockId, stored0.translated(80, 60), false);
+            const bool unmovedAfterDrag = locked.fenceRect(lockId) == stored0
+                                          && locked.fenceVisibleRect(lockId) == coll0;
+            QEnterEvent enter(QPointF(rim), QPointF(rim), QPointF(lockView->mapToGlobal(rim)));
+            QCoreApplication::sendEvent(lockView, &enter);
+            wait(ui::FenceContainer::kHoverUnrollDelayMs + 200);
+            waitAnim(locked, lockId, nullptr);
+            const QRect storedHover = locked.fenceRect(lockId);
+            const QRect visHover = locked.fenceVisibleRect(lockId);
+            const QRect screen(0, 0, 1920, 1080);
+            const bool hoverAnchorHeld = storedHover == stored0;
+            const bool hoverOnScreen = !lockView->rolledUp() ? screen.contains(visHover) : true;
+            QEvent leave(QEvent::Leave);
+            QCoreApplication::sendEvent(lockView, &leave);
+            wait(ui::FenceContainer::kHoverRerollDelayMs + 200);
+            waitAnim(locked, lockId, nullptr);
+            const bool back = locked.fenceRect(lockId) == stored0 && locked.fenceVisibleRect(lockId) == coll0;
+            locked.setFenceRolledUp(lockId, false);
+            waitAnim(locked, lockId, nullptr);
+            const QRect visOpen = locked.fenceVisibleRect(lockId);
+            locked.setFenceRolledUp(lockId, true);
+            waitAnim(locked, lockId, nullptr);
+            const bool cycleBack = locked.fenceRect(lockId) == stored0 && locked.fenceVisibleRect(lockId) == coll0
+                                   && screen.contains(visOpen) && visOpen.width() == visOpen.height();
+            lockOk = noHandle && unmovedAfterDrag && hoverAnchorHeld && hoverOnScreen && back && cycleBack;
+            lockDetail = QStringLiteral("handle %1 drag %2 hoverAnchor %3 onScreen %4 back %5 cycle %6")
+                             .arg(noHandle).arg(unmovedAfterDrag).arg(hoverAnchorHeld)
+                             .arg(hoverOnScreen).arg(back).arg(cycleBack);
+            lockView->hide();
+        }
+        check(QStringLiteral("locked Bouton: no border drag/resize, no leftover shift, returns to the same anchor (session 105)"),
+              lockOk, lockDetail);
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

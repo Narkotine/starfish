@@ -417,6 +417,8 @@ QPainterPath FenceView::outlinePath(const QSizeF& size, qreal inset) const
 
 FenceHandle FenceView::handleAt(const QPoint& point) const
 {
+    if (zone_shape::isButton(m_shape) && m_locked)
+        return FenceHandle::None;
     const FenceHandle handle = rawHandleAt(point);
     if (!m_locked || handle == FenceHandle::None || handle == FenceHandle::TitleBar)
         return handle;
@@ -1645,6 +1647,8 @@ QVector<QRect> FenceView::buttonItemRects() const
 void FenceView::paintButton(QPainter& painter)
 {
     const QRect box = rect();
+    const int side = qMin(box.width(), box.height());
+    const QRect circle(box.center().x() - side / 2, box.center().y() - side / 2, side, side);
     painter.setRenderHint(QPainter::Antialiasing, true);
     QColor fill = m_panelColor;
     if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
@@ -1652,7 +1656,7 @@ void FenceView::paintButton(QPainter& painter)
     painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6),
                         qMax(1, m_borderWidth)));
     painter.setBrush(fill);
-    painter.drawEllipse(box.adjusted(1, 1, -1, -1));
+    painter.drawEllipse(circle.adjusted(1, 1, -1, -1));
     if (m_rolledUp) {
         QFont f = font();
         f.setBold(true);

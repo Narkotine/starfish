@@ -15,9 +15,9 @@ read each shape’s bounding geometry.
 | Concern | Classic | Button (v1) | Later (petal, …) |
 |---|---|---|---|
 | Collapsed geometry | Title-bar strip | Circle ≈ 2× icon | SVG silhouette |
-| Expanded geometry | Stored `rect` | Larger circle (stored `rect`) | Soft stretch |
+| Expanded geometry | Stored `rect` | Larger circle; stored `rect` stays centred on the collapsed anchor (display may shift to stay on-screen) | Soft stretch |
 | Item layout | Icon grid | Concentric rings (0 = top, clockwise; extra rings if needed) | Free / theme |
-| Open / close | Roll-up animation | Scale + ease (overshoot) | Path morph |
+| Open / close | Roll-up animation | Single-radius scale (always a circle; near an edge the shown centre shifts once to fit, then returns to the stored anchor) | Path morph |
 | Hit-test | Rect / region | Circle (and icon cells) | Path |
 
 Persistence: `FenceStyle.shape` — absent / `""` = classic (backward compatible);
@@ -42,3 +42,18 @@ Create a fence. Born collapsed at a free spot; hover or click expands.
 
 Physics, SVG petals, free item positions inside classic fences (T-126),
 changing classic roll-up.
+
+
+## Expand / collapse (session 105)
+
+The collapsed centre is the anchor and does not move except by a user drag
+(unlocked). Hover or click expands a single radius (`width == height` every
+frame, mask and paint are the inscribed circle). If the expanded circle would
+leave the screen, its *shown* centre is computed once at expand start so the
+circle fits, then collapse returns exactly to the anchor. Overlap-push and
+classic roll-edge clamp never run on a Bouton during that animation. Leave
+means the cursor is outside the expanded circle, plus a short delay; a new
+expand/collapse does not start while one is already running.
+
+A locked Bouton never moves: no title-bar drag, no border resize hit, no
+leftover shift of the anchor after a near-edge expand.

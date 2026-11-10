@@ -216,6 +216,45 @@ inline QRect buttonCollapsedRect(const QRect& stored, int iconSize)
     return QRect(stored.center().x() - d / 2, stored.center().y() - d / 2, d, d);
 }
 
+// A square of `diameter` centred on `center` (the Bouton's stored anchor).
+inline QRect buttonSquareAt(QPoint center, int diameter)
+{
+    const int d = qMax(1, diameter);
+    return QRect(center.x() - d / 2, center.y() - d / 2, d, d);
+}
+
+// Translate a square so it lies inside `clamp`, keeping width == height.
+// Only moves as far as needed; if the square is larger than the clamp, it is
+// pinned to the clamp's top-left. The stored anchor is not this rect -- this
+// is only the circle shown while expanded near a screen edge.
+inline QRect buttonFitSquareOnScreen(const QRect& square, const QRect& clamp)
+{
+    if (!square.isValid() || !clamp.isValid())
+        return square;
+    const int d = qMax(1, qMin(square.width(), square.height()));
+    QRect r(square.center().x() - d / 2, square.center().y() - d / 2, d, d);
+    if (r.left() < clamp.left())
+        r.moveLeft(clamp.left());
+    if (r.top() < clamp.top())
+        r.moveTop(clamp.top());
+    if (r.right() > clamp.right())
+        r.moveRight(clamp.right());
+    if (r.bottom() > clamp.bottom())
+        r.moveBottom(clamp.bottom());
+    return r;
+}
+
+inline bool buttonContainsPoint(const QRect& square, const QPoint& point)
+{
+    const QPoint c = square.center();
+    const qint64 radius = qMin(square.width(), square.height()) / 2;
+    if (radius <= 0)
+        return false;
+    const qint64 dx = point.x() - c.x();
+    const qint64 dy = point.y() - c.y();
+    return dx * dx + dy * dy <= radius * radius;
+}
+
 // Progress 0 = collapsed, 1 = expanded. Ease-out back (slight overshoot).
 inline double buttonExpandEase(double t)
 {
@@ -230,9 +269,8 @@ inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progres
     const QRect small = buttonCollapsedRect(stored, iconSize);
     const double u = buttonExpandEase(progress);
     const QPoint c = stored.center();
-    const int w = int(qRound(small.width() + (stored.width() - small.width()) * u));
-    const int h = int(qRound(small.height() + (stored.height() - small.height()) * u));
-    return QRect(c.x() - w / 2, c.y() - h / 2, w, h);
+    const int side = qMax(1, int(qRound(small.width() + (stored.width() - small.width()) * u)));
+    return QRect(c.x() - side / 2, c.y() - side / 2, side, side);
 }
 
 inline QVector<ButtonItemGeom> buttonItemGeometry(const QRect& content, int count, int iconSize,

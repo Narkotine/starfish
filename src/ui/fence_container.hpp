@@ -56,6 +56,9 @@ struct FenceWindow {
     // Session 71: rolled up in the document, shown unrolled while the pointer is
     // over it ("unroll on hover"); never saved as unrolled.
     bool hoverUnrolled = false;
+    // Session 105: last hover intent on a Bouton, applied when the current
+    // expand/collapse animation finishes (no re-trigger mid-flight).
+    bool buttonHoverWanted = false;
     // Session 73: while rolling / unrolling, the rect shown (the stored rect and
     // `rolledUp` already say where it is going and are never animated).
     QRect animatedVisible;
@@ -794,6 +797,9 @@ private:
     QRect snapToCells(const FenceWindow& fence, FenceHandle handle, const QRect& rect) const;
     void onFenceHover(const QString& id, bool hovered);
     void hoverReroll(const QString& id, int serial);
+    void settleButtonHover(FenceWindow& fence);
+    QRect buttonFittedExpanded(const FenceWindow& fence) const;
+    bool buttonPointerInExpandedCircle(const FenceWindow& fence) const;
     core::FenceStyle m_newFenceStyle;
     bool m_allowOverlap = true;
     bool m_composed = false;

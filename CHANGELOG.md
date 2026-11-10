@@ -9,6 +9,7 @@
 
 ### Correctifs
 - Français : l’interface ne dit plus « fence » (menu « Apparence de la zone », réglages, infobulles). `tools/i18n_check.py` échoue si une traduction FR contient encore le mot.
+- Bouton : le disque replié ne glisse plus au bord de l’écran (l’ancre reste fixe ; le cercle déployé est seulement décalé pour tenir dans l’écran, puis y revient) ; l’animation reste un cercle (plus d’ellipse) ; un Bouton verrouillé ne bouge pas, y compris quand le curseur est sur le bord.
 
 ### Nouveautés
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
