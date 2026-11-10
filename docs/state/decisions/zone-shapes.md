@@ -16,7 +16,7 @@ read each shape’s bounding geometry.
 |---|---|---|---|
 | Collapsed geometry | Title-bar strip | Circle ≈ 2× icon | SVG silhouette |
 | Expanded geometry | Stored `rect` | Larger circle (stored `rect`) | Soft stretch |
-| Item layout | Icon grid | Ring / phyllotaxis | Free / theme |
+| Item layout | Icon grid | Concentric rings (0 = top, clockwise; extra rings if needed) | Free / theme |
 | Open / close | Roll-up animation | Scale + ease (overshoot) | Path morph |
 | Hit-test | Rect / region | Circle (and icon cells) | Path |
 

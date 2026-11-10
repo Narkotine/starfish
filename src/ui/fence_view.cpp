@@ -1663,11 +1663,15 @@ void FenceView::paintButton(QPainter& painter)
         painter.drawText(box.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, label);
         return;
     }
-    const QVector<QRect> rects = buttonItemRects();
+    const auto geoms = zone_shape::buttonItemGeometry(contentRect(), m_grid.items().size(),
+                                                      m_grid.iconSize());
     const QList<core::DesktopItem>& items = m_grid.items();
-    for (int i = 0; i < rects.size() && i < items.size(); ++i) {
+    const bool names = m_grid.labelsShown();
+    QFont nameFont = font();
+    nameFont.setPixelSize(qMax(10, m_grid.iconSize() / 4));
+    for (int i = 0; i < geoms.size() && i < items.size(); ++i) {
         const QPixmap icon = m_iconProvider ? m_iconProvider(items.at(i), m_grid.iconSize()) : QPixmap();
-        const QRect r = rects.at(i);
+        const QRect r = geoms.at(i).icon;
         if (!icon.isNull())
             painter.drawPixmap(r, icon);
         else {
@@ -1679,6 +1683,13 @@ void FenceView::paintButton(QPainter& painter)
             painter.setPen(QPen(QColor(0x3B, 0x82, 0xF6), 2));
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(r.adjusted(-2, -2, 2, 2), 8, 8);
+        }
+        if (names && !geoms.at(i).label.isEmpty()) {
+            painter.setFont(nameFont);
+            painter.setPen(QColor(0xE5, 0xE7, 0xEB));
+            const QString caption = painter.fontMetrics().elidedText(
+                items.at(i).name, Qt::ElideRight, geoms.at(i).label.width());
+            painter.drawText(geoms.at(i).label, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, caption);
         }
     }
 }

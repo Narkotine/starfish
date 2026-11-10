@@ -3602,6 +3602,82 @@ int runUiProbe(QApplication& app)
                   false, QStringLiteral("no view"));
         }
     }
+
+    // Session 104: Bouton ring layout — 0 = top, clockwise; extra rings if needed;
+    // no overlap of icon+label boxes; all inside the expanded circle. n = 1..20.
+    {
+        const int icon = 48;
+        bool allOk = true;
+        QStringList fail;
+        for (int n = 1; n <= 20; ++n) {
+            const ui::zone_shape::ButtonLayout lay = ui::zone_shape::buttonLayout(n, icon);
+            const double cx = lay.diameter / 2.0;
+            const double cy = lay.diameter / 2.0;
+            const double R = lay.diameter / 2.0 - 0.5;
+            if (lay.items.size() != n || lay.diameter < icon * 2) {
+                allOk = false;
+                fail << QStringLiteral("n=%1 count/diam").arg(n);
+                continue;
+            }
+            bool overlap = false, outside = false;
+            for (int i = 0; i < lay.items.size(); ++i) {
+                const QRect a = lay.items.at(i).bounds();
+                for (const QPoint& p : {a.topLeft(), a.topRight(), a.bottomLeft(), a.bottomRight()}) {
+                    const double dx = p.x() - cx, dy = p.y() - cy;
+                    if (dx * dx + dy * dy > R * R + 1.0)
+                        outside = true;
+                }
+                for (int j = i + 1; j < lay.items.size(); ++j) {
+                    if (a.intersects(lay.items.at(j).bounds()))
+                        overlap = true;
+                }
+            }
+            // n=2: top and bottom; n=3: one icon at the top.
+            if (n == 2 || n == 3) {
+                const QRect first = lay.items.at(0).icon;
+                if (first.center().y() > int(cy) - 4)
+                    fail << QStringLiteral("n=%1 first not at top").arg(n);
+            }
+            if (overlap || outside)
+                fail << QStringLiteral("n=%1 overlap=%2 outside=%3 d=%4")
+                            .arg(n).arg(overlap).arg(outside).arg(lay.diameter);
+            if (overlap || outside)
+                allOk = false;
+        }
+        // Screenshots of a real Bouton window at 3, 6 and 14 icons.
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Apps"), QPoint(500, 400));
+        ui::FenceView* v = box.view(id);
+        if (v) {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            auto grabN = [&](int n, const QString& name) {
+                QList<core::DesktopItem> items;
+                for (int i = 0; i < n; ++i) {
+                    core::DesktopItem it;
+                    it.path = QStringLiteral("::s104/item%1").arg(i);
+                    it.name = QStringLiteral("Item %1").arg(i + 1);
+                    items << it;
+                }
+                v->setItems(items);
+                box.syncButtonSize(id);
+                box.setFenceRolledUp(id, false);
+                v->show();
+                wait(80);
+                v->grab().save(captures + QLatin1Char('/') + name);
+            };
+            grabN(3, QStringLiteral("s104_button_3.png"));
+            grabN(6, QStringLiteral("s104_button_6.png"));
+            grabN(14, QStringLiteral("s104_button_14.png"));
+        } else {
+            allOk = false;
+            fail << QStringLiteral("no view");
+        }
+        check(QStringLiteral("Bouton: ring layout, no overlap, boxes inside circle (n=1..20, session 104)"),
+              allOk && fail.isEmpty(),
+              fail.isEmpty() ? QStringLiteral("[s104_button_3/6/14.png]")
+                             : fail.join(QLatin1Char(' ')));
+    }
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

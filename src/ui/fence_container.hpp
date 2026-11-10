@@ -457,6 +457,7 @@ public:
     // Applies a new rect. The rect is clamped to the desktop bounds and, unless
     // `snap` is false, snapped to the other fences and the screen edges. Returns
     // the rect actually applied (an unknown id returns a null rect).
+    void syncButtonSize(const QString& id);
     QRect setFenceRect(const QString& id, const QRect& rect, bool snap = true);
 
     // --- rules (T-010, F-017 / F-018) ---------------------------------------

@@ -1990,7 +1990,7 @@ QList<QRect> FenceContainer::otherRects(const QString& excludeId) const
 QString FenceContainer::createButton(const QString& title, const QPoint& center)
 {
     const int icon = 48;
-    const int expanded = zone_shape::buttonExpandedDiameter(icon, 6);
+    const int expanded = zone_shape::buttonExpandedDiameter(icon, 0);
     const QRect rect(center.x() - expanded / 2, center.y() - expanded / 2, expanded, expanded);
     const QString id = createFence(title, rect);
     FenceWindow* fence = find(id);
@@ -2257,7 +2257,10 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // rebuild it: the widget's own paintEvent never reaches the desktop. Without
     // this a drop, a portal refresh or a released icon would exist only in the
     // model (T-040).
-    connect(view, &FenceView::contentChanged, this, [this, id] { renderFence(id); });
+    connect(view, &FenceView::contentChanged, this, [this, id] {
+        syncButtonSize(id);
+        renderFence(id);
+    });
     connect(view, &FenceView::widgetTick, this, [this, id] { renderFence(id); }); // session 79
     connect(view, &FenceView::itemReleaseRequested, this,
             [this, id](const QStringList& paths) { releaseItems(id, paths); });
@@ -2602,6 +2605,22 @@ QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
         : fence.view->width() - fence.view->contentRect().width();
     const int logical = chrome + 2 * m.gridPadding + fence.view->cellWidth();
     return QSize(qMax(64, qCeil(logical * dpr)), m_minSize.height());
+}
+
+void FenceContainer::syncButtonSize(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !zone_shape::isButton(fence->style.shape))
+        return;
+    const int icon = fence->style.iconSize > 0 ? fence->style.iconSize
+                    : (fence->view ? fence->view->iconSize() : 48);
+    const int count = fence->view ? fence->view->items().size() : 0;
+    const int d = zone_shape::buttonExpandedDiameter(icon, count);
+    const QPoint c = fence->rect.center();
+    const QRect next(c.x() - d / 2, c.y() - d / 2, d, d);
+    if (next == fence->rect)
+        return;
+    setFenceRect(id, next, /*snap=*/false);
 }
 
 QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool snap)

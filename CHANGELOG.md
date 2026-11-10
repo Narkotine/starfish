@@ -12,7 +12,7 @@
 
 ### Nouveautés
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
-- **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneau.
+- **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneaux concentriques (départ en haut, sens horaire ; couches supplémentaires et rayon agrandi s’il le faut, sans chevauchement).
 
 ## 0.1.3 — 9 novembre 2026
 
