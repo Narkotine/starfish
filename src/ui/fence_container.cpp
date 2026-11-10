@@ -876,22 +876,45 @@ QRect FenceContainer::visibleRectOf(const FenceWindow& fence) const
 {
     if (fence.animating && fence.animatedVisible.isValid())
         return fence.animatedVisible;
-    // Session 101/105: a Bouton collapses to a disc centred on the stored
-    // anchor. While expanded, the stored square stays on that anchor; if it
-    // would go off-screen, only the *shown* circle is shifted to fit.
+    // Session 101/105/106: a Bouton collapses to a disc on a durable anchor.
+    // While expanded, the stored square stays on that anchor; if it would go
+    // off-screen, only the *shown* circle is shifted to fit. Diameters are
+    // snapped so logical * dpr maps back without sliding the centre.
     if (zone_shape::isButton(fence.style.shape)) {
         const int icon = buttonIconSizeOf(fence);
+        const QPoint anchor = buttonAnchorOf(fence);
         if (fence.rolledUp)
-            return zone_shape::buttonCollapsedRect(fence.rect, icon);
+            return buttonSquareFor(fence, anchor, zone_shape::buttonCollapsedDiameter(icon));
         return buttonFittedExpanded(fence);
     }
     return FenceGeometry::visibleRect(fence.rect, fence.rolledUp, rollEdgeOf(fence));
 }
 
+QPoint FenceContainer::buttonAnchorOf(const FenceWindow& fence) const
+{
+    return fence.hasButtonAnchor ? fence.buttonAnchor : fence.rect.center();
+}
+
+void FenceContainer::setButtonStored(FenceWindow& fence, QPoint anchor, int diameter)
+{
+    fence.hasButtonAnchor = true;
+    fence.buttonAnchor = anchor;
+    fence.rect = buttonSquareFor(fence, anchor, diameter);
+}
+
+QRect FenceContainer::buttonSquareFor(const FenceWindow& /*fence*/, QPoint anchor, int diameter) const
+{
+    const QRect hint = zone_shape::buttonSquareAt(anchor, qMax(1, diameter));
+    const qreal dpr = m_screens.devicePixelRatioFor(hint);
+    return zone_shape::buttonSquareAt(anchor, zone_shape::buttonPhysicalDiameter(diameter, dpr));
+}
+
 QRect FenceContainer::buttonFittedExpanded(const FenceWindow& fence) const
 {
-    const QRect clamp = m_screens.clampRectFor(fence.rect);
-    return zone_shape::buttonFitSquareOnScreen(fence.rect, clamp);
+    const QPoint anchor = buttonAnchorOf(fence);
+    const QRect ideal = buttonSquareFor(fence, anchor, fence.rect.width());
+    const QRect clamp = m_screens.clampRectFor(ideal);
+    return zone_shape::buttonFitSquareOnScreen(ideal, clamp);
 }
 
 bool FenceContainer::buttonPointerInExpandedCircle(const FenceWindow& fence) const
@@ -1040,13 +1063,17 @@ void FenceContainer::stepRoll(const QString& id)
         // centre toward a one-shot on-screen shift). Every frame stays a square,
         // so the mask never becomes an ellipse.
         if (zone_shape::isButton(f->style.shape)) {
+            // Session 106: lerp the centre, then rebuild the square. Snapping
+            // the diameter for the DPR must not keep a stale top-left -- that
+            // walked the disc toward the origin on every frame.
             const QPoint c0 = a.center();
             const QPoint c1 = b.center();
             const int d0 = qMax(1, qMin(a.width(), a.height()));
             const int d1 = qMax(1, qMin(b.width(), b.height()));
             const QPoint c(lerp(c0.x(), c1.x()), lerp(c0.y(), c1.y()));
-            const int d = qMax(1, lerp(d0, d1));
-            return QRect(c.x() - d / 2, c.y() - d / 2, d, d);
+            const qreal dpr = m_screens.devicePixelRatioFor(f->rect);
+            const int d = zone_shape::buttonPhysicalDiameter(qMax(1, lerp(d0, d1)), dpr);
+            return zone_shape::buttonSquareAt(c, d);
         }
         return QRect(QPoint(lerp(a.left(), b.left()), lerp(a.top(), b.top())),
                      QPoint(lerp(a.right(), b.right()), lerp(a.bottom(), b.bottom())));
@@ -2070,7 +2097,7 @@ QString FenceContainer::createButton(const QString& title, const QPoint& center)
 {
     const int icon = 48;
     const int expanded = zone_shape::buttonExpandedDiameter(icon, 0);
-    const QRect rect(center.x() - expanded / 2, center.y() - expanded / 2, expanded, expanded);
+    const QRect rect = zone_shape::buttonSquareAt(center, expanded);
     const QString id = createFence(title, rect);
     FenceWindow* fence = find(id);
     if (!fence)
@@ -2086,10 +2113,9 @@ QString FenceContainer::createButton(const QString& title, const QPoint& center)
     }
     applyStyleToView(*fence);
     applyMaterialToSurface(*fence);
-    // Session 105: place the square on the requested centre after the view
-    // signals have run (syncButtonSize would otherwise keep a centre that
-    // createFence, still classic at that point, may have clamped inward).
-    fence->rect = zone_shape::buttonSquareAt(center, expanded);
+    // Session 105/106: pin the durable anchor to the requested centre after
+    // the view signals have run (createFence is still classic until now).
+    setButtonStored(*fence, center, expanded);
     fence->monitor = m_screens.nameFor(fence->rect);
     applyVisibleGeometry(*fence);
     emit fenceRectChanged(id, fence->rect);
@@ -2267,10 +2293,10 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     // not push a fence off its screen.
     fence.rect = m_screens.restoreRect(rect, monitorHint);
     if (zone_shape::isButton(style.shape)) {
-        // Session 105: never clamp the expanded square -- that would slide the
-        // collapsed anchor away from a screen edge. Keep a square on the
+        // Session 105/106: never clamp the expanded square -- that would slide
+        // the collapsed anchor away from a screen edge. Keep a square on the
         // document centre when it still sits on a screen; only the collapsed
-        // disc is required to stay reachable.
+        // disc is required to stay reachable. Pin the durable anchor once.
         const int icon = style.iconSize > 0 ? style.iconSize : 48;
         int d = qMax(1, qMax(fence.rect.width(), fence.rect.height()));
         const int need = zone_shape::buttonExpandedDiameter(icon, items.size());
@@ -2278,17 +2304,16 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             d = need;
         const QPoint documentCenter = rect.center();
         const QRect home = m_screens.clampRectFor(QRect(documentCenter, QSize(1, 1)));
-        const QPoint wanted = (home.isValid() && home.contains(documentCenter))
+        QPoint wanted = (home.isValid() && home.contains(documentCenter))
             ? documentCenter
             : fence.rect.center();
-        QRect sq = zone_shape::buttonSquareAt(wanted, d);
-        const QRect clamp = m_screens.clampRectFor(sq);
-        const QRect collapsed = zone_shape::buttonCollapsedRect(sq, icon);
+        const QRect collapsed = buttonSquareFor(fence, wanted, zone_shape::buttonCollapsedDiameter(icon));
+        const QRect clamp = m_screens.clampRectFor(collapsed);
         if (clamp.isValid()) {
             const QRect fitted = zone_shape::buttonFitSquareOnScreen(collapsed, clamp);
-            sq.translate(fitted.center() - collapsed.center());
+            wanted += fitted.center() - collapsed.center();
         }
-        fence.rect = zone_shape::buttonSquareAt(sq.center(), d);
+        setButtonStored(fence, wanted, d);
     } else {
         // Session 72: a fence with icons may be narrower than m_minSize (session
         // 66: down to one centred column, minSizeFor()). Forcing m_minSize here
@@ -2727,15 +2752,16 @@ void FenceContainer::syncButtonSize(const QString& id)
     const int icon = buttonIconSizeOf(*fence);
     const int count = fence->view ? fence->view->items().size() : 0;
     const int d = zone_shape::buttonExpandedDiameter(icon, count);
-    const QRect next = zone_shape::buttonSquareAt(fence->rect.center(), d);
-    if (next == fence->rect)
+    const QPoint anchor = buttonAnchorOf(*fence);
+    const QRect next = buttonSquareFor(*fence, anchor, d);
+    if (next == fence->rect && fence->hasButtonAnchor && fence->buttonAnchor == anchor)
         return;
-    // Keep the centre; do not run applyRequest (clamp/snap would walk a
+    // Keep the anchor; do not run applyRequest (clamp/snap would walk a
     // near-edge Bouton inward every time the item count or lock changed).
-    fence->rect = next;
-    fence->monitor = m_screens.nameFor(next);
+    setButtonStored(*fence, anchor, d);
+    fence->monitor = m_screens.nameFor(fence->rect);
     applyVisibleGeometry(*fence);
-    emit fenceRectChanged(id, next);
+    emit fenceRectChanged(id, fence->rect);
 }
 
 QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool snap)
@@ -2751,25 +2777,24 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
     // monitors of different sizes, where it would be invisible and unreachable.
     QRect target;
     if (zone_shape::isButton(fence->style.shape)) {
-        // Session 105: the stored square is the anchor. Never run classic
-        // roll-edge / applyRequest clamp on it (that made a near-edge Bouton
-        // walk away, and turned the animation into an ellipse). A locked
-        // Bouton may change diameter around the same centre, never the centre
-        // itself. The collapsed disc is what must stay on-screen.
+        // Session 105/106: the stored square is the durable anchor. Never run
+        // classic roll-edge / applyRequest clamp on it. A locked Bouton may
+        // change diameter around the same anchor, never the anchor itself.
         const int d = (rect.width() == rect.height())
             ? qMax(1, rect.width())
             : qMax(1, qMax(rect.width(), rect.height()));
-        QPoint c = fence->locked ? fence->rect.center() : rect.center();
-        QRect sq = zone_shape::buttonSquareAt(c, d);
+        QPoint c = fence->locked ? buttonAnchorOf(*fence) : rect.center();
         if (!fence->locked && !fence->animating) {
-            const QRect clamp = m_screens.clampRectFor(sq);
-            const QRect collapsed = zone_shape::buttonCollapsedRect(sq, buttonIconSizeOf(*fence));
+            const int icon = buttonIconSizeOf(*fence);
+            const QRect collapsed = buttonSquareFor(*fence, c, zone_shape::buttonCollapsedDiameter(icon));
+            const QRect clamp = m_screens.clampRectFor(collapsed);
             if (clamp.isValid()) {
                 const QRect fitted = zone_shape::buttonFitSquareOnScreen(collapsed, clamp);
-                sq.translate(fitted.center() - collapsed.center());
+                c += fitted.center() - collapsed.center();
             }
         }
-        target = zone_shape::buttonSquareAt(sq.center(), d);
+        setButtonStored(*fence, c, d);
+        target = fence->rect;
         Q_UNUSED(snap);
     } else {
         target = FenceGeometry::applyRequest(fence->rect, fence->rolledUp, rect,
@@ -2984,6 +3009,17 @@ void FenceContainer::renderFence(const QString& id)
     // widget into those physical pixels, so a fence keeps the same apparent size
     // (and the same icon density) on a 150 % monitor as on a 100 % one.
     const QRect visible = visibleRectOf(*fence);
+    // Session 106: if the logical widget and the physical frame still disagree
+    // by a rounded pixel, paint the Bouton centred in the frame -- never from
+    // the top-left, which walked the disc toward the origin at 125 % / 150 %.
+    const QPoint renderOrigin = [&] {
+        if (!zone_shape::isButton(fence->style.shape))
+            return QPoint();
+        const qreal scale = qMax(qreal(0.01), dpr);
+        const int paintedW = qMax(1, qRound(fence->view->width() * scale));
+        const int paintedH = qMax(1, qRound(fence->view->height() * scale));
+        return QPoint((visible.width() - paintedW) / 2, (visible.height() - paintedH) / 2);
+    }();
     applyOutline(*fence); // session 69: the tab follows the title and the style
     if (m_composed && fence->surface) {
         // T-098: the fence's own pixels over transparency, then composed.
@@ -3003,17 +3039,17 @@ void FenceContainer::renderFence(const QString& id)
             fence->view->setPaintLayers(FenceView::PaintLayers::Background);
             {
                 QPainter painter(&content);
-                fence->view->render(&painter, QPoint(), QRegion(), QWidget::RenderFlags());
+                fence->view->render(&painter, renderOrigin, QRegion(), QWidget::RenderFlags());
             }
             fence->view->setPaintLayers(FenceView::PaintLayers::Foreground);
             {
                 QPainter painter(&foreground);
-                fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+                fence->view->render(&painter, renderOrigin, QRegion(), QWidget::DrawChildren);
             }
             fence->view->setPaintLayers(FenceView::PaintLayers::All);
         } else {
             QPainter painter(&content);
-            fence->view->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+            fence->view->render(&painter, renderOrigin, QRegion(), QWidget::DrawChildren);
         }
         ++m_frameRenders;
         const QRect before = fence->composedAt;
@@ -3064,7 +3100,7 @@ void FenceContainer::renderFence(const QString& id)
         // widget is sized with -- because the image carries the device pixel ratio.
         painter.fillRect(QRect(QPoint(0, 0), logicalSize(visible.size(), dpr)),
                          QColor(panel.red(), panel.green(), panel.blue()));
-        fence->view->render(&painter);
+        fence->view->render(&painter, renderOrigin);
     }
     ++m_frameRenders;
     fence->frame = frame;

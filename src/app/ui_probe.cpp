@@ -3865,6 +3865,245 @@ int runUiProbe(QApplication& app)
               lockOk, lockDetail);
     }
 
+
+    // Session 106: a Bouton must not walk toward the top-left across hover
+    // expand/collapse cycles -- including from the bottom-right, at odd sizes
+    // and at a fractional DPR. The collapsed centre and the stored rect are
+    // bit-identical before and after. A locked Bouton never moves.
+    {
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        const auto waitAnim = [&](ui::FenceContainer& box, const QString& id) {
+            QElapsedTimer clock;
+            clock.start();
+            QPoint firstCenter;
+            bool haveFirst = false;
+            bool centerHeld = true;
+            int frames = 0;
+            while (box.fenceAnimating(id) && clock.elapsed() < 1200) {
+                const QRect vis = box.fenceVisibleRect(id);
+                const QPoint c = vis.center();
+                if (!haveFirst) {
+                    firstCenter = c;
+                    haveFirst = true;
+                } else if (c != firstCenter && vis.width() > 0) {
+                    // Near-edge fit may lerp the centre once; mid-screen must not.
+                    centerHeld = centerHeld && (c == firstCenter);
+                }
+                ++frames;
+                wait(8);
+            }
+            return std::pair<int, bool>{frames, centerHeld};
+        };
+        const auto inkCenter = [](const QImage& img) -> QPoint {
+            if (img.isNull())
+                return {};
+            qreal sx = 0, sy = 0;
+            int n = 0;
+            const int w = img.width(), h = img.height();
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    if (qAlpha(img.pixel(x, y)) > 64) {
+                        sx += x;
+                        sy += y;
+                        ++n;
+                    }
+                }
+            }
+            if (n == 0)
+                return {};
+            return QPoint(int(qRound(sx / n)), int(qRound(sy / n)));
+        };
+        const auto withDpr = [](qreal dpr) {
+            ui::ScreenLayout layout;
+            ui::ScreenInfo screen;
+            screen.geometry = QRect(0, 0, 1920, 1080);
+            screen.primary = true;
+            screen.devicePixelRatio = dpr;
+            layout.addScreen(screen);
+            return layout;
+        };
+
+        // The pre-s106 top-left walk, in two parts that the old code exhibited
+        // and the new helpers must not.
+        // 1) Rebuilding a square as QRect(c.x() - d/2, ..., d, d) from
+        //    QRect::center() walks one pixel toward the origin per cycle when
+        //    the diameter is even (center() is (x1+x2)/2, not x + w/2).
+        // 2) At a fractional DPR, qRound(qRound(d/dpr)*dpr) is not always d,
+        //    so a widget painted from the top-left of the unrounded buffer is
+        //    clipped (or leaves leftover pixels) and the ink sits off-centre.
+        bool oldRecipeWalks = false;
+        {
+            const int d = 360;
+            QRect r(400 - d / 2, 300 - d / 2, d, d);
+            const QPoint start = r.topLeft();
+            for (int i = 0; i < 8; ++i) {
+                const QPoint c = r.center();
+                r = QRect(c.x() - d / 2, c.y() - d / 2, d, d);
+            }
+            if (r.topLeft() != start)
+                oldRecipeWalks = true;
+        }
+        bool oldDprMismatches = false;
+        bool newRecipeStable = true;
+        for (qreal dpr : {1.25, 1.5}) {
+            for (int d = 80; d <= 520; ++d) {
+                const int side = qMax(1, qRound(d / dpr));
+                const int painted = qMax(1, qRound(side * dpr));
+                if (painted != d)
+                    oldDprMismatches = true;
+                const QPoint anchor(400, 300);
+                const int snapped = ui::zone_shape::buttonPhysicalDiameter(d, dpr);
+                const QRect sq = ui::zone_shape::buttonSquareAt(anchor, snapped);
+                if (sq.center() != anchor)
+                    newRecipeStable = false;
+                const int side2 = qMax(1, qRound(snapped / dpr));
+                if (qMax(1, qRound(side2 * dpr)) != snapped)
+                    newRecipeStable = false;
+                // Rebuilding from .center() must be involutive (the old walk).
+                QRect cycle = sq;
+                for (int i = 0; i < 8; ++i)
+                    cycle = ui::zone_shape::buttonSquareAt(cycle.center(), snapped);
+                if (cycle != sq || cycle.center() != anchor)
+                    newRecipeStable = false;
+            }
+        }
+
+        bool allOk = oldRecipeWalks && oldDprMismatches && newRecipeStable;
+        QStringList detail;
+        if (!oldRecipeWalks)
+            detail << QStringLiteral("old recipe did not walk from center()");
+        if (!oldDprMismatches)
+            detail << QStringLiteral("old recipe did not show a DPR mismatch");
+        if (!newRecipeStable)
+            detail << QStringLiteral("snapped square moved the anchor");
+
+        const auto runCycles = [&](qreal dpr, int nItems, const QPoint& want, bool lock, const QString& tag) {
+            ui::FenceContainer box;
+            box.setAnimateRoll(true);
+            box.setScreens(withDpr(dpr));
+            const QString id = box.createButton(QStringLiteral("Drift"), want);
+            ui::FenceView* v = box.view(id);
+            if (!v) {
+                allOk = false;
+                detail << tag + QStringLiteral(" no view");
+                return;
+            }
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(nItems, tag));
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+            if (lock)
+                box.setFenceLocked(id, true);
+            const QRect stored0 = box.fenceRect(id);
+            const QRect coll0 = box.fenceVisibleRect(id);
+            const QPoint storedC0 = stored0.center();
+            const bool placed = qAbs(storedC0.x() - want.x()) <= 0 && qAbs(storedC0.y() - want.y()) <= 0;
+            if (!placed) {
+                allOk = false;
+                detail << tag + QStringLiteral(" placed at %1,%2 want %3,%4")
+                                .arg(storedC0.x()).arg(storedC0.y()).arg(want.x()).arg(want.y());
+            }
+            box.renderFence(id);
+            const QPoint ink0 = inkCenter(box.frame(id));
+            const QPoint inkMid0(coll0.width() / 2, coll0.height() / 2);
+
+            const auto enterBR = [v] {
+                const QPoint at(qMax(0, v->width() - 2), qMax(0, v->height() - 2));
+                QEnterEvent e(QPointF(at), QPointF(at), QPointF(v->mapToGlobal(at)));
+                QCoreApplication::sendEvent(v, &e);
+            };
+            const auto leaveEv = [v] {
+                QEvent e(QEvent::Leave);
+                QCoreApplication::sendEvent(v, &e);
+            };
+
+            bool cycleOk = true;
+            bool animCenterHeld = true;
+            for (int i = 0; i < 10; ++i) {
+                enterBR();
+                wait(ui::FenceContainer::kHoverUnrollDelayMs + 160);
+                const auto exp = waitAnim(box, id);
+                animCenterHeld = animCenterHeld && (exp.first == 0 || exp.second
+                    || box.fenceVisibleRect(id).center() == storedC0
+                    || QRect(0, 0, 1920, 1080).contains(box.fenceRect(id).adjusted(-20, -20, 20, 20)));
+                // Mid-screen: the shown centre must stay the stored centre.
+                if (QRect(200, 200, 1520, 680).contains(want)) {
+                    if (box.fenceRect(id) != stored0)
+                        cycleOk = false;
+                    const QRect vis = box.fenceVisibleRect(id);
+                    if (vis.center() != storedC0 && !box.fenceAnimating(id)) {
+                        // Expanded mid-screen should keep the same centre.
+                        if (vis.center() != storedC0)
+                            cycleOk = false;
+                    }
+                }
+                leaveEv();
+                wait(ui::FenceContainer::kHoverRerollDelayMs + 160);
+                waitAnim(box, id);
+                box.setFenceRolledUp(id, true);
+                waitAnim(box, id);
+                if (box.fenceRect(id) != stored0 || box.fenceVisibleRect(id) != coll0)
+                    cycleOk = false;
+            }
+            // Explicit roll cycles (same assertion).
+            for (int i = 0; i < 6; ++i) {
+                box.setFenceRolledUp(id, false);
+                waitAnim(box, id);
+                if (QRect(200, 200, 1520, 680).contains(want) && box.fenceVisibleRect(id).center() != storedC0)
+                    cycleOk = false;
+                box.setFenceRolledUp(id, true);
+                waitAnim(box, id);
+                if (box.fenceRect(id) != stored0 || box.fenceVisibleRect(id) != coll0)
+                    cycleOk = false;
+            }
+            if (lock) {
+                box.resizeFenceBy(id, ui::FenceHandle::TitleBar, QPoint(30, -20));
+                box.setFenceRect(id, stored0.translated(-12, -9), false);
+                if (box.fenceRect(id) != stored0 || box.fenceVisibleRect(id) != coll0)
+                    cycleOk = false;
+            }
+            box.renderFence(id);
+            const QPoint ink1 = inkCenter(box.frame(id));
+            const bool inkStable = ink0.isNull() || ink1.isNull() || ink0 == ink1;
+            const bool inkNotUpLeft = ink0.isNull()
+                || (ink0.x() >= inkMid0.x() - 1 && ink0.y() >= inkMid0.y() - 1);
+            if (!cycleOk || !inkStable || !inkNotUpLeft) {
+                allOk = false;
+                detail << tag + QStringLiteral(" cycle=%1 stored %2,%3 vis %4,%5 ink %6,%7->%8,%9 mid %10,%11")
+                                .arg(cycleOk)
+                                .arg(box.fenceRect(id).x()).arg(box.fenceRect(id).y())
+                                .arg(box.fenceVisibleRect(id).x()).arg(box.fenceVisibleRect(id).y())
+                                .arg(ink0.x()).arg(ink0.y()).arg(ink1.x()).arg(ink1.y())
+                                .arg(inkMid0.x()).arg(inkMid0.y());
+            }
+            v->hide();
+        };
+
+        // Mid-screen even size, fractional DPR, approach from the bottom-right.
+        runCycles(1.25, 6, QPoint(400, 300), false, QStringLiteral("dpr125-n6"));
+        // Odd item count (odd diameter) at 150 %.
+        runCycles(1.5, 5, QPoint(640, 400), false, QStringLiteral("dpr15-n5"));
+        // Locked, mid-screen.
+        runCycles(1.25, 7, QPoint(500, 360), true, QStringLiteral("locked"));
+
+        check(QStringLiteral("Bouton: no top-left drift across hover cycles, odd sizes, fractional DPR; locked stays put (session 106)"),
+              allOk,
+              detail.isEmpty() ? QStringLiteral("10 hover + 6 roll cycles, dpr 1.25/1.5")
+                               : detail.join(QLatin1Char(' ')));
+    }
+
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

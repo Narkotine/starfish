@@ -57,3 +57,13 @@ expand/collapse does not start while one is already running.
 
 A locked Bouton never moves: no title-bar drag, no border resize hit, no
 leftover shift of the anchor after a near-edge expand.
+
+## Hover drift (session 106)
+
+The stored centre is a durable anchor (`buttonAnchor`), never re-derived from
+a rebuilt square. `buttonSquareAt` uses `QRect::moveCenter` so it is the exact
+inverse of `QRect::center()` (the old `x - d/2` reconstruction walked one
+pixel toward the top-left per cycle when the diameter was even). Physical
+diameters are snapped so `logical * dpr` maps back without clipping the disc
+at 125 % / 150 %, and the frame is painted centred if a rounded pixel remains.
+A Bouton moves only when deliberately dragged, and never when locked.

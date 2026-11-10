@@ -59,6 +59,10 @@ struct FenceWindow {
     // Session 105: last hover intent on a Bouton, applied when the current
     // expand/collapse animation finishes (no re-trigger mid-flight).
     bool buttonHoverWanted = false;
+    // Session 106: the durable centre. Never recovered from QRect::center()
+    // after a size change -- that rounded toward the top-left and drifted.
+    QPoint buttonAnchor;
+    bool hasButtonAnchor = false;
     // Session 73: while rolling / unrolling, the rect shown (the stored rect and
     // `rolledUp` already say where it is going and are never animated).
     QRect animatedVisible;
@@ -798,6 +802,9 @@ private:
     void onFenceHover(const QString& id, bool hovered);
     void hoverReroll(const QString& id, int serial);
     void settleButtonHover(FenceWindow& fence);
+    QPoint buttonAnchorOf(const FenceWindow& fence) const;
+    void setButtonStored(FenceWindow& fence, QPoint anchor, int diameter);
+    QRect buttonSquareFor(const FenceWindow& fence, QPoint anchor, int diameter) const;
     QRect buttonFittedExpanded(const FenceWindow& fence) const;
     bool buttonPointerInExpandedCircle(const FenceWindow& fence) const;
     core::FenceStyle m_newFenceStyle;

@@ -213,14 +213,36 @@ inline int buttonExpandedDiameter(int iconSize, int count, int labelHeight = kBu
 inline QRect buttonCollapsedRect(const QRect& stored, int iconSize)
 {
     const int d = qMin(buttonCollapsedDiameter(iconSize), qMin(stored.width(), stored.height()));
-    return QRect(stored.center().x() - d / 2, stored.center().y() - d / 2, d, d);
+    QRect square(0, 0, d, d);
+    square.moveCenter(stored.center());
+    return square;
 }
 
 // A square of `diameter` centred on `center` (the Bouton's stored anchor).
+// Must use QRect::moveCenter / QRect::center() -- not `x - d/2` then `.center()`.
+// QRect stores x2 = x + width - 1, so centre() is (x1+x2)/2. For an even size
+// that is one pixel up-left of x + width/2. Rebuilding with x - d/2 from that
+// centre walked the disc one pixel toward the origin on every hover cycle
+// (session 106).
 inline QRect buttonSquareAt(QPoint center, int diameter)
 {
     const int d = qMax(1, diameter);
-    return QRect(center.x() - d / 2, center.y() - d / 2, d, d);
+    QRect square(0, 0, d, d);
+    square.moveCenter(center);
+    return square;
+}
+
+// A physical diameter that maps to an integer logical size at `dpr` and back
+// without changing the centre. Using the unrounded size as the window, then
+// painting a qRound(d/dpr) widget from the top-left, walked the circle toward
+// the top-left at 125 % / 150 % (session 106).
+inline int buttonPhysicalDiameter(int diameter, qreal dpr)
+{
+    const int raw = qMax(1, diameter);
+    if (dpr <= 0.0 || qFuzzyCompare(dpr, 1.0))
+        return raw;
+    const int logical = qMax(1, qRound(raw / dpr));
+    return qMax(1, qRound(logical * dpr));
 }
 
 // Translate a square so it lies inside `clamp`, keeping width == height.
@@ -232,7 +254,7 @@ inline QRect buttonFitSquareOnScreen(const QRect& square, const QRect& clamp)
     if (!square.isValid() || !clamp.isValid())
         return square;
     const int d = qMax(1, qMin(square.width(), square.height()));
-    QRect r(square.center().x() - d / 2, square.center().y() - d / 2, d, d);
+    QRect r = buttonSquareAt(square.center(), d);
     if (r.left() < clamp.left())
         r.moveLeft(clamp.left());
     if (r.top() < clamp.top())
