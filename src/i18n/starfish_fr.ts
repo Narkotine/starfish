@@ -129,11 +129,6 @@
         <source>Icon size</source>
         <translation>Taille des icônes</translation>
     </message>
-    <message>
-        <location line="+3"/>
-        <source>Show shortcut names</source>
-        <translation>Afficher les noms des raccourcis</translation>
-    </message>
         <message>
         <source>Diameter</source>
         <translation>Diamètre</translation>

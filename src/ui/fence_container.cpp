@@ -91,14 +91,11 @@ int buttonIconSizeOf(const FenceWindow& fence)
     return fence.view ? fence.view->iconSize() : 48;
 }
 
-// Session 109: a Bouton keeps its names unless the per-bouton option is off.
-// Passing 0 into the ring layout uses the freed space (shorter cells, same
-// rings, even spacing from the top, no overlap).
-int buttonLabelHeightOf(const FenceWindow& fence)
+// Session 115: a Bouton never reserves label-cell height (names are tooltips).
+// showLabels in layout.json is ignored for boutons (kept for classic zones).
+int buttonLabelHeightOf(const FenceWindow&)
 {
-    if (fence.style.showLabels == QLatin1String("off"))
-        return 0;
-    return zone_shape::kButtonLabelHeight;
+    return 0;
 }
 
 int buttonCollapsedDiameterOf(const FenceWindow& fence)
@@ -1532,10 +1529,10 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setHoverHighlight(effect != FenceView::HoverEffect::None);
     fence.view->setFixedCellWidth(fence.style.cellWidth);
     fence.view->setTitleBarShown(fence.style.titleBar);
-    // Session 109: a Bouton shows shortcut names unless the per-bouton option
-    // is off (default on, independent of Settings > Zones).
+    // Session 115: a Bouton never paints names under icons (tooltips instead).
+    // The stored showLabels field is ignored here; classic zones still use it.
     if (zone_shape::isButton(fence.style.shape))
-        fence.view->setLabelsShown(fence.style.showLabels != QLatin1String("off"));
+        fence.view->setLabelsShown(false);
     else
         fence.view->setLabelsShown(fence.style.showLabels == QLatin1String("on")
                                    || (fence.style.showLabels.isEmpty() && m_showLabelsDefault));
@@ -2881,14 +2878,21 @@ void FenceContainer::syncButtonSize(const QString& id)
     const int d = buttonStoredDiameterOf(*fence, count);
     const QPoint anchor = buttonAnchorOf(*fence);
     const QRect next = buttonSquareFor(*fence, anchor, d);
-    if (next == fence->rect && fence->hasButtonAnchor && fence->buttonAnchor == anchor)
-        return;
-    // Keep the anchor; do not run applyRequest (clamp/snap would walk a
-    // near-edge Bouton inward every time the item count or lock changed).
-    setButtonStored(*fence, anchor, d);
-    fence->monitor = m_screens.nameFor(fence->rect);
+    const bool storedChanged = !(next == fence->rect && fence->hasButtonAnchor
+                                 && fence->buttonAnchor == anchor);
+    if (storedChanged) {
+        // Keep the anchor; do not run applyRequest (clamp/snap would walk a
+        // near-edge Bouton inward every time the item count or lock changed).
+        setButtonStored(*fence, anchor, d);
+        fence->monitor = m_screens.nameFor(fence->rect);
+    }
+    // Reveal vs Grow can change the visible footprint without changing the
+    // stored square (session 115). Always apply visible geometry so a
+    // collapsed Reveal bouton is already the full disc, not a small widget
+    // centred in the hosted frame.
     applyVisibleGeometry(*fence);
-    emit fenceRectChanged(id, fence->rect);
+    if (storedChanged)
+        emit fenceRectChanged(id, fence->rect);
 }
 
 QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool snap)
@@ -2945,6 +2949,7 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
     // two are the same size, which is why this conversion can be added without
     // changing a single pixel of the v1 behaviour (T-014).
     const qreal dpr = m_screens.devicePixelRatioFor(fence.rect);
+    const QSize viewSizeBefore = fence.view ? fence.view->size() : QSize();
     if (fence.view) {
         fence.view->setRolledUp(fence.rolledUp && !fence.animating); // session 73: unrolled while it moves
         fence.view->setRolling(fence.animating);
@@ -2988,7 +2993,12 @@ void FenceContainer::applyVisibleGeometry(FenceWindow& fence)
     // content change reaches the desktop through the view's contentChanged (T-040).
     // The image itself is the record of what it was rendered for -- its size and
     // its device pixel ratio -- so the comparison needs no second source of truth.
-    const bool needsRender = fence.frame.isNull() || fence.frame.size() != visible.size()
+    // Session 115: T-077 must also redraw when the widget was resized inside a
+    // frame that already had the new size (Reveal on a collapsed Grow bouton:
+    // the stored square is already the expanded disc, the view was still the
+    // small collapsed widget, and renderFence centred it in the panel).
+    const bool viewResized = fence.view && fence.view->size() != viewSizeBefore;
+    const bool needsRender = viewResized || fence.frame.isNull() || fence.frame.size() != visible.size()
         || !qFuzzyCompare(fence.frame.devicePixelRatio(), dpr);
     if (needsRender) {
         renderFence(fence.id);

@@ -96,14 +96,11 @@ default not movable).
 
 ## Shortcut names (session 109)
 
-Labels are not painted while a Bouton expands or collapses. They appear only
-once the disc is fully open (a short fade-in), elided once against the final
-slot width — never re-elided as the circle grows. Collapse hides them on the
-first frame. A per-bouton Appearance checkbox, "Show shortcut names" /
-"Afficher les noms des raccourcis" (default on, `showLabels` `on`/`off`,
-independent of Settings), can hide them always. With names off, the ring
-layout uses a zero label height so cells are shorter; the rules are unchanged
-(even spacing from the top, concentric rings, no overlap).
+Session 109 hid names during expand/collapse and offered a per-bouton
+"Show shortcut names" checkbox. Session 115 goes further: a Bouton never
+paints names under icons and never reserves label-cell height. The checkbox
+is retired; `showLabels` in layout.json is ignored for boutons (still used
+by classic zones). The shortcut name is shown as a tooltip on hover.
 
 
 ## Appearance (session 110)
@@ -111,7 +108,7 @@ layout uses a zero label height so cells are shorter; the rules are unchanged
 A Bouton's "Appearance..." menu opens a dedicated dialog
 (`createButtonAppearanceDialog` / `buttonAppearanceDialog`), not the classic
 zone one. It holds only settings that apply to a Bouton (material, opacity,
-effect, background colour, hover, border, icon size, show shortcut names).
+effect, background colour, hover, border, icon size). The names checkbox was retired in session 115.
 Zone-only controls (title bar, roll-up, grid flow, cell width, templates,
 corner radius) stay on the classic dialog, which no longer shows bouton-only
 options. Future shape-specific options should be added to the matching dialog
@@ -219,3 +216,24 @@ other. Closed: a tight swirl to a pinpoint. Open: short stubs near the
 rim around a large 12-gon. Perfect 12-fold symmetry is asserted by
 `tools/make_shutter_gif.py`.
 
+## Icons without labels, single click, click pulse (session 115)
+
+A Bouton never paints shortcut names and never reserves label height, so the
+ring stays icon-only and easier to keep symmetrical. The Appearance checkbox
+is gone; `showLabels` is ignored for boutons. Hover shows the name as a
+tooltip (the same tip already used for a missing target).
+
+A single left click on an icon in an open, settled bouton launches the
+shortcut. Dragging past `QApplication::startDragDistance()` does not launch.
+A double-click on a bouton icon is accepted and ignored so it does not
+launch twice. Dummy `::` paths never reach the shell.
+
+A short scale pulse (0.9 → 1.0, ease-out, 180 ms, 16 ms timer) is painted
+on the clicked icon through the hosted path (`widgetTick` / `renderFence`).
+
+Switching a collapsed bouton to Reveal can leave the stored square unchanged
+while the visible footprint grows. `syncButtonSize` always applies visible
+geometry in that case, and `applyVisibleGeometry` re-blits when the widget
+is resized inside a frame that already has the new size (T-077 used to skip
+it), so a fresh-load or post-Appearance collapsed Reveal bouton already
+shows the full closed disc.

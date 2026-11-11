@@ -169,22 +169,17 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
                       QString::fromUtf8(zone_shape::kButtonOpenReveal));
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Opening"), openMode);
 
-    auto* showShortcutNames = new QCheckBox(
-        QCoreApplication::translate("ButtonAppearanceDialog", "Show shortcut names"), dialog);
-    showShortcutNames->setObjectName(QStringLiteral("showShortcutNames"));
-    form->addRow(showShortcutNames);
-
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
     layout->addWidget(buttons);
 
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, panel, defaultPercent,
                     borderWidth, borderColour, borderDefault, effect, hoverCombo, iconSize,
-                    collapsedDiameter, ringCount, skinCombo, skinLayer, openMode, showShortcutNames] {
+                    collapsedDiameter, ringCount, skinCombo, skinLayer, openMode] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons),
             b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b16(iconSize),
-            b17(showShortcutNames), b18(collapsedDiameter), b19(ringCount),
+            b18(collapsedDiameter), b19(ringCount),
             b20(skinCombo), b21(skinLayer), b22(openMode);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
@@ -244,7 +239,6 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         const QString modeId = zone_shape::resolvedButtonOpenMode(style.buttonOpenMode, skinId);
         const int mi = openMode->findData(modeId);
         openMode->setCurrentIndex(qMax(0, mi));
-        showShortcutNames->setChecked(style.showLabels != QLatin1String("off"));
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
         if (!safe || !safe->fenceIds().contains(id))
@@ -350,11 +344,6 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
     QObject::connect(openMode, &QComboBox::currentIndexChanged, dialog, [openMode, restyle](int) {
         const QString mode = openMode->currentData().toString();
         restyle([mode](core::FenceStyle& style) { style.buttonOpenMode = mode; });
-    });
-    QObject::connect(showShortcutNames, &QCheckBox::toggled, dialog, [restyle](bool on) {
-        restyle([on](core::FenceStyle& style) {
-            style.showLabels = on ? QStringLiteral("on") : QStringLiteral("off");
-        });
     });
     QObject::connect(borderWidth, &QComboBox::currentIndexChanged, dialog, [borderWidth, restyle](int) {
         const int px = borderWidth->currentData().toInt();

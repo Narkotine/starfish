@@ -89,7 +89,7 @@ struct FenceStyle {
     // Session 73: resize in whole icon cells: "" the default, "on", "off".
     QString snapToCells;
     QString iconFlow;   // session 76: "" (Settings) or an IconLayout::flowKeys() key
-    QString showLabels; // session 76: "" (Settings) | "on" | "off" -- the icons' names
+    QString showLabels; // session 76: "" (Settings) | "on" | "off" -- icon names (classic zones). Boutons ignore it (session 115); kept for layout.json compatibility.
     // Session 101 (T-095): "" classic rectangle + title-bar roll-up, "button" =
     // circular Bouton. Unknown values are kept and drawn as classic until known.
     QString shape;

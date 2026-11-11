@@ -8,6 +8,7 @@
 #include <psapi.h>
 #include <QLinearGradient>
 #include <QToolButton>
+#include <QToolTip>
 #include <QMenu>
 #include <QPainterPath>
 #include <QApplication>
@@ -4585,9 +4586,9 @@ int runUiProbe(QApplication& app)
                   : notes.join(QLatin1Char(' ')));
     }
 
-    // Session 109: shortcut names stay hidden while the disc expands or
-    // collapses; they are elided once for the final size and appear only when
-    // fully open (optional fade-in). A per-bouton option can hide them always.
+    // Session 109/115: bouton shortcut names are never painted under icons
+    // (they are tooltips). The old per-bouton option is retired; showLabels
+    // in layout.json is ignored for boutons.
     {
         const auto dummyItems = [](int n, const QString& tag) {
             QList<core::DesktopItem> items;
@@ -4624,7 +4625,7 @@ int runUiProbe(QApplication& app)
             v->show();
             wait(40);
 
-            // Default: names will be shown once expanded (option on).
+            // Session 115: names are never painted under bouton icons.
             if (v->buttonLabelsPainted()) {
                 midHidden = false;
                 notes << QStringLiteral("painted while collapsed");
@@ -4633,45 +4634,21 @@ int runUiProbe(QApplication& app)
             box.setFenceRolledUp(id, false);
             QElapsedTimer clock;
             clock.start();
-            QStringList midElide;
             while (box.fenceAnimating(id) && clock.elapsed() < 1500) {
                 if (v->buttonLabelsPainted()) {
                     midHidden = false;
                     notes << QStringLiteral("painted mid-expand");
                     break;
                 }
-                if (midElide.isEmpty())
-                    midElide = v->buttonElidedCaptions();
-                else if (v->buttonElidedCaptions() != midElide) {
-                    midHidden = false;
-                    notes << QStringLiteral("elision changed mid-expand");
-                    break;
-                }
                 wait(8);
             }
-            // Fade-in after the disc is fully open.
-            clock.restart();
-            while (!v->buttonLabelsPainted() && clock.elapsed() < 500)
-                wait(16);
-            shownWhenOpen = v->buttonLabelsPainted();
-            const QStringList first = v->buttonElidedCaptions();
-            wait(40);
-            const QStringList second = v->buttonElidedCaptions();
-            elisionStable = shownWhenOpen && !first.isEmpty() && first == second
-                            && first == midElide;
+            wait(250);
+            shownWhenOpen = !v->buttonLabelsPainted() && !v->labelsShown();
+            elisionStable = v->buttonElidedCaptions().isEmpty();
             if (!shownWhenOpen)
-                notes << QStringLiteral("not painted when open");
-            if (first != second)
-                notes << QStringLiteral("elision drifted after open");
-            if (!midElide.isEmpty() && first != midElide)
-                notes << QStringLiteral("final elision != precomputed");
-            const bool hasEllipsis = !first.isEmpty()
-                && (first.first().contains(QChar(0x2026)) || first.first().contains(QStringLiteral("..."))
-                    || first.first() != QLatin1String("Very Long Shortcut Name That Needs An Ellipsis"));
-            if (first.isEmpty() || !hasEllipsis)
-                notes << QStringLiteral("expected elided long name, got \"%1\"").arg(first.value(0));
-            else if (!elisionStable && notes.isEmpty())
-                elisionStable = shownWhenOpen && first == second;
+                notes << QStringLiteral("labels still shown when open");
+            if (!elisionStable)
+                notes << QStringLiteral("elided captions not empty");
 
             box.setFenceRolledUp(id, true);
             clock.restart();
@@ -4685,10 +4662,15 @@ int runUiProbe(QApplication& app)
             if (!hiddenOnCollapse)
                 notes << QStringLiteral("painted during collapse");
 
-            // Option off: never paint, and it survives save/load on a dummy layout.
+            // showLabels in the document is ignored: even "on" never paints.
             core::FenceStyle style = box.fenceStyle(id);
-            style.showLabels = QStringLiteral("off");
+            style.showLabels = QStringLiteral("on");
             box.setFenceStyle(id, style);
+            box.setFenceRolledUp(id, false);
+            clock.restart();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+            wait(200);
             const core::Layout dumped = box.toLayout();
             const QByteArray json = core::JsonStore::toJson(dumped);
             ui::FenceContainer loaded;
@@ -4699,7 +4681,7 @@ int runUiProbe(QApplication& app)
             } else {
                 loaded.applyLayout(*parsed);
                 const QString lid = loaded.fenceIds().value(0);
-                const bool kept = loaded.fenceStyle(lid).showLabels == QLatin1String("off");
+                const bool kept = loaded.fenceStyle(lid).showLabels == QLatin1String("on");
                 ui::FenceView* lv = loaded.view(lid);
                 if (!lv) {
                     notes << QStringLiteral("reloaded no view");
@@ -4710,26 +4692,26 @@ int runUiProbe(QApplication& app)
                     wait(40);
                     loaded.setFenceRolledUp(lid, false);
                     clock.restart();
-                    bool paintedOff = lv->buttonLabelsPainted() || lv->labelsShown();
+                    bool paintedOn = lv->buttonLabelsPainted() || lv->labelsShown();
                     while (loaded.fenceAnimating(lid) && clock.elapsed() < 1500) {
                         if (lv->buttonLabelsPainted())
-                            paintedOff = true;
+                            paintedOn = true;
                         wait(8);
                     }
                     wait(250);
                     if (lv->buttonLabelsPainted() || lv->labelsShown())
-                        paintedOff = true;
-                    optionOffHides = kept && !paintedOff && lv->buttonElidedCaptions().isEmpty();
-                    roundTrip = kept;
+                        paintedOn = true;
+                    optionOffHides = !paintedOn && lv->buttonElidedCaptions().isEmpty();
+                    roundTrip = kept; // field still stored, but ignored for paint
                     if (!kept)
-                        notes << QStringLiteral("showLabels not off after reload");
-                    if (paintedOff)
-                        notes << QStringLiteral("painted or shown with option off");
+                        notes << QStringLiteral("showLabels not kept in json");
+                    if (paintedOn)
+                        notes << QStringLiteral("painted despite ignored showLabels=on");
                     lv->hide();
                 }
             }
 
-            // Appearance dialog for a Bouton offers the checkbox, default on.
+            // Appearance: the per-bouton names checkbox is retired.
             std::unique_ptr<QDialog> dlg(ui::createFenceAppearanceDialog(&box, id, nullptr));
             if (!dlg) {
                 notes << QStringLiteral("no appearance dialog");
@@ -4738,27 +4720,22 @@ int runUiProbe(QApplication& app)
                     dlg->setAttribute(Qt::WA_DontShowOnScreen);
                 auto* check = dlg->findChild<QCheckBox*>(QStringLiteral("showShortcutNames"));
                 auto* combo = dlg->findChild<QComboBox*>(QStringLiteral("showLabels"));
-                const QString boxLabel = check ? check->text() : QString();
-                const bool labelOk = check && (boxLabel.contains(QStringLiteral("shortcut"), Qt::CaseInsensitive)
-                                               || boxLabel.contains(QStringLiteral("raccourcis"), Qt::CaseInsensitive));
-                dialogOk = check && !combo && labelOk;
+                dialogOk = !check && !combo;
                 if (!dialogOk)
-                    notes << QStringLiteral("dialog check %1 combo %2 label \"%3\"")
-                                 .arg(check != nullptr).arg(combo != nullptr).arg(boxLabel);
+                    notes << QStringLiteral("dialog still has names check %1 combo %2")
+                                 .arg(check != nullptr).arg(combo != nullptr);
                 dlg->hide();
             }
             v->hide();
         }
 
-        // Reset this bouton to hidden-names so the dialog check (on the live
-        // container) does not depend on the last style; the checkbox existence
-        // is enough.
         const bool ok = midHidden && shownWhenOpen && elisionStable && hiddenOnCollapse
                         && optionOffHides && roundTrip && dialogOk;
-        check(QStringLiteral("Bouton: labels hidden while animating, stable elision when open, option off persists (session 109)"),
+        check(QStringLiteral("Bouton: labels never painted, names option retired, showLabels ignored (session 109/115)"),
+
               ok,
               notes.isEmpty()
-                  ? QStringLiteral("hidden mid-flight, stable elision, option off saved, appearance checkbox")
+                  ? QStringLiteral("never painted, option retired, showLabels ignored, no checkbox")
                   : notes.join(QLatin1Char(' ')));
     }
 
@@ -4806,25 +4783,21 @@ int runUiProbe(QApplication& app)
             while (box.fenceAnimating(id) && clock.elapsed() < 1500)
                 wait(8);
             const int ticksAtEnd = ticks;
-            // No leave, no click, no grab: only the event loop, like a still cursor.
-            clock.restart();
-            while (v->buttonLabelOpacity() < 0.99 && clock.elapsed() < 500)
-                wait(16);
-            const qreal opacity = v->buttonLabelOpacity();
-            const int fadeTicks = ticks - ticksAtEnd;
-            ok = !box.fenceAnimating(id) && v->buttonLabelsPainted()
-                 && opacity >= 0.99 && fadeTicks >= 3;
+            // Session 115: no label fade -- names stay off after expand, with
+            // the pointer still inside and no further events.
+            wait(250);
+            ok = !box.fenceAnimating(id) && !v->buttonLabelsPainted() && !v->labelsShown();
             if (!ok)
-                notes << QStringLiteral("painted %1 opacity %2 ticks during fade %3 (at end %4)")
+                notes << QStringLiteral("painted %1 labelsShown %2 ticks %3")
                              .arg(v->buttonLabelsPainted())
-                             .arg(opacity, 0, 'f', 2)
-                             .arg(fadeTicks)
-                             .arg(ticksAtEnd);
+                             .arg(v->labelsShown())
+                             .arg(ticks - ticksAtEnd);
+            Q_UNUSED(ticksAtEnd);
             v->hide();
         }
-        check(QStringLiteral("Bouton: labels fade in after expand with the pointer still inside (session 110)"),
+        check(QStringLiteral("Bouton: no labels after expand with the pointer still inside (session 110/115)"),
               ok,
-              notes.isEmpty() ? QStringLiteral("widgetTick during fade, opacity 1, no further pointer events")
+              notes.isEmpty() ? QStringLiteral("never painted after expand, no further pointer events")
                               : notes.join(QLatin1Char(' ')));
     }
 
@@ -4857,7 +4830,7 @@ int runUiProbe(QApplication& app)
             auto* trans = bd->findChild<QSlider*>(QStringLiteral("transparencySlider"));
             auto* border = bd->findChild<QComboBox*>(QStringLiteral("borderWidth"));
             auto* material = bd->findChild<QComboBox*>(QStringLiteral("material"));
-            const bool boutonHas = names && icon && colour && trans && border && material;
+            const bool boutonHas = !names && icon && colour && trans && border && material;
             const bool boutonLacksZone = !bd->findChild<QCheckBox*>(QStringLiteral("titleBarShown"))
                                          && !bd->findChild<QComboBox*>(QStringLiteral("rollToward"))
                                          && !bd->findChild<QComboBox*>(QStringLiteral("titleSide"))
@@ -4878,11 +4851,8 @@ int runUiProbe(QApplication& app)
                 notes << QStringLiteral("zone dlg name %1 has %2 lacks-bouton %3")
                              .arg(zName).arg(zoneHas).arg(zoneLacksBouton);
 
-            // Round-trip: toggle names off and pick a larger icon, save/load.
-            if (names && icon) {
-                if (!names->isChecked())
-                    names->setChecked(true);
-                names->setChecked(false);
+            // Round-trip: pick a larger icon, save/load. Names checkbox is gone.
+            if (icon) {
                 const int i64 = icon->findData(64);
                 if (i64 >= 0)
                     icon->setCurrentIndex(i64);
@@ -4899,10 +4869,9 @@ int runUiProbe(QApplication& app)
                         if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
                             lid = fid;
                     const core::FenceStyle st = loaded.fenceStyle(lid);
-                    roundTrip = st.showLabels == QLatin1String("off") && st.iconSize == 64;
+                    roundTrip = st.iconSize == 64;
                     if (!roundTrip)
-                        notes << QStringLiteral("reload showLabels \"%1\" icon %2")
-                                     .arg(st.showLabels).arg(st.iconSize);
+                        notes << QStringLiteral("reload icon %1").arg(st.iconSize);
                 }
             }
             bd->hide();
@@ -4910,7 +4879,7 @@ int runUiProbe(QApplication& app)
         }
         check(QStringLiteral("Bouton and zone Appearance dialogs stay separate, settings persist (session 110)"),
               boutonDlg && zoneDlg && roundTrip,
-              notes.isEmpty() ? QStringLiteral("bouton dialog, zone dialog, showLabels/iconSize saved")
+              notes.isEmpty() ? QStringLiteral("bouton dialog, zone dialog, iconSize saved, no names checkbox")
                               : notes.join(QLatin1Char(' ')));
     }
 
@@ -5749,35 +5718,92 @@ int runUiProbe(QApplication& app)
     // (no extra renderFence, no progress override) after the animation ends.
     {
         QStringList notes;
-        auto lumaAt = [](const QImage& im, QPoint pt) {
+        // Compare the hosted frame itself (physical pixels), not a widget-local
+        // sample that can land in the panel-colour margin around the disc.
+        // Closed iris: the inner half of the disc is a dark swirl. Open: a
+        // large aperture shows the lighter panel (and icons).
+        auto innerLuma = [](const QImage& im) {
             if (im.isNull() || im.width() <= 0 || im.height() <= 0)
                 return 255;
             const QImage src = im.convertToFormat(QImage::Format_ARGB32);
-            const int x = qBound(0, pt.x(), src.width() - 1);
-            const int y = qBound(0, pt.y(), src.height() - 1);
-            const QRgb px = src.pixel(x, y);
-            return (qRed(px) + qGreen(px) + qBlue(px)) / 3;
+            const qreal cx = (src.width() - 1) / 2.0;
+            const qreal cy = (src.height() - 1) / 2.0;
+            const qreal r = qMin(cx, cy) * 0.45;
+            const qreal r2 = r * r;
+            qint64 sum = 0;
+            int n = 0;
+            for (int y = 0; y < src.height(); ++y) {
+                const auto* p = reinterpret_cast<const QRgb*>(src.constScanLine(y));
+                const qreal dy = y - cy;
+                for (int x = 0; x < src.width(); ++x) {
+                    const qreal dx = x - cx;
+                    if (dx * dx + dy * dy > r2)
+                        continue;
+                    sum += (qRed(p[x]) + qGreen(p[x]) + qBlue(p[x])) / 3;
+                    ++n;
+                }
+            }
+            return n ? int(sum / n) : 255;
         };
-        auto meanAbs = [](const QImage& a, const QImage& b) -> qreal {
+        // A collapsed Reveal disc must fill the hosted frame. A stale small
+        // Grow widget centred in the expanded frame has a dark core but a
+        // panel-coloured rim (session 115).
+        auto rimLuma = [](const QImage& im) {
+            if (im.isNull() || im.width() <= 0 || im.height() <= 0)
+                return 255;
+            const QImage src = im.convertToFormat(QImage::Format_ARGB32);
+            const qreal cx = (src.width() - 1) / 2.0;
+            const qreal cy = (src.height() - 1) / 2.0;
+            const qreal outer = qMin(cx, cy) * 0.92;
+            const qreal inner = qMin(cx, cy) * 0.82;
+            const qreal o2 = outer * outer;
+            const qreal i2 = inner * inner;
+            qint64 sum = 0;
+            int n = 0;
+            for (int y = 0; y < src.height(); ++y) {
+                const auto* p = reinterpret_cast<const QRgb*>(src.constScanLine(y));
+                const qreal dy = y - cy;
+                for (int x = 0; x < src.width(); ++x) {
+                    const qreal dx = x - cx;
+                    const qreal d2 = dx * dx + dy * dy;
+                    if (d2 < i2 || d2 > o2)
+                        continue;
+                    sum += (qRed(p[x]) + qGreen(p[x]) + qBlue(p[x])) / 3;
+                    ++n;
+                }
+            }
+            return n ? int(sum / n) : 255;
+        };
+        auto isFullClosed = [&](const QImage& im) {
+            return !im.isNull() && innerLuma(im) < 40 && rimLuma(im) < 30;
+        };
+        auto discMeanAbs = [](const QImage& a, const QImage& b) -> qreal {
             if (a.isNull() || b.isNull() || a.size() != b.size())
                 return 999.0;
             const QImage aa = a.convertToFormat(QImage::Format_ARGB32);
             const QImage bb = b.convertToFormat(QImage::Format_ARGB32);
+            const qreal cx = (aa.width() - 1) / 2.0;
+            const qreal cy = (aa.height() - 1) / 2.0;
+            const qreal r = qMin(cx, cy) - 1.0;
+            const qreal r2 = r * r;
             qint64 total = 0;
-            const int n = aa.width() * aa.height();
-            if (n <= 0)
-                return 999.0;
+            int n = 0;
             for (int y = 0; y < aa.height(); ++y) {
                 const auto* pa = reinterpret_cast<const QRgb*>(aa.constScanLine(y));
                 const auto* pb = reinterpret_cast<const QRgb*>(bb.constScanLine(y));
+                const qreal dy = y - cy;
                 for (int x = 0; x < aa.width(); ++x) {
+                    const qreal dx = x - cx;
+                    if (dx * dx + dy * dy > r2)
+                        continue;
                     total += qAbs(qRed(pa[x]) - qRed(pb[x]))
                            + qAbs(qGreen(pa[x]) - qGreen(pb[x]))
                            + qAbs(qBlue(pa[x]) - qBlue(pb[x]))
                            + qAbs(qAlpha(pa[x]) - qAlpha(pb[x]));
+                    ++n;
                 }
             }
-            return total / 4.0 / n;
+            return n ? total / 4.0 / n : 999.0;
         };
         auto dummyItems = [](int n, const QString& tag) {
             QList<core::DesktopItem> items;
@@ -5828,13 +5854,12 @@ int runUiProbe(QApplication& app)
             // Fresh create is collapsed. The hosted frame after load/create
             // must already be the closed iris, with no animation involved.
             const QImage birth = box.frame(id).copy();
-            const QVector<QPointF> centres = v->buttonItemCenters();
-            const QPoint iconAt = centres.isEmpty() ? QPoint(v->width() / 2, v->height() / 2)
-                                                    : centres.first().toPoint();
-            const int birthLuma = lumaAt(birth, iconAt);
-            birthClosed = !birth.isNull() && birthLuma < 40;
+            const int birthLuma = innerLuma(birth);
+            const int birthRim = rimLuma(birth);
+            birthClosed = isFullClosed(birth);
             if (!birthClosed)
-                notes << QStringLiteral("fresh-load blit not closed luma %1").arg(birthLuma);
+                notes << QStringLiteral("fresh-load inner luma %1 rim %2 frame %3x%4")
+                             .arg(birthLuma).arg(birthRim).arg(birth.width()).arg(birth.height());
 
             // JSON reload of a collapsed Reveal bouton also blits closed.
             {
@@ -5854,16 +5879,10 @@ int runUiProbe(QApplication& app)
                     if (lv && offscreen)
                         lv->setAttribute(Qt::WA_DontShowOnScreen);
                     const QImage lim = loaded.frame(lid).copy();
-                    QPoint lAt = iconAt;
-                    if (lv) {
-                        const QVector<QPointF> lc = lv->buttonItemCenters();
-                        if (!lc.isEmpty())
-                            lAt = lc.first().toPoint();
-                    }
-                    const int lLuma = lumaAt(lim, lAt);
-                    loadedClosed = !lim.isNull() && lLuma < 40;
+                    const int lLuma = innerLuma(lim);
+                    loadedClosed = isFullClosed(lim);
                     if (!loadedClosed)
-                        notes << QStringLiteral("reloaded blit not closed luma %1").arg(lLuma);
+                        notes << QStringLiteral("reloaded inner luma %1 rim %2").arg(lLuma).arg(rimLuma(lim));
                 }
             }
 
@@ -5873,34 +5892,52 @@ int runUiProbe(QApplication& app)
                 st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
                 box.setFenceStyle(id, st);
                 wait(20);
-                const int aLuma = lumaAt(box.frame(id), iconAt);
-                appearanceClosed = aLuma < 40;
+                const int aLuma = innerLuma(box.frame(id));
+                const int aRim = rimLuma(box.frame(id));
+                appearanceClosed = isFullClosed(box.frame(id));
                 if (!appearanceClosed)
-                    notes << QStringLiteral("after Apparence blit not closed luma %1").arg(aLuma);
+                    notes << QStringLiteral("after Apparence inner luma %1 rim %2").arg(aLuma).arg(aRim);
             }
+
+            // Closed reference after style has settled, immediately before expand.
+            const QImage closedRef = box.frame(id).copy();
 
             // Expand, then collapse, then read the hosted image with no
             // further events -- no override, no forced renderFence.
             box.setFenceRolledUp(id, false);
             waitAnim(box, id);
             const QImage opened = box.frame(id).copy();
-            const int openLuma = lumaAt(opened, iconAt);
-            openedOk = !opened.isNull() && openLuma > birthLuma + 20 && !box.fenceAnimating(id);
+            const int openLuma = innerLuma(opened);
+            const qreal openedVsClosed = discMeanAbs(opened, closedRef);
+            openedOk = !opened.isNull() && openedVsClosed > 12.0 && !box.fenceAnimating(id);
             if (!openedOk)
-                notes << QStringLiteral("expand blit not open luma %1 birth %2 anim %3")
-                             .arg(openLuma).arg(birthLuma).arg(box.fenceAnimating(id));
+                notes << QStringLiteral("expand inner luma %1 birth %2 vsClosed %3 anim %4")
+                             .arg(openLuma).arg(birthLuma).arg(openedVsClosed, 0, 'f', 2)
+                             .arg(box.fenceAnimating(id));
 
             box.setFenceRolledUp(id, true);
             waitAnim(box, id);
             const QImage after = box.frame(id).copy(); // no further events
-            const int afterLuma = lumaAt(after, iconAt);
-            afterClosed = !after.isNull() && afterLuma < 40;
-            const qreal vsBirth = meanAbs(after, birth);
-            const qreal vsOpen = meanAbs(after, opened);
-            matchesClosed = afterClosed && vsBirth < 8.0 && vsOpen > 12.0;
-            if (!matchesClosed)
-                notes << QStringLiteral("after collapse hosted luma %1 vsBirth %2 vsOpen %3")
-                             .arg(afterLuma).arg(vsBirth, 0, 'f', 2).arg(vsOpen, 0, 'f', 2);
+            const int afterLuma = innerLuma(after);
+            afterClosed = isFullClosed(after);
+            const qreal vsClosed = discMeanAbs(after, closedRef);
+            const qreal vsOpen = discMeanAbs(after, opened);
+            matchesClosed = afterClosed && vsClosed < 8.0 && vsOpen > 12.0;
+            if (!matchesClosed) {
+                notes << QStringLiteral("after collapse inner luma %1 rim %2 vsClosed %3 vsOpen %4 prog %5 rolled %6 view %7x%8 frame %9x%10 ref %11x%12")
+                             .arg(afterLuma).arg(rimLuma(after)).arg(vsClosed, 0, 'f', 2).arg(vsOpen, 0, 'f', 2)
+                             .arg(v->buttonOpenProgress(), 0, 'f', 3)
+                             .arg(v->rolledUp())
+                             .arg(v->width()).arg(v->height())
+                             .arg(after.width()).arg(after.height())
+                             .arg(closedRef.width()).arg(closedRef.height());
+                const QString dbg = QDir::temp().filePath(QStringLiteral("starfish_s114_debug"));
+                QDir().mkpath(dbg);
+                birth.save(dbg + QStringLiteral("/birth.png"));
+                closedRef.save(dbg + QStringLiteral("/closedRef.png"));
+                opened.save(dbg + QStringLiteral("/opened.png"));
+                after.save(dbg + QStringLiteral("/after.png"));
+            }
 
             v->hide();
         }
@@ -6032,6 +6069,152 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("Bouton: PrintWindow Reveal shots at 0 / 0.33 / 0.66 / 1 plus after collapse at rest (session 114)"),
               ok,
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
+
+    // Session 115: no text under bouton icons (tooltip on hover); a single
+    // left click on an icon in an open bouton launches; a drag past the
+    // system threshold does not; a short scale pulse is painted on the
+    // hosted blit (widgetTick). Dummy "::" targets are never opened.
+    {
+        QStringList notes;
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Shortcut %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("S115"), QPoint(640, 400));
+        ui::FenceView* v = box.view(id);
+        bool tipOk = false, clickLaunches = false, dragDoesNot = false, pulseOk = false, neverPainted = false;
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(6, QStringLiteral("s115")));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.showLabels = QStringLiteral("on"); // ignored
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+            box.setFenceRolledUp(id, false);
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+            wait(40);
+            neverPainted = !v->buttonLabelsPainted() && !v->labelsShown();
+            if (!neverPainted)
+                notes << QStringLiteral("labels still painted");
+
+            const QVector<QPointF> centres = v->buttonItemCenters();
+            const QPoint iconAt = centres.isEmpty() ? v->rect().center() : centres.first().toPoint();
+
+            // Tooltip: hover the first icon, no label painted.
+            {
+                QMouseEvent move(QEvent::MouseMove, iconAt, iconAt, v->mapToGlobal(iconAt),
+                                 Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &move);
+                wait(30);
+                QApplication::processEvents();
+                const QString tip = QToolTip::text();
+                tipOk = tip.contains(QStringLiteral("Shortcut 1"));
+                if (!tipOk)
+                    notes << QStringLiteral("tooltip \"%1\"").arg(tip);
+                QToolTip::hideText();
+            }
+
+            // Single left click launches; "::" paths do not open a real app.
+            int launched = 0;
+            QObject::connect(v, &ui::FenceView::itemActivated, v, [&](int) { ++launched; });
+            const QPointF gf = v->mapToGlobal(iconAt);
+            {
+                QMouseEvent press(QEvent::MouseButtonPress, iconAt, iconAt, gf,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &press);
+                QMouseEvent rel(QEvent::MouseButtonRelease, iconAt, iconAt, gf,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &rel);
+                QApplication::processEvents();
+            }
+            clickLaunches = launched == 1;
+            if (!clickLaunches)
+                notes << QStringLiteral("click launches %1").arg(launched);
+
+            // Pulse goes through the hosted blit (widgetTick / renderFence).
+            int ticks = 0;
+            QObject::connect(v, &ui::FenceView::widgetTick, v, [&] { ++ticks; });
+            // A second icon so we don't stack on the first pulse if it ended.
+            const QPoint icon2 = centres.size() > 1 ? centres.at(1).toPoint() : iconAt;
+            const QPointF gf2 = v->mapToGlobal(icon2);
+            const QImage before = box.frame(id).copy();
+            {
+                QMouseEvent press(QEvent::MouseButtonPress, icon2, icon2, gf2,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &press);
+                QMouseEvent rel(QEvent::MouseButtonRelease, icon2, icon2, gf2,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &rel);
+                QApplication::processEvents();
+            }
+            const qreal scale0 = v->buttonClickPulseScale();
+            const int pulseIndex = v->buttonClickPulseIndex();
+            wait(40);
+            QApplication::processEvents();
+            const QImage mid = box.frame(id).copy();
+            clock.restart();
+            while ((v->buttonClickPulseIndex() >= 0 || v->buttonClickPulseScale() < 0.999)
+                   && clock.elapsed() < 500)
+                wait(16);
+            const QImage after = box.frame(id).copy();
+            pulseOk = scale0 < 0.97 && pulseIndex >= 0 && ticks >= 2
+                      && !mid.isNull() && mid != before
+                      && v->buttonClickPulseIndex() < 0
+                      && v->buttonClickPulseScale() >= 0.999;
+            if (!pulseOk)
+                notes << QStringLiteral("pulse scale0 %1 idx %2 ticks %3 midChanged %4 ended idx %5 scale %6")
+                             .arg(scale0, 0, 'f', 3).arg(pulseIndex).arg(ticks)
+                             .arg(mid != before).arg(v->buttonClickPulseIndex())
+                             .arg(v->buttonClickPulseScale(), 0, 'f', 3);
+            Q_UNUSED(after);
+
+            // Drag past the threshold: not a launch.
+            const int launchedBeforeDrag = launched;
+            const int thresh = qMax(8, QApplication::startDragDistance() + 4);
+            const QPoint start = centres.size() > 2 ? centres.at(2).toPoint() : iconAt;
+            const QPoint dragTo = start + QPoint(thresh, thresh);
+            const QPointF gfs = v->mapToGlobal(start);
+            {
+                QMouseEvent press(QEvent::MouseButtonPress, start, start, gfs,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &press);
+                QMouseEvent move(QEvent::MouseMove, dragTo, dragTo, v->mapToGlobal(dragTo),
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &move);
+                QMouseEvent rel(QEvent::MouseButtonRelease, dragTo, dragTo, v->mapToGlobal(dragTo),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &rel);
+                QApplication::processEvents();
+            }
+            dragDoesNot = launched == launchedBeforeDrag;
+            if (!dragDoesNot)
+                notes << QStringLiteral("drag launched (before %1 after %2)").arg(launchedBeforeDrag).arg(launched);
+
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: tooltip names, single click launches, drag does not, click pulse on hosted blit (session 115)"),
+              tipOk && clickLaunches && dragDoesNot && pulseOk && neverPainted,
+              notes.isEmpty() ? QStringLiteral("tooltip, single click, no drag-launch, pulse via widgetTick")
+                              : notes.join(QLatin1Char(' ')));
     }
 
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),

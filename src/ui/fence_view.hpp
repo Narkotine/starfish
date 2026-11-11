@@ -224,6 +224,9 @@ public:
     bool buttonLabelsPainted() const;
     qreal buttonLabelOpacity() const;
     QStringList buttonElidedCaptions() const;
+    // Session 115: scale of the click pulse (1 at rest; 0.9..1 while it runs).
+    qreal buttonClickPulseScale() const;
+    int buttonClickPulseIndex() const;
 
     // Accepts items dropped from the Explorer (T-006-3) and appends them to the
     // grid. `contentChanged` is emitted so the owner re-renders. The source
@@ -466,11 +469,18 @@ private:
     void ensureButtonElidedLabels() const;
     void startButtonLabelFade();
     void stopButtonLabelFade();
+    void activateItem(int index);
+    void startButtonClickPulse(int index);
+    void stopButtonClickPulse();
     QVector<zone_shape::ButtonItemGeomF> buttonItemGeometryNow() const;
     void paintButton(QPainter& painter);
     QTimer m_buttonLabelFade;
     QElapsedTimer m_buttonLabelFadeClock;
     qreal m_buttonLabelOpacity = 0;
+    QTimer m_buttonClickPulse;
+    QElapsedTimer m_buttonClickPulseClock;
+    int m_buttonClickPulseIndex = -1;
+    qreal m_buttonClickPulseScale = 1.0;
     mutable QStringList m_buttonElidedCaptions;
     mutable QStringList m_buttonElideSource;
     mutable int m_buttonElideFontPx = -1;

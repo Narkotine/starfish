@@ -103,6 +103,21 @@ FenceView::FenceView(QWidget* parent)
         // pointer still inside.
         emit widgetTick();
     });
+    // Session 115: a short scale pulse on a clicked bouton icon, ticks the
+    // hosted blit the same way as the label fade (update() never reaches it).
+    m_buttonClickPulse.setTimerType(Qt::PreciseTimer);
+    connect(&m_buttonClickPulse, &QTimer::timeout, this, [this] {
+        const qreal t = qBound(0.0, m_buttonClickPulseClock.elapsed() / 180.0, 1.0);
+        const qreal u = 1.0 - (1.0 - t) * (1.0 - t);
+        m_buttonClickPulseScale = 0.9 + 0.1 * u;
+        if (t >= 1.0) {
+            m_buttonClickPulseScale = 1.0;
+            m_buttonClickPulseIndex = -1;
+            m_buttonClickPulse.stop();
+        }
+        update();
+        emit widgetTick();
+    });
     setObjectName(QStringLiteral("starfishFenceView"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAutoFillBackground(false);
@@ -1317,10 +1332,16 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         return;
     }
 
-    // A press that never crossed the drag threshold is just a click -- the
-    // selection already happened in mousePressEvent; nothing else to do.
+    // A press that never crossed the drag threshold is just a click.
+    // Session 115: on an open bouton, a single left click launches (a drag
+    // above the system threshold is not a launch -- it was handled above).
+    const int clickIndex = (zone_shape::isButton(m_shape) && !m_rolledUp && !m_rolling)
+                               ? itemAt(event->pos())
+                               : -1;
     m_dragOriginIndex = -1;
     m_dragStartPos = QPoint();
+    if (clickIndex >= 0)
+        activateItem(clickIndex);
 }
 
 void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
@@ -1349,27 +1370,13 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
-    if (m_grid.items().at(index).isWidget()) { // session 79: nothing to open
-        // Session 81: a widget whose content is text (the notes) is written in
-        // place, as the title is; the others have nothing to open.
-        const core::DesktopItem& widget = m_grid.items().at(index);
-        if (widgets::isEditable(widget.widgetType))
-            emit widgetEditRequested(widget.path);
+    // Session 115: a bouton icon already launched on the first click; a
+    // second click of a double-click must not launch again.
+    if (zone_shape::isButton(m_shape)) {
         event->accept();
         return;
     }
-    // Session 76 (the user: a browser-installed web app opened the plain browser, the
-    // "Apps" Settings shortcut opened the Explorer): the *item itself* goes to
-    // the shell, as Explorer's double-click does -- a shortcut keeps its
-    // arguments, its working folder, its app id, its URI. Resolving the target
-    // here and opening that dropped all of it.
-    const core::DesktopItem& item = m_grid.items().at(index);
-    if (!starfish::platform::win::openShellItem(item.path)) {
-        const QString target = IconGrid::launchPath(item);
-        if (!target.isEmpty() && !target.startsWith(QLatin1String("::")))
-            QDesktopServices::openUrl(QUrl::fromLocalFile(target));
-    }
-    emit itemActivated(index);
+    activateItem(index);
 }
 
 void FenceView::wheelEvent(QWheelEvent* event)
@@ -1977,7 +1984,7 @@ QVector<QPointF> FenceView::buttonItemCenters() const
 
 int FenceView::buttonLabelHeight() const
 {
-    return m_grid.labelsShown() ? zone_shape::kButtonLabelHeight : 0;
+    return 0; // session 115: no text under bouton icons
 }
 
 void FenceView::invalidateButtonLayout()
@@ -2051,6 +2058,60 @@ void FenceView::stopButtonLabelFade()
     m_buttonLabelFade.stop();
 }
 
+void FenceView::activateItem(int index)
+{
+    if (index < 0 || index >= m_grid.items().size())
+        return;
+    const core::DesktopItem& item = m_grid.items().at(index);
+    if (item.isWidget()) { // session 79: nothing to open
+        // Session 81: a widget whose content is text (the notes) is written in
+        // place, as the title is; the others have nothing to open.
+        if (widgets::isEditable(item.widgetType))
+            emit widgetEditRequested(item.path);
+        return;
+    }
+    // Dummy / probe paths ("::...") never reach the shell (session 115).
+    if (!item.path.startsWith(QLatin1String("::"))) {
+        // Session 76: the *item itself* goes to the shell, as Explorer does --
+        // a shortcut keeps its arguments, working folder, app id, URI.
+        if (!starfish::platform::win::openShellItem(item.path)) {
+            const QString target = IconGrid::launchPath(item);
+            if (!target.isEmpty() && !target.startsWith(QLatin1String("::")))
+                QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+        }
+    }
+    emit itemActivated(index);
+    if (zone_shape::isButton(m_shape) && !m_rolledUp && !m_rolling)
+        startButtonClickPulse(index);
+}
+
+void FenceView::startButtonClickPulse(int index)
+{
+    m_buttonClickPulseIndex = index;
+    m_buttonClickPulseScale = 0.9;
+    m_buttonClickPulseClock.restart();
+    m_buttonClickPulse.start(16);
+    update();
+    emit widgetTick();
+}
+
+void FenceView::stopButtonClickPulse()
+{
+    m_buttonClickPulse.stop();
+    m_buttonClickPulseIndex = -1;
+    m_buttonClickPulseScale = 1.0;
+}
+
+qreal FenceView::buttonClickPulseScale() const
+{
+    return m_buttonClickPulseScale;
+}
+
+int FenceView::buttonClickPulseIndex() const
+{
+    return m_buttonClickPulseIndex;
+}
+
 bool FenceView::buttonLabelsPainted() const
 {
     return zone_shape::isButton(m_shape) && m_grid.labelsShown() && !m_rolledUp
@@ -2110,11 +2171,6 @@ void FenceView::paintButton(QPainter& painter)
     }
     const auto geoms = buttonItemGeometryNow();
     const QList<core::DesktopItem>& items = m_grid.items();
-    const bool paintNames = buttonLabelsPainted();
-    if (paintNames)
-        ensureButtonElidedLabels();
-    QFont nameFont = font();
-    nameFont.setPixelSize(qMax(10, m_grid.iconSize() / 4));
     painter.save();
     QPainterPath clip;
     clip.addEllipse(disc.adjusted(1, 1, -1, -1));
@@ -2128,6 +2184,13 @@ void FenceView::paintButton(QPainter& painter)
         painter.setOpacity(afterIcons);
         const QPixmap icon = m_iconProvider ? m_iconProvider(items.at(i), m_grid.iconSize()) : QPixmap();
         const QRectF r = geoms.at(i).icon;
+        painter.save();
+        if (i == m_buttonClickPulseIndex && m_buttonClickPulseScale < 0.999) {
+            const QPointF c = r.center();
+            painter.translate(c);
+            painter.scale(m_buttonClickPulseScale, m_buttonClickPulseScale);
+            painter.translate(-c);
+        }
         if (!icon.isNull())
             painter.drawPixmap(r, icon, QRectF(icon.rect()));
         else {
@@ -2140,14 +2203,7 @@ void FenceView::paintButton(QPainter& painter)
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(r.adjusted(-2, -2, 2, 2), 8, 8);
         }
-        if (paintNames && !geoms.at(i).label.isEmpty()) {
-            painter.setOpacity(afterIcons * m_buttonLabelOpacity);
-            painter.setFont(nameFont);
-            painter.setPen(QColor(0xE5, 0xE7, 0xEB));
-            const QString caption = (i < m_buttonElidedCaptions.size())
-                ? m_buttonElidedCaptions.at(i) : items.at(i).name;
-            painter.drawText(geoms.at(i).label, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, caption);
-        }
+        painter.restore();
     }
     painter.restore();
     skin.paintFront(painter, ctx);
