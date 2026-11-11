@@ -1,178 +1,165 @@
 #!/usr/bin/env python3
-"""Generate StarFish's built-in Bouton shutter GIF (session 112).
+"""Generate StarFish's built-in Bouton shutter GIF (session 113).
 
     python tools/make_shutter_gif.py
     python tools/make_shutter_gif.py --preview build/captures/shutter_preview
+    python tools/make_shutter_gif.py --check
 
-Writes:
-  src/resources/skins/shutter-demo.gif
-
-An original six-blade camera iris, 28 frames, square, transparent outside
-the disc and in the growing aperture. Frame 0 is closed; the last frame is
-open. StarFish scrubs this GIF with the Bouton's open progress (it does
-not play on a clock). No third-party artwork: geometry is drawn here.
+An original twelve-blade camera diaphragm, 36 frames, 512x512, transparent
+outside the disc and in the growing regular-dodecagon aperture. Frame 0 is
+almost closed (a pinpoint aperture); the last frame is a black ring with
+faint blade lines at the rim. Blade edges are identical, evenly rotated,
+perfectly 12-fold symmetric (asserted). StarFish scrubs this GIF with the
+Bouton's open progress (it does not play on a clock). No third-party
+artwork: geometry is drawn here.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "src" / "resources" / "skins" / "shutter-demo.gif"
 
-SIZE = 256
-FRAMES = 28
-BLADES = 6
-# Graphite blades, a cool rim; transparent elsewhere.
-BLADE = (0x2A, 0x30, 0x38, 255)
-BLADE_HI = (0x6E, 0x78, 0x86, 255)
-BLADE_EDGE = (0x14, 0x16, 0x1A, 255)
-RIM = (0x1A, 0x1D, 0x22, 255)
-RIM_HI = (0x8A, 0x93, 0xA0, 255)
+SIZE = 512
+FRAMES = 36
+BLADES = 12
+# Apothem of the regular n-gon aperture, as a fraction of the disc radius.
+APERTURE_MIN = 0.03
+APERTURE_MAX = 0.86
+# Supersample for crisp antialiasing, then downsample to SIZE.
+SCALE = 2
 
 
-def _rot(px: float, py: float, ang: float, ox: float, oy: float) -> tuple[float, float]:
-    c, s = math.cos(ang), math.sin(ang)
-    x, y = px - ox, py - oy
-    return ox + x * c - y * s, oy + x * s + y * c
+def _pixels(im: Image.Image):
+    if hasattr(im, "get_flattened_data"):
+        return im.get_flattened_data()
+    return im.getdata()
 
 
-def blade_polygon(i: int, t: float, cx: float, cy: float, r: float) -> list[tuple[float, float]]:
-    """One iris blade. t=0 covers the centre; t=1 parks along the rim."""
-    pivot_ang = -math.pi / 2.0 + i * (2.0 * math.pi / BLADES)
-    px = cx + r * math.cos(pivot_ang)
-    py = cy + r * math.sin(pivot_ang)
-    # Inward heading, plus a sweep that clears a 6-blade aperture.
-    heading = pivot_ang + math.pi + t * (2.0 * math.pi / BLADES + 0.22)
-    length = r * 1.28
-    w_base = r * 0.20
-    w_mid = r * 0.42
-    w_tip = r * 0.07
-    local = [
-        (0.00 * length, 0.15 * w_base),
-        (0.08 * length, w_base),
-        (0.38 * length, w_mid),
-        (0.82 * length, w_tip),
-        (1.00 * length, 0.0),
-        (0.80 * length, -0.35 * w_tip),
-        (0.22 * length, -0.22 * w_base),
-        (0.00 * length, -0.08 * w_base),
-    ]
-    pts = []
-    for lx, ly in local:
-        # local x is along heading, y is perpendicular
-        gx = px + lx * math.cos(heading) - ly * math.sin(heading)
-        gy = py + lx * math.sin(heading) + ly * math.cos(heading)
-        pts.append((gx, gy))
-    return pts
+def aperture_apothem(radius: float, progress: float) -> float:
+    u = max(0.0, min(1.0, progress))
+    return radius * (APERTURE_MIN + (APERTURE_MAX - APERTURE_MIN) * u)
 
 
-def render_frame(index: int, scale: int = 2) -> Image.Image:
-    t = index / (FRAMES - 1)
-    # Slight ease so the last third opens more obviously.
-    t = t * t * (3.0 - 2.0 * t)
-    s = SIZE * scale
-    cx = cy = s / 2.0
-    r = s * 0.48
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img, "RGBA")
+def regular_polygon(cx: float, cy: float, apothem: float, n: int, rotation: float) -> list[tuple[float, float]]:
+    """Vertices of a regular n-gon with the given apothem (inradius / cos(pi/n))."""
+    vertex_r = apothem / math.cos(math.pi / n)
+    verts: list[tuple[float, float]] = []
+    for i in range(n):
+        # Edge i has outward normal at angle rotation + i*2pi/n; a vertex sits
+        # halfway between two normals.
+        ang = rotation + (i + 0.5) * (2.0 * math.pi / n)
+        verts.append((cx + vertex_r * math.cos(ang), cy + vertex_r * math.sin(ang)))
+    return verts
 
-    # Blades first (under the housing ring).
-    for i in range(BLADES):
-        poly = blade_polygon(i, t, cx, cy, r)
-        draw.polygon(poly, fill=BLADE, outline=BLADE_EDGE)
-        # Leading-edge highlight: first two vertices toward the tip, a thin stroke.
-        if len(poly) >= 5:
-            draw.line([poly[0], poly[1], poly[2]], fill=BLADE_HI, width=max(1, scale))
 
-    # Clip everything to the disc: punch outside back to transparent.
-    mask = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(mask).ellipse(
-        [cx - r, cy - r, cx + r, cy + r], fill=255
-    )
-    # Soften the disc edge one pixel (at final size) so it sits in the Bouton.
-    if scale > 1:
-        mask = mask.filter(ImageFilter.GaussianBlur(radius=scale * 0.35))
-    cleared = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    cleared.paste(img, mask=mask)
-    img = cleared
-    draw = ImageDraw.Draw(img, "RGBA")
+def edge_chords(cx: float, cy: float, apothem: float, disc_r: float, n: int, rotation: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Each blade edge is the chord of the disc along the n-gon's supporting line."""
+    chords = []
+    half = math.sqrt(max(0.0, disc_r * disc_r - apothem * apothem))
+    for i in range(n):
+        ang = rotation + i * (2.0 * math.pi / n)
+        nx, ny = math.cos(ang), math.sin(ang)
+        tx, ty = -ny, nx
+        mx, my = cx + apothem * nx, cy + apothem * ny
+        chords.append(((mx - tx * half, my - ty * half), (mx + tx * half, my + ty * half)))
+    return chords
 
-    # Housing ring (always present, even when fully open).
-    ring_w = max(scale * 3, 3)
-    inset = ring_w / 2.0
-    bbox = [cx - r + inset, cy - r + inset, cx + r - inset, cy + r - inset]
-    draw.ellipse(bbox, outline=RIM, width=ring_w)
-    draw.ellipse(bbox, outline=RIM_HI, width=max(1, scale))
 
-    if scale > 1:
-        img = img.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
-    return img
+def render_frame(size: int, progress: float, *, supersample: int = SCALE, rotation: float = 0.0) -> Image.Image:
+    s = size * supersample
+    im = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(im, "RGBA")
+    cx = cy = (s - 1) / 2.0
+    margin = 1.0 * supersample
+    disc_r = s / 2.0 - margin
+    ap = aperture_apothem(disc_r, progress)
+    # rotation: 0 keeps a stable orientation; opening is a pure radial slide.
+
+    # Disc with a very slight radial shade (darker at the rim).
+    # Drawn as a few concentric rings — original, no asset.
+    rings = 24
+    for i in range(rings, 0, -1):
+        t = i / rings
+        r = disc_r * t
+        # 10..22 grey, slightly lighter toward the aperture.
+        tone = int(10 + 12 * (1.0 - t))
+        bbox = [cx - r, cy - r, cx + r, cy + r]
+        draw.ellipse(bbox, fill=(tone, tone, tone, 255))
+
+    # Punch the regular-polygon aperture (transparent).
+    poly = regular_polygon(cx, cy, ap, BLADES, rotation)
+    draw.polygon(poly, fill=(0, 0, 0, 0))
+
+    # Antialiased white blade edges (the n chords).
+    width = max(supersample, int(round(0.0046 * s)))
+    for a, b in edge_chords(cx, cy, ap, disc_r, BLADES, rotation):
+        draw.line([a, b], fill=(255, 255, 255, 235), width=width)
+
+    if supersample != 1:
+        im = im.resize((size, size), Image.Resampling.LANCZOS)
+    return im
 
 
 def to_transparent_gif(frames: list[Image.Image]) -> list[Image.Image]:
-    """Shared palette, index 0 reserved for transparency (never used for opaque).
+    """Palette the frames, reserving index 0 for transparency.
 
-    Adaptive quantization must not smear a chroma key into the aperture:
-    Qt would then paint the opening as solid green.
+    Training the adaptive palette on the whole image (including a chroma-key
+    colour) smeared that key into nearby greys, so it no longer matched
+    index 0 and Qt painted a solid tint in the aperture. Index 0 is never
+    used for an opaque pixel.
     """
-    opaque_samples: list[tuple[int, int, int]] = []
+    opaque: list[tuple[int, int, int]] = []
     for im in frames:
-        for r, g, b, a in im.getdata():
+        for r, g, b, a in _pixels(im):
             if a >= 128:
-                opaque_samples.append((r, g, b))
-    if opaque_samples:
-        train = Image.new("RGB", (len(opaque_samples), 1))
-        train.putdata(opaque_samples)
-        trained = train.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-        raw_pal = trained.getpalette() or []
-        colours = [(raw_pal[i], raw_pal[i + 1], raw_pal[i + 2]) for i in range(0, min(len(raw_pal), 765), 3)]
-    else:
-        colours = []
-    colours = colours[:255]
-    while len(colours) < 255:
-        colours.append((0, 0, 0))
-    pal_colours = [(0, 255, 0)] + colours  # index 0 reserved, never selected
-    pal_bytes = b"".join(bytes(c) for c in pal_colours)
-
-    # Cache unique RGB -> index so we do not scan 255 colours per pixel.
-    lookup: dict[tuple[int, int, int], int] = {}
-
-    def nearest(rgb: tuple[int, int, int]) -> int:
-        found = lookup.get(rgb)
-        if found is not None:
-            return found
-        r, g, b = rgb
-        best, best_d = 1, 1 << 30
-        for i, (cr, cg, cb) in enumerate(colours, start=1):
-            d = (r - cr) * (r - cr) + (g - cg) * (g - cg) + (b - cb) * (b - cb)
-            if d < best_d:
-                best, best_d = i, d
-                if d == 0:
-                    break
-        lookup[rgb] = best
-        return best
+                opaque.append((r, g, b))
+    # Unique-ish sample so quantize stays tractable.
+    if not opaque:
+        opaque = [(10, 10, 10)]
+    step = max(1, len(opaque) // 80000)
+    sample = opaque[::step]
+    trainer = Image.new("RGB", (len(sample), 1))
+    trainer.putdata(sample)
+    pal_img = trainer.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+    pal = bytearray(768)
+    raw_pal = pal_img.getpalette() or []
+    # Slot 0 is reserved (and kept black); colours 1..255 come from the trainer.
+    for i, v in enumerate(raw_pal[: 255 * 3]):
+        pal[3 + i] = v
 
     out: list[Image.Image] = []
+    palette_colors = [(pal[3 * i], pal[3 * i + 1], pal[3 * i + 2]) for i in range(256)]
+
+    def nearest(rgb: tuple[int, int, int]) -> int:
+        r, g, b = rgb
+        best_i, best_d = 1, 1 << 30
+        for i in range(1, 256):
+            pr, pg, pb = palette_colors[i]
+            d = (pr - r) * (pr - r) + (pg - g) * (pg - g) + (pb - b) * (pb - b)
+            if d < best_d:
+                best_d = d
+                best_i = i
+        return best_i
+
     for im in frames:
-        mapped = [0 if a < 128 else nearest((r, g, b)) for r, g, b, a in im.getdata()]
+        mapped = [0 if a < 128 else nearest((r, g, b)) for r, g, b, a in _pixels(im)]
         p = Image.new("P", im.size)
-        p.putpalette(pal_bytes)
+        p.putpalette(bytes(pal))
         p.putdata(mapped)
         p.info["transparency"] = 0
-        p.info["disposal"] = 2
         out.append(p)
     return out
 
 
-
-def write_gif(path: Path, preview: Path | None) -> None:
-    raw = [render_frame(i) for i in range(FRAMES)]
-    pal = to_transparent_gif(raw)
+def write_gif(path: Path, frames_rgba: list[Image.Image]) -> None:
+    pal = to_transparent_gif(frames_rgba)
     path.parent.mkdir(parents=True, exist_ok=True)
     pal[0].save(
         path,
@@ -185,32 +172,102 @@ def write_gif(path: Path, preview: Path | None) -> None:
         transparency=0,
         optimize=False,
     )
-    print(f"wrote {path} ({path.stat().st_size} bytes, {FRAMES} frames, {SIZE}x{SIZE})")
-    if preview:
-        preview.mkdir(parents=True, exist_ok=True)
-        cols = 7
-        rows = (FRAMES + cols - 1) // cols
-        sheet = Image.new("RGBA", (cols * SIZE, rows * SIZE), (0x40, 0x44, 0x4A, 255))
-        # chequer so transparency reads
-        for y in range(0, sheet.height, 8):
-            for x in range(0, sheet.width, 8):
-                if (x // 8 + y // 8) % 2 == 0:
-                    ImageDraw.Draw(sheet).rectangle([x, y, x + 7, y + 7], fill=(0x58, 0x5C, 0x64, 255))
-        for i, im in enumerate(raw):
-            r, c = divmod(i, cols)
-            sheet.paste(im, (c * SIZE, r * SIZE), im)
-        sheet_path = preview / "shutter-demo-frames.png"
-        sheet.save(sheet_path)
-        print(f"preview {sheet_path}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+def rotational_error(im: Image.Image, n: int = BLADES) -> tuple[float, float]:
+    """Mean / max absolute difference after a 360/n rotation, inside the disc."""
+    rgba = im.convert("RGBA")
+    w, h = rgba.size
+    cx = cy = (w - 1) / 2.0
+    rot = rgba.rotate(360.0 / n, resample=Image.Resampling.BICUBIC, center=(cx, cy), fillcolor=(0, 0, 0, 0))
+    src = _pixels(rgba)
+    dst = _pixels(rot)
+    radius = w / 2.0 - 3
+    inset = radius - 2
+    total = 0.0
+    peak = 0.0
+    count = 0
+    for y in range(h):
+        for x in range(w):
+            dx, dy = x - cx, y - cy
+            if dx * dx + dy * dy > inset * inset:
+                continue
+            a = src[y * w + x]
+            b = dst[y * w + x]
+            d = max(abs(a[i] - b[i]) for i in range(4))
+            total += d
+            if d > peak:
+                peak = d
+            count += 1
+    mean = total / count if count else 0.0
+    return mean, peak
+
+
+def assert_symmetry(frames: list[Image.Image], *, mean_limit: float = 4.0) -> None:
+    '''Re-render each progress at a 1/n turn and compare to the original.'''
+    worst_mean = 0.0
+    worst_peak = 0.0
+    picks = [0, len(frames)//3, 2*len(frames)//3, len(frames)-1] if len(frames) > 3 else list(range(len(frames)))
+    for i in picks:
+        im = frames[i]
+        u = i / (len(frames) - 1) if len(frames) > 1 else 0.0
+        spun = render_frame(im.size[0], u, rotation=2.0 * math.pi / BLADES)
+        src, dst = list(_pixels(im)), list(_pixels(spun))
+        total = 0.0
+        peak = 0.0
+        for a, b in zip(src, dst):
+            d = max(abs(a[k] - b[k]) for k in range(4))
+            total += d
+            if d > peak:
+                peak = d
+        mean = total / len(src)
+        worst_mean = max(worst_mean, mean)
+        worst_peak = max(worst_peak, peak)
+        if mean > mean_limit:
+            raise SystemExit(
+                'symmetry failed on frame %d: mean %.2f (limit %s), peak %.0f'
+                % (i, mean, mean_limit, peak)
+            )
+    print('symmetry ok (%d frames, 1/%d turn, mean <= %.2f, peak <= %.0f)'
+          % (len(frames), BLADES, worst_mean, worst_peak))
+
+
+def make_frames(count: int = FRAMES, size: int = SIZE) -> list[Image.Image]:
+    if count < 2:
+        raise ValueError("need at least 2 frames")
+    return [render_frame(size, i / (count - 1)) for i in range(count)]
+
+
+def write_preview(folder: Path, frames: list[Image.Image]) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    picks = [0, len(frames) // 3, 2 * len(frames) // 3, len(frames) - 1]
+    thumb = 256
+    sheet = Image.new("RGBA", (thumb * len(picks), thumb), (32, 32, 32, 255))
+    for i, idx in enumerate(picks):
+        frames[idx].save(folder / f"frame_{idx:02d}.png")
+        im = frames[idx].resize((thumb, thumb), Image.Resampling.LANCZOS)
+        sheet.paste(im, (i * thumb, 0), im)
+    sheet.save(folder / "shutter-demo-frames.png")
+    print(f"preview {folder / 'shutter-demo-frames.png'}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--preview", nargs="?", const=str(ROOT / "build" / "captures" / "shutter_preview"),
+                        help="also write a contact sheet (default folder if flag is bare)")
+    parser.add_argument("--check", action="store_true", help="render, assert 12-fold symmetry, do not write the GIF")
     parser.add_argument("-o", "--output", type=Path, default=OUT)
-    parser.add_argument("--preview", type=Path, default=None)
     args = parser.parse_args()
-    write_gif(args.output, args.preview)
+    frames = make_frames()
+    assert_symmetry(frames)
+    if args.preview:
+        write_preview(Path(args.preview), frames)
+    if args.check:
+        return 0
+    write_gif(args.output, frames)
+    print(f"wrote {args.output} ({args.output.stat().st_size} bytes, {len(frames)} frames, {SIZE}x{SIZE})")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

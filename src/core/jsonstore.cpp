@@ -73,8 +73,10 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["buttonSkin"] = s.buttonSkin;
     if (s.buttonSkin == QLatin1String("gif") && !s.buttonSkinPath.isEmpty())
         o["buttonSkinPath"] = s.buttonSkinPath;
-    if (s.buttonSkinLayer == QLatin1String("front"))
+    if (s.buttonSkinLayer == QLatin1String("front") || s.buttonSkinLayer == QLatin1String("behind"))
         o["buttonSkinLayer"] = s.buttonSkinLayer;
+    if (s.buttonOpenMode == QLatin1String("reveal") || s.buttonOpenMode == QLatin1String("grow"))
+        o["buttonOpenMode"] = s.buttonOpenMode;
     return o;
 }
 
@@ -160,6 +162,7 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.buttonSkin = o["buttonSkin"].toString();
     s.buttonSkinPath = o["buttonSkinPath"].toString();
     s.buttonSkinLayer = o["buttonSkinLayer"].toString();
+    s.buttonOpenMode = o["buttonOpenMode"].toString();
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {
@@ -381,7 +384,7 @@ const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap
                              "cellWidth", "effect", "titleAlign", "titleSide", "titleVertical" /* ignored since s103 */, "titleBarShape", "shape", "hoverEffect",
                              "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow",
                              "buttonDiameter", "buttonRings",
-                             "buttonSkin", "buttonSkinPath", "buttonSkinLayer"};
+                             "buttonSkin", "buttonSkinPath", "buttonSkinLayer", "buttonOpenMode"};
 const QStringList kItemKeys{"kind", "path", "fileId", "target", "widget"};
 const QStringList kWidgetKeys{"type", "span", "settings"};
 const QStringList kRuleKeys{"id", "name", "match", "targetFence", "moveFiles"};

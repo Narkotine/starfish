@@ -604,8 +604,14 @@ int FenceView::insertItems(const QList<core::DesktopItem>& items, int index)
 int FenceView::itemAt(const QPoint& localPoint) const
 {
     if (zone_shape::isButton(m_shape)) {
-        if (m_rolledUp)
+        // Reveal: icons stay in place under the shutter but are only
+        // clickable once the iris is fully open (session 113).
+        if (buttonRevealMode()) {
+            if (m_rolledUp || m_rolling || buttonOpenProgress() < qreal(0.999))
+                return -1;
+        } else if (m_rolledUp) {
             return -1;
+        }
         const auto geoms = buttonItemGeometryNow();
         const QPointF pt(localPoint);
         for (int i = geoms.size() - 1; i >= 0; --i)
@@ -1501,6 +1507,7 @@ void FenceView::setButtonOpenProgressOverride(qreal u)
 {
     m_buttonOpenProgressOverride = u;
     update();
+    emit widgetTick(); // session 113: size-constant Reveal still has to redraw
 }
 
 void FenceView::setButtonSkin(const QString& id, const QString& path, const QString& layer)
@@ -1515,7 +1522,8 @@ void FenceView::setButtonSkin(const QString& id, const QString& path, const QStr
     const QString resolved = zone_shape::resolvedButtonSkinPath(skinId, path);
     m_buttonSkin = zone_shape::makeButtonSkin(skinId, path);
     zone_shape::ButtonSkinAssets assets;
-    if (zone_shape::buttonSkinLayerIsFront(layer))
+    assets.layer = zone_shape::resolvedButtonSkinLayer(layer, skinId);
+    if (zone_shape::buttonSkinLayerIsFront(assets.layer))
         assets.front = resolved;
     else
         assets.behind = resolved;
@@ -1548,6 +1556,26 @@ QString FenceView::buttonSkinLayer() const
     return m_buttonSkinLayer;
 }
 
+void FenceView::setButtonOpenMode(const QString& mode)
+{
+    if (m_buttonOpenMode == mode)
+        return;
+    m_buttonOpenMode = mode;
+    invalidateButtonLayout();
+    update();
+    emit contentChanged();
+}
+
+QString FenceView::buttonOpenMode() const
+{
+    return m_buttonOpenMode;
+}
+
+bool FenceView::buttonRevealMode() const
+{
+    return zone_shape::buttonOpenModeIsReveal(m_buttonOpenMode, buttonSkinId());
+}
+
 qreal FenceView::buttonOpenProgress() const
 {
     if (m_buttonOpenProgressOverride >= 0)
@@ -1558,6 +1586,8 @@ qreal FenceView::buttonOpenProgress() const
         return 0;
     if (!m_rolling && !m_rolledUp)
         return 1;
+    if (buttonRevealMode())
+        return m_rolledUp ? 0 : 1;
     ensureButtonLayout();
     const qreal side = qMin(buttonDiscRect().width(), buttonDiscRect().height());
     const qreal collapsed = buttonCollapsedDiameter();
@@ -1884,8 +1914,10 @@ void FenceView::ensureButtonLayout() const
         return;
     if (m_rolling && m_buttonLayoutDiameter > 0)
         return;
+    const int layoutCollapsed = buttonRevealMode() ? zone_shape::kButtonDiameterMin
+                                                   : m_buttonCollapsedDiameter;
     const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(
-        n, icon, labelH, m_buttonRingCount, m_buttonCollapsedDiameter);
+        n, icon, labelH, m_buttonRingCount, layoutCollapsed);
     m_buttonLayoutCount = n;
     m_buttonLayoutIcon = icon;
     m_buttonLayoutLabel = labelH;
@@ -1904,7 +1936,9 @@ void FenceView::ensureButtonLayout() const
 
 QVector<zone_shape::ButtonItemGeomF> FenceView::buttonItemGeometryNow() const
 {
-    if (!zone_shape::isButton(m_shape) || m_rolledUp)
+    if (!zone_shape::isButton(m_shape))
+        return {};
+    if (m_rolledUp && !buttonRevealMode())
         return {};
     ensureButtonLayout();
     zone_shape::ButtonLayoutF lay;
@@ -1917,7 +1951,8 @@ QVector<zone_shape::ButtonItemGeomF> FenceView::buttonItemGeometryNow() const
         g.label = m_buttonSlotLabels.at(i);
         lay.items.append(g);
     }
-    return zone_shape::buttonItemGeometryF(buttonDiscRect(), lay);
+    const qreal maxScale = buttonRevealMode() ? qreal(1) : qreal(1.0e9);
+    return zone_shape::buttonItemGeometryF(buttonDiscRect(), lay, maxScale);
 }
 
 QVector<QRect> FenceView::buttonItemRects() const
@@ -2059,13 +2094,14 @@ void FenceView::paintButton(QPainter& painter)
     ctx.border = m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6);
     ctx.borderWidth = qMax(1, m_borderWidth);
     ctx.accent = accentColor();
-    ctx.expandedSide = m_buttonLayoutDiameter > 0 ? m_buttonLayoutDiameter
-                                                  : qMin(disc.width(), disc.height());
+    ctx.expandedSide = (buttonRevealMode() || m_buttonLayoutDiameter <= 0)
+                           ? qMin(disc.width(), disc.height())
+                           : m_buttonLayoutDiameter;
     ctx.dpr = devicePixelRatioF();
     const zone_shape::ButtonSkin& skin = m_buttonSkin ? *m_buttonSkin
                                                       : zone_shape::defaultButtonSkin();
     skin.paintBehind(painter, ctx);
-    if (m_rolledUp) {
+    if (m_rolledUp && !buttonRevealMode()) {
         skin.paintFront(painter, ctx);
         if (m_buttonMoveMode)
             widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
@@ -2083,7 +2119,7 @@ void FenceView::paintButton(QPainter& painter)
     QPainterPath clip;
     clip.addEllipse(disc.adjusted(1, 1, -1, -1));
     painter.setClipPath(clip, Qt::IntersectClip);
-    if (m_rolling && m_buttonLayoutDiameter > 0) {
+    if (m_rolling && m_buttonLayoutDiameter > 0 && !buttonRevealMode()) {
         const qreal u = qMin(disc.width(), disc.height()) / m_buttonLayoutDiameter;
         painter.setOpacity(painter.opacity() * qBound(0.0, (u - 0.12) / 0.70, 1.0));
     }
@@ -2115,6 +2151,9 @@ void FenceView::paintButton(QPainter& painter)
     }
     painter.restore();
     skin.paintFront(painter, ctx);
+    if (m_buttonMoveMode)
+        widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
+                                          accentColor(), 1.0);
 }
 
 void FenceView::updateDragGhost(bool dragging)

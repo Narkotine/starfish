@@ -166,6 +166,10 @@ public:
     QString effectiveButtonSkinId() const; // "plain" after a silent missing-file fallback
     int buttonSkinFrameCount() const;
     QString buttonSkinLayer() const;
+    // Session 113: Grow (expanding disc) vs Reveal (full-size disc, shutter opens).
+    void setButtonOpenMode(const QString& mode);
+    QString buttonOpenMode() const;
+    bool buttonRevealMode() const;
     int gridGap() const { return m_grid.gap(); }
     int gridPadding() const { return m_grid.padding(); }
     int labelHeight() const { return m_grid.labelHeight(); }
@@ -480,6 +484,7 @@ private:
     QString m_buttonSkinId;
     QString m_buttonSkinPath;
     QString m_buttonSkinLayer;
+    QString m_buttonOpenMode;
     std::unique_ptr<zone_shape::ButtonSkin> m_buttonSkin;
     mutable int m_buttonLayoutCount = -1;
     mutable int m_buttonLayoutIcon = -1;

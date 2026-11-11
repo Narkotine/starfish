@@ -33,11 +33,16 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <QImageReader>
+#include <QMovie>
+#include <QTransform>
 
 #include "core/context_menu.hpp"
 #include "ui/context_menu_editor.hpp"
 #include "ui/drag_image.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/button_iris.hpp"
+#include "ui/button_skin.hpp"
 #include "ui/fence_transparency_dialog.hpp"
 #include "ui/percent_slider.hpp"
 #include "ui/fence_view.hpp"
@@ -5311,7 +5316,7 @@ int runUiProbe(QApplication& app)
         }
         check(QStringLiteral("Bouton skin: shutter/GIF apply, missing file falls back, front layer clickable, settings persist (session 112)"),
               fallback && shutterOk && staticOk && roundTrip && clickable,
-              notes.isEmpty() ? QStringLiteral("fallback, shutter 28f, static 1f, front click, saved")
+              notes.isEmpty() ? QStringLiteral("fallback, shutter 36f, static 1f, front click, saved")
                               : notes.join(QLatin1Char(' ')));
     }
     {
@@ -5413,6 +5418,325 @@ int runUiProbe(QApplication& app)
             v->hide();
         }
         check(QStringLiteral("Bouton skin: PrintWindow shots of the demo shutter at 0 / 0.5 / 1 (session 112)"),
+              ok,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
+
+    // Session 113: Reveal opening + symmetric 12-blade diaphragm.
+    {
+        QStringList notes;
+        bool apOk = true;
+        qreal prev = -1;
+        for (int step = 0; step <= 100; ++step) {
+            const qreal a = ui::zone_shape::irisApertureApothem(100.0, step / 100.0);
+            if (a < 0 || (prev >= 0 && a + 1e-9 < prev)) {
+                apOk = false;
+                notes << QStringLiteral("aperture p=%1 a=%2 prev=%3").arg(step).arg(a).arg(prev);
+                break;
+            }
+            prev = a;
+        }
+        if (ui::zone_shape::irisApertureApothem(100.0, 0) >= ui::zone_shape::irisApertureApothem(100.0, 1))
+            apOk = false;
+        check(QStringLiteral("Bouton: Reveal aperture grows monotonically with progress (session 113)"),
+              apOk,
+              notes.isEmpty() ? QStringLiteral("apothem monotonic 0..1") : notes.join(QLatin1Char(' ')));
+    }
+    {
+        QStringList notes;
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Reveal"), QPoint(640, 400));
+        ui::FenceView* v = box.view(id);
+        bool geomOk = false, still = false, hiddenOpen = false, clickRules = false, roundTrip = false, symOk = false;
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(6, QStringLiteral("s113")));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            if (!v->buttonRevealMode())
+                notes << QStringLiteral("not reveal mode");
+
+            v->show();
+            wait(40);
+            const QSize sizeClosed = v->size();
+            const QRect visClosed = box.fenceRect(id);
+            QVector<QPointF> centres0;
+            QVector<QSize> sizes;
+            QVector<QVector<QPointF>> allCentres;
+            const QList<qreal> samples{0.0, 0.33, 0.66, 1.0};
+            for (qreal u : samples) {
+                v->setButtonOpenProgressOverride(u);
+                v->update();
+                wait(20);
+                sizes << v->size();
+                allCentres << v->buttonItemCenters();
+                if (u == 0.0)
+                    centres0 = v->buttonItemCenters();
+            }
+            geomOk = !sizes.isEmpty();
+            for (const QSize& s : sizes) {
+                if (s != sizeClosed) {
+                    geomOk = false;
+                    notes << QStringLiteral("size changed %1x%2 -> %3x%4")
+                                 .arg(sizeClosed.width()).arg(sizeClosed.height())
+                                 .arg(s.width()).arg(s.height());
+                    break;
+                }
+            }
+            still = !centres0.isEmpty();
+            for (const auto& c : allCentres) {
+                if (c.size() != centres0.size()) {
+                    still = false;
+                    notes << QStringLiteral("centre count changed");
+                    break;
+                }
+                for (int i = 0; i < c.size(); ++i) {
+                    if (QLineF(c.at(i), centres0.at(i)).length() > 0.6) {
+                        still = false;
+                        notes << QStringLiteral("icon %1 moved").arg(i);
+                        break;
+                    }
+                }
+                if (!still)
+                    break;
+            }
+            Q_UNUSED(visClosed);
+
+            // Icons covered when closed, visible when open: sample an icon centre.
+            auto grabAt = [&](qreal u) {
+                v->setButtonOpenProgressOverride(u);
+                v->update();
+                wait(30);
+                QApplication::processEvents();
+                return v->grab().toImage();
+            };
+            const QImage closedImg = grabAt(0.0);
+            const QImage openImg = grabAt(1.0);
+            if (centres0.isEmpty() || closedImg.isNull() || openImg.isNull()) {
+                notes << QStringLiteral("no grab / no centres");
+            } else {
+                const QPoint p = centres0.first().toPoint();
+                auto luma = [](const QImage& im, QPoint pt) {
+                    const QPoint c = QPoint(qBound(0, pt.x(), im.width() - 1),
+                                            qBound(0, pt.y(), im.height() - 1));
+                    const QRgb px = im.pixel(c);
+                    return (qRed(px) + qGreen(px) + qBlue(px)) / 3;
+                };
+                const int dark = luma(closedImg, p);
+                const int lit = luma(openImg, p);
+                hiddenOpen = dark < 40 && lit > dark + 20;
+                if (!hiddenOpen)
+                    notes << QStringLiteral("icon luma closed %1 open %2").arg(dark).arg(lit);
+            }
+
+            // Clickable only when fully open.
+            v->setButtonOpenProgressOverride(0.0);
+            const QPoint iconAt = centres0.isEmpty() ? QPoint(10, 10) : centres0.first().toPoint();
+            const int hitClosed = v->itemAt(iconAt);
+            v->setButtonOpenProgressOverride(1.0);
+            v->setRolledUp(false);
+            const int hitOpen = v->itemAt(iconAt);
+            clickRules = hitClosed < 0 && hitOpen >= 0;
+            if (!clickRules)
+                notes << QStringLiteral("hit closed %1 open %2").arg(hitClosed).arg(hitOpen);
+
+            // Appearance + JSON round-trip.
+            std::unique_ptr<QDialog> dlg(ui::createFenceAppearanceDialog(&box, id, nullptr));
+            if (!dlg) {
+                notes << QStringLiteral("no dialog");
+            } else {
+                if (offscreen)
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                auto* skin = dlg->findChild<QComboBox*>(QStringLiteral("buttonSkin"));
+                auto* layer = dlg->findChild<QComboBox*>(QStringLiteral("buttonSkinLayer"));
+                auto* opening = dlg->findChild<QComboBox*>(QStringLiteral("buttonOpenMode"));
+                const bool has = skin && layer && opening
+                                 && skin->findData(QStringLiteral("diaphragm")) >= 0
+                                 && skin->findData(QStringLiteral("shutter")) >= 0
+                                 && opening->findData(QStringLiteral("grow")) >= 0
+                                 && opening->findData(QStringLiteral("reveal")) >= 0;
+                if (!has)
+                    notes << QStringLiteral("appearance controls missing");
+                const core::Layout dumped = box.toLayout();
+                const QByteArray json = core::JsonStore::toJson(dumped);
+                ui::FenceContainer loaded;
+                const auto parsed = core::JsonStore::fromJson(json);
+                if (!parsed) {
+                    notes << QStringLiteral("reload failed");
+                } else {
+                    loaded.applyLayout(*parsed);
+                    QString lid;
+                    for (const QString& fid : loaded.fenceIds())
+                        if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
+                            lid = fid;
+                    const core::FenceStyle got = loaded.fenceStyle(lid);
+                    roundTrip = has && got.buttonSkin == QLatin1String("diaphragm")
+                                && got.buttonSkinLayer == QLatin1String("front")
+                                && got.buttonOpenMode == QLatin1String("reveal");
+                    if (!roundTrip)
+                        notes << QStringLiteral("reload skin \"%1\" layer \"%2\" mode \"%3\"")
+                                     .arg(got.buttonSkin, got.buttonSkinLayer, got.buttonOpenMode);
+                }
+                dlg->hide();
+            }
+
+            // Built-in GIF has 36 frames (tools/make_shutter_gif.py asserts
+            // 12-fold symmetry on the source). The procedural iris, same
+            // geometry, is compared at a 1/12 turn — a lopsided blade set
+            // would miss the mean.
+            v->setButtonSkin(QString::fromUtf8(ui::zone_shape::kButtonSkinShutter), QString(),
+                             QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront));
+            const int frames = v->buttonSkinFrameCount();
+            bool gifOk = frames == 36;
+            if (!gifOk)
+                notes << QStringLiteral("shutter frames %1").arg(frames);
+            auto renderIris = [](qreal rot) {
+                QImage im(256, 256, QImage::Format_ARGB32);
+                im.fill(0);
+                QPainter p(&im);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                ui::zone_shape::paintIrisDiaphragm(p, QRectF(8, 8, 240, 240), 0.5, rot);
+                p.end();
+                return im;
+            };
+            const QImage ia = renderIris(0);
+            const QImage ib = renderIris(2.0 * 3.14159265358979323846 / 12.0);
+            qint64 total = 0;
+            const int n = ia.width() * ia.height();
+            for (int y = 0; y < ia.height(); ++y) {
+                const auto* pa = reinterpret_cast<const QRgb*>(ia.constScanLine(y));
+                const auto* pb = reinterpret_cast<const QRgb*>(ib.constScanLine(y));
+                for (int x = 0; x < ia.width(); ++x) {
+                    total += qAbs(qRed(pa[x]) - qRed(pb[x]))
+                           + qAbs(qGreen(pa[x]) - qGreen(pb[x]))
+                           + qAbs(qBlue(pa[x]) - qBlue(pb[x]))
+                           + qAbs(qAlpha(pa[x]) - qAlpha(pb[x]));
+                }
+            }
+            const qreal mean = n ? (total / 4.0 / n) : 999;
+            if (mean > 1.0) {
+                gifOk = false;
+                notes << QStringLiteral("iris symmetry mean %1").arg(mean, 0, 'f', 2);
+            }
+            symOk = gifOk;
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: Reveal keeps geometry, icons stay put, covered when closed, settings persist, GIF symmetric (session 113)"),
+              geomOk && still && hiddenOpen && clickRules && roundTrip && symOk,
+              notes.isEmpty() ? QStringLiteral("constant size, still icons, covered/visible, click when open, saved, 36f symmetric")
+                              : notes.join(QLatin1Char(' ')));
+    }
+    {
+        // PrintWindow shots of a dummy Bouton in Reveal, with a few dummy
+        // icons, wearing the demo shutter, at progress 0 / 0.33 / 0.66 / 1.
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s113"));
+        QDir().mkpath(outDir);
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("RevealShot"), QPoint(300, 300));
+        ui::FenceView* v = box.view(id);
+        bool ok = v != nullptr;
+        const auto dummyItems = [](int n) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::s113shot/item%1").arg(i);
+                it.name = QStringLiteral("S%1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (v) {
+            v->setAttribute(Qt::WA_DontShowOnScreen, false);
+            v->setItems(dummyItems(6));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinShutter);
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint) & ~Qt::WindowDoesNotAcceptFocus);
+            v->show();
+            wait(80);
+            const int side = qMax(160, qMin(v->width(), v->height()));
+            auto snap = [&](const QString& name, qreal progress) {
+                v->setButtonOpenProgressOverride(progress);
+                v->resize(side, side);
+                v->setFixedSize(side, side);
+                v->move(80, 80);
+                v->update();
+                wait(50);
+                QApplication::processEvents();
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ old = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, old);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = v->grab().toImage();
+                const QString path = outDir + QLatin1Char('/') + name;
+                const bool saved = !img.isNull() && img.save(path, "PNG");
+                if (!saved)
+                    notes << QStringLiteral("failed %1").arg(name);
+                return saved && !img.isNull();
+            };
+            const bool s0 = snap(QStringLiteral("progress_0.png"), 0.0);
+            const bool s33 = snap(QStringLiteral("progress_0.33.png"), 0.33);
+            const bool s66 = snap(QStringLiteral("progress_0.66.png"), 0.66);
+            const bool s1 = snap(QStringLiteral("progress_1.png"), 1.0);
+            ok = s0 && s33 && s66 && s1;
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: PrintWindow Reveal shots of the demo shutter at 0 / 0.33 / 0.66 / 1 (session 113)"),
               ok,
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }

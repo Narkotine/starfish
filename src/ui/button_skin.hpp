@@ -19,9 +19,12 @@ namespace starfish::ui::zone_shape {
 inline constexpr char kButtonSkinPlain[] = "plain";
 inline constexpr char kButtonSkinShutter[] = "shutter";
 inline constexpr char kButtonSkinGif[] = "gif";
+inline constexpr char kButtonSkinDiaphragm[] = "diaphragm";
 inline constexpr char kButtonSkinShutterResource[] = ":/skins/shutter-demo.gif";
 inline constexpr char kButtonSkinLayerBehind[] = "behind";
 inline constexpr char kButtonSkinLayerFront[] = "front";
+inline constexpr char kButtonOpenGrow[] = "grow";
+inline constexpr char kButtonOpenReveal[] = "reveal";
 
 inline int buttonSkinFrameIndex(qreal openProgress, int frameCount)
 {
@@ -34,6 +37,35 @@ inline int buttonSkinFrameIndex(qreal openProgress, int frameCount)
 inline bool buttonSkinLayerIsFront(const QString& layer)
 {
     return layer == QLatin1String(kButtonSkinLayerFront);
+}
+
+// Empty open-mode / layer follow the skin: shutter and diaphragm default
+// to Reveal + in front of the icons (session 113). An explicit "grow" /
+// "behind" is honoured.
+inline bool buttonSkinDefaultsToReveal(const QString& skin)
+{
+    return skin == QLatin1String(kButtonSkinShutter)
+        || skin == QLatin1String(kButtonSkinDiaphragm);
+}
+
+inline QString resolvedButtonOpenMode(const QString& mode, const QString& skin)
+{
+    if (mode == QLatin1String(kButtonOpenReveal) || mode == QLatin1String(kButtonOpenGrow))
+        return mode;
+    return QString::fromUtf8(buttonSkinDefaultsToReveal(skin) ? kButtonOpenReveal : kButtonOpenGrow);
+}
+
+inline bool buttonOpenModeIsReveal(const QString& mode, const QString& skin)
+{
+    return resolvedButtonOpenMode(mode, skin) == QLatin1String(kButtonOpenReveal);
+}
+
+inline QString resolvedButtonSkinLayer(const QString& layer, const QString& skin)
+{
+    if (layer == QLatin1String(kButtonSkinLayerFront) || layer == QLatin1String(kButtonSkinLayerBehind))
+        return layer;
+    return QString::fromUtf8(buttonSkinDefaultsToReveal(skin) ? kButtonSkinLayerFront
+                                                              : kButtonSkinLayerBehind);
 }
 
 struct ButtonSkinPaint {
@@ -56,6 +88,7 @@ struct ButtonSkinPaint {
 struct ButtonSkinAssets {
     QString behind;
     QString front;
+    QString layer; // session 113: resolved behind/front, for procedural skins
 };
 
 class ButtonSkin {
@@ -98,7 +131,7 @@ QString resolvedButtonSkinPath(const QString& id, const QString& path);
 bool buttonSkinPathReadable(const QString& path);
 
 // Unknown / empty / unreadable custom GIF -> the plain disc (silent fallback).
-// "shutter" loads the built-in demo GIF; "gif" loads `path`.
+// "shutter" loads the built-in demo GIF; "diaphragm" is procedural; "gif" loads `path`.
 std::unique_ptr<ButtonSkin> makeButtonSkin(const QString& id, const QString& path = {});
 
 } // namespace starfish::ui::zone_shape

@@ -180,6 +180,22 @@
         <translation>Devant les icônes</translation>
     </message>
     <message>
+        <source>Diaphragm</source>
+        <translation>Diaphragme</translation>
+    </message>
+    <message>
+        <source>Opening</source>
+        <translation>Ouverture</translation>
+    </message>
+    <message>
+        <source>Grow</source>
+        <translation>Agrandissement</translation>
+    </message>
+    <message>
+        <source>Reveal</source>
+        <translation>Dévoilement</translation>
+    </message>
+    <message>
         <source>Choose an animated GIF</source>
         <translation>Choisir un GIF animé</translation>
     </message>

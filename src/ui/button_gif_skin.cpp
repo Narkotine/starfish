@@ -1,4 +1,5 @@
 #include "ui/button_skin.hpp"
+#include "ui/button_iris.hpp"
 #include "ui/zone_shape.hpp"
 
 #include <QFile>
@@ -241,6 +242,8 @@ bool buttonSkinPathReadable(const QString& path)
 std::unique_ptr<ButtonSkin> makeButtonSkin(const QString& id, const QString& path)
 {
     const QString resolved = resolvedButtonSkinPath(id, path);
+    if (id == QLatin1String(kButtonSkinDiaphragm))
+        return std::make_unique<DiaphragmButtonSkin>();
     if (id == QLatin1String(kButtonSkinShutter) && buttonSkinPathReadable(resolved)) {
         auto skin = std::make_unique<GifButtonSkin>(QString::fromUtf8(kButtonSkinShutter));
         return skin;

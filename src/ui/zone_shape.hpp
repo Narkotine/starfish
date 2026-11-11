@@ -373,6 +373,33 @@ inline int buttonExpandedDiameter(int iconSize, int count, int labelHeight = kBu
     return buttonLayout(count, iconSize, labelHeight, ringCount, collapsedDiameter).diameter;
 }
 
+// Tight diameter that just fits the icon rings (no collapsed+48 floor).
+// Session 113: Reveal mode uses this as the minimum full-disc size.
+inline int buttonIconsNeededDiameter(int iconSize, int count, int labelHeight = kButtonLabelHeight,
+                                     int ringCount = 0)
+{
+    const ButtonLayoutF lay = buttonLayoutF(count, iconSize, labelHeight, ringCount, kButtonDiameterMin);
+    if (lay.items.isEmpty())
+        return qMax(kButtonDiameterMin, buttonCellWidth(iconSize) + 2 * kButtonCirclePad);
+    const qreal cx = lay.diameter / 2.0;
+    const qreal cy = lay.diameter / 2.0;
+    qreal r = 0.0;
+    for (const ButtonItemGeomF& g : lay.items) {
+        const QRectF b = g.bounds();
+        for (const QPointF& pt : {b.topLeft(), b.topRight(), b.bottomLeft(), b.bottomRight()})
+            r = qMax(r, std::hypot(pt.x() - cx, pt.y() - cy));
+    }
+    return qMax(kButtonDiameterMin, int(qCeil((r + kButtonCirclePad) * 2.0)));
+}
+
+// Full disc in Reveal mode: the diameter setting, grown if the icons need more.
+inline int buttonRevealDiameter(int iconSize, int count, int labelHeight = kButtonLabelHeight,
+                                int ringCount = 0, int preferredDiameter = 0)
+{
+    return qMax(buttonCollapsedDiameter(iconSize, preferredDiameter),
+                buttonIconsNeededDiameter(iconSize, count, labelHeight, ringCount));
+}
+
 // Visible square while rolled up: a circle inscribed, centred in `stored`.
 inline QRect buttonCollapsedRect(const QRect& stored, int iconSize, int preferredDiameter = 0)
 {
@@ -464,14 +491,17 @@ inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progres
 // current radius) into `content`. `scale` is the current disc's size over the
 // expanded one (already eased if the disc is); 0 piles every icon on the
 // centre, 1 is the finished layout. Icons keep their slot and ring.
-inline QVector<ButtonItemGeomF> buttonItemGeometryF(const QRectF& content, const ButtonLayoutF& lay)
+inline QVector<ButtonItemGeomF> buttonItemGeometryF(const QRectF& content, const ButtonLayoutF& lay,
+                                                    qreal maxScale = 1.0e9)
 {
     if (lay.items.isEmpty() || content.isEmpty() || lay.diameter <= 0)
         return {};
     const QPointF c = content.center();
     const QPointF o(lay.diameter / 2.0, lay.diameter / 2.0);
     const qreal room = qMin(content.width(), content.height());
-    const qreal scale = room / lay.diameter;
+    qreal scale = room / lay.diameter;
+    if (scale > maxScale)
+        scale = maxScale;
     QVector<ButtonItemGeomF> out;
     out.reserve(lay.items.size());
     for (const ButtonItemGeomF& g : lay.items) {

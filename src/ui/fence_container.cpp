@@ -1,5 +1,6 @@
 #include "ui/fence_container.hpp"
 #include "ui/zone_shape.hpp"
+#include "ui/button_skin.hpp"
 #include "ui/fence_widgets.hpp"
 #include <QJsonObject>
 
@@ -111,6 +112,22 @@ int buttonExpandedDiameterOf(const FenceWindow& fence, int count)
                                               buttonLabelHeightOf(fence),
                                               fence.style.buttonRings,
                                               fence.style.buttonDiameter);
+}
+
+bool buttonUsesReveal(const FenceWindow& fence)
+{
+    return zone_shape::buttonOpenModeIsReveal(fence.style.buttonOpenMode, fence.style.buttonSkin);
+}
+
+int buttonStoredDiameterOf(const FenceWindow& fence, int count)
+{
+    if (buttonUsesReveal(fence)) {
+        return zone_shape::buttonRevealDiameter(buttonIconSizeOf(fence), count,
+                                                buttonLabelHeightOf(fence),
+                                                fence.style.buttonRings,
+                                                fence.style.buttonDiameter);
+    }
+    return buttonExpandedDiameterOf(fence, count);
 }
 
 QPoint cursorPhysicalPos()
@@ -907,7 +924,8 @@ QRect FenceContainer::visibleRectOf(const FenceWindow& fence) const
     // snapped so logical * dpr maps back without sliding the centre.
     if (zone_shape::isButton(fence.style.shape)) {
         const QPoint anchor = buttonAnchorOf(fence);
-        if (fence.rolledUp)
+        // Reveal: the closed footprint is already the full disc (session 113).
+        if (fence.rolledUp && !buttonUsesReveal(fence))
             return buttonSquareFor(fence, anchor, buttonCollapsedDiameterOf(fence));
         return buttonFittedExpanded(fence);
     }
@@ -996,6 +1014,8 @@ void FenceContainer::finishRollAnimation(FenceWindow& fence)
         fence.rollAnimation->stop();
     fence.animating = false;
     fence.animatedVisible = QRect();
+    if (fence.view)
+        fence.view->setButtonOpenProgressOverride(-1);
     applyVisibleGeometry(fence);
     settleButtonHover(fence);
 }
@@ -1038,7 +1058,11 @@ void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
     fence.animating = false;
     fence.animatedVisible = QRect();
     const QRect to = visibleRectOf(fence);
-    if (!m_animateRoll || !from.isValid() || from == to) {
+    const bool revealHold = zone_shape::isButton(fence.style.shape) && buttonUsesReveal(fence)
+        && from.isValid();
+    if (!m_animateRoll || !from.isValid() || (from == to && !revealHold)) {
+        if (fence.view)
+            fence.view->setButtonOpenProgressOverride(-1);
         applyVisibleGeometry(fence);
         return;
     }
@@ -1057,8 +1081,13 @@ void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
     fence.animatedVisible = from;
     fence.rollFrom = from;
     fence.rollTo = to;
-    fence.rollDurationMs =
-        rollDurationFor(qAbs(from.height() - to.height()) + qAbs(from.width() - to.width()), m_rollSpeed);
+    int travel = qAbs(from.height() - to.height()) + qAbs(from.width() - to.width());
+    if (revealHold && travel == 0) {
+        const int collapsed = buttonCollapsedDiameterOf(fence);
+        const int expanded = qMax(1, fence.rect.width());
+        travel = 2 * qMax(1, qAbs(expanded - collapsed));
+    }
+    fence.rollDurationMs = rollDurationFor(travel, m_rollSpeed);
     fence.rollClock.start();
     fence.rollLastNs = 0;
     fence.rollGaps.clear();
@@ -1086,6 +1115,11 @@ void FenceContainer::stepRoll(const QString& id)
         // Session 105: a Bouton animates a single radius (and, near an edge, the
         // centre toward a one-shot on-screen shift). Every frame stays a square,
         // so the mask never becomes an ellipse.
+        if (zone_shape::isButton(f->style.shape) && buttonUsesReveal(*f) && f->view) {
+            // Document already holds the end rolledUp state; ease the iris.
+            const qreal u = f->rolledUp ? (1.0 - e) : e;
+            f->view->setButtonOpenProgressOverride(u);
+        }
         if (zone_shape::isButton(f->style.shape)) {
             // Session 106: lerp the centre, then rebuild the square. Snapping
             // the diameter for the DPR must not keep a stale top-left -- that
@@ -1111,6 +1145,8 @@ void FenceContainer::stepRoll(const QString& id)
     f->rollAnimation->stop();
     f->animating = false;
     f->animatedVisible = QRect();
+    if (f->view)
+        f->view->setButtonOpenProgressOverride(-1);
     applyVisibleGeometry(*f);
     settleButtonHover(*f);
     f->rollApplies << (f->rollClock.nsecsElapsed() - now) / 1e6;
@@ -1377,6 +1413,8 @@ void FenceContainer::setFenceStyle(const QString& id, const core::FenceStyle& st
         return;
     fence->style = style;
     applyStyleToView(*fence);
+    if (zone_shape::isButton(fence->style.shape))
+        syncButtonSize(id);
     // F-038 / T-057: the panel's alpha is a *mode* of the hosted window, not a
     // paint detail, so a style change can switch it -- and this is the only place
     // that has to know, because every appearance change comes through here.
@@ -1458,6 +1496,7 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setIconSize(fence.style.iconSize > 0 ? fence.style.iconSize : 48);
     fence.view->setButtonCollapsedDiameter(fence.style.buttonDiameter);
     fence.view->setButtonRingCount(fence.style.buttonRings);
+    fence.view->setButtonOpenMode(fence.style.buttonOpenMode);
     fence.view->setButtonSkin(fence.style.buttonSkin, fence.style.buttonSkinPath,
                               fence.style.buttonSkinLayer);
     // fadeIcons, composed: the icons alone at the fence's transparency.
@@ -2340,11 +2379,12 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         QPoint wanted = (home.isValid() && home.contains(documentCenter))
             ? documentCenter
             : fence.rect.center();
-        const QRect collapsed = buttonSquareFor(fence, wanted, buttonCollapsedDiameterOf(fence));
-        const QRect clamp = m_screens.clampRectFor(collapsed);
+        const int foot = buttonUsesReveal(fence) ? d : buttonCollapsedDiameterOf(fence);
+        const QRect footprint = buttonSquareFor(fence, wanted, foot);
+        const QRect clamp = m_screens.clampRectFor(footprint);
         if (clamp.isValid()) {
-            const QRect fitted = zone_shape::buttonFitSquareOnScreen(collapsed, clamp);
-            wanted += fitted.center() - collapsed.center();
+            const QRect fitted = zone_shape::buttonFitSquareOnScreen(footprint, clamp);
+            wanted += fitted.center() - footprint.center();
         }
         setButtonStored(fence, wanted, d);
     } else {
@@ -2834,7 +2874,7 @@ void FenceContainer::syncButtonSize(const QString& id)
     if (!fence || !zone_shape::isButton(fence->style.shape) || fence->animating)
         return;
     const int count = fence->view ? fence->view->items().size() : 0;
-    const int d = buttonExpandedDiameterOf(*fence, count);
+    const int d = buttonStoredDiameterOf(*fence, count);
     const QPoint anchor = buttonAnchorOf(*fence);
     const QRect next = buttonSquareFor(*fence, anchor, d);
     if (next == fence->rect && fence->hasButtonAnchor && fence->buttonAnchor == anchor)
@@ -2868,11 +2908,12 @@ QRect FenceContainer::setFenceRect(const QString& id, const QRect& rect, bool sn
             : qMax(1, qMax(rect.width(), rect.height()));
         QPoint c = fence->locked ? buttonAnchorOf(*fence) : rect.center();
         if (!fence->locked && !fence->animating) {
-            const QRect collapsed = buttonSquareFor(*fence, c, buttonCollapsedDiameterOf(*fence));
-            const QRect clamp = m_screens.clampRectFor(collapsed);
+            const int foot = buttonUsesReveal(*fence) ? d : buttonCollapsedDiameterOf(*fence);
+            const QRect footprint = buttonSquareFor(*fence, c, foot);
+            const QRect clamp = m_screens.clampRectFor(footprint);
             if (clamp.isValid()) {
-                const QRect fitted = zone_shape::buttonFitSquareOnScreen(collapsed, clamp);
-                c += fitted.center() - collapsed.center();
+                const QRect fitted = zone_shape::buttonFitSquareOnScreen(footprint, clamp);
+                c += fitted.center() - footprint.center();
             }
         }
         setButtonStored(*fence, c, d);

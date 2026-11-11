@@ -99,13 +99,18 @@ struct FenceStyle {
     // Session 111 (Bouton only): number of icon rings, 0 = automatic (fewest
     // compact layers). A fixed 1..8 distributes more icons on the outer rings.
     int buttonRings = 0;
-    // Session 112: Bouton skin. "" / "plain" = Simple (the disc), "shutter" =
-    // the built-in iris demo, "gif" = a file in buttonSkinPath. Unknown ids
-    // are kept and painted as Simple until a newer build knows them.
+    // Session 112/113: Bouton skin. "" / "plain" = Simple (the disc),
+    // "shutter" = the built-in iris GIF, "diaphragm" = procedural iris,
+    // "gif" = a file in buttonSkinPath. Unknown ids are kept and painted
+    // as Simple until a newer build knows them.
     QString buttonSkin;
     QString buttonSkinPath;  // written only for "gif"
     // "" / "behind" = under the icons, "front" = over them (paint-only).
     QString buttonSkinLayer;
+    // Session 113: "" = default for the skin (Reveal for shutter/diaphragm,
+    // Grow otherwise), "grow" = the disc expands, "reveal" = full-size disc,
+    // the shutter opens in front. Written when explicitly set.
+    QString buttonOpenMode;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

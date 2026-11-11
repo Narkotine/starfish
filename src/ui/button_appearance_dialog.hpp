@@ -147,6 +147,8 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
                        QString::fromUtf8(zone_shape::kButtonSkinPlain));
     skinCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Shutter (demo)"),
                        QString::fromUtf8(zone_shape::kButtonSkinShutter));
+    skinCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Diaphragm"),
+                       QString::fromUtf8(zone_shape::kButtonSkinDiaphragm));
     skinCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Animated GIF..."),
                        QString::fromUtf8(zone_shape::kButtonSkinGif));
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Skin"), skinCombo);
@@ -159,6 +161,14 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
                        QString::fromUtf8(zone_shape::kButtonSkinLayerFront));
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Image position"), skinLayer);
 
+    auto* openMode = new QComboBox(dialog);
+    openMode->setObjectName(QStringLiteral("buttonOpenMode"));
+    openMode->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Grow"),
+                      QString::fromUtf8(zone_shape::kButtonOpenGrow));
+    openMode->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Reveal"),
+                      QString::fromUtf8(zone_shape::kButtonOpenReveal));
+    form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Opening"), openMode);
+
     auto* showShortcutNames = new QCheckBox(
         QCoreApplication::translate("ButtonAppearanceDialog", "Show shortcut names"), dialog);
     showShortcutNames->setObjectName(QStringLiteral("showShortcutNames"));
@@ -169,13 +179,13 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
 
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, panel, defaultPercent,
                     borderWidth, borderColour, borderDefault, effect, hoverCombo, iconSize,
-                    collapsedDiameter, ringCount, skinCombo, skinLayer, showShortcutNames] {
+                    collapsedDiameter, ringCount, skinCombo, skinLayer, openMode, showShortcutNames] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons),
             b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b16(iconSize),
             b17(showShortcutNames), b18(collapsedDiameter), b19(ringCount),
-            b20(skinCombo), b21(skinLayer);
+            b20(skinCombo), b21(skinLayer), b22(openMode);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -228,10 +238,12 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         if (si < 0)
             si = skinCombo->findData(QString::fromUtf8(zone_shape::kButtonSkinPlain));
         skinCombo->setCurrentIndex(qMax(0, si));
-        const int li = skinLayer->findData(style.buttonSkinLayer == QLatin1String("front")
-                                               ? QString::fromUtf8(zone_shape::kButtonSkinLayerFront)
-                                               : QString::fromUtf8(zone_shape::kButtonSkinLayerBehind));
+        const QString layerId = zone_shape::resolvedButtonSkinLayer(style.buttonSkinLayer, skinId);
+        const int li = skinLayer->findData(layerId);
         skinLayer->setCurrentIndex(qMax(0, li));
+        const QString modeId = zone_shape::resolvedButtonOpenMode(style.buttonOpenMode, skinId);
+        const int mi = openMode->findData(modeId);
+        openMode->setCurrentIndex(qMax(0, mi));
         showShortcutNames->setChecked(style.showLabels != QLatin1String("off"));
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -321,6 +333,10 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
             style.buttonSkin = (chosen == QLatin1String(zone_shape::kButtonSkinPlain))
                                    ? QString()
                                    : chosen;
+            if (zone_shape::buttonSkinDefaultsToReveal(chosen)) {
+                style.buttonOpenMode = QString::fromUtf8(zone_shape::kButtonOpenReveal);
+                style.buttonSkinLayer = QString::fromUtf8(zone_shape::kButtonSkinLayerFront);
+            }
         });
     });
     QObject::connect(skinLayer, &QComboBox::currentIndexChanged, dialog, [skinLayer, restyle](int) {
@@ -328,8 +344,12 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         restyle([layer](core::FenceStyle& style) {
             style.buttonSkinLayer = (layer == QLatin1String(zone_shape::kButtonSkinLayerFront))
                                         ? layer
-                                        : QString();
+                                        : QString::fromUtf8(zone_shape::kButtonSkinLayerBehind);
         });
+    });
+    QObject::connect(openMode, &QComboBox::currentIndexChanged, dialog, [openMode, restyle](int) {
+        const QString mode = openMode->currentData().toString();
+        restyle([mode](core::FenceStyle& style) { style.buttonOpenMode = mode; });
     });
     QObject::connect(showShortcutNames, &QCheckBox::toggled, dialog, [restyle](bool on) {
         restyle([on](core::FenceStyle& style) {
