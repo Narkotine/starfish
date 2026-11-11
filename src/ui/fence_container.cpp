@@ -90,6 +90,16 @@ int buttonIconSizeOf(const FenceWindow& fence)
     return fence.view ? fence.view->iconSize() : 48;
 }
 
+// Session 109: a Bouton keeps its names unless the per-bouton option is off.
+// Passing 0 into the ring layout uses the freed space (shorter cells, same
+// rings, even spacing from the top, no overlap).
+int buttonLabelHeightOf(const FenceWindow& fence)
+{
+    if (fence.style.showLabels == QLatin1String("off"))
+        return 0;
+    return zone_shape::kButtonLabelHeight;
+}
+
 QPoint cursorPhysicalPos()
 {
 #if defined(_WIN32)
@@ -1462,8 +1472,13 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setHoverHighlight(effect != FenceView::HoverEffect::None);
     fence.view->setFixedCellWidth(fence.style.cellWidth);
     fence.view->setTitleBarShown(fence.style.titleBar);
-    fence.view->setLabelsShown(fence.style.showLabels == QLatin1String("on")
-                               || (fence.style.showLabels.isEmpty() && m_showLabelsDefault));
+    // Session 109: a Bouton shows shortcut names unless the per-bouton option
+    // is off (default on, independent of Settings > Zones).
+    if (zone_shape::isButton(fence.style.shape))
+        fence.view->setLabelsShown(fence.style.showLabels != QLatin1String("off"));
+    else
+        fence.view->setLabelsShown(fence.style.showLabels == QLatin1String("on")
+                                   || (fence.style.showLabels.isEmpty() && m_showLabelsDefault));
     fence.view->setIconFlow(fence.style.iconFlow.isEmpty() ? m_iconFlowDefault
                                                            : IconLayout::flowFromKey(fence.style.iconFlow));
 }
@@ -2301,7 +2316,7 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
         // disc is required to stay reachable. Pin the durable anchor once.
         const int icon = style.iconSize > 0 ? style.iconSize : 48;
         int d = qMax(1, qMax(fence.rect.width(), fence.rect.height()));
-        const int need = zone_shape::buttonExpandedDiameter(icon, items.size());
+        const int need = zone_shape::buttonExpandedDiameter(icon, items.size(), buttonLabelHeightOf(fence));
         if (d < need)
             d = need;
         const QPoint documentCenter = rect.center();
@@ -2804,7 +2819,7 @@ void FenceContainer::syncButtonSize(const QString& id)
         return;
     const int icon = buttonIconSizeOf(*fence);
     const int count = fence->view ? fence->view->items().size() : 0;
-    const int d = zone_shape::buttonExpandedDiameter(icon, count);
+    const int d = zone_shape::buttonExpandedDiameter(icon, count, buttonLabelHeightOf(*fence));
     const QPoint anchor = buttonAnchorOf(*fence);
     const QRect next = buttonSquareFor(*fence, anchor, d);
     if (next == fence->rect && fence->hasButtonAnchor && fence->buttonAnchor == anchor)

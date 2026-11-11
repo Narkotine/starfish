@@ -12,6 +12,7 @@
 #include <QPainterPath>
 #include <QPair>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -197,6 +198,10 @@ public:
     QVector<QRect> tileRects() const;
     // Session 108: icon centres in widget-local sub-pixel coordinates, empty when rolled up.
     QVector<QPointF> buttonItemCenters() const;
+    // Session 109: whether paintButton would draw captions this frame, and the
+    // texts elided once for the final expanded size (stable during animation).
+    bool buttonLabelsPainted() const;
+    QStringList buttonElidedCaptions() const;
 
     // Accepts items dropped from the Explorer (T-006-3) and appends them to the
     // grid. `contentChanged` is emitted so the owner re-renders. The source
@@ -434,8 +439,20 @@ private:
     QVector<QRect> buttonItemRects() const;
     QRectF buttonDiscRect() const;
     void ensureButtonLayout() const;
+    void invalidateButtonLayout();
+    int buttonLabelHeight() const;
+    void ensureButtonElidedLabels() const;
+    void startButtonLabelFade();
+    void stopButtonLabelFade();
     QVector<zone_shape::ButtonItemGeomF> buttonItemGeometryNow() const;
     void paintButton(QPainter& painter);
+    QTimer m_buttonLabelFade;
+    QElapsedTimer m_buttonLabelFadeClock;
+    qreal m_buttonLabelOpacity = 0;
+    mutable QStringList m_buttonElidedCaptions;
+    mutable QStringList m_buttonElideSource;
+    mutable int m_buttonElideFontPx = -1;
+    mutable int m_buttonLayoutLabel = -1;
     bool m_rolledUp = false;
     bool m_rolling = false;
     // Session 108: final ring layout, locked for the duration of an expand/collapse.

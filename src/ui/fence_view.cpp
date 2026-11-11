@@ -21,6 +21,7 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFont>
+#include <QFontMetrics>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -85,6 +86,14 @@ FenceView::FenceView(QWidget* parent)
     connect(&m_widgetTimer, &QTimer::timeout, this, [this] {
         update();
         emit widgetTick();
+    });
+    m_buttonLabelFade.setTimerType(Qt::PreciseTimer);
+    connect(&m_buttonLabelFade, &QTimer::timeout, this, [this] {
+        const qreal u = qBound(0.0, m_buttonLabelFadeClock.elapsed() / 160.0, 1.0);
+        m_buttonLabelOpacity = 1.0 - (1.0 - u) * (1.0 - u);
+        if (u >= 1.0)
+            m_buttonLabelFade.stop();
+        update();
     });
     setObjectName(QStringLiteral("starfishFenceView"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -194,6 +203,10 @@ void FenceView::setTitleBarColor(const QColor& color)
 
 void FenceView::setRolledUp(bool rolledUp)
 {
+    if (rolledUp) {
+        stopButtonLabelFade();
+        m_buttonLabelOpacity = 0;
+    }
     if (m_rolledUp == rolledUp)
         return;
     m_rolledUp = rolledUp;
@@ -207,11 +220,20 @@ void FenceView::setRolling(bool rolling)
 {
     // Lock the final ring layout on the first frame of an expand or collapse
     // so mid-animation size syncs cannot reassign slots (session 108).
-    if (rolling)
+    if (rolling) {
         ensureButtonLayout();
+        // Session 109: captions stay hidden for the whole animation. Elide once
+        // against the final size so a later fade-in never re-elides per frame.
+        stopButtonLabelFade();
+        m_buttonLabelOpacity = 0;
+        if (m_grid.labelsShown())
+            ensureButtonElidedLabels();
+    }
     if (m_rolling == rolling)
         return;
     m_rolling = rolling;
+    if (!rolling && !m_rolledUp && m_grid.labelsShown())
+        startButtonLabelFade();
     update();
 }
 
@@ -1428,6 +1450,15 @@ void FenceView::setLabelsShown(bool shown)
     if (m_grid.labelsShown() == shown)
         return;
     m_grid.setLabelsShown(shown);
+    invalidateButtonLayout();
+    if (!shown) {
+        stopButtonLabelFade();
+        m_buttonLabelOpacity = 0;
+    } else if (zone_shape::isButton(m_shape) && !m_rolledUp && !m_rolling) {
+        ensureButtonLayout();
+        ensureButtonElidedLabels();
+        startButtonLabelFade();
+    }
     update();
     emit contentChanged();
 }
@@ -1723,13 +1754,16 @@ void FenceView::ensureButtonLayout() const
         return;
     const int n = m_grid.items().size();
     const int icon = m_grid.iconSize();
-    if (m_buttonLayoutCount == n && m_buttonLayoutIcon == icon && m_buttonLayoutDiameter > 0)
+    const int labelH = buttonLabelHeight();
+    if (m_buttonLayoutCount == n && m_buttonLayoutIcon == icon
+        && m_buttonLayoutLabel == labelH && m_buttonLayoutDiameter > 0)
         return;
     if (m_rolling && m_buttonLayoutDiameter > 0)
         return;
-    const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(n, icon);
+    const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(n, icon, labelH);
     m_buttonLayoutCount = n;
     m_buttonLayoutIcon = icon;
+    m_buttonLayoutLabel = labelH;
     m_buttonLayoutDiameter = lay.diameter;
     m_buttonSlotIcons.clear();
     m_buttonSlotLabels.clear();
@@ -1779,6 +1813,97 @@ QVector<QPointF> FenceView::buttonItemCenters() const
     return out;
 }
 
+int FenceView::buttonLabelHeight() const
+{
+    return m_grid.labelsShown() ? zone_shape::kButtonLabelHeight : 0;
+}
+
+void FenceView::invalidateButtonLayout()
+{
+    m_buttonLayoutCount = -1;
+    m_buttonLayoutLabel = -1;
+    m_buttonLayoutDiameter = 0;
+    m_buttonSlotIcons.clear();
+    m_buttonSlotLabels.clear();
+    m_buttonElidedCaptions.clear();
+    m_buttonElideSource.clear();
+    m_buttonElideFontPx = -1;
+}
+
+void FenceView::ensureButtonElidedLabels() const
+{
+    const QList<core::DesktopItem>& items = m_grid.items();
+    QStringList source;
+    source.reserve(items.size());
+    for (const core::DesktopItem& it : items)
+        source.append(it.name);
+    QFont nameFont = font();
+    nameFont.setPixelSize(qMax(10, m_grid.iconSize() / 4));
+    const int fontPx = nameFont.pixelSize();
+    ensureButtonLayout();
+    if (m_buttonLayoutDiameter <= 0)
+        return;
+    // Elide against the final (unscaled) layout, never the animated box.
+    if (m_buttonElideSource == source && m_buttonElideFontPx == fontPx
+        && m_buttonElidedCaptions.size() == source.size())
+        return;
+    zone_shape::ButtonLayoutF lay;
+    lay.diameter = m_buttonLayoutDiameter;
+    const int n = qMin(m_buttonSlotIcons.size(), m_buttonSlotLabels.size());
+    lay.items.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        zone_shape::ButtonItemGeomF g;
+        g.icon = m_buttonSlotIcons.at(i);
+        g.label = m_buttonSlotLabels.at(i);
+        lay.items.append(g);
+    }
+    const QRectF finalDisc(0, 0, m_buttonLayoutDiameter, m_buttonLayoutDiameter);
+    const auto geoms = zone_shape::buttonItemGeometryF(finalDisc, lay);
+    QFontMetrics fm(nameFont);
+    m_buttonElidedCaptions.clear();
+    m_buttonElidedCaptions.reserve(source.size());
+    for (int i = 0; i < source.size(); ++i) {
+        const qreal w = (i < geoms.size()) ? geoms.at(i).label.width() : 1.0;
+        m_buttonElidedCaptions.append(fm.elidedText(source.at(i), Qt::ElideRight, qMax(1, int(w))));
+    }
+    m_buttonElideSource = source;
+    m_buttonElideFontPx = fontPx;
+}
+
+void FenceView::startButtonLabelFade()
+{
+    if (!m_grid.labelsShown() || m_rolledUp || m_rolling) {
+        stopButtonLabelFade();
+        m_buttonLabelOpacity = 0;
+        return;
+    }
+    ensureButtonElidedLabels();
+    m_buttonLabelOpacity = 0;
+    m_buttonLabelFadeClock.restart();
+    m_buttonLabelFade.start(16);
+    update();
+}
+
+void FenceView::stopButtonLabelFade()
+{
+    m_buttonLabelFade.stop();
+}
+
+bool FenceView::buttonLabelsPainted() const
+{
+    return zone_shape::isButton(m_shape) && m_grid.labelsShown() && !m_rolledUp
+        && !m_rolling && m_buttonLabelOpacity > 0.01;
+}
+
+QStringList FenceView::buttonElidedCaptions() const
+{
+    if (!m_grid.labelsShown())
+        return {};
+    ensureButtonLayout();
+    ensureButtonElidedLabels();
+    return m_buttonElidedCaptions;
+}
+
 void FenceView::paintButton(QPainter& painter)
 {
     const QRect box = rect();
@@ -1808,7 +1933,9 @@ void FenceView::paintButton(QPainter& painter)
     }
     const auto geoms = buttonItemGeometryNow();
     const QList<core::DesktopItem>& items = m_grid.items();
-    const bool names = m_grid.labelsShown();
+    const bool paintNames = buttonLabelsPainted();
+    if (paintNames)
+        ensureButtonElidedLabels();
     QFont nameFont = font();
     nameFont.setPixelSize(qMax(10, m_grid.iconSize() / 4));
     painter.save();
@@ -1819,7 +1946,9 @@ void FenceView::paintButton(QPainter& painter)
         const qreal u = qMin(disc.width(), disc.height()) / m_buttonLayoutDiameter;
         painter.setOpacity(painter.opacity() * qBound(0.0, (u - 0.12) / 0.70, 1.0));
     }
+    const qreal afterIcons = painter.opacity();
     for (int i = 0; i < geoms.size() && i < items.size(); ++i) {
+        painter.setOpacity(afterIcons);
         const QPixmap icon = m_iconProvider ? m_iconProvider(items.at(i), m_grid.iconSize()) : QPixmap();
         const QRectF r = geoms.at(i).icon;
         if (!icon.isNull())
@@ -1834,11 +1963,12 @@ void FenceView::paintButton(QPainter& painter)
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(r.adjusted(-2, -2, 2, 2), 8, 8);
         }
-        if (names && !geoms.at(i).label.isEmpty()) {
+        if (paintNames && !geoms.at(i).label.isEmpty()) {
+            painter.setOpacity(afterIcons * m_buttonLabelOpacity);
             painter.setFont(nameFont);
             painter.setPen(QColor(0xE5, 0xE7, 0xEB));
-            const QString caption = painter.fontMetrics().elidedText(
-                items.at(i).name, Qt::ElideRight, int(qMax(1.0, geoms.at(i).label.width())));
+            const QString caption = (i < m_buttonElidedCaptions.size())
+                ? m_buttonElidedCaptions.at(i) : items.at(i).name;
             painter.drawText(geoms.at(i).label, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, caption);
         }
     }

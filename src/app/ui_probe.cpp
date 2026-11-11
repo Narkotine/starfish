@@ -4580,6 +4580,183 @@ int runUiProbe(QApplication& app)
                   : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 109: shortcut names stay hidden while the disc expands or
+    // collapses; they are elided once for the final size and appear only when
+    // fully open (optional fade-in). A per-bouton option can hide them always.
+    {
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = (i == 0)
+                    ? QStringLiteral("Very Long Shortcut Name That Needs An Ellipsis")
+                    : QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        QStringList notes;
+        bool midHidden = true;
+        bool shownWhenOpen = false;
+        bool elisionStable = false;
+        bool hiddenOnCollapse = true;
+        bool optionOffHides = false;
+        bool roundTrip = false;
+        bool dialogOk = false;
+
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("Names"), QPoint(600, 400));
+        ui::FenceView* v = box.view(id);
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(6, QStringLiteral("s109")));
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+
+            // Default: names will be shown once expanded (option on).
+            if (v->buttonLabelsPainted()) {
+                midHidden = false;
+                notes << QStringLiteral("painted while collapsed");
+            }
+
+            box.setFenceRolledUp(id, false);
+            QElapsedTimer clock;
+            clock.start();
+            QStringList midElide;
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500) {
+                if (v->buttonLabelsPainted()) {
+                    midHidden = false;
+                    notes << QStringLiteral("painted mid-expand");
+                    break;
+                }
+                if (midElide.isEmpty())
+                    midElide = v->buttonElidedCaptions();
+                else if (v->buttonElidedCaptions() != midElide) {
+                    midHidden = false;
+                    notes << QStringLiteral("elision changed mid-expand");
+                    break;
+                }
+                wait(8);
+            }
+            // Fade-in after the disc is fully open.
+            clock.restart();
+            while (!v->buttonLabelsPainted() && clock.elapsed() < 500)
+                wait(16);
+            shownWhenOpen = v->buttonLabelsPainted();
+            const QStringList first = v->buttonElidedCaptions();
+            wait(40);
+            const QStringList second = v->buttonElidedCaptions();
+            elisionStable = shownWhenOpen && !first.isEmpty() && first == second
+                            && first == midElide;
+            if (!shownWhenOpen)
+                notes << QStringLiteral("not painted when open");
+            if (first != second)
+                notes << QStringLiteral("elision drifted after open");
+            if (!midElide.isEmpty() && first != midElide)
+                notes << QStringLiteral("final elision != precomputed");
+            const bool hasEllipsis = !first.isEmpty()
+                && (first.first().contains(QChar(0x2026)) || first.first().contains(QStringLiteral("..."))
+                    || first.first() != QLatin1String("Very Long Shortcut Name That Needs An Ellipsis"));
+            if (first.isEmpty() || !hasEllipsis)
+                notes << QStringLiteral("expected elided long name, got \"%1\"").arg(first.value(0));
+            else if (!elisionStable && notes.isEmpty())
+                elisionStable = shownWhenOpen && first == second;
+
+            box.setFenceRolledUp(id, true);
+            clock.restart();
+            bool sawPaint = false;
+            while ((box.fenceAnimating(id) || clock.elapsed() < 30) && clock.elapsed() < 1500) {
+                if (v->buttonLabelsPainted())
+                    sawPaint = true;
+                wait(8);
+            }
+            hiddenOnCollapse = !sawPaint && !v->buttonLabelsPainted();
+            if (!hiddenOnCollapse)
+                notes << QStringLiteral("painted during collapse");
+
+            // Option off: never paint, and it survives save/load on a dummy layout.
+            core::FenceStyle style = box.fenceStyle(id);
+            style.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, style);
+            const core::Layout dumped = box.toLayout();
+            const QByteArray json = core::JsonStore::toJson(dumped);
+            ui::FenceContainer loaded;
+            loaded.setAnimateRoll(true);
+            const auto parsed = core::JsonStore::fromJson(json);
+            if (!parsed) {
+                notes << QStringLiteral("reload failed");
+            } else {
+                loaded.applyLayout(*parsed);
+                const QString lid = loaded.fenceIds().value(0);
+                const bool kept = loaded.fenceStyle(lid).showLabels == QLatin1String("off");
+                ui::FenceView* lv = loaded.view(lid);
+                if (!lv) {
+                    notes << QStringLiteral("reloaded no view");
+                } else {
+                    if (offscreen)
+                        lv->setAttribute(Qt::WA_DontShowOnScreen);
+                    lv->show();
+                    wait(40);
+                    loaded.setFenceRolledUp(lid, false);
+                    clock.restart();
+                    bool paintedOff = lv->buttonLabelsPainted() || lv->labelsShown();
+                    while (loaded.fenceAnimating(lid) && clock.elapsed() < 1500) {
+                        if (lv->buttonLabelsPainted())
+                            paintedOff = true;
+                        wait(8);
+                    }
+                    wait(250);
+                    if (lv->buttonLabelsPainted() || lv->labelsShown())
+                        paintedOff = true;
+                    optionOffHides = kept && !paintedOff && lv->buttonElidedCaptions().isEmpty();
+                    roundTrip = kept;
+                    if (!kept)
+                        notes << QStringLiteral("showLabels not off after reload");
+                    if (paintedOff)
+                        notes << QStringLiteral("painted or shown with option off");
+                    lv->hide();
+                }
+            }
+
+            // Appearance dialog for a Bouton offers the checkbox, default on.
+            std::unique_ptr<QDialog> dlg(ui::createFenceAppearanceDialog(&box, id, nullptr));
+            if (!dlg) {
+                notes << QStringLiteral("no appearance dialog");
+            } else {
+                if (offscreen)
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                auto* check = dlg->findChild<QCheckBox*>(QStringLiteral("showShortcutNames"));
+                auto* combo = dlg->findChild<QComboBox*>(QStringLiteral("showLabels"));
+                const QString boxLabel = check ? check->text() : QString();
+                const bool labelOk = check && (boxLabel.contains(QStringLiteral("shortcut"), Qt::CaseInsensitive)
+                                               || boxLabel.contains(QStringLiteral("raccourcis"), Qt::CaseInsensitive));
+                dialogOk = check && !combo && labelOk;
+                if (!dialogOk)
+                    notes << QStringLiteral("dialog check %1 combo %2 label \"%3\"")
+                                 .arg(check != nullptr).arg(combo != nullptr).arg(boxLabel);
+                dlg->hide();
+            }
+            v->hide();
+        }
+
+        // Reset this bouton to hidden-names so the dialog check (on the live
+        // container) does not depend on the last style; the checkbox existence
+        // is enough.
+        const bool ok = midHidden && shownWhenOpen && elisionStable && hiddenOnCollapse
+                        && optionOffHides && roundTrip && dialogOk;
+        check(QStringLiteral("Bouton: labels hidden while animating, stable elision when open, option off persists (session 109)"),
+              ok,
+              notes.isEmpty()
+                  ? QStringLiteral("hidden mid-flight, stable elision, option off saved, appearance checkbox")
+                  : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {
@@ -4696,7 +4873,14 @@ int runUiProbe(QApplication& app)
             lockedRefused = !box.beginWidgetResize(zone, wpath);
             box.setFenceLocked(zone, false);
             box.beginWidgetResize(zone, wpath);
-            wait(10400);
+            // 10 s product idle, plus margin: a long earlier probe can delay a
+            // coarse/precise QTimer by more than 400 ms (session 108 saw idle 0).
+            {
+                QElapsedTimer idleClock;
+                idleClock.start();
+                while (!v->widgetResizePath().isEmpty() && idleClock.elapsed() < 15000)
+                    wait(100);
+            }
             idleEnds = v->widgetResizePath().isEmpty();
             v->hide();
         }

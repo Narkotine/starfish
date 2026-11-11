@@ -256,7 +256,7 @@
 <context>
     <name>FenceAppearanceDialog</name>
     <message>
-        <location filename="../ui/fence_appearance_dialog.hpp" line="+56"/>
+        <location filename="../ui/fence_appearance_dialog.hpp" line="+57"/>
         <source>Fence appearance</source>
         <translation>Apparence de la zone</translation>
     </message>
@@ -384,13 +384,13 @@
         <location line="+4"/>
         <location line="+11"/>
         <location line="+27"/>
-        <location line="+6"/>
-        <location line="+6"/>
+        <location line="+16"/>
+        <location line="+7"/>
         <source>Default (Settings)</source>
         <translation>Par défaut (Réglages)</translation>
     </message>
     <message>
-        <location line="-49"/>
+        <location line="-60"/>
         <source>Nothing</source>
         <translation>Aucun</translation>
     </message>
@@ -480,7 +480,12 @@
         <translation>Redimensionnement</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
+        <source>Show shortcut names</source>
+        <translation>Afficher les noms des raccourcis</translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Shown</source>
         <translation>Affichés</translation>
     </message>
@@ -495,29 +500,29 @@
         <translation>Noms des icônes</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>Icon order</source>
         <translation>Ordre des icônes</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+228"/>
+        <location line="+235"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-231"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+229"/>
+        <location line="+236"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-231"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -614,7 +619,7 @@
         <translation>Supprimer le modèle « %1 » ? Les zones gardent leur apparence.</translation>
     </message>
     <message>
-        <location line="+190"/>
+        <location line="+206"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -1570,9 +1575,9 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+337"/>
+        <location filename="../ui/fence_view.cpp" line="+363"/>
         <location line="+179"/>
-        <location line="+229"/>
+        <location line="+230"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
@@ -1582,7 +1587,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+760"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1607,7 +1612,7 @@
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+241"/>
         <source>Button</source>
         <translation>Bouton</translation>
     </message>

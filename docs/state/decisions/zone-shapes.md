@@ -92,3 +92,15 @@ same easing as the disc itself — in sub-pixel coordinates (`QRectF` /
 inscribed ellipse. A Bouton still keeps the session 105–107 guarantees
 (stable circle, durable anchor, no top-left drift, locked never moves,
 default not movable).
+
+
+## Shortcut names (session 109)
+
+Labels are not painted while a Bouton expands or collapses. They appear only
+once the disc is fully open (a short fade-in), elided once against the final
+slot width — never re-elided as the circle grows. Collapse hides them on the
+first frame. A per-bouton Appearance checkbox, "Show shortcut names" /
+"Afficher les noms des raccourcis" (default on, `showLabels` `on`/`off`,
+independent of Settings), can hide them always. With names off, the ring
+layout uses a zero label height so cells are shorter; the rules are unchanged
+(even spacing from the top, concentric rings, no overlap).
