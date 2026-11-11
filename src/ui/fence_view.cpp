@@ -433,8 +433,10 @@ void FenceView::setLocked(bool locked)
     if (m_locked == locked)
         return;
     m_locked = locked;
-    if (locked)
+    if (locked) {
         endWidgetResize(); // session 98
+        endButtonMoveMode(); // session 107
+    }
     setCursor(Qt::ArrowCursor);
     if (locked) {
         m_dragOriginIndex = -1;
@@ -448,7 +450,10 @@ void FenceView::setLocked(bool locked)
 FenceHandle FenceView::rawHandleAt(const QPoint& point) const
 {
     if (zone_shape::isButton(m_shape)) {
-        if (m_locked)
+        // Session 107: by default a Bouton is not movable -- the disc is
+        // HTCLIENT, the cursor stays an arrow, and icons receive the click.
+        // Only compact move mode turns the disc into a grab.
+        if (m_locked || !m_buttonMoveMode || !m_rolledUp)
             return FenceHandle::None;
         const QRect box = rect();
         const QPoint c = box.center();
@@ -897,6 +902,44 @@ void FenceView::endWidgetResize()
     emit widgetResizeModeChanged(false);
 }
 
+bool FenceView::beginButtonMoveMode()
+{
+    if (m_locked || !zone_shape::isButton(m_shape))
+        return false;
+    if (m_buttonMoveMode)
+        return true;
+    if (!m_buttonMoveIdle.isSingleShot()) {
+        m_buttonMoveIdle.setSingleShot(true);
+        connect(&m_buttonMoveIdle, &QTimer::timeout, this, &FenceView::endButtonMoveMode);
+    }
+    m_buttonMoveMode = true;
+    setFocusPolicy(Qt::StrongFocus);
+    setFocus(Qt::OtherFocusReason);
+    setCursor(Qt::SizeAllCursor);
+    m_buttonMoveIdle.start(widget_resize::kIdleMs);
+    update();
+    emit contentChanged();
+    emit buttonMoveModeChanged(true);
+    return true;
+}
+
+void FenceView::endButtonMoveMode()
+{
+    if (!m_buttonMoveMode)
+        return;
+    const bool wasDragging = m_geometryDragging;
+    m_buttonMoveIdle.stop();
+    m_buttonMoveMode = false;
+    m_geometryDragging = false;
+    m_geometryHandle = FenceHandle::None;
+    setCursor(Qt::ArrowCursor);
+    update();
+    emit contentChanged();
+    if (wasDragging)
+        emit geometryDragCancelled();
+    emit buttonMoveModeChanged(false);
+}
+
 void FenceView::mousePressEvent(QMouseEvent* event)
 {
     emit pressed();
@@ -916,6 +959,16 @@ void FenceView::mousePressEvent(QMouseEvent* event)
             return;
         }
         endWidgetResize();
+    }
+    if (m_buttonMoveMode && event->button() == Qt::LeftButton) {
+        // Session 107: a click on the disc starts the drag (handle below);
+        // a click elsewhere ends the mode, like the widget resize mode.
+        if (handleAt(event->pos()) == FenceHandle::None) {
+            endButtonMoveMode();
+            event->accept();
+            return;
+        }
+        m_buttonMoveIdle.start(widget_resize::kIdleMs);
     }
     if (event->button() == Qt::LeftButton && hiddenItemCount() > 0
         && hiddenBadgeRect().contains(event->pos())) {
@@ -1034,7 +1087,11 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
             return;
         }
     }
+    if (m_buttonMoveMode && !(event->buttons() & Qt::LeftButton))
+        setCursor(Qt::SizeAllCursor);
     if (m_geometryDragging) {
+        if (m_buttonMoveMode)
+            m_buttonMoveIdle.start(widget_resize::kIdleMs);
         // Measured against the *screen*, not against this widget: the widget
         // moves with the fence, so a widget-local delta (`event->pos()`) shrinks
         // as the fence catches up with the cursor and the drag ends up covering
@@ -1129,6 +1186,15 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         m_geometryDragging = false;
         m_geometryHandle = FenceHandle::None;
         emit geometryDragFinished();
+        if (m_buttonMoveMode) // session 107: a drop ends the move mode
+            endButtonMoveMode();
+        return;
+    }
+    // Session 107: a left click on the compact disc still expands it (hover
+    // also does). Not in move mode -- that click is a grab, not an unroll.
+    if (zone_shape::isButton(m_shape) && m_rolledUp && !m_buttonMoveMode && !m_locked
+        && zone_shape::buttonContainsPoint(rect(), event->pos())) {
+        emit rollUpRequested(false);
         return;
     }
 
@@ -1665,6 +1731,9 @@ void FenceView::paintButton(QPainter& painter)
         painter.setPen(QColor(0xE5, 0xE7, 0xEB));
         const QString label = m_title.isEmpty() ? tr("Button") : m_title;
         painter.drawText(box.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, label);
+        if (m_buttonMoveMode)
+            widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
+                                              accentColor(), 1.0);
         return;
     }
     const auto geoms = zone_shape::buttonItemGeometry(contentRect(), m_grid.items().size(),
@@ -1809,6 +1878,11 @@ void FenceView::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Escape && !m_resizePath.isEmpty()) { // session 98
         endWidgetResize();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && m_buttonMoveMode) { // session 107
+        endButtonMoveMode();
         event->accept();
         return;
     }

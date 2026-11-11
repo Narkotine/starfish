@@ -82,6 +82,7 @@ private slots:
         QCOMPARE(countOf(entries, FenceMenu::Action::Transparency), 0);
         QCOMPARE(countOf(entries, FenceMenu::Action::PanelColor), 0);
         QCOMPARE(countOf(entries, FenceMenu::Action::Radius), 0);
+        QCOMPARE(countOf(entries, FenceMenu::Action::MoveButton), 0);
         int submenus = 0;
         for (const FenceMenu::Entry& entry : entries) {
             if (entry.kind == FenceMenu::Kind::Submenu) {
@@ -343,6 +344,34 @@ private slots:
             QVERIFY(entry.enabled);
         for (const FenceMenu::Entry& entry : FenceMenu::materialEntries(state))
             QVERIFY(entry.enabled);
+    }
+
+    void aBoutonMenuOffersMoveButton()
+    {
+        // Session 107: "Move button" is on a Bouton's menu, greyed when locked,
+        // and never on a classic zone (and never a shortcut).
+        FenceMenu::State button;
+        button.isButton = true;
+        const QList<FenceMenu::Entry> unlocked = FenceMenu::entries(button);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::MoveButton), 1);
+        const FenceMenu::Entry* move = find(unlocked, FenceMenu::Action::MoveButton);
+        QVERIFY(move);
+        QCOMPARE(move->label, QStringLiteral("Move button"));
+        QVERIFY(move->enabled);
+        QCOMPARE(move->kind, FenceMenu::Kind::Action);
+
+        button.locked = true;
+        const QList<FenceMenu::Entry> locked = FenceMenu::entries(button);
+        QCOMPARE(countOf(locked, FenceMenu::Action::MoveButton), 1);
+        const FenceMenu::Entry* grey = find(locked, FenceMenu::Action::MoveButton);
+        QVERIFY(grey);
+        QVERIFY(!grey->enabled);
+        QCOMPARE(grey->label, QStringLiteral("Move button"));
+
+        FenceMenu::State classic;
+        QCOMPARE(countOf(FenceMenu::entries(classic), FenceMenu::Action::MoveButton), 0);
+        classic.locked = true;
+        QCOMPARE(countOf(FenceMenu::entries(classic), FenceMenu::Action::MoveButton), 0);
     }
 
     void theIconsEntryLivesInTheAppearanceDialogNow()

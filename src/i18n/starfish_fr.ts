@@ -645,7 +645,7 @@
 <context>
     <name>FenceMenu</name>
     <message>
-        <location filename="../ui/fence_menu.hpp" line="+289"/>
+        <location filename="../ui/fence_menu.hpp" line="+291"/>
         <source>Square</source>
         <translation>Carré</translation>
     </message>
@@ -686,13 +686,13 @@
     </message>
     <message>
         <location line="+6"/>
-        <location line="+16"/>
+        <location line="+31"/>
         <source>Roll down</source>
         <translation>Dérouler</translation>
     </message>
     <message>
-        <location line="-15"/>
-        <location line="+16"/>
+        <location line="-30"/>
+        <location line="+31"/>
         <source>Roll up</source>
         <translation>Enrouler</translation>
     </message>
@@ -702,7 +702,7 @@
         <translation>Renommer...</translation>
     </message>
     <message>
-        <location line="-214"/>
+        <location line="-229"/>
         <source>Default (whole icons)</source>
         <translation>Par défaut (icônes entières)</translation>
     </message>
@@ -767,7 +767,13 @@
         <translation>Nom</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+137"/>
+        <location line="+13"/>
+        <source>Move button</source>
+        <translation>Déplacer le bouton</translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Show the title bar</source>
         <translation>Afficher la barre de titre</translation>
     </message>
@@ -974,7 +980,7 @@
 <context>
     <name>ProductApp</name>
     <message>
-        <location filename="../app/product_app.cpp" line="+2938"/>
+        <location filename="../app/product_app.cpp" line="+2943"/>
         <location line="+179"/>
         <source>Unlock</source>
         <translation>Déverrouiller</translation>
@@ -1141,7 +1147,7 @@
         <translation>Maj+F10</translation>
     </message>
     <message>
-        <location line="-3623"/>
+        <location line="-3627"/>
         <source>the Windows desktop is not reachable (is Explorer running?)</source>
         <translation>le bureau de Windows est inaccessible (Explorer est-il lancé ?)</translation>
     </message>
@@ -1187,7 +1193,7 @@
         <translation>Bouton</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+545"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
@@ -1565,19 +1571,18 @@
     <name>starfish::ui::FenceView</name>
     <message>
         <location filename="../ui/fence_view.cpp" line="+337"/>
-        <location line="+172"/>
-        <location line="+234"/>
-        <location line="+910"/>
+        <location line="+179"/>
+        <location line="+229"/>
         <source>Fence</source>
         <translation>Zone</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="+33"/>
         <source>empty fence -- no icons yet</source>
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+690"/>
+        <location line="+751"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1602,7 +1607,7 @@
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
     <message>
-        <location line="+107"/>
+        <location line="+82"/>
         <source>Button</source>
         <translation>Bouton</translation>
     </message>

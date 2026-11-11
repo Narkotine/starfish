@@ -83,6 +83,7 @@ enum class Action {
     AddWidget,         // session 79: the submenu; children from widgetEntries()
     AddWidgetChoice,   // value: index into State::widgetKinds
     ToggleLock,        // session 94: lock / unlock the fence
+    MoveButton,        // session 107: Bouton move mode (compact only)
 };
 
 struct Entry {
@@ -130,6 +131,7 @@ struct State {
     QStringList templates;           // session 76: the saved templates' names
     QStringList widgetKinds;         // session 79: the widgets one can add (labels)
     bool locked = false;             // session 94
+    bool isButton = false;           // session 107: a Bouton, not a classic zone
 };
 
 // Session 79: the widgets, one click each.
@@ -363,11 +365,26 @@ inline QList<Entry> entries(const State& state)
         roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
                                     : QCoreApplication::translate("FenceMenu", "Roll up");
         out << lock << separator << roll;
+        if (state.isButton) { // session 107: visible, greyed -- never a silent absence
+            Entry move;
+            move.action = Action::MoveButton;
+            move.label = QCoreApplication::translate("FenceMenu", "Move button");
+            move.enabled = false;
+            out << separator << move;
+        }
         return out;
     }
 
     // Session 94 (t104u): the lock is the menu's first entry, locked or not.
     out << lock << separator;
+
+    if (state.isButton) { // session 107: explicit move mode, compact form only
+        Entry move;
+        move.action = Action::MoveButton;
+        move.label = QCoreApplication::translate("FenceMenu", "Move button");
+        move.enabled = !state.locked;
+        out.append(move);
+    }
 
     Entry rename;
     rename.action = Action::Rename;

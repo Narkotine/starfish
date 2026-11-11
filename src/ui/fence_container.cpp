@@ -804,6 +804,8 @@ bool FenceContainer::fenceHoverUnrolls(const QString& id) const
     if (!fence)
         return false;
     const QString pref = fence->style.hoverUnroll;
+    if (fence->view && fence->view->buttonMoveMode()) // session 107
+        return false;
     return pref == QLatin1String("on") || (pref.isEmpty() && m_hoverUnrollDefault);
 }
 
@@ -2364,7 +2366,14 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
     m_fences.append(fence);
 
     FenceView* view = m_fences.last().view;
-    connect(view, &FenceView::pressed, this, [this, id] { raiseFence(id); });
+    connect(view, &FenceView::pressed, this, [this, id] {
+        raiseFence(id);
+        // Session 107: a click on another zone ends a Bouton's move mode.
+        for (FenceWindow& other : m_fences) {
+            if (other.id != id && other.view && other.view->buttonMoveMode())
+                other.view->endButtonMoveMode();
+        }
+    });
     connect(view, &FenceView::selectionGesture, this, [this, id] {
         clearFenceSelections(id);
         if (m_backdrop)
@@ -2386,6 +2395,16 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             });
     connect(view, &FenceView::geometryDragFinished, this,
             [this, id] { endGeometryDrag(id); });
+    connect(view, &FenceView::geometryDragCancelled, this, [this, id] {
+        FenceWindow* fence = find(id);
+        if (!fence)
+            return;
+        const QRect restore = fence->dragStartRect;
+        fence->dragging = false;
+        if (restore.isValid())
+            setFenceRect(id, restore, /*snap=*/false);
+        fence->dragStartRect = QRect();
+    });
     connect(view, &FenceView::contentChanged, this,
             [this, id] { emit fenceContentChanged(id); });
     // ... and the hosted surface shows an *image*, so a content change has to
@@ -2744,6 +2763,40 @@ QSize FenceContainer::minSizeFor(const FenceWindow& fence) const
     return QSize(qMax(64, qCeil(logical * dpr)), m_minSize.height());
 }
 
+bool FenceContainer::beginButtonMoveMode(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !fence->view || fence->locked
+        || !zone_shape::isButton(fence->style.shape))
+        return false;
+    // One Bouton at a time.
+    for (FenceWindow& other : m_fences) {
+        if (other.id != id && other.view && other.view->buttonMoveMode())
+            other.view->endButtonMoveMode();
+    }
+    finishRollAnimation(*fence);
+    if (!fence->rolledUp)
+        setFenceRolledUp(id, true);
+    finishRollAnimation(*fence);
+    fence->buttonHoverWanted = false;
+    fence->hoverUnrolled = false;
+    ++fence->hoverSerial;
+    return fence->view->beginButtonMoveMode();
+}
+
+void FenceContainer::endButtonMoveMode(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (fence && fence->view)
+        fence->view->endButtonMoveMode();
+}
+
+bool FenceContainer::buttonMoveMode(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->view && fence->view->buttonMoveMode();
+}
+
 void FenceContainer::syncButtonSize(const QString& id)
 {
     FenceWindow* fence = find(id);
@@ -2902,7 +2955,7 @@ bool FenceContainer::setFenceLocked(const QString& id, bool locked)
         return true;
     fence->locked = locked;
     if (fence->view)
-        fence->view->setLocked(locked);
+        fence->view->setLocked(locked); // also ends move mode (session 107)
     emit fenceLockedChanged(id, locked);
     return true;
 }
@@ -3125,6 +3178,10 @@ void FenceContainer::beginGeometryDrag(const QString& id)
     FenceWindow* fence = find(id);
     if (!fence || fence->locked)
         return;
+    // Session 107: a Bouton moves only in its explicit compact move mode.
+    if (zone_shape::isButton(fence->style.shape)
+        && !(fence->view && fence->view->buttonMoveMode()))
+        return;
     finishRollAnimation(*fence); // session 73: a gesture starts from where the fence really is
     fence->dragStartRect = fence->rect;
     fence->dragging = true;
@@ -3135,6 +3192,9 @@ void FenceContainer::applyGeometryDrag(const QString& id, FenceHandle handle, co
     FenceWindow* fence = find(id);
     if (!fence || fence->locked)
         return;
+    if (zone_shape::isButton(fence->style.shape)
+        && !(fence->view && fence->view->buttonMoveMode()))
+        return; // session 107: no move outside the compact move mode
     if (zone_shape::isButton(fence->style.shape) && handle != FenceHandle::TitleBar)
         return; // a Bouton has no resize grip, locked or not
     if (!fence->dragging) {

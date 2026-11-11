@@ -48,6 +48,7 @@
 #include "ui/context_menu_editor.hpp"
 #include "ui/desktop_backdrop.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/zone_shape.hpp"
 #include "ui/fence_geometry.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/fence_transparency_dialog.hpp"
@@ -1330,6 +1331,7 @@ void ProductApp::showFenceMenu(const QString& id, const QPoint& globalPos)
     ui::FenceMenu::State state;
     state.rolledUp = m_container->fenceRolledUp(id);
     state.locked = m_container->fenceLocked(id); // session 94
+    state.isButton = ui::zone_shape::isButton(m_container->fenceStyle(id).shape); // session 107
     // Read from the fence every time the menu opens rather than remembered here:
     // the check mark must follow the document, and the document may have been
     // changed by the tray a moment ago.
@@ -1465,6 +1467,9 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
         break;
     case ui::FenceMenu::Action::ToggleLock: // session 94
         m_container->setFenceLocked(id, !m_container->fenceLocked(id));
+        break;
+    case ui::FenceMenu::Action::MoveButton: // session 107
+        m_container->beginButtonMoveMode(id);
         break;
     case ui::FenceMenu::Action::Rename:
         // Session 60: on the title itself, no dialog.

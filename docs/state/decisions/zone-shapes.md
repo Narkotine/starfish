@@ -67,3 +67,15 @@ pixel toward the top-left per cycle when the diameter was even). Physical
 diameters are snapped so `logical * dpr` maps back without clipping the disc
 at 125 % / 150 %, and the frame is painted centred if a rounded pixel remains.
 A Bouton moves only when deliberately dragged, and never when locked.
+
+
+## Move mode (session 107)
+
+A Bouton is not movable by default: the disc is not a title-bar grab, the
+cursor stays an arrow, `WM_NCHITTEST` stays `HTCLIENT`, and icons inside the
+expanded disc are clicked, launched and dragged like icons in a classic zone.
+Moving is an explicit compact-only mode, opened from the Bouton's menu
+("Move button" / "Déplacer le bouton"), with a move cursor and an accent
+outline (same language as a widget's resize mode). It ends on drop, Esc, a
+click elsewhere, or after 10 s idle. The entry is greyed when the Bouton is
+locked. The stored anchor is updated only when a move-mode drag completes.

@@ -260,6 +260,11 @@ public:
     bool beginWidgetResize(const QString& path);
     void endWidgetResize();
     QString widgetResizePath() const { return m_resizePath; }
+    // Session 107: a Bouton is moved only in this short mode (compact form,
+    // from its menu). False when the fence is locked or is not a Bouton.
+    bool beginButtonMoveMode();
+    void endButtonMoveMode();
+    bool buttonMoveMode() const { return m_buttonMoveMode; }
     QRect widgetResizeRect() const; // the outline, widget coordinates (the preview while pulled)
 
 public:
@@ -288,6 +293,10 @@ signals:
     // Session 98: an edge pulled in resize mode -- the new span, in cells.
     void widgetResized(const QString& path, const QSize& span);
     void widgetResizeModeChanged(bool on);
+    void buttonMoveModeChanged(bool on);
+    // Session 107: Esc / timeout / click elsewhere during a move-mode drag
+    // -- the container restores the rect it had when the gesture began.
+    void geometryDragCancelled();
 
     // F-011 / T-040: the user dragged these tiles *out* of the fence and let go
     // outside it. Like every other gesture here the widget only reports the
@@ -396,6 +405,9 @@ private:
     // Session 98: resize mode.
     QString m_resizePath;
     QTimer m_resizeIdle;
+    // Session 107: Bouton move mode (same idle length as the resize mode).
+    bool m_buttonMoveMode = false;
+    QTimer m_buttonMoveIdle;
     int m_resizeEdges = 0;
     bool m_resizeDragging = false;
     QPoint m_resizeStart;

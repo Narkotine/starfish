@@ -100,4 +100,16 @@ inline void paintOutline(QPainter& painter, const QRect& r, const QColor& accent
     painter.restore();
 }
 
+// Session 107: the same accent ring, on a circle (a Bouton's move mode).
+inline void paintCircleOutline(QPainter& painter, const QRect& r, const QColor& accent, qreal scale)
+{
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const qreal w = qMax(2.0, 2.0 * scale);
+    painter.setPen(QPen(accent, w));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawEllipse(QRectF(r).adjusted(w / 2, w / 2, -w / 2, -w / 2));
+    painter.restore();
+}
+
 } // namespace starfish::ui::widget_resize

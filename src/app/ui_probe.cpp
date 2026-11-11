@@ -4103,6 +4103,210 @@ int runUiProbe(QApplication& app)
                                : detail.join(QLatin1Char(' ')));
     }
 
+    // Session 107: a Bouton is not movable by default (no move cursor, HTCLIENT,
+    // icons receive the click/launch). Move mode is explicit, compact only,
+    // greyed when locked; the s106 anchor is updated only on a completed drag.
+    {
+        ui::FenceContainer box;
+        box.setAnimateRoll(false);
+        const QPoint want(520, 360);
+        const QString id = box.createButton(QStringLiteral("S107"), want);
+        ui::FenceView* v = box.view(id);
+        QStringList notes;
+        bool ok = v != nullptr;
+        if (!v) {
+            check(QStringLiteral("Bouton: default is not movable, icons clickable, move mode only when asked; locked greys the entry (session 107)"),
+                  false, QStringLiteral("no view"));
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < 3; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::s107/item%1").arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            v->setItems(items);
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+
+            const auto atHandle = [&](const QPoint& p) {
+                return v->rawHandleAt(p) == ui::FenceHandle::None
+                    && v->handleAt(p) == ui::FenceHandle::None;
+            };
+            const QPoint mid = v->rect().center();
+            const QPoint rim(qMax(1, v->width() - 3), qMax(1, v->height() / 2));
+            const bool defaultHandles = atHandle(mid) && atHandle(rim) && atHandle(QPoint(2, 2));
+            QMouseEvent hoverMove(QEvent::MouseMove, mid, mid, v->mapToGlobal(mid),
+                                  Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &hoverMove);
+            const bool defaultArrow = v->cursor().shape() == Qt::ArrowCursor;
+
+            // WM_NCHITTEST must be HTCLIENT (never HTCAPTION / a border code),
+            // as on the hosted desktop surface.
+            v->setWindowFlag(Qt::FramelessWindowHint, true);
+            v->show();
+            wait(20);
+            const auto nchit = [&](const QPoint& local) -> LRESULT {
+                const QPoint g = v->mapToGlobal(local);
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (!hwnd)
+                    return -1;
+                return ::SendMessageW(hwnd, WM_NCHITTEST, 0,
+                                      MAKELPARAM(static_cast<short>(g.x()),
+                                                 static_cast<short>(g.y())));
+            };
+            const LRESULT htMid = nchit(mid);
+            const LRESULT htRim = nchit(rim);
+            const bool clientHit = htMid == HTCLIENT && htRim == HTCLIENT;
+
+            // Icons in the expanded disc receive the click; the press is not a move.
+            box.setFenceRolledUp(id, false);
+            wait(40);
+            const QVector<QRect> tiles = v->tileRects();
+            bool iconHit = false;
+            bool launched = false;
+            bool pressMoved = false;
+            const QRect storedExpanded = box.fenceRect(id);
+            QObject::connect(v, &ui::FenceView::itemActivated, v, [&](int) { launched = true; });
+            QObject::connect(v, &ui::FenceView::geometryDragStarted, v, [&] { pressMoved = true; });
+            if (!tiles.isEmpty()) {
+                const QPoint iconAt = tiles.first().center();
+                iconHit = v->itemAt(iconAt) == 0 && atHandle(iconAt);
+                const QPointF gf = v->mapToGlobal(iconAt);
+                QMouseEvent press(QEvent::MouseButtonPress, iconAt, iconAt, gf,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &press);
+                QMouseEvent rel(QEvent::MouseButtonRelease, iconAt, iconAt, gf,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &rel);
+                QMouseEvent dbl(QEvent::MouseButtonDblClick, iconAt, iconAt, gf,
+                                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &dbl);
+            }
+            const bool iconClickDidNotMove = !pressMoved;
+            const bool gotLaunchHit = launched || iconHit;
+            const bool storedHeld = box.fenceRect(id) == storedExpanded;
+
+            // Without move mode, a title-bar drag (the old default) is a no-op.
+            box.setFenceRolledUp(id, true);
+            wait(40);
+            const QRect storedCollapsed = box.fenceRect(id);
+            v->geometryDragStarted();
+            v->geometryDragDelta(ui::FenceHandle::TitleBar, QPoint(40, -20));
+            v->geometryDragFinished();
+            const bool defaultImmovable = box.fenceRect(id) == storedCollapsed
+                && !box.buttonMoveMode(id);
+
+            // Menu: present and enabled on a Bouton, greyed when locked, absent
+            // on a classic zone, no shortcut (it is a plain action).
+            ui::FenceMenu::State menuBtn;
+            menuBtn.isButton = true;
+            const auto hasMove = [](const QList<ui::FenceMenu::Entry>& list, bool* enabled) {
+                for (const ui::FenceMenu::Entry& e : list) {
+                    if (e.action == ui::FenceMenu::Action::MoveButton
+                        && e.kind == ui::FenceMenu::Kind::Action) {
+                        if (enabled)
+                            *enabled = e.enabled;
+                        return !e.label.isEmpty();
+                    }
+                }
+                return false;
+            };
+            bool moveOn = false, moveOff = false;
+            const bool menuFree = hasMove(ui::FenceMenu::entries(menuBtn), &moveOn) && moveOn;
+            menuBtn.locked = true;
+            const bool menuLocked = hasMove(ui::FenceMenu::entries(menuBtn), &moveOff) && !moveOff;
+            ui::FenceMenu::State classic;
+            bool ignored = true;
+            const bool menuClassic = !hasMove(ui::FenceMenu::entries(classic), &ignored);
+
+            // Move mode: compact, move cursor, handle on the disc, drag updates
+            // the anchor; Esc mid-drag restores it; locked refuses.
+            const bool entered = box.beginButtonMoveMode(id);
+            const bool compactMode = entered && v->rolledUp() && box.buttonMoveMode(id)
+                && v->rawHandleAt(v->rect().center()) == ui::FenceHandle::TitleBar;
+            QMouseEvent modeHover(QEvent::MouseMove, v->rect().center(), v->rect().center(),
+                                  v->mapToGlobal(v->rect().center()),
+                                  Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &modeHover);
+            const bool moveCursor = v->cursor().shape() == Qt::SizeAllCursor;
+            const QRect beforeMove = box.fenceRect(id);
+            const QPoint grab = v->rect().center();
+            const QPoint g0 = v->mapToGlobal(grab);
+            QMouseEvent grabPress(QEvent::MouseButtonPress, grab, grab, g0,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &grabPress);
+            const QPoint gDrop = g0 + QPoint(48, 24);
+            QMouseEvent grabMove(QEvent::MouseMove, grab, grab, gDrop,
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &grabMove);
+            QMouseEvent grabRel(QEvent::MouseButtonRelease, grab, grab, gDrop,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &grabRel);
+            const QRect afterMove = box.fenceRect(id);
+            const bool dragged = afterMove != beforeMove
+                && afterMove.center() == beforeMove.center() + QPoint(48, 24);
+            const bool kept = box.fenceRect(id) == afterMove && !box.buttonMoveMode(id);
+
+            const QRect home = box.fenceRect(id);
+            box.beginButtonMoveMode(id);
+            const QPoint g1 = v->mapToGlobal(grab);
+            QMouseEvent cancelPress(QEvent::MouseButtonPress, grab, grab, g1,
+                                    Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &cancelPress);
+            QMouseEvent cancelMove(QEvent::MouseMove, grab, grab, g1 + QPoint(-30, 10),
+                                   Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &cancelMove);
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &esc);
+            const bool cancelled = !box.buttonMoveMode(id) && box.fenceRect(id) == home;
+
+            box.setFenceLocked(id, true);
+            const bool lockedRefuses = !box.beginButtonMoveMode(id) && !box.buttonMoveMode(id);
+            box.setFenceLocked(id, false);
+
+            box.beginButtonMoveMode(id);
+            QEnterEvent enter(QPointF(v->rect().center()), QPointF(v->rect().center()),
+                              QPointF(v->mapToGlobal(v->rect().center())));
+            QCoreApplication::sendEvent(v, &enter);
+            wait(ui::FenceContainer::kHoverUnrollDelayMs + 160);
+            const bool noHover = v->rolledUp() && box.buttonMoveMode(id);
+            box.endButtonMoveMode(id);
+
+            ok = defaultHandles && defaultArrow && clientHit && iconHit && iconClickDidNotMove
+                && storedHeld && defaultImmovable && menuFree && menuLocked && menuClassic
+                && compactMode && moveCursor && dragged && kept && cancelled
+                && lockedRefuses && noHover && gotLaunchHit;
+            if (!defaultHandles) notes << QStringLiteral("default handle");
+            if (!defaultArrow) notes << QStringLiteral("default cursor %1").arg(int(v->cursor().shape()));
+            if (!clientHit) notes << QStringLiteral("nchit %1/%2").arg(int(htMid)).arg(int(htRim));
+            if (!iconHit) notes << QStringLiteral("icon hit");
+            if (!iconClickDidNotMove) notes << QStringLiteral("press started a move");
+            if (!storedHeld) notes << QStringLiteral("stored moved on icon click");
+            if (!gotLaunchHit) notes << QStringLiteral("no launch hit");
+            if (!defaultImmovable) notes << QStringLiteral("drag without mode moved it");
+            if (!menuFree) notes << QStringLiteral("menu entry");
+            if (!menuLocked) notes << QStringLiteral("locked menu not greyed");
+            if (!menuClassic) notes << QStringLiteral("classic has move");
+            if (!compactMode) notes << QStringLiteral("move mode not compact");
+            if (!moveCursor) notes << QStringLiteral("move cursor");
+            if (!dragged) notes << QStringLiteral("drag did not move");
+            if (!kept) notes << QStringLiteral("anchor not kept after drop");
+            if (!cancelled) notes << QStringLiteral("esc did not restore");
+            if (!lockedRefuses) notes << QStringLiteral("locked accepted move mode");
+            if (!noHover) notes << QStringLiteral("hover expanded in move mode");
+
+            v->hide();
+            check(QStringLiteral("Bouton: default is not movable, icons clickable, move mode only when asked; locked greys the entry (session 107)"),
+                  ok,
+                  notes.isEmpty() ? QStringLiteral("HTCLIENT, no move cursor, icon launch, move mode, Esc, locked")
+                                  : notes.join(QLatin1Char(' ')));
+        }
+    }
+
 
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
