@@ -119,3 +119,43 @@ so the two stay specialised.
 
 Label fade-in after expand is a visual-only `widgetTick` (the hosted surface
 is an image; `update()` / `paintEvent` do not reach the desktop).
+
+
+## Diameter, rings, and skins (session 111)
+
+A Bouton no longer paints its zone title on the disc (collapsed or hovered).
+The name stays on the model for menus and accessibility.
+
+Appearance adds two per-bouton settings, persisted on `FenceStyle` (absent or
+0 = default, no schema bump):
+
+- `buttonDiameter`: collapsed disc size in px (dialog « Diameter » /
+  « Diamètre », 48–256, step 8). Default is the previous formula,
+  `max(48, 2×icon + 8)`.
+- `buttonRings`: « Ring count » / « Nombre d'anneaux ». 0 / « Automatic »
+  keeps the compact fewest-layers search. A fixed 1–8 distributes icons
+  with outer rings taking more (counts proportional to circumference),
+  then grows the expanded radius so cells never overlap. Placement is
+  unchanged: even spacing, first item at the top, clockwise, concentric
+  rings.
+
+### ButtonSkin
+
+`zone_shape::ButtonSkin` (`src/ui/button_skin.hpp`) is the paint-only
+extension point for future “object opening” looks (iris shutter, dilating
+pupil, animated GIF). The host calls `paintBehind` then the icons then
+`paintFront`, and passes a `ButtonSkinPaint` each frame:
+
+- `openProgress` in [0, 1] — 0 fully collapsed, 1 fully expanded, taken
+  from the disc animation (not from a skin-owned clock). A later GIF skin
+  maps this to a frame (`QMovie` / `QImageReader::jumpToFrame`, or
+  pre-decoded frames): expand scrubs forward, collapse scrubs backward,
+  and leaving mid-way holds the current frame.
+- `hovered`, plus the current fill / border / disc rect.
+- `ButtonSkinAssets::{behind,front}` — optional image paths for the two
+  layers (empty today).
+
+The current plain disc is `PlainButtonSkin` (`id` `"plain"`), used by
+default (`defaultButtonSkin()` / `makeButtonSkin`). This refactor does
+not change the existing look, aside from dropping the title.
+

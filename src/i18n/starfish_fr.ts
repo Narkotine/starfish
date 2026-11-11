@@ -134,7 +134,19 @@
         <source>Show shortcut names</source>
         <translation>Afficher les noms des raccourcis</translation>
     </message>
+        <message>
+        <source>Diameter</source>
+        <translation>Diamètre</translation>
+    </message>
     <message>
+        <source>Ring count</source>
+        <translation>Nombre d'anneaux</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatique</translation>
+    </message>
+<message>
         <location line="+111"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>

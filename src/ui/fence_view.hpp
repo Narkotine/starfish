@@ -150,6 +150,12 @@ public:
     // Session 73: the grid's numbers, for sizing a fence in whole cells.
     int iconSize() const { return m_grid.iconSize(); }
     void setIconSize(int px);
+    // Session 111: 0 = default collapsed diameter / automatic rings.
+    void setButtonCollapsedDiameter(int px);
+    int buttonCollapsedDiameter() const;
+    void setButtonRingCount(int n);
+    int buttonRingCount() const;
+    qreal buttonOpenProgress() const; // 0 collapsed .. 1 expanded, for skins / probes
     int gridGap() const { return m_grid.gap(); }
     int gridPadding() const { return m_grid.padding(); }
     int labelHeight() const { return m_grid.labelHeight(); }
@@ -458,8 +464,12 @@ private:
     bool m_rolledUp = false;
     bool m_rolling = false;
     // Session 108: final ring layout, locked for the duration of an expand/collapse.
+    int m_buttonCollapsedDiameter = 0; // session 111: 0 = default
+    int m_buttonRingCount = 0;         // session 111: 0 = automatic
     mutable int m_buttonLayoutCount = -1;
     mutable int m_buttonLayoutIcon = -1;
+    mutable int m_buttonLayoutRings = -1;
+    mutable int m_buttonLayoutCollapsed = -1;
     mutable qreal m_buttonLayoutDiameter = 0;
     mutable QVector<QRectF> m_buttonSlotIcons;
     mutable QVector<QRectF> m_buttonSlotLabels;

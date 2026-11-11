@@ -93,6 +93,12 @@ struct FenceStyle {
     // Session 101 (T-095): "" classic rectangle + title-bar roll-up, "button" =
     // circular Bouton. Unknown values are kept and drawn as classic until known.
     QString shape;
+    // Session 111 (Bouton only): collapsed disc diameter in px, 0 = default
+    // (~2x icon size + 8, same as before). Written only when set.
+    int buttonDiameter = 0;
+    // Session 111 (Bouton only): number of icon rings, 0 = automatic (fewest
+    // compact layers). A fixed 1..8 distributes more icons on the outer rings.
+    int buttonRings = 0;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.

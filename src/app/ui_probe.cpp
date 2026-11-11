@@ -4909,6 +4909,216 @@ int runUiProbe(QApplication& app)
                               : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 111: a Bouton never paints its zone title, including on hover.
+    // The name stays on the view for menus. A solid fill + a loud title would
+    // leave light glyphs in the disc centre if paintButton still drew it.
+    {
+        QStringList notes;
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("WWWW TITLE WWWW"), QPoint(500, 400));
+        ui::FenceView* v = box.view(id);
+        bool stored = false, bare = false, hovered = false;
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            core::FenceStyle st = box.fenceStyle(id);
+            st.background = QStringLiteral("#FF1A0A20");
+            st.defaultOpacity = false;
+            st.hoverEffect = QStringLiteral("none");
+            st.hoverUnroll = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->show();
+            wait(80);
+            stored = v->title() == QLatin1String("WWWW TITLE WWWW");
+            const auto titleBleed = [](const QImage& img) {
+                if (img.isNull() || img.width() < 8 || img.height() < 8)
+                    return true;
+                const QPoint c = img.rect().center();
+                const int limit = qMin(img.width(), img.height()) * 35 / 100;
+                const QColor fill(0x1A, 0x0A, 0x20);
+                const QColor title(0xE5, 0xE7, 0xEB);
+                int hits = 0;
+                for (int y = c.y() - limit; y <= c.y() + limit; ++y) {
+                    for (int x = c.x() - limit; x <= c.x() + limit; ++x) {
+                        if (x < 0 || y < 0 || x >= img.width() || y >= img.height())
+                            continue;
+                        const int dx = x - c.x();
+                        const int dy = y - c.y();
+                        if (dx * dx + dy * dy > limit * limit)
+                            continue;
+                        const QColor p = img.pixelColor(x, y);
+                        const int dTitle = qAbs(p.red() - title.red()) + qAbs(p.green() - title.green())
+                                         + qAbs(p.blue() - title.blue());
+                        const int dFill = qAbs(p.red() - fill.red()) + qAbs(p.green() - fill.green())
+                                        + qAbs(p.blue() - fill.blue());
+                        if (dTitle < 50 && dTitle + 15 < dFill)
+                            ++hits;
+                    }
+                }
+                return hits > 8;
+            };
+            const QImage idle = v->grab().toImage();
+            idle.save(captures + QStringLiteral("/s111_title_idle.png"));
+            bare = !titleBleed(idle);
+            const QPoint mid = v->rect().center();
+            QEnterEvent enter(QPointF(mid), QPointF(mid), QPointF(v->mapToGlobal(mid)));
+            QApplication::sendEvent(v, &enter);
+            wait(40);
+            const QImage hover = v->grab().toImage();
+            hover.save(captures + QStringLiteral("/s111_title_hover.png"));
+            hovered = !titleBleed(hover) && v->title() == QLatin1String("WWWW TITLE WWWW");
+            if (!stored)
+                notes << QStringLiteral("title not stored: \"%1\"").arg(v->title());
+            if (!bare)
+                notes << QStringLiteral("title glyphs on collapsed disc [s111_title_idle.png]");
+            if (!hovered)
+                notes << QStringLiteral("title glyphs on hover [s111_title_hover.png]");
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: no title painted when collapsed or hovered, name still stored (session 111)"),
+              stored && bare && hovered,
+              notes.isEmpty() ? QStringLiteral("name kept, disc has no title glyphs")
+                              : notes.join(QLatin1Char(' ')));
+    }
+
+    // Session 111: collapsed diameter and ring count apply, persist, and
+    // keep even spacing / no overlap (auto and fixed counts).
+    {
+        QStringList notes;
+        bool applied = false, roundTrip = false, noOverlap = true;
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Rings"), QPoint(520, 380));
+        ui::FenceView* v = box.view(id);
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(14, QStringLiteral("s111rings")));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.buttonDiameter = 128;
+            st.buttonRings = 3;
+            st.hoverUnroll = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+            const int visibleSide = qMin(v->width(), v->height());
+            const int expectCollapsed = ui::zone_shape::buttonCollapsedDiameter(v->iconSize(), 128);
+            const bool sizeOk = qAbs(visibleSide - expectCollapsed) <= 2
+                                || qAbs(visibleSide - ui::zone_shape::buttonPhysicalDiameter(expectCollapsed, v->devicePixelRatioF())) <= 2;
+            const bool flagsOk = v->buttonCollapsedDiameter() == expectCollapsed && v->buttonRingCount() == 3;
+            const ui::zone_shape::ButtonLayoutF lay = ui::zone_shape::buttonLayoutF(
+                14, v->iconSize(), ui::zone_shape::kButtonLabelHeight, 3, 128);
+            applied = sizeOk && flagsOk && lay.ringCount == 3;
+            if (!applied)
+                notes << QStringLiteral("applied side %1 expect %2 flags diam %3 rings %4 layout rings %5")
+                             .arg(visibleSide).arg(expectCollapsed)
+                             .arg(v->buttonCollapsedDiameter()).arg(v->buttonRingCount())
+                             .arg(lay.ringCount);
+
+            std::unique_ptr<QDialog> dlg(ui::createFenceAppearanceDialog(&box, id, nullptr));
+            if (!dlg) {
+                notes << QStringLiteral("no dialog");
+            } else {
+                if (offscreen)
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                auto* diam = dlg->findChild<QComboBox*>(QStringLiteral("collapsedDiameter"));
+                auto* rings = dlg->findChild<QComboBox*>(QStringLiteral("ringCount"));
+                if (!diam || !rings) {
+                    notes << QStringLiteral("missing diameter/rings controls");
+                } else {
+                    const int i160 = diam->findData(160);
+                    const int i2 = rings->findData(2);
+                    if (i160 >= 0)
+                        diam->setCurrentIndex(i160);
+                    if (i2 >= 0)
+                        rings->setCurrentIndex(i2);
+                    const core::Layout dumped = box.toLayout();
+                    const QByteArray json = core::JsonStore::toJson(dumped);
+                    ui::FenceContainer loaded;
+                    const auto parsed = core::JsonStore::fromJson(json);
+                    if (!parsed) {
+                        notes << QStringLiteral("reload failed");
+                    } else {
+                        loaded.applyLayout(*parsed);
+                        QString lid;
+                        for (const QString& fid : loaded.fenceIds())
+                            if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
+                                lid = fid;
+                        const core::FenceStyle got = loaded.fenceStyle(lid);
+                        roundTrip = got.buttonDiameter == 160 && got.buttonRings == 2;
+                        if (!roundTrip)
+                            notes << QStringLiteral("reload diameter %1 rings %2")
+                                         .arg(got.buttonDiameter).arg(got.buttonRings);
+                    }
+                }
+                dlg->hide();
+            }
+            v->hide();
+        }
+
+        const int icon = 48;
+        const QList<int> counts{3, 6, 14, 30};
+        const QList<int> ringOpts{0, 1, 2, 3, 4, 8};
+        for (int n : counts) {
+            for (int rings : ringOpts) {
+                for (int labelH : {ui::zone_shape::kButtonLabelHeight, 0}) {
+                    const ui::zone_shape::ButtonLayoutF lay = ui::zone_shape::buttonLayoutF(
+                        n, icon, labelH, rings, 0);
+                    if (lay.items.size() != n) {
+                        noOverlap = false;
+                        notes << QStringLiteral("count mismatch n=%1 rings=%2 got %3")
+                                     .arg(n).arg(rings).arg(lay.items.size());
+                        break;
+                    }
+                    if (rings > 0 && lay.ringCount > qMax(1, qMin(rings, ui::zone_shape::buttonMaxFeasibleRings(n)))) {
+                        noOverlap = false;
+                        notes << QStringLiteral("too many rings n=%1 asked %2 got %3")
+                                     .arg(n).arg(rings).arg(lay.ringCount);
+                        break;
+                    }
+                    bool hit = false;
+                    for (int i = 0; i < lay.items.size() && !hit; ++i) {
+                        for (int j = i + 1; j < lay.items.size(); ++j) {
+                            if (lay.items.at(i).bounds().intersects(lay.items.at(j).bounds())) {
+                                hit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hit) {
+                        noOverlap = false;
+                        notes << QStringLiteral("overlap n=%1 rings=%2 labels=%3")
+                                     .arg(n).arg(rings).arg(labelH);
+                        break;
+                    }
+                }
+                if (!noOverlap)
+                    break;
+            }
+            if (!noOverlap)
+                break;
+        }
+
+        check(QStringLiteral("Bouton: diameter and rings apply, persist, and never overlap (session 111)"),
+              applied && roundTrip && noOverlap,
+              notes.isEmpty() ? QStringLiteral("128/3 applied, 160/2 saved, no overlap 3/6/14/30")
+                              : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

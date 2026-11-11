@@ -64,6 +64,11 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["showLabels"] = s.showLabels;
     if (!s.iconFlow.isEmpty())
         o["iconFlow"] = s.iconFlow;
+    // Session 111: written only when the Bouton has its own (0 = default).
+    if (s.buttonDiameter > 0)
+        o["buttonDiameter"] = s.buttonDiameter;
+    if (s.buttonRings > 0)
+        o["buttonRings"] = s.buttonRings;
     return o;
 }
 
@@ -144,6 +149,8 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.snapToCells = o["snapToCells"].toString();
     s.showLabels = o["showLabels"].toString();
     s.iconFlow = o["iconFlow"].toString();
+    s.buttonDiameter = o["buttonDiameter"].toInt(0);
+    s.buttonRings = o["buttonRings"].toInt(0);
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {
@@ -363,7 +370,8 @@ const QStringList kFenceKeys{"id", "title", "monitor", "rect", "style", "sort", 
 const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap", "titleBar", "iconTint",
                              "fadeIcons", "titleBarColor", "defaultOpacity", "borderWidth", "borderColor",
                              "cellWidth", "effect", "titleAlign", "titleSide", "titleVertical" /* ignored since s103 */, "titleBarShape", "shape", "hoverEffect",
-                             "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow"};
+                             "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow",
+                             "buttonDiameter", "buttonRings"};
 const QStringList kItemKeys{"kind", "path", "fileId", "target", "widget"};
 const QStringList kWidgetKeys{"type", "span", "settings"};
 const QStringList kRuleKeys{"id", "name", "match", "targetFence", "moveFiles"};

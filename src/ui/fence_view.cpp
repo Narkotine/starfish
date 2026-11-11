@@ -2,6 +2,7 @@
 #include "ui/fence_widgets.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/zone_shape.hpp"
+#include "ui/button_skin.hpp"
 #include "ui/widget_resize.hpp"
 
 #include <QKeyEvent>
@@ -1463,6 +1464,56 @@ void FenceView::setIconSize(int px)
     emit contentChanged();
 }
 
+void FenceView::setButtonCollapsedDiameter(int px)
+{
+    const int value = (px <= 0) ? 0 : qBound(zone_shape::kButtonDiameterMin, px,
+                                             zone_shape::kButtonDiameterMax);
+    if (m_buttonCollapsedDiameter == value)
+        return;
+    m_buttonCollapsedDiameter = value;
+    invalidateButtonLayout();
+    update();
+    emit contentChanged();
+}
+
+int FenceView::buttonCollapsedDiameter() const
+{
+    return zone_shape::buttonCollapsedDiameter(m_grid.iconSize(), m_buttonCollapsedDiameter);
+}
+
+void FenceView::setButtonRingCount(int n)
+{
+    const int value = (n <= 0) ? 0 : qBound(1, n, zone_shape::kButtonRingMax);
+    if (m_buttonRingCount == value)
+        return;
+    m_buttonRingCount = value;
+    invalidateButtonLayout();
+    update();
+    emit contentChanged();
+}
+
+int FenceView::buttonRingCount() const
+{
+    return m_buttonRingCount;
+}
+
+qreal FenceView::buttonOpenProgress() const
+{
+    if (!zone_shape::isButton(m_shape))
+        return 0;
+    if (m_rolledUp && !m_rolling)
+        return 0;
+    if (!m_rolling && !m_rolledUp)
+        return 1;
+    ensureButtonLayout();
+    const qreal side = qMin(buttonDiscRect().width(), buttonDiscRect().height());
+    const qreal collapsed = buttonCollapsedDiameter();
+    const qreal expanded = m_buttonLayoutDiameter;
+    if (expanded <= collapsed)
+        return m_rolledUp ? 0 : 1;
+    return qBound(qreal(0), (side - collapsed) / (expanded - collapsed), qreal(1));
+}
+
 void FenceView::setLabelsShown(bool shown)
 {
     if (m_grid.labelsShown() == shown)
@@ -1774,14 +1825,19 @@ void FenceView::ensureButtonLayout() const
     const int icon = m_grid.iconSize();
     const int labelH = buttonLabelHeight();
     if (m_buttonLayoutCount == n && m_buttonLayoutIcon == icon
-        && m_buttonLayoutLabel == labelH && m_buttonLayoutDiameter > 0)
+        && m_buttonLayoutLabel == labelH && m_buttonLayoutRings == m_buttonRingCount
+        && m_buttonLayoutCollapsed == m_buttonCollapsedDiameter
+        && m_buttonLayoutDiameter > 0)
         return;
     if (m_rolling && m_buttonLayoutDiameter > 0)
         return;
-    const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(n, icon, labelH);
+    const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(
+        n, icon, labelH, m_buttonRingCount, m_buttonCollapsedDiameter);
     m_buttonLayoutCount = n;
     m_buttonLayoutIcon = icon;
     m_buttonLayoutLabel = labelH;
+    m_buttonLayoutRings = m_buttonRingCount;
+    m_buttonLayoutCollapsed = m_buttonCollapsedDiameter;
     m_buttonLayoutDiameter = lay.diameter;
     m_buttonSlotIcons.clear();
     m_buttonSlotLabels.clear();
@@ -1929,7 +1985,6 @@ QStringList FenceView::buttonElidedCaptions() const
 
 void FenceView::paintButton(QPainter& painter)
 {
-    const QRect box = rect();
     const QRectF disc = buttonDiscRect();
     const QRect circle = disc.toRect();
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -1937,18 +1992,23 @@ void FenceView::paintButton(QPainter& painter)
     QColor fill = m_panelColor;
     if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
         fill = fill.lighter(112);
-    painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6),
-                        qMax(1, m_borderWidth)));
-    painter.setBrush(fill);
-    painter.drawEllipse(disc.adjusted(1, 1, -1, -1));
+
+    // Session 111: the plain disc is the default ButtonSkin. A Bouton never
+    // paints its zone title (the name stays on the model for menus).
+    zone_shape::ButtonSkinPaint ctx;
+    ctx.disc = disc;
+    ctx.openProgress = buttonOpenProgress();
+    ctx.hovered = m_hovered;
+    ctx.rolledUp = m_rolledUp;
+    ctx.moveMode = m_buttonMoveMode;
+    ctx.fill = fill;
+    ctx.border = m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6);
+    ctx.borderWidth = qMax(1, m_borderWidth);
+    ctx.accent = accentColor();
+    const zone_shape::ButtonSkin& skin = zone_shape::defaultButtonSkin();
+    skin.paintBehind(painter, ctx);
     if (m_rolledUp) {
-        QFont f = font();
-        f.setBold(true);
-        f.setPixelSize(qMax(11, box.height() / 5));
-        painter.setFont(f);
-        painter.setPen(QColor(0xE5, 0xE7, 0xEB));
-        const QString label = m_title.isEmpty() ? tr("Button") : m_title;
-        painter.drawText(box.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, label);
+        skin.paintFront(painter, ctx);
         if (m_buttonMoveMode)
             widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
                                               accentColor(), 1.0);
@@ -1996,6 +2056,7 @@ void FenceView::paintButton(QPainter& painter)
         }
     }
     painter.restore();
+    skin.paintFront(painter, ctx);
 }
 
 void FenceView::updateDragGhost(bool dragging)

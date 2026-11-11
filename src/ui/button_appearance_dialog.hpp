@@ -21,6 +21,7 @@
 
 #include "core/jsonstore.hpp"
 #include "ui/fence_container.hpp"
+#include "ui/zone_shape.hpp"
 #include "ui/fence_material.hpp"
 #include "ui/percent_slider.hpp"
 #include "ui/recent_colours.hpp"
@@ -125,6 +126,17 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         iconSize->addItem(QStringLiteral("%1 px").arg(px), px);
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Icon size"), iconSize);
 
+    auto* collapsedDiameter = new QComboBox(dialog);
+    collapsedDiameter->setObjectName(QStringLiteral("collapsedDiameter"));
+    form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Diameter"), collapsedDiameter);
+
+    auto* ringCount = new QComboBox(dialog);
+    ringCount->setObjectName(QStringLiteral("ringCount"));
+    ringCount->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Automatic"), 0);
+    for (int n = 1; n <= zone_shape::kButtonRingMax; ++n)
+        ringCount->addItem(QString::number(n), n);
+    form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Ring count"), ringCount);
+
     auto* showShortcutNames = new QCheckBox(
         QCoreApplication::translate("ButtonAppearanceDialog", "Show shortcut names"), dialog);
     showShortcutNames->setObjectName(QStringLiteral("showShortcutNames"));
@@ -135,12 +147,12 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
 
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, panel, defaultPercent,
                     borderWidth, borderColour, borderDefault, effect, hoverCombo, iconSize,
-                    showShortcutNames] {
+                    collapsedDiameter, ringCount, showShortcutNames] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons),
             b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b16(iconSize),
-            b17(showShortcutNames);
+            b17(showShortcutNames), b18(collapsedDiameter), b19(ringCount);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -168,6 +180,24 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
             ic = iconSize->count() - 1;
         }
         iconSize->setCurrentIndex(ic);
+        const int iconPxNow = style.iconSize > 0 ? style.iconSize : 48;
+        const int defaultDiam = zone_shape::buttonCollapsedDiameter(iconPxNow, 0);
+        collapsedDiameter->clear();
+        collapsedDiameter->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Default (%1 px)")
+                                       .arg(defaultDiam), 0);
+        for (int px = zone_shape::kButtonDiameterMin; px <= zone_shape::kButtonDiameterMax;
+             px += zone_shape::kButtonDiameterStep) {
+            collapsedDiameter->addItem(QStringLiteral("%1 px").arg(px), px);
+        }
+        const int storedDiam = style.buttonDiameter > 0 ? style.buttonDiameter : 0;
+        int di = collapsedDiameter->findData(storedDiam);
+        if (di < 0 && storedDiam > 0) {
+            collapsedDiameter->addItem(QStringLiteral("%1 px").arg(storedDiam), storedDiam);
+            di = collapsedDiameter->count() - 1;
+        }
+        collapsedDiameter->setCurrentIndex(qMax(0, di));
+        int ri = ringCount->findData(style.buttonRings > 0 ? style.buttonRings : 0);
+        ringCount->setCurrentIndex(qMax(0, ri));
         showShortcutNames->setChecked(style.showLabels != QLatin1String("off"));
     };
     auto restyle = [safe, id, refresh](const std::function<void(core::FenceStyle&)>& change) {
@@ -221,6 +251,14 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
     QObject::connect(iconSize, &QComboBox::currentIndexChanged, dialog, [iconSize, restyle](int) {
         const int px = iconSize->currentData().toInt();
         restyle([px](core::FenceStyle& style) { style.iconSize = px; });
+    });
+    QObject::connect(collapsedDiameter, &QComboBox::currentIndexChanged, dialog, [collapsedDiameter, restyle](int) {
+        const int px = collapsedDiameter->currentData().toInt();
+        restyle([px](core::FenceStyle& style) { style.buttonDiameter = px; });
+    });
+    QObject::connect(ringCount, &QComboBox::currentIndexChanged, dialog, [ringCount, restyle](int) {
+        const int n = ringCount->currentData().toInt();
+        restyle([n](core::FenceStyle& style) { style.buttonRings = n; });
     });
     QObject::connect(showShortcutNames, &QCheckBox::toggled, dialog, [restyle](bool on) {
         restyle([on](core::FenceStyle& style) {

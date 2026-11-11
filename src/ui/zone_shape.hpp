@@ -28,9 +28,18 @@ inline bool isClassic(const QString& shape)
 // --- Button (circular zone) -------------------------------------------------
 
 // Collapsed diameter: about twice an icon (padding for the ring chrome).
-inline int buttonCollapsedDiameter(int iconSize)
+// Session 111: `preferred` 0 = this default; otherwise clamped to the dialog range.
+inline constexpr int kButtonDiameterMin = 48;
+inline constexpr int kButtonDiameterMax = 256;
+inline constexpr int kButtonDiameterStep = 8;
+inline constexpr int kButtonRingMax = 8; // 0 in options = automatic
+
+inline int buttonCollapsedDiameter(int iconSize, int preferred = 0)
 {
-    return qMax(48, iconSize * 2 + 8);
+    const int fallback = qMax(48, iconSize * 2 + 8);
+    if (preferred <= 0)
+        return fallback;
+    return qBound(kButtonDiameterMin, preferred, kButtonDiameterMax);
 }
 
 // Session 104: icon + label cell. Labels are reserved even if hidden, so
@@ -71,6 +80,7 @@ struct ButtonItemGeomF {
 struct ButtonLayout {
     QVector<ButtonItemGeom> items;
     int diameter = 0;
+    int ringCount = 0;
 };
 
 // Session 108: the final ring layout in sub-pixel coordinates. Computed once
@@ -79,6 +89,7 @@ struct ButtonLayout {
 struct ButtonLayoutF {
     QVector<ButtonItemGeomF> items;
     qreal diameter = 0;
+    int ringCount = 0; // session 111: layers actually used (1 = a single ring or a centre)
 };
 
 // Radius so `m` evenly spaced points have chord >= d. m<=1 sits at the centre.
@@ -98,14 +109,117 @@ inline std::vector<int> buttonSplitCounts(int n, int layers)
     return c;
 }
 
+// Maximum rings that can hold `n` items: a 1-item centre is allowed, every
+// other ring needs at least 2 (same rule as the automatic layout).
+inline int buttonMaxFeasibleRings(int n)
+{
+    if (n <= 1)
+        return 1;
+    return 1 + (n - 1) / 2;
+}
+
+inline bool buttonRingCountsOk(const std::vector<int>& c)
+{
+    if (c.empty())
+        return false;
+    for (int i = 0; i < int(c.size()); ++i) {
+        if (c[i] <= 0 || (c[i] == 1 && i != 0) || (i > 0 && c[i] < 2))
+            return false;
+    }
+    return true;
+}
+
+// Fixed ring count: outer rings take more, proportional to circumference
+// (weights 1, 2, ..., k, then largest-remainder). Used only when the user
+// picks a number of rings; automatic layout keeps buttonSplitCounts.
+inline std::vector<int> buttonSplitCountsProportional(int n, int layers)
+{
+    std::vector<int> c(qMax(0, layers), 0);
+    if (n <= 0 || layers <= 0)
+        return c;
+    if (layers == 1) {
+        c[0] = n;
+        return c;
+    }
+    const int sumW = layers * (layers + 1) / 2;
+    std::vector<double> remainder(layers, 0.0);
+    int assigned = 0;
+    for (int i = 0; i < layers; ++i) {
+        const double exact = double(n) * double(i + 1) / double(sumW);
+        c[i] = int(std::floor(exact));
+        remainder[i] = exact - double(c[i]);
+        assigned += c[i];
+    }
+    const int leftover = n - assigned;
+    std::vector<int> order(layers);
+    for (int i = 0; i < layers; ++i)
+        order[i] = i;
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        if (qAbs(remainder[a] - remainder[b]) > 1e-12)
+            return remainder[a] > remainder[b];
+        return a > b; // prefer the outer ring on a tie
+    });
+    for (int k = 0; k < leftover; ++k)
+        ++c[order[k]];
+
+    if (c[0] == 0) {
+        for (int j = layers - 1; j >= 1; --j) {
+            if (c[j] >= 3) {
+                --c[j];
+                ++c[0];
+                break;
+            }
+        }
+    }
+    for (int i = 1; i < layers; ++i) {
+        while (c[i] < 2) {
+            int src = -1;
+            for (int j = 0; j < layers; ++j) {
+                if (j == i)
+                    continue;
+                if (j == 0 && c[j] >= 2) {
+                    src = j;
+                    break;
+                }
+                if (j > 0 && c[j] >= 3) {
+                    src = j;
+                    break;
+                }
+            }
+            if (src < 0)
+                break;
+            --c[src];
+            ++c[i];
+        }
+    }
+    return c;
+}
+
+inline std::vector<int> buttonFixedRingCounts(int n, int requested)
+{
+    int k = qBound(1, requested, qMin(kButtonRingMax, buttonMaxFeasibleRings(n)));
+    while (k >= 1) {
+        const std::vector<int> c = buttonSplitCountsProportional(n, k);
+        int sum = 0;
+        for (int v : c)
+            sum += v;
+        if (sum == n && buttonRingCountsOk(c))
+            return c;
+        --k;
+    }
+    return {n};
+}
+
 // Angle 0 = top, then clockwise. Cell centres sit on the ring (icon above, label below).
-inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kButtonLabelHeight)
+inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kButtonLabelHeight,
+                                   int ringCount = 0, int collapsedDiameter = 0)
 {
     ButtonLayoutF out;
     const int n = qMax(0, count);
     const int cellW = buttonCellWidth(iconSize);
     const int cellH = buttonCellHeight(iconSize, labelHeight);
     const double d = buttonMinDistance(iconSize, labelHeight);
+    const int collapsed = buttonCollapsedDiameter(iconSize, collapsedDiameter);
 
     auto placeAt = [&](double cx, double cy, double x, double y, ButtonItemGeomF& g) {
         const qreal left = cx + x - cellW / 2.0;
@@ -129,7 +243,8 @@ inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kB
     };
 
     if (n <= 0) {
-        out.diameter = qMax(buttonCollapsedDiameter(iconSize) + 48, cellW + 2 * kButtonCirclePad);
+        out.diameter = qMax(collapsed + 48, cellW + 2 * kButtonCirclePad);
+        out.ringCount = 0;
         return out;
     }
 
@@ -138,40 +253,55 @@ inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kB
         // Temporary origin; recentred below.
         placeAt(0, 0, 0, 0, g);
         out.items = {g};
+        out.ringCount = 1;
     } else {
         // Prefer the fewest layers that keep a compact circle; grow the outer
         // radius as needed so neighbour distance >= icon-cell + margin.
+        // Session 111: a fixed ring count skips the search and distributes
+        // icons with outer rings taking more (proportional to circumference);
+        // the expanded radius still grows so boxes never overlap.
         const int maxLayers = qMax(1, n / 2);
         int bestK = 1;
         std::vector<int> bestCounts = {n};
         std::vector<double> bestRadii = {buttonRingRadius(n, d)};
         double bestOuter = bestRadii[0];
-        for (int k = 1; k <= maxLayers; ++k) {
-            const std::vector<int> counts = buttonSplitCounts(n, k);
-            bool ok = true;
-            for (int i = 0; i < k; ++i) {
-                // A 1-item "ring" is only the centre (inner layer). Other rings need >= 2.
-                if (counts[i] <= 0 || (counts[i] == 1 && i != 0) || (i > 0 && counts[i] < 2)) {
-                    ok = false;
-                    break;
+        if (ringCount > 0) {
+            bestCounts = buttonFixedRingCounts(n, ringCount);
+            bestK = int(bestCounts.size());
+            bestRadii.assign(bestK, 0.0);
+            bestRadii[0] = buttonRingRadius(bestCounts[0], d);
+            for (int i = 1; i < bestK; ++i)
+                bestRadii[i] = qMax(buttonRingRadius(bestCounts[i], d), bestRadii[i - 1] + d);
+            bestOuter = bestRadii.back();
+        } else {
+            for (int k = 1; k <= maxLayers; ++k) {
+                const std::vector<int> counts = buttonSplitCounts(n, k);
+                bool ok = true;
+                for (int i = 0; i < k; ++i) {
+                    // A 1-item "ring" is only the centre (inner layer). Other rings need >= 2.
+                    if (counts[i] <= 0 || (counts[i] == 1 && i != 0) || (i > 0 && counts[i] < 2)) {
+                        ok = false;
+                        break;
+                    }
                 }
-            }
-            if (!ok)
-                continue;
-            std::vector<double> radii(k);
-            radii[0] = buttonRingRadius(counts[0], d);
-            for (int i = 1; i < k; ++i)
-                radii[i] = qMax(buttonRingRadius(counts[i], d), radii[i - 1] + d);
-            const double outer = radii.back();
-            if (k == 1 || outer + 0.5 < bestOuter || (qAbs(outer - bestOuter) < 0.5 && k < bestK)) {
-                bestK = k;
-                bestCounts = counts;
-                bestRadii = radii;
-                bestOuter = outer;
+                if (!ok)
+                    continue;
+                std::vector<double> radii(k);
+                radii[0] = buttonRingRadius(counts[0], d);
+                for (int i = 1; i < k; ++i)
+                    radii[i] = qMax(buttonRingRadius(counts[i], d), radii[i - 1] + d);
+                const double outer = radii.back();
+                if (k == 1 || outer + 0.5 < bestOuter || (qAbs(outer - bestOuter) < 0.5 && k < bestK)) {
+                    bestK = k;
+                    bestCounts = counts;
+                    bestRadii = radii;
+                    bestOuter = outer;
+                }
             }
         }
 
         out.items.reserve(n);
+        out.ringCount = bestK;
         for (int layer = 0; layer < bestK; ++layer) {
             const int m = bestCounts[layer];
             const double r = bestRadii[layer];
@@ -207,7 +337,7 @@ inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kB
     }
 
     const double R = enclosing(out.items, 0.0, 0.0);
-    const qreal diameter = qMax(qreal(buttonCollapsedDiameter(iconSize) + 48),
+    const qreal diameter = qMax(qreal(collapsed + 48),
                                 qreal(qCeil(R * 2.0)));
     // Recentre into a square (0,0,diameter,diameter) without rounding the centre.
     const qreal cx = diameter / 2.0;
@@ -220,11 +350,13 @@ inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kB
     return out;
 }
 
-inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kButtonLabelHeight)
+inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kButtonLabelHeight,
+                                 int ringCount = 0, int collapsedDiameter = 0)
 {
-    const ButtonLayoutF f = buttonLayoutF(count, iconSize, labelHeight);
+    const ButtonLayoutF f = buttonLayoutF(count, iconSize, labelHeight, ringCount, collapsedDiameter);
     ButtonLayout out;
     out.diameter = qMax(1, int(qRound(f.diameter)));
+    out.ringCount = f.ringCount;
     out.items.reserve(f.items.size());
     for (const ButtonItemGeomF& g : f.items) {
         ButtonItemGeom h;
@@ -235,15 +367,16 @@ inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kBut
     return out;
 }
 
-inline int buttonExpandedDiameter(int iconSize, int count, int labelHeight = kButtonLabelHeight)
+inline int buttonExpandedDiameter(int iconSize, int count, int labelHeight = kButtonLabelHeight,
+                                  int ringCount = 0, int collapsedDiameter = 0)
 {
-    return buttonLayout(count, iconSize, labelHeight).diameter;
+    return buttonLayout(count, iconSize, labelHeight, ringCount, collapsedDiameter).diameter;
 }
 
 // Visible square while rolled up: a circle inscribed, centred in `stored`.
-inline QRect buttonCollapsedRect(const QRect& stored, int iconSize)
+inline QRect buttonCollapsedRect(const QRect& stored, int iconSize, int preferredDiameter = 0)
 {
-    const int d = qMin(buttonCollapsedDiameter(iconSize), qMin(stored.width(), stored.height()));
+    const int d = qMin(buttonCollapsedDiameter(iconSize, preferredDiameter), qMin(stored.width(), stored.height()));
     QRect square(0, 0, d, d);
     square.moveCenter(stored.center());
     return square;
@@ -317,9 +450,10 @@ inline double buttonExpandEase(double t)
     return 1.0 + c3 * qPow(t - 1.0, 3.0) + c1 * qPow(t - 1.0, 2.0);
 }
 
-inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progress)
+inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progress,
+                               int preferredDiameter = 0)
 {
-    const QRect small = buttonCollapsedRect(stored, iconSize);
+    const QRect small = buttonCollapsedRect(stored, iconSize, preferredDiameter);
     const double u = buttonExpandEase(progress);
     const QPoint c = stored.center();
     const int side = qMax(1, int(qRound(small.width() + (stored.width() - small.width()) * u)));
