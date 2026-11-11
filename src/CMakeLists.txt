@@ -53,6 +53,7 @@ qt_add_executable(starfish WIN32
     ui/drag_image.cpp
     ui/tray_icon.cpp
     ui/fence_view.cpp
+    ui/button_gif_skin.cpp
     ui/icon_grid.cpp
     ui/fence_widgets.cpp
     ui/system_monitor.cpp
@@ -76,6 +77,14 @@ qt_add_resources(starfish "starfish_icons"
         resources/starfish-64.png
         resources/starfish-128.png
         resources/starfish-256.png
+)
+
+# Session 112: built-in Bouton shutter GIF (tools/make_shutter_gif.py).
+qt_add_resources(starfish "starfish_skins"
+    PREFIX "/skins"
+    BASE resources/skins
+    FILES
+        resources/skins/shutter-demo.gif
 )
 
 target_include_directories(starfish PRIVATE

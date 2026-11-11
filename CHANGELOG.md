@@ -18,6 +18,7 @@
 - Bouton : le disque replié ne glisse plus au bord de l’écran (l’ancre reste fixe ; le cercle déployé est seulement décalé pour tenir dans l’écran, puis y revient) ; l’animation reste un cercle (plus d’ellipse) ; un Bouton verrouillé ne bouge pas, y compris quand le curseur est sur le bord.
 
 ### Nouveautés
+- **Habillage du bouton** : un GIF animé, dont les images suivent l'ouverture (pas d'horloge propre : l'image est choisie d'après la progression). « Simple », « Obturateur (démo) » (iris six lames, fourni) ou « GIF animé… » (fichier *.gif, chemin mémorisé par bouton ; fichier manquant → Simple). « Position de l'image » : derrière ou devant les icônes (devant, les icônes restent cliquables une fois ouvert).
 - **Apparence du bouton** : « Diamètre » du disque replié (48–256 px, pas de 8, par défaut ≈ 2× la taille des icônes) et « Nombre d'anneaux » (Automatique, ou 1 à 8). Un nombre fixe répartit plus d'icônes sur les anneaux extérieurs (proportionnel à la circonférence) et agrandit le rayon si besoin, sans chevauchement.
 - **Apparence du bouton** : le clic droit « Apparence… » ouvre un dialogue dédié (matériau, transparence, effet, couleur de fond, bordure, taille des icônes, « Afficher les noms des raccourcis », etc.), séparé de l'apparence d'une zone classique.
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.

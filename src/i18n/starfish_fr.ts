@@ -151,6 +151,42 @@
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
+    <message>
+        <source>Skin</source>
+        <translation>Habillage</translation>
+    </message>
+    <message>
+        <source>Simple</source>
+        <translation>Simple</translation>
+    </message>
+    <message>
+        <source>Shutter (demo)</source>
+        <translation>Obturateur (démo)</translation>
+    </message>
+    <message>
+        <source>Animated GIF...</source>
+        <translation>GIF animé…</translation>
+    </message>
+    <message>
+        <source>Image position</source>
+        <translation>Position de l'image</translation>
+    </message>
+    <message>
+        <source>Behind the icons</source>
+        <translation>Derrière les icônes</translation>
+    </message>
+    <message>
+        <source>In front of the icons</source>
+        <translation>Devant les icônes</translation>
+    </message>
+    <message>
+        <source>Choose an animated GIF</source>
+        <translation>Choisir un GIF animé</translation>
+    </message>
+    <message>
+        <source>GIF images (*.gif)</source>
+        <translation>Images GIF (*.gif)</translation>
+    </message>
 </context>
 <context>
     <name>ContextMenuGlyphs</name>

@@ -1497,8 +1497,61 @@ int FenceView::buttonRingCount() const
     return m_buttonRingCount;
 }
 
+void FenceView::setButtonOpenProgressOverride(qreal u)
+{
+    m_buttonOpenProgressOverride = u;
+    update();
+}
+
+void FenceView::setButtonSkin(const QString& id, const QString& path, const QString& layer)
+{
+    const QString skinId = (id == QLatin1String("plain")) ? QString() : id;
+    if (m_buttonSkinId == skinId && m_buttonSkinPath == path && m_buttonSkinLayer == layer
+        && m_buttonSkin)
+        return;
+    m_buttonSkinId = skinId;
+    m_buttonSkinPath = path;
+    m_buttonSkinLayer = layer;
+    const QString resolved = zone_shape::resolvedButtonSkinPath(skinId, path);
+    m_buttonSkin = zone_shape::makeButtonSkin(skinId, path);
+    zone_shape::ButtonSkinAssets assets;
+    if (zone_shape::buttonSkinLayerIsFront(layer))
+        assets.front = resolved;
+    else
+        assets.behind = resolved;
+    if (m_buttonSkin)
+        m_buttonSkin->setAssets(assets);
+    update();
+    emit contentChanged();
+}
+
+QString FenceView::buttonSkinId() const
+{
+    return m_buttonSkinId.isEmpty() ? QString::fromUtf8(zone_shape::kButtonSkinPlain)
+                                    : m_buttonSkinId;
+}
+
+QString FenceView::effectiveButtonSkinId() const
+{
+    if (m_buttonSkin)
+        return m_buttonSkin->id();
+    return QString::fromUtf8(zone_shape::kButtonSkinPlain);
+}
+
+int FenceView::buttonSkinFrameCount() const
+{
+    return m_buttonSkin ? m_buttonSkin->frameCount() : 0;
+}
+
+QString FenceView::buttonSkinLayer() const
+{
+    return m_buttonSkinLayer;
+}
+
 qreal FenceView::buttonOpenProgress() const
 {
+    if (m_buttonOpenProgressOverride >= 0)
+        return qBound(qreal(0), m_buttonOpenProgressOverride, qreal(1));
     if (!zone_shape::isButton(m_shape))
         return 0;
     if (m_rolledUp && !m_rolling)
@@ -1985,6 +2038,7 @@ QStringList FenceView::buttonElidedCaptions() const
 
 void FenceView::paintButton(QPainter& painter)
 {
+    ensureButtonLayout();
     const QRectF disc = buttonDiscRect();
     const QRect circle = disc.toRect();
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -2005,7 +2059,11 @@ void FenceView::paintButton(QPainter& painter)
     ctx.border = m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6);
     ctx.borderWidth = qMax(1, m_borderWidth);
     ctx.accent = accentColor();
-    const zone_shape::ButtonSkin& skin = zone_shape::defaultButtonSkin();
+    ctx.expandedSide = m_buttonLayoutDiameter > 0 ? m_buttonLayoutDiameter
+                                                  : qMin(disc.width(), disc.height());
+    ctx.dpr = devicePixelRatioF();
+    const zone_shape::ButtonSkin& skin = m_buttonSkin ? *m_buttonSkin
+                                                      : zone_shape::defaultButtonSkin();
     skin.paintBehind(painter, ctx);
     if (m_rolledUp) {
         skin.paintFront(painter, ctx);

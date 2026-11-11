@@ -5119,6 +5119,304 @@ int runUiProbe(QApplication& app)
                               : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 112: animated GIF ButtonSkin — frame index follows openProgress
+    // only, missing files fall back to Simple, front layer is paint-only.
+    {
+        QStringList notes;
+        bool mapOk = true;
+        const QList<int> counts{1, 2, 24, 28, 30};
+        for (int n : counts) {
+            int prev = -1;
+            for (int step = 0; step <= 100; ++step) {
+                const int f = ui::zone_shape::buttonSkinFrameIndex(step / 100.0, n);
+                if (f < 0 || f >= n || (prev >= 0 && f < prev)) {
+                    mapOk = false;
+                    notes << QStringLiteral("expand n=%1 p=%2 f=%3 prev=%4").arg(n).arg(step).arg(f).arg(prev);
+                    break;
+                }
+                prev = f;
+            }
+            prev = 1000;
+            for (int step = 100; step >= 0; --step) {
+                const int f = ui::zone_shape::buttonSkinFrameIndex(step / 100.0, n);
+                if (f < 0 || f >= n || f > prev) {
+                    mapOk = false;
+                    notes << QStringLiteral("collapse n=%1 p=%2 f=%3 prev=%4").arg(n).arg(step).arg(f).arg(prev);
+                    break;
+                }
+                prev = f;
+            }
+            const int mid = ui::zone_shape::buttonSkinFrameIndex(0.5, n);
+            if (mid != ui::zone_shape::buttonSkinFrameIndex(0.5, n)
+                || (n > 1 && mid != int(qRound(0.5 * (n - 1))))) {
+                mapOk = false;
+                notes << QStringLiteral("freeze n=%1 mid=%2").arg(n).arg(mid);
+            }
+        }
+        if (ui::zone_shape::buttonSkinFrameIndex(0, 28) != 0
+            || ui::zone_shape::buttonSkinFrameIndex(1, 28) != 27)
+            mapOk = false;
+        check(QStringLiteral("Bouton skin: GIF frame index follows progress, freezes mid-way (session 112)"),
+              mapOk,
+              notes.isEmpty() ? QStringLiteral("monotonic 1/2/24/28/30, mid-way stable")
+                              : notes.join(QLatin1Char(' ')));
+    }
+    {
+        QStringList notes;
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Skin"), QPoint(520, 400));
+        ui::FenceView* v = box.view(id);
+        bool fallback = false, roundTrip = false, clickable = false, shutterOk = false, staticOk = false;
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(6, QStringLiteral("s112skin")));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinGif);
+            st.buttonSkinPath = QStringLiteral("C:/starfish-missing-s112/no-such.gif");
+            box.setFenceStyle(id, st);
+            fallback = v->effectiveButtonSkinId() == QLatin1String("plain")
+                       && v->buttonSkinId() == QLatin1String("gif");
+            if (!fallback)
+                notes << QStringLiteral("fallback effective %1 requested %2")
+                             .arg(v->effectiveButtonSkinId(), v->buttonSkinId());
+
+            // Built-in shutter, frames pre-decoded.
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinShutter);
+            st.buttonSkinPath.clear();
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            shutterOk = v->effectiveButtonSkinId() == QLatin1String("shutter")
+                        && v->buttonSkinFrameCount() >= 24
+                        && v->buttonSkinLayer() == QLatin1String("front");
+            if (!shutterOk)
+                notes << QStringLiteral("shutter effective %1 frames %2 layer %3")
+                             .arg(v->effectiveButtonSkinId())
+                             .arg(v->buttonSkinFrameCount())
+                             .arg(v->buttonSkinLayer());
+
+            // Static (1-frame) GIF is a valid skin.
+            const QString stillPath = QDir::temp().filePath(QStringLiteral("starfish-s112-still.gif"));
+            {
+                static const unsigned char kStillGif[] = { 0x47, 0x49, 0x46, 0x38, 0x37, 0x61, 0x20, 0x00, 0x20, 0x00, 0x81, 0x00, 0x00, 0x20, 0x80, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x20, 0x00, 0x40, 0x08, 0x35, 0x00, 0x01, 0x08, 0x1c, 0x48, 0xb0, 0xa0, 0xc1, 0x83, 0x08, 0x13, 0x2a, 0x5c, 0xc8, 0xb0, 0xa1, 0xc3, 0x87, 0x10, 0x23, 0x4a, 0x9c, 0x48, 0xb1, 0xa2, 0xc5, 0x8b, 0x18, 0x33, 0x6a, 0xdc, 0xc8, 0xb1, 0xa3, 0xc7, 0x8f, 0x20, 0x43, 0x8a, 0x1c, 0x49, 0xb2, 0xa4, 0xc9, 0x93, 0x28, 0x53, 0xaa, 0x5c, 0xc9, 0x52, 0x64, 0x40, 0x00, 0x3b };
+                QFile stillFile(stillPath);
+                if (stillFile.open(QIODevice::WriteOnly))
+                    stillFile.write(reinterpret_cast<const char*>(kStillGif), sizeof(kStillGif));
+            }
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinGif);
+            st.buttonSkinPath = stillPath;
+            st.buttonSkinLayer = QString();
+            box.setFenceStyle(id, st);
+            staticOk = v->effectiveButtonSkinId() == QLatin1String("gif")
+                       && v->buttonSkinFrameCount() == 1
+                       && ui::zone_shape::buttonSkinFrameIndex(0.0, v->buttonSkinFrameCount()) == 0
+                       && ui::zone_shape::buttonSkinFrameIndex(1.0, v->buttonSkinFrameCount()) == 0;
+            if (!staticOk)
+                notes << QStringLiteral("static gif effective %1 frames %2")
+                             .arg(v->effectiveButtonSkinId())
+                             .arg(v->buttonSkinFrameCount());
+            QFile::remove(stillPath);
+
+            // Restore shutter + front for the click + persist checks.
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinShutter);
+            st.buttonSkinPath.clear();
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            box.setFenceStyle(id, st);
+
+            std::unique_ptr<QDialog> dlg(ui::createFenceAppearanceDialog(&box, id, nullptr));
+            if (!dlg) {
+                notes << QStringLiteral("no dialog");
+            } else {
+                if (offscreen)
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                auto* skin = dlg->findChild<QComboBox*>(QStringLiteral("buttonSkin"));
+                auto* layer = dlg->findChild<QComboBox*>(QStringLiteral("buttonSkinLayer"));
+                const bool has = skin && layer
+                                 && skin->findData(QStringLiteral("plain")) >= 0
+                                 && skin->findData(QStringLiteral("shutter")) >= 0
+                                 && skin->findData(QStringLiteral("gif")) >= 0
+                                 && layer->findData(QStringLiteral("behind")) >= 0
+                                 && layer->findData(QStringLiteral("front")) >= 0;
+                if (!has)
+                    notes << QStringLiteral("appearance controls missing");
+                const core::Layout dumped = box.toLayout();
+                const QByteArray json = core::JsonStore::toJson(dumped);
+                ui::FenceContainer loaded;
+                const auto parsed = core::JsonStore::fromJson(json);
+                if (!parsed) {
+                    notes << QStringLiteral("reload failed");
+                } else {
+                    loaded.applyLayout(*parsed);
+                    QString lid;
+                    for (const QString& fid : loaded.fenceIds())
+                        if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
+                            lid = fid;
+                    const core::FenceStyle got = loaded.fenceStyle(lid);
+                    roundTrip = has && got.buttonSkin == QLatin1String("shutter")
+                                && got.buttonSkinLayer == QLatin1String("front");
+                    if (!roundTrip)
+                        notes << QStringLiteral("reload skin \"%1\" layer \"%2\"")
+                                     .arg(got.buttonSkin, got.buttonSkinLayer);
+                }
+                dlg->hide();
+            }
+
+            v->show();
+            wait(40);
+            box.setFenceRolledUp(id, false);
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+            wait(40);
+            v->setButtonOpenProgressOverride(-1);
+            bool launched = false;
+            QObject::connect(v, &ui::FenceView::itemActivated, v, [&](int) { launched = true; });
+            const QVector<QPointF> centres = v->buttonItemCenters();
+            if (!centres.isEmpty() && v->buttonOpenProgress() >= 0.99) {
+                const QPoint iconAt = centres.first().toPoint();
+                const bool hit = v->itemAt(iconAt) == 0;
+                const QPointF gf = v->mapToGlobal(iconAt);
+                QMouseEvent press(QEvent::MouseButtonPress, iconAt, iconAt, gf,
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &press);
+                QMouseEvent rel(QEvent::MouseButtonRelease, iconAt, iconAt, gf,
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &rel);
+                QMouseEvent dbl(QEvent::MouseButtonDblClick, iconAt, iconAt, gf,
+                                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &dbl);
+                clickable = hit || launched;
+                if (!clickable)
+                    notes << QStringLiteral("front layer blocked click hit %1 launched %2").arg(hit).arg(launched);
+            } else {
+                notes << QStringLiteral("not fully open prog %1 centres %2")
+                             .arg(v->buttonOpenProgress()).arg(centres.size());
+            }
+            v->hide();
+        }
+        check(QStringLiteral("Bouton skin: shutter/GIF apply, missing file falls back, front layer clickable, settings persist (session 112)"),
+              fallback && shutterOk && staticOk && roundTrip && clickable,
+              notes.isEmpty() ? QStringLiteral("fallback, shutter 28f, static 1f, front click, saved")
+                              : notes.join(QLatin1Char(' ')));
+    }
+    {
+        // PrintWindow shots of a dummy Bouton wearing the demo shutter, at
+        // progress 0 / 0.5 / 1. Written under the temp dir for a later copy.
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s112"));
+        QDir().mkpath(outDir);
+        ui::FenceContainer box;
+        const QString id = box.createButton(QStringLiteral("Shot"), QPoint(280, 280));
+        ui::FenceView* v = box.view(id);
+        bool ok = v != nullptr;
+        const auto dummyItems = [](int n) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::s112shot/item%1").arg(i);
+                it.name = QStringLiteral("S%1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (v) {
+            v->setAttribute(Qt::WA_DontShowOnScreen, false);
+            v->setItems(dummyItems(6));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinShutter);
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            st.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint) & ~Qt::WindowDoesNotAcceptFocus);
+            const int collapsed = v->buttonCollapsedDiameter();
+            v->show();
+            wait(80);
+            auto snap = [&](const QString& name, qreal progress, int side) {
+                v->setButtonOpenProgressOverride(progress);
+                v->resize(side, side);
+                v->setFixedSize(side, side);
+                v->move(80, 80);
+                v->update();
+                wait(50);
+                QApplication::processEvents();
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ old = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, old);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = v->grab().toImage();
+                const QString path = outDir + QLatin1Char('/') + name;
+                const bool saved = !img.isNull() && img.save(path, "PNG");
+                if (!saved)
+                    notes << QStringLiteral("failed %1").arg(name);
+                return saved && !img.isNull();
+            };
+            // Need the expanded layout diameter for mid/full sizes.
+            box.setFenceRolledUp(id, false);
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+            const int expandedSide = qMax(collapsed + 8, qMin(v->width(), v->height()));
+            const int midSide = qMax(collapsed + 8, (collapsed + expandedSide) / 2);
+            box.setFenceRolledUp(id, true);
+            wait(40);
+            const bool s0 = snap(QStringLiteral("progress_0.png"), 0.0, collapsed);
+            const bool s5 = snap(QStringLiteral("progress_0.5.png"), 0.5, midSide);
+            const bool s1 = snap(QStringLiteral("progress_1.png"), 1.0, expandedSide);
+            ok = s0 && s5 && s1;
+            v->hide();
+        }
+        check(QStringLiteral("Bouton skin: PrintWindow shots of the demo shutter at 0 / 0.5 / 1 (session 112)"),
+              ok,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

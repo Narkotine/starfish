@@ -7,12 +7,14 @@
 #include <QPointF>
 #include <QRectF>
 #include "ui/zone_shape.hpp"
+#include "ui/button_skin.hpp"
 #include <QStringList>
 #include <QTransform>
 #include <QPainterPath>
 #include <QPair>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <memory>
 #include <QWidget>
 
 class QDragEnterEvent;
@@ -156,6 +158,14 @@ public:
     void setButtonRingCount(int n);
     int buttonRingCount() const;
     qreal buttonOpenProgress() const; // 0 collapsed .. 1 expanded, for skins / probes
+    // Session 112: < 0 clears the override (normal animation-driven progress).
+    void setButtonOpenProgressOverride(qreal u);
+    void setButtonSkin(const QString& id, const QString& path = QString(),
+                       const QString& layer = QString());
+    QString buttonSkinId() const;          // requested id (gif even if the file is missing)
+    QString effectiveButtonSkinId() const; // "plain" after a silent missing-file fallback
+    int buttonSkinFrameCount() const;
+    QString buttonSkinLayer() const;
     int gridGap() const { return m_grid.gap(); }
     int gridPadding() const { return m_grid.padding(); }
     int labelHeight() const { return m_grid.labelHeight(); }
@@ -466,6 +476,11 @@ private:
     // Session 108: final ring layout, locked for the duration of an expand/collapse.
     int m_buttonCollapsedDiameter = 0; // session 111: 0 = default
     int m_buttonRingCount = 0;         // session 111: 0 = automatic
+    qreal m_buttonOpenProgressOverride = -1;
+    QString m_buttonSkinId;
+    QString m_buttonSkinPath;
+    QString m_buttonSkinLayer;
+    std::unique_ptr<zone_shape::ButtonSkin> m_buttonSkin;
     mutable int m_buttonLayoutCount = -1;
     mutable int m_buttonLayoutIcon = -1;
     mutable int m_buttonLayoutRings = -1;

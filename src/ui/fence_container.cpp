@@ -1458,6 +1458,8 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     fence.view->setIconSize(fence.style.iconSize > 0 ? fence.style.iconSize : 48);
     fence.view->setButtonCollapsedDiameter(fence.style.buttonDiameter);
     fence.view->setButtonRingCount(fence.style.buttonRings);
+    fence.view->setButtonSkin(fence.style.buttonSkin, fence.style.buttonSkinPath,
+                              fence.style.buttonSkinLayer);
     // fadeIcons, composed: the icons alone at the fence's transparency.
     fence.view->setIconOpacity(m_composed && fence.style.fadeIcons ? alpha / 255.0 : 1.0);
     // The wallpaper shows behind the text: the desktop's shadow keeps it legible.
