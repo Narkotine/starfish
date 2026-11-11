@@ -8,6 +8,7 @@
 ## Non publié
 
 ### Correctifs
+- Bouton : à l'ouverture (et au repli), les icônes glissent vers leur place finale sans sauter ni vibrer (la disposition des anneaux est calculée une fois, puis interpolée en flottant avec le rayon du disque ; le dessin reste dans le cercle).
 - Bouton : par défaut il n’est plus déplaçable (à la souris, plus de curseur de déplacement sur le disque ; les icônes à l’intérieur se cliquent et se lancent). Pour le bouger : clic droit « Déplacer le bouton » (forme compacte seulement, contour coloré comme le mode redimensionnement d’un widget) ; Échap, un lâcher, un clic ailleurs ou ~10 s d’inactivité terminent le mode. Grisé si le Bouton est verrouillé.
 - Bouton : le disque ne dérive plus vers le haut-gauche à l’approche du curseur (l’ancre est mémorisée, plus reconstruite avec QRect::center() / x - d/2, ce qui reculait d’un pixel à chaque cycle si le diamètre est pair ; le diamètre physique est calé sur le facteur DPI pour que le dessin reste centré).
 - Français : l’interface ne dit plus « fence » (menu « Apparence de la zone », réglages, infobulles). `tools/i18n_check.py` échoue si une traduction FR contient encore le mot.

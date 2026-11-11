@@ -4307,6 +4307,278 @@ int runUiProbe(QApplication& app)
         }
     }
 
+    // Session 108: icons interpolate from the centre to a *fixed* final slot
+    // during expand (and back on collapse). The pre-fix recipe kept scale = 1
+    // while the disc was still smaller than the layout, so icons sat at their
+    // finished offsets (and popped in as the circle grew) and QRect::center /
+    // qRound jittered a pixel as the side's parity changed.
+    {
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        const auto withDpr = [](qreal dpr) {
+            ui::ScreenLayout layout;
+            ui::ScreenInfo screen;
+            screen.geometry = QRect(0, 0, 1920, 1080);
+            screen.devicePixelRatio = dpr;
+            layout.addScreen(screen);
+            return layout;
+        };
+        const auto oldCenters = [](const QRect& content, int count, int iconSize) {
+            const ui::zone_shape::ButtonLayout lay = ui::zone_shape::buttonLayout(count, iconSize);
+            QVector<QPointF> out;
+            if (lay.items.isEmpty() || content.isEmpty())
+                return out;
+            const QPoint c = content.center();
+            const QPoint o(lay.diameter / 2, lay.diameter / 2);
+            const int room = qMin(content.width(), content.height());
+            double scale = 1.0;
+            if (lay.diameter > 0 && room > lay.diameter)
+                scale = double(room) / lay.diameter;
+            out.reserve(lay.items.size());
+            for (const ui::zone_shape::ButtonItemGeom& g : lay.items) {
+                const double x = c.x() + (g.icon.x() - o.x()) * scale;
+                const double y = c.y() + (g.icon.y() - o.y()) * scale;
+                const QRect r(int(qRound(x)), int(qRound(y)),
+                              qMax(1, int(qRound(g.icon.width() * scale))),
+                              qMax(1, int(qRound(g.icon.height() * scale))));
+                out.append(QPointF(r.center()));
+            }
+            return out;
+        };
+        const auto newCenters = [](const QRectF& content, int count, int iconSize) {
+            const auto geoms = ui::zone_shape::buttonItemGeometryF(content, count, iconSize);
+            QVector<QPointF> out;
+            out.reserve(geoms.size());
+            for (const auto& g : geoms)
+                out.append(g.icon.center());
+            return out;
+        };
+        const auto radiiFrom = [](const QVector<QPointF>& cents, const QPointF& origin) {
+            QVector<qreal> r;
+            r.reserve(cents.size());
+            for (const QPointF& p : cents)
+                r.append(std::hypot(p.x() - origin.x(), p.y() - origin.y()));
+            return r;
+        };
+
+        bool oldRecipeFails = false;
+        bool newRecipeOk = true;
+        QStringList notes;
+        const int iconSize = 48;
+        for (int n : {3, 6, 14}) {
+            const int collapsed = ui::zone_shape::buttonCollapsedDiameter(iconSize);
+            const int expanded = ui::zone_shape::buttonExpandedDiameter(iconSize, n);
+            const int frames = 48;
+            QVector<QVector<qreal>> oldR(n);
+            QVector<QVector<qreal>> newR(n);
+            for (int frame = 0; frame <= frames; ++frame) {
+                const qreal t = qreal(frame) / frames;
+                const qreal e = 1.0 - std::pow(1.0 - t, 3.0);
+                const int d = qMax(1, int(qRound(collapsed + (expanded - collapsed) * e)));
+                const QRect content(0, 0, d, d);
+                const QRectF contentF(0, 0, d, d);
+                const auto oc = oldCenters(content, n, iconSize);
+                const auto nc = newCenters(contentF, n, iconSize);
+                if (oc.size() != n || nc.size() != n) {
+                    newRecipeOk = false;
+                    notes << QStringLiteral("layout size n=%1").arg(n);
+                    break;
+                }
+                const QPointF oC(QRectF(content).center());
+                const QPointF nC = contentF.center();
+                const auto orr = radiiFrom(oc, oC);
+                const auto nrr = radiiFrom(nc, nC);
+                for (int i = 0; i < n; ++i) {
+                    oldR[i].append(orr.at(i));
+                    newR[i].append(nrr.at(i));
+                }
+            }
+            for (int i = 0; i < n; ++i) {
+                if (oldR[i].size() < 2)
+                    continue;
+                const qreal start = oldR[i].first();
+                const qreal end = oldR[i].last();
+                // Old recipe parks every icon at its finished radius immediately
+                // (scale stays 1 while the disc is still small) and can step
+                // backward a pixel when QRect::center() flips with the side.
+                if (end > 8.0 && start > end * 0.80)
+                    oldRecipeFails = true;
+                bool back = false;
+                for (int f = 1; f < oldR[i].size(); ++f) {
+                    if (oldR[i].at(f) + 0.75 < oldR[i].at(f - 1))
+                        back = true;
+                }
+                if (back)
+                    oldRecipeFails = true;
+
+                const qreal nStart = newR[i].first();
+                const qreal nEnd = newR[i].last();
+                if (nEnd <= 1.0 || nStart > nEnd * 0.55)
+                    newRecipeOk = false;
+                qreal prev = newR[i].first();
+                qreal maxStep = 0;
+                for (int f = 1; f < newR[i].size(); ++f) {
+                    const qreal cur = newR[i].at(f);
+                    if (cur + 0.35 < prev)
+                        newRecipeOk = false;
+                    maxStep = qMax(maxStep, qAbs(cur - prev));
+                    prev = cur;
+                }
+                // A slot jump would be tens of pixels; the cubic's first step is modest.
+                if (maxStep > qMax(40.0, nEnd * 0.35))
+                    newRecipeOk = false;
+            }
+        }
+        if (!oldRecipeFails)
+            notes << QStringLiteral("old recipe did not jump or jitter");
+        if (!newRecipeOk)
+            notes << QStringLiteral("new recipe was not monotonic");
+
+        bool liveOk = true;
+        for (qreal dpr : {1.0, 1.25, 1.5}) {
+            for (int n : {3, 6, 14}) {
+                ui::FenceContainer box;
+                box.setAnimateRoll(true);
+                box.setScreens(withDpr(dpr));
+                const QString tag = QStringLiteral("s108_%1_%2").arg(int(dpr * 100)).arg(n);
+                const QString id = box.createButton(QStringLiteral("Smooth"), QPoint(600, 400));
+                ui::FenceView* v = box.view(id);
+                if (!v) {
+                    liveOk = false;
+                    notes << tag + QStringLiteral(" no view");
+                    continue;
+                }
+                if (offscreen)
+                    v->setAttribute(Qt::WA_DontShowOnScreen);
+                v->setItems(dummyItems(n, tag));
+                box.syncButtonSize(id);
+                v->show();
+                wait(40);
+
+                const auto sample = [&](bool expand) -> bool {
+                    QVector<QVector<QPointF>> tracks(n);
+                    QVector<qreal> sides;
+                    QElapsedTimer clock;
+                    clock.start();
+                    int frames = 0;
+                    if (expand)
+                        box.setFenceRolledUp(id, false);
+                    else
+                        box.setFenceRolledUp(id, true);
+                    while (box.fenceAnimating(id) && clock.elapsed() < 1500) {
+                        const QVector<QPointF> cents = v->buttonItemCenters();
+                        if (cents.size() != n) {
+                            notes << tag + QStringLiteral(" count %1 want %2").arg(cents.size()).arg(n);
+                            return false;
+                        }
+                        const QPointF origin = QRectF(v->rect()).center();
+                        for (int i = 0; i < n; ++i)
+                            tracks[i].append(cents.at(i) - origin);
+                        sides.append(qMin(v->width(), v->height()));
+                        ++frames;
+                        wait(8);
+                    }
+                    const QVector<QPointF> last = v->buttonItemCenters();
+                    if (expand) {
+                        if (last.size() != n)
+                            return false;
+                        const QPointF origin = QRectF(v->rect()).center();
+                        for (int i = 0; i < n; ++i)
+                            tracks[i].append(last.at(i) - origin);
+                        sides.append(qMin(v->width(), v->height()));
+                        ++frames;
+                    }
+                    if (frames < 3 || tracks[0].size() < 3) {
+                        notes << tag + (expand ? QStringLiteral(" expand") : QStringLiteral(" collapse"))
+                                  + QStringLiteral(" frames %1").arg(frames);
+                        return false;
+                    }
+                    for (int i = 0; i < n; ++i) {
+                        const auto& tr = tracks[i];
+                        const qreal r0 = std::hypot(tr.first().x(), tr.first().y());
+                        const qreal r1 = std::hypot(tr.last().x(), tr.last().y());
+                        if (expand) {
+                            if (r1 <= 4.0 || r0 > r1 * 0.70) {
+                                notes << tag + QStringLiteral(" expand r %1 -> %2").arg(r0, 0, 'f', 2).arg(r1, 0, 'f', 2);
+                                return false;
+                            }
+                        } else {
+                            if (r0 <= 4.0 || r1 > r0 * 0.70) {
+                                notes << tag + QStringLiteral(" collapse r %1 -> %2").arg(r0, 0, 'f', 2).arg(r1, 0, 'f', 2);
+                                return false;
+                            }
+                        }
+                        qreal prevR = std::hypot(tr.first().x(), tr.first().y());
+                        qreal prevAng = std::atan2(tr.first().y(), tr.first().x());
+                        qreal maxStep = 0;
+                        for (int f = 1; f < tr.size(); ++f) {
+                            const qreal r = std::hypot(tr.at(f).x(), tr.at(f).y());
+                            const qreal ang = std::atan2(tr.at(f).y(), tr.at(f).x());
+                            qreal dAng = ang - prevAng;
+                            const qreal pi = 3.14159265358979323846;
+                            while (dAng > pi) dAng -= 2 * pi;
+                            while (dAng < -pi) dAng += 2 * pi;
+                            // Slot / ring change would swing the angle hard.
+                            if (std::abs(dAng) > 0.20) {
+                                notes << tag + QStringLiteral(" slot jump icon %1").arg(i);
+                                return false;
+                            }
+                            if (expand && r + 0.75 < prevR) {
+                                notes << tag + QStringLiteral(" expand backstep icon %1").arg(i);
+                                return false;
+                            }
+                            if (!expand && r > prevR + 0.75) {
+                                notes << tag + QStringLiteral(" collapse backstep icon %1").arg(i);
+                                return false;
+                            }
+                            const qreal step = std::hypot(tr.at(f).x() - tr.at(f - 1).x(),
+                                                          tr.at(f).y() - tr.at(f - 1).y());
+                            maxStep = qMax(maxStep, step);
+                            prevR = r;
+                            prevAng = ang;
+                        }
+                        if (maxStep > qMax(48.0, r0 > r1 ? r0 * 0.40 : r1 * 0.40)) {
+                            notes << tag + QStringLiteral(" step %1").arg(maxStep, 0, 'f', 1);
+                            return false;
+                        }
+                    }
+                    // Icons stay inside the animated disc.
+                    if (expand && !last.isEmpty()) {
+                        const qreal side = qMin(v->width(), v->height());
+                        const qreal rad = side / 2.0 + 1.5;
+                        const int icon = v->iconSize();
+                        for (int i = 0; i < last.size(); ++i) {
+                            const QPointF rel = last.at(i) - QRectF(v->rect()).center();
+                            if (std::hypot(rel.x(), rel.y()) + icon * 0.25 > rad) {
+                                notes << tag + QStringLiteral(" icon %1 outside mask").arg(i);
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                };
+
+                if (!sample(true) || !sample(false))
+                    liveOk = false;
+                v->hide();
+            }
+        }
+
+        const bool ok = oldRecipeFails && newRecipeOk && liveOk;
+        check(QStringLiteral("Bouton: icons interpolate to a fixed slot, no jumps during expand/collapse (session 108)"),
+              ok,
+              notes.isEmpty()
+                  ? QStringLiteral("old recipe fails, new + live 3/6/14 @ 1/1.25/1.5 PASS")
+                  : notes.join(QLatin1Char(' ')));
+    }
 
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.

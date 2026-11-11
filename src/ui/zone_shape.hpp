@@ -3,7 +3,9 @@
 #include <QtMath>
 #include <cmath>
 #include <QPoint>
+#include <QPointF>
 #include <QRect>
+#include <QRectF>
 #include <QSize>
 #include <QString>
 #include <QVector>
@@ -60,9 +62,23 @@ struct ButtonItemGeom {
     QRect bounds() const { return icon.united(label); }
 };
 
+struct ButtonItemGeomF {
+    QRectF icon;
+    QRectF label;
+    QRectF bounds() const { return icon.united(label); }
+};
+
 struct ButtonLayout {
     QVector<ButtonItemGeom> items;
     int diameter = 0;
+};
+
+// Session 108: the final ring layout in sub-pixel coordinates. Computed once
+// from the item count (not from the animated radius), then scaled about the
+// disc's centre so icons travel smoothly and never change slot.
+struct ButtonLayoutF {
+    QVector<ButtonItemGeomF> items;
+    qreal diameter = 0;
 };
 
 // Radius so `m` evenly spaced points have chord >= d. m<=1 sits at the centre.
@@ -83,32 +99,32 @@ inline std::vector<int> buttonSplitCounts(int n, int layers)
 }
 
 // Angle 0 = top, then clockwise. Cell centres sit on the ring (icon above, label below).
-inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kButtonLabelHeight)
+inline ButtonLayoutF buttonLayoutF(int count, int iconSize, int labelHeight = kButtonLabelHeight)
 {
-    ButtonLayout out;
+    ButtonLayoutF out;
     const int n = qMax(0, count);
     const int cellW = buttonCellWidth(iconSize);
     const int cellH = buttonCellHeight(iconSize, labelHeight);
     const double d = buttonMinDistance(iconSize, labelHeight);
 
-    auto placeAt = [&](double cx, double cy, double x, double y, ButtonItemGeom& g) {
-        const int left = int(qRound(cx + x - cellW / 2.0));
-        const int top = int(qRound(cy + y - cellH / 2.0));
-        g.label = QRect(left, top + iconSize, cellW, qMax(0, labelHeight));
-        g.icon = QRect(left + (cellW - iconSize) / 2, top, iconSize, iconSize);
+    auto placeAt = [&](double cx, double cy, double x, double y, ButtonItemGeomF& g) {
+        const qreal left = cx + x - cellW / 2.0;
+        const qreal top = cy + y - cellH / 2.0;
+        g.label = QRectF(left, top + iconSize, cellW, qMax(0, labelHeight));
+        g.icon = QRectF(left + (cellW - iconSize) / 2.0, top, iconSize, iconSize);
     };
 
-    auto enclosing = [&](const QVector<ButtonItemGeom>& items, double cx, double cy) {
+    auto enclosing = [&](const QVector<ButtonItemGeomF>& items, double cx, double cy) {
         double r = 0.0;
-        for (const ButtonItemGeom& g : items) {
-            const QRect b = g.bounds();
-            for (const QPoint& p : {b.topLeft(), b.topRight(), b.bottomLeft(), b.bottomRight()})
+        for (const ButtonItemGeomF& g : items) {
+            const QRectF b = g.bounds();
+            for (const QPointF& p : {b.topLeft(), b.topRight(), b.bottomLeft(), b.bottomRight()})
                 r = qMax(r, std::hypot(p.x() - cx, p.y() - cy));
         }
         return r + kButtonCirclePad;
     };
 
-    auto boxesOverlap = [](const QRect& a, const QRect& b) {
+    auto boxesOverlap = [](const QRectF& a, const QRectF& b) {
         return a.intersects(b);
     };
 
@@ -118,7 +134,7 @@ inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kBut
     }
 
     if (n == 1) {
-        ButtonItemGeom g;
+        ButtonItemGeomF g;
         // Temporary origin; recentred below.
         placeAt(0, 0, 0, 0, g);
         out.items = {g};
@@ -164,7 +180,7 @@ inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kBut
                 // 0 = top, clockwise.
                 const double x = r * std::sin(theta);
                 const double y = -r * std::cos(theta);
-                ButtonItemGeom g;
+                ButtonItemGeomF g;
                 placeAt(0, 0, x, y, g);
                 out.items.append(g);
             }
@@ -184,23 +200,38 @@ inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kBut
         }
         if (!hit)
             break;
-        for (ButtonItemGeom& g : out.items) {
-            g.icon.translate(int(qRound(g.icon.center().x() * 0.08)), int(qRound(g.icon.center().y() * 0.08)));
-            g.label.translate(int(qRound((g.label.center().x()) * 0.08)), int(qRound(g.label.center().y() * 0.08)));
+        for (ButtonItemGeomF& g : out.items) {
+            g.icon.translate(g.icon.center().x() * 0.08, g.icon.center().y() * 0.08);
+            g.label.translate(g.label.center().x() * 0.08, g.label.center().y() * 0.08);
         }
     }
 
     const double R = enclosing(out.items, 0.0, 0.0);
-    const int diameter = qMax(buttonCollapsedDiameter(iconSize) + 48,
-                              int(qCeil(R * 2.0)));
-    // Recentre into a square (0,0,diameter,diameter).
-    const double cx = diameter / 2.0;
-    const double cy = diameter / 2.0;
-    for (ButtonItemGeom& g : out.items) {
-        g.icon.translate(int(qRound(cx)), int(qRound(cy)));
-        g.label.translate(int(qRound(cx)), int(qRound(cy)));
+    const qreal diameter = qMax(qreal(buttonCollapsedDiameter(iconSize) + 48),
+                                qreal(qCeil(R * 2.0)));
+    // Recentre into a square (0,0,diameter,diameter) without rounding the centre.
+    const qreal cx = diameter / 2.0;
+    const qreal cy = diameter / 2.0;
+    for (ButtonItemGeomF& g : out.items) {
+        g.icon.translate(cx, cy);
+        g.label.translate(cx, cy);
     }
     out.diameter = diameter;
+    return out;
+}
+
+inline ButtonLayout buttonLayout(int count, int iconSize, int labelHeight = kButtonLabelHeight)
+{
+    const ButtonLayoutF f = buttonLayoutF(count, iconSize, labelHeight);
+    ButtonLayout out;
+    out.diameter = qMax(1, int(qRound(f.diameter)));
+    out.items.reserve(f.items.size());
+    for (const ButtonItemGeomF& g : f.items) {
+        ButtonItemGeom h;
+        h.icon = g.icon.toRect();
+        h.label = g.label.toRect();
+        out.items.append(h);
+    }
     return out;
 }
 
@@ -295,31 +326,51 @@ inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progres
     return QRect(c.x() - side / 2, c.y() - side / 2, side, side);
 }
 
-inline QVector<ButtonItemGeom> buttonItemGeometry(const QRect& content, int count, int iconSize,
-                                                 int labelHeight = kButtonLabelHeight)
+// Map the *final* ring layout (computed from the item count, never from the
+// current radius) into `content`. `scale` is the current disc's size over the
+// expanded one (already eased if the disc is); 0 piles every icon on the
+// centre, 1 is the finished layout. Icons keep their slot and ring.
+inline QVector<ButtonItemGeomF> buttonItemGeometryF(const QRectF& content, const ButtonLayoutF& lay)
 {
-    ButtonLayout lay = buttonLayout(count, iconSize, labelHeight);
-    if (lay.items.isEmpty() || content.isEmpty())
-        return lay.items;
-    const QPoint c = content.center();
-    const QPoint o(lay.diameter / 2, lay.diameter / 2);
-    const int room = qMin(content.width(), content.height());
-    double scale = 1.0;
-    if (lay.diameter > 0 && room > lay.diameter)
-        scale = double(room) / lay.diameter;
-    QVector<ButtonItemGeom> out;
+    if (lay.items.isEmpty() || content.isEmpty() || lay.diameter <= 0)
+        return {};
+    const QPointF c = content.center();
+    const QPointF o(lay.diameter / 2.0, lay.diameter / 2.0);
+    const qreal room = qMin(content.width(), content.height());
+    const qreal scale = room / lay.diameter;
+    QVector<ButtonItemGeomF> out;
     out.reserve(lay.items.size());
-    for (const ButtonItemGeom& g : lay.items) {
-        ButtonItemGeom h;
-        auto mapRect = [&](QRect r) {
-            const double x = c.x() + (r.x() - o.x()) * scale;
-            const double y = c.y() + (r.y() - o.y()) * scale;
-            return QRect(int(qRound(x)), int(qRound(y)),
-                         qMax(1, int(qRound(r.width() * scale))),
-                         qMax(1, int(qRound(r.height() * scale))));
+    for (const ButtonItemGeomF& g : lay.items) {
+        ButtonItemGeomF h;
+        auto mapRect = [&](const QRectF& r) {
+            const QPointF topLeft = c + QPointF(r.x() - o.x(), r.y() - o.y()) * scale;
+            return QRectF(topLeft, QSizeF(r.width() * scale, r.height() * scale));
         };
         h.icon = mapRect(g.icon);
         h.label = mapRect(g.label);
+        out.append(h);
+    }
+    return out;
+}
+
+inline QVector<ButtonItemGeomF> buttonItemGeometryF(const QRectF& content, int count, int iconSize,
+                                                    int labelHeight = kButtonLabelHeight,
+                                                    const ButtonLayoutF* cached = nullptr)
+{
+    const ButtonLayoutF lay = cached ? *cached : buttonLayoutF(count, iconSize, labelHeight);
+    return buttonItemGeometryF(content, lay);
+}
+
+inline QVector<ButtonItemGeom> buttonItemGeometry(const QRect& content, int count, int iconSize,
+                                                 int labelHeight = kButtonLabelHeight)
+{
+    const auto items = buttonItemGeometryF(QRectF(content), count, iconSize, labelHeight);
+    QVector<ButtonItemGeom> out;
+    out.reserve(items.size());
+    for (const ButtonItemGeomF& g : items) {
+        ButtonItemGeom h;
+        h.icon = g.icon.toRect();
+        h.label = g.label.toRect();
         out.append(h);
     }
     return out;

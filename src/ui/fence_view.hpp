@@ -5,6 +5,8 @@
 #include <QString>
 #include <QVector>
 #include <QPointF>
+#include <QRectF>
+#include "ui/zone_shape.hpp"
 #include <QStringList>
 #include <QTransform>
 #include <QPainterPath>
@@ -193,6 +195,8 @@ public:
     // opaque while the panel around them takes the material's alpha. Empty for a
     // rolled-up fence (there is no content area) and for a fence with no tiles.
     QVector<QRect> tileRects() const;
+    // Session 108: icon centres in widget-local sub-pixel coordinates, empty when rolled up.
+    QVector<QPointF> buttonItemCenters() const;
 
     // Accepts items dropped from the Explorer (T-006-3) and appends them to the
     // grid. `contentChanged` is emitted so the owner re-renders. The source
@@ -428,9 +432,18 @@ private:
     int m_cornerRadius = kCornerRadius;
     QString m_shape; // session 101
     QVector<QRect> buttonItemRects() const;
+    QRectF buttonDiscRect() const;
+    void ensureButtonLayout() const;
+    QVector<zone_shape::ButtonItemGeomF> buttonItemGeometryNow() const;
     void paintButton(QPainter& painter);
     bool m_rolledUp = false;
     bool m_rolling = false;
+    // Session 108: final ring layout, locked for the duration of an expand/collapse.
+    mutable int m_buttonLayoutCount = -1;
+    mutable int m_buttonLayoutIcon = -1;
+    mutable qreal m_buttonLayoutDiameter = 0;
+    mutable QVector<QRectF> m_buttonSlotIcons;
+    mutable QVector<QRectF> m_buttonSlotLabels;
     IconGrid m_grid;
     IconGrid::IconProvider m_iconProvider;
 

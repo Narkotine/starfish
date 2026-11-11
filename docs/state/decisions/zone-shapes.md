@@ -79,3 +79,16 @@ Moving is an explicit compact-only mode, opened from the Bouton's menu
 outline (same language as a widget's resize mode). It ends on drop, Esc, a
 click elsewhere, or after 10 s idle. The entry is greyed when the Bouton is
 locked. The stored anchor is updated only when a move-mode drag completes.
+
+
+## Icon motion (session 108)
+
+The final ring layout is computed once from the item count (and locked at
+expand/collapse start), never from the animated radius, so an icon never
+changes slot or ring during the animation. Each frame maps those fixed slots
+into the current disc with `scale = current diameter / layout diameter` — the
+same easing as the disc itself — in sub-pixel coordinates (`QRectF` /
+`QPointF`). Collapse is the same path in reverse. Icons are clipped to the
+inscribed ellipse. A Bouton still keeps the session 105–107 guarantees
+(stable circle, durable anchor, no top-left drift, locked never moves,
+default not movable).

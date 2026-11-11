@@ -205,6 +205,10 @@ void FenceView::setRolledUp(bool rolledUp)
 
 void FenceView::setRolling(bool rolling)
 {
+    // Lock the final ring layout on the first frame of an expand or collapse
+    // so mid-animation size syncs cannot reassign slots (session 108).
+    if (rolling)
+        ensureButtonLayout();
     if (m_rolling == rolling)
         return;
     m_rolling = rolling;
@@ -572,9 +576,10 @@ int FenceView::itemAt(const QPoint& localPoint) const
     if (zone_shape::isButton(m_shape)) {
         if (m_rolledUp)
             return -1;
-        const QVector<QRect> rects = buttonItemRects();
-        for (int i = rects.size() - 1; i >= 0; --i)
-            if (rects.at(i).contains(localPoint))
+        const auto geoms = buttonItemGeometryNow();
+        const QPointF pt(localPoint);
+        for (int i = geoms.size() - 1; i >= 0; --i)
+            if (geoms.at(i).bounds().contains(pt))
                 return i;
         return -1;
     }
@@ -1703,26 +1708,91 @@ bool FenceView::dragGhostVisible() const
 }
 
 
-QVector<QRect> FenceView::buttonItemRects() const
+QRectF FenceView::buttonDiscRect() const
+{
+    const QRectF box(rect());
+    const qreal side = qMin(box.width(), box.height());
+    QRectF disc(0, 0, side, side);
+    disc.moveCenter(box.center());
+    return disc;
+}
+
+void FenceView::ensureButtonLayout() const
+{
+    if (!zone_shape::isButton(m_shape))
+        return;
+    const int n = m_grid.items().size();
+    const int icon = m_grid.iconSize();
+    if (m_buttonLayoutCount == n && m_buttonLayoutIcon == icon && m_buttonLayoutDiameter > 0)
+        return;
+    if (m_rolling && m_buttonLayoutDiameter > 0)
+        return;
+    const zone_shape::ButtonLayoutF lay = zone_shape::buttonLayoutF(n, icon);
+    m_buttonLayoutCount = n;
+    m_buttonLayoutIcon = icon;
+    m_buttonLayoutDiameter = lay.diameter;
+    m_buttonSlotIcons.clear();
+    m_buttonSlotLabels.clear();
+    m_buttonSlotIcons.reserve(lay.items.size());
+    m_buttonSlotLabels.reserve(lay.items.size());
+    for (const zone_shape::ButtonItemGeomF& g : lay.items) {
+        m_buttonSlotIcons.append(g.icon);
+        m_buttonSlotLabels.append(g.label);
+    }
+}
+
+QVector<zone_shape::ButtonItemGeomF> FenceView::buttonItemGeometryNow() const
 {
     if (!zone_shape::isButton(m_shape) || m_rolledUp)
         return {};
-    return zone_shape::buttonItemRects(contentRect(), m_grid.items().size(), m_grid.iconSize());
+    ensureButtonLayout();
+    zone_shape::ButtonLayoutF lay;
+    lay.diameter = m_buttonLayoutDiameter;
+    const int n = qMin(m_buttonSlotIcons.size(), m_buttonSlotLabels.size());
+    lay.items.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        zone_shape::ButtonItemGeomF g;
+        g.icon = m_buttonSlotIcons.at(i);
+        g.label = m_buttonSlotLabels.at(i);
+        lay.items.append(g);
+    }
+    return zone_shape::buttonItemGeometryF(buttonDiscRect(), lay);
+}
+
+QVector<QRect> FenceView::buttonItemRects() const
+{
+    const auto geoms = buttonItemGeometryNow();
+    QVector<QRect> out;
+    out.reserve(geoms.size());
+    for (const zone_shape::ButtonItemGeomF& g : geoms)
+        out.append(g.bounds().toAlignedRect());
+    return out;
+}
+
+QVector<QPointF> FenceView::buttonItemCenters() const
+{
+    const auto geoms = buttonItemGeometryNow();
+    QVector<QPointF> out;
+    out.reserve(geoms.size());
+    for (const zone_shape::ButtonItemGeomF& g : geoms)
+        out.append(g.icon.center());
+    return out;
 }
 
 void FenceView::paintButton(QPainter& painter)
 {
     const QRect box = rect();
-    const int side = qMin(box.width(), box.height());
-    const QRect circle(box.center().x() - side / 2, box.center().y() - side / 2, side, side);
+    const QRectF disc = buttonDiscRect();
+    const QRect circle = disc.toRect();
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
     QColor fill = m_panelColor;
     if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
         fill = fill.lighter(112);
     painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6),
                         qMax(1, m_borderWidth)));
     painter.setBrush(fill);
-    painter.drawEllipse(circle.adjusted(1, 1, -1, -1));
+    painter.drawEllipse(disc.adjusted(1, 1, -1, -1));
     if (m_rolledUp) {
         QFont f = font();
         f.setBold(true);
@@ -1736,17 +1806,24 @@ void FenceView::paintButton(QPainter& painter)
                                               accentColor(), 1.0);
         return;
     }
-    const auto geoms = zone_shape::buttonItemGeometry(contentRect(), m_grid.items().size(),
-                                                      m_grid.iconSize());
+    const auto geoms = buttonItemGeometryNow();
     const QList<core::DesktopItem>& items = m_grid.items();
     const bool names = m_grid.labelsShown();
     QFont nameFont = font();
     nameFont.setPixelSize(qMax(10, m_grid.iconSize() / 4));
+    painter.save();
+    QPainterPath clip;
+    clip.addEllipse(disc.adjusted(1, 1, -1, -1));
+    painter.setClipPath(clip, Qt::IntersectClip);
+    if (m_rolling && m_buttonLayoutDiameter > 0) {
+        const qreal u = qMin(disc.width(), disc.height()) / m_buttonLayoutDiameter;
+        painter.setOpacity(painter.opacity() * qBound(0.0, (u - 0.12) / 0.70, 1.0));
+    }
     for (int i = 0; i < geoms.size() && i < items.size(); ++i) {
         const QPixmap icon = m_iconProvider ? m_iconProvider(items.at(i), m_grid.iconSize()) : QPixmap();
-        const QRect r = geoms.at(i).icon;
+        const QRectF r = geoms.at(i).icon;
         if (!icon.isNull())
-            painter.drawPixmap(r, icon);
+            painter.drawPixmap(r, icon, QRectF(icon.rect()));
         else {
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(0x60, 0x70, 0x80));
@@ -1761,10 +1838,11 @@ void FenceView::paintButton(QPainter& painter)
             painter.setFont(nameFont);
             painter.setPen(QColor(0xE5, 0xE7, 0xEB));
             const QString caption = painter.fontMetrics().elidedText(
-                items.at(i).name, Qt::ElideRight, geoms.at(i).label.width());
+                items.at(i).name, Qt::ElideRight, int(qMax(1.0, geoms.at(i).label.width())));
             painter.drawText(geoms.at(i).label, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, caption);
         }
     }
+    painter.restore();
 }
 
 void FenceView::updateDragGhost(bool dragging)
