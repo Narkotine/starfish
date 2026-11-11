@@ -149,6 +149,7 @@ public:
     int borderWidth() const { return m_borderWidth; }
     // Session 73: the grid's numbers, for sizing a fence in whole cells.
     int iconSize() const { return m_grid.iconSize(); }
+    void setIconSize(int px);
     int gridGap() const { return m_grid.gap(); }
     int gridPadding() const { return m_grid.padding(); }
     int labelHeight() const { return m_grid.labelHeight(); }
@@ -201,6 +202,7 @@ public:
     // Session 109: whether paintButton would draw captions this frame, and the
     // texts elided once for the final expanded size (stable during animation).
     bool buttonLabelsPainted() const;
+    qreal buttonLabelOpacity() const;
     QStringList buttonElidedCaptions() const;
 
     // Accepts items dropped from the Explorer (T-006-3) and appends them to the

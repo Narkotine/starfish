@@ -33,6 +33,7 @@
 #include "ui/recent_colours.hpp"
 #include "ui/fence_templates.hpp"
 #include "ui/zone_shape.hpp"
+#include "ui/button_appearance_dialog.hpp"
 
 namespace starfish::ui {
 
@@ -48,6 +49,10 @@ inline void paintSwatch(QPushButton* button, const QString& colour)
 
 inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QString& id, QWidget* parent = nullptr)
 {
+    // Session 110: a Bouton has its own dialog (button_appearance_dialog.hpp).
+    if (container && zone_shape::isButton(container->fenceStyle(id).shape))
+        return createButtonAppearanceDialog(container, id, parent);
+
     const core::FenceStyle before = container->fenceStyle(id);
     const int defaultPercent = PercentSlider::percentFromAlpha(container->defaultFenceAlpha());
     QPointer<FenceContainer> safe(container);
@@ -173,23 +178,12 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Whole icons"), QStringLiteral("on"));
     snapCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Free"), QStringLiteral("off"));
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Resize"), snapCombo);
-    const bool isButton = zone_shape::isButton(before.shape);
-    QComboBox* labelsCombo = nullptr;
-    QCheckBox* showShortcutNames = nullptr;
-    if (isButton) {
-        // Session 109: per-bouton option, default on. Independent of Settings.
-        showShortcutNames = new QCheckBox(
-            QCoreApplication::translate("FenceAppearanceDialog", "Show shortcut names"), dialog);
-        showShortcutNames->setObjectName(QStringLiteral("showShortcutNames"));
-        form->addRow(showShortcutNames);
-    } else {
-        labelsCombo = new QComboBox(dialog);
-        labelsCombo->setObjectName(QStringLiteral("showLabels"));
-        labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
-        labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Shown"), QStringLiteral("on"));
-        labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Hidden"), QStringLiteral("off"));
-        form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Icon names"), labelsCombo);
-    }
+    auto* labelsCombo = new QComboBox(dialog);
+    labelsCombo->setObjectName(QStringLiteral("showLabels"));
+    labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
+    labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Shown"), QStringLiteral("on"));
+    labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Hidden"), QStringLiteral("off"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Icon names"), labelsCombo);
     auto* flowCombo = new QComboBox(dialog);
     flowCombo->setObjectName(QStringLiteral("iconFlow"));
     flowCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
@@ -326,7 +320,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, showShortcutNames, flowCombo] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, flowCombo] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
@@ -366,16 +360,9 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleShape->setEnabled(style.titleBar);
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
         {
-            const QSignalBlocker r(rollCombo), n(snapCombo), f(flowCombo);
+            const QSignalBlocker r(rollCombo), n(snapCombo), l(labelsCombo), f(flowCombo);
             flowCombo->setCurrentIndex(qMax(0, flowCombo->findData(style.iconFlow)));
-            if (labelsCombo) {
-                const QSignalBlocker l(labelsCombo);
-                labelsCombo->setCurrentIndex(qMax(0, labelsCombo->findData(style.showLabels)));
-            }
-            if (showShortcutNames) {
-                const QSignalBlocker b(showShortcutNames);
-                showShortcutNames->setChecked(style.showLabels != QLatin1String("off"));
-            }
+            labelsCombo->setCurrentIndex(qMax(0, labelsCombo->findData(style.showLabels)));
             rollCombo->setCurrentIndex(qMax(0, rollCombo->findData(style.rollToward)));
             snapCombo->setCurrentIndex(qMax(0, snapCombo->findData(style.snapToCells)));
         }
@@ -476,19 +463,10 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         const QString chosen = flowCombo->currentData().toString();
         restyle([chosen](core::FenceStyle& style) { style.iconFlow = chosen; });
     });
-    if (labelsCombo) {
-        QObject::connect(labelsCombo, &QComboBox::currentIndexChanged, dialog, [labelsCombo, restyle](int) {
-            const QString chosen = labelsCombo->currentData().toString();
-            restyle([chosen](core::FenceStyle& style) { style.showLabels = chosen; });
-        });
-    }
-    if (showShortcutNames) {
-        QObject::connect(showShortcutNames, &QCheckBox::toggled, dialog, [showShortcutNames, restyle](bool on) {
-            restyle([on](core::FenceStyle& style) {
-                style.showLabels = on ? QStringLiteral("on") : QStringLiteral("off");
-            });
-        });
-    }
+    QObject::connect(labelsCombo, &QComboBox::currentIndexChanged, dialog, [labelsCombo, restyle](int) {
+        const QString chosen = labelsCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.showLabels = chosen; });
+    });
     QObject::connect(snapCombo, &QComboBox::currentIndexChanged, dialog, [snapCombo, restyle](int) {
         const QString chosen = snapCombo->currentData().toString();
         restyle([chosen](core::FenceStyle& style) { style.snapToCells = chosen; });

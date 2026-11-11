@@ -91,9 +91,16 @@ FenceView::FenceView(QWidget* parent)
     connect(&m_buttonLabelFade, &QTimer::timeout, this, [this] {
         const qreal u = qBound(0.0, m_buttonLabelFadeClock.elapsed() / 160.0, 1.0);
         m_buttonLabelOpacity = 1.0 - (1.0 - u) * (1.0 - u);
-        if (u >= 1.0)
+        if (u >= 1.0) {
+            m_buttonLabelOpacity = 1.0;
             m_buttonLabelFade.stop();
+        }
         update();
+        // Session 110: the hosted surface is an image; paintEvent / update()
+        // never reaches the desktop (see addFence). widgetTick rebuilds the
+        // blit without a document save, so the fade is visible with the
+        // pointer still inside.
+        emit widgetTick();
     });
     setObjectName(QStringLiteral("starfishFenceView"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -1445,6 +1452,17 @@ void FenceView::setIconFlow(int flow)
     emit contentChanged();
 }
 
+void FenceView::setIconSize(int px)
+{
+    const int size = qMax(16, px);
+    if (m_grid.iconSize() == size)
+        return;
+    m_grid.setIconSize(size);
+    invalidateButtonLayout();
+    update();
+    emit contentChanged();
+}
+
 void FenceView::setLabelsShown(bool shown)
 {
     if (m_grid.labelsShown() == shown)
@@ -1893,6 +1911,11 @@ bool FenceView::buttonLabelsPainted() const
 {
     return zone_shape::isButton(m_shape) && m_grid.labelsShown() && !m_rolledUp
         && !m_rolling && m_buttonLabelOpacity > 0.01;
+}
+
+qreal FenceView::buttonLabelOpacity() const
+{
+    return m_buttonLabelOpacity;
 }
 
 QStringList FenceView::buttonElidedCaptions() const

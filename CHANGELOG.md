@@ -8,6 +8,7 @@
 ## Non publié
 
 ### Correctifs
+- Bouton : les noms des raccourcis apparaissent tout seuls dès la fin de l'ouverture (plus besoin de sortir le curseur ou de cliquer) ; le fondu redessine la surface hébergée à chaque image.
 - Bouton : les noms des raccourcis restent cachés pendant l'ouverture et le repli (plus d'ellipse « … » qui change à chaque image) ; ils n'apparaissent qu'une fois le disque entièrement ouvert, avec le texte déjà coupé à la taille finale, et un court fondu. Option par bouton (Apparence…, « Afficher les noms des raccourcis », activée par défaut) pour ne jamais les afficher.
 - Bouton : à l'ouverture (et au repli), les icônes glissent vers leur place finale sans sauter ni vibrer (la disposition des anneaux est calculée une fois, puis interpolée en flottant avec le rayon du disque ; le dessin reste dans le cercle).
 - Bouton : par défaut il n’est plus déplaçable (à la souris, plus de curseur de déplacement sur le disque ; les icônes à l’intérieur se cliquent et se lancent). Pour le bouger : clic droit « Déplacer le bouton » (forme compacte seulement, contour coloré comme le mode redimensionnement d’un widget) ; Échap, un lâcher, un clic ailleurs ou ~10 s d’inactivité terminent le mode. Grisé si le Bouton est verrouillé.
@@ -16,6 +17,7 @@
 - Bouton : le disque replié ne glisse plus au bord de l’écran (l’ancre reste fixe ; le cercle déployé est seulement décalé pour tenir dans l’écran, puis y revient) ; l’animation reste un cercle (plus d’ellipse) ; un Bouton verrouillé ne bouge pas, y compris quand le curseur est sur le bord.
 
 ### Nouveautés
+- **Apparence du bouton** : le clic droit « Apparence… » ouvre un dialogue dédié (matériau, transparence, effet, couleur de fond, bordure, taille des icônes, « Afficher les noms des raccourcis », etc.), séparé de l'apparence d'une zone classique.
 - Architecture des formes de zone (`docs/state/decisions/zone-shapes.md`) : classique vs formes plug-in (Bouton, pétale plus tard) ; physique optionnelle plus tard.
 - **Bouton** : zone circulaire libre (`shape=button`), menu bureau « Nouveau bouton », survol/clic pour déployer, raccourcis en anneaux concentriques (départ en haut, sens horaire ; couches supplémentaires et rayon agrandi s’il le faut, sans chevauchement).
 

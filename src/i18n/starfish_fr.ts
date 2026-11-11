@@ -2,6 +2,145 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="fr_FR">
 <context>
+    <name>ButtonAppearanceDialog</name>
+    <message>
+        <location filename="../ui/button_appearance_dialog.hpp" line="+49"/>
+        <source>Button appearance</source>
+        <translation>Apparence du bouton</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Custom</source>
+        <translation>Personnalisé</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Material</source>
+        <translation>Matériau</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Use the default transparency (%1)</source>
+        <translation>Transparence par défaut (%1)</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Transparency</source>
+        <translation>Transparence</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Plain</source>
+        <translation>Uni</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Acrylic (blurred desktop behind)</source>
+        <translation>Acrylique (bureau flouté derrière)</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Textured (fine grain)</source>
+        <translation>Texturé (grain fin)</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Acrylic shows through a transparent button.</source>
+        <translation>L'acrylique se voit à travers un bouton transparent.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Effect</source>
+        <translation>Effet</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The material on the icons too</source>
+        <translation>Le matériau aussi sur les icônes</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <location line="+117"/>
+        <source>Background colour</source>
+        <translation>Couleur de fond</translation>
+    </message>
+    <message>
+        <location line="-113"/>
+        <source>Default (Settings)</source>
+        <translation>Par défaut (Réglages)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing</source>
+        <translation>Aucun</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lighter</source>
+        <translation>Plus clair</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Less transparent</source>
+        <translation>Moins transparent</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tinted with the border colour</source>
+        <translation>Teinté de la couleur de bordure</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Border hidden</source>
+        <translation>Bordure masquée</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Glow</source>
+        <translation>Halo lumineux</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>On hover</source>
+        <translation>Au survol</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Default (%1 px)</source>
+        <translation>Par défaut (%1 px)</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>None</source>
+        <translation>Aucune</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Default</source>
+        <translation>Par défaut</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Border</source>
+        <translation>Bordure</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Icon size</source>
+        <translation>Taille des icônes</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Show shortcut names</source>
+        <translation>Afficher les noms des raccourcis</translation>
+    </message>
+    <message>
+        <location line="+111"/>
+        <source>Border colour</source>
+        <translation>Couleur de bordure</translation>
+    </message>
+</context>
+<context>
     <name>ContextMenuGlyphs</name>
     <message>
         <location filename="../core/context_menu.cpp" line="+469"/>
@@ -256,7 +395,7 @@
 <context>
     <name>FenceAppearanceDialog</name>
     <message>
-        <location filename="../ui/fence_appearance_dialog.hpp" line="+57"/>
+        <location filename="../ui/fence_appearance_dialog.hpp" line="+62"/>
         <source>Fence appearance</source>
         <translation>Apparence de la zone</translation>
     </message>
@@ -384,13 +523,13 @@
         <location line="+4"/>
         <location line="+11"/>
         <location line="+27"/>
-        <location line="+16"/>
-        <location line="+7"/>
+        <location line="+6"/>
+        <location line="+6"/>
         <source>Default (Settings)</source>
         <translation>Par défaut (Réglages)</translation>
     </message>
     <message>
-        <location line="-60"/>
+        <location line="-49"/>
         <source>Nothing</source>
         <translation>Aucun</translation>
     </message>
@@ -480,12 +619,7 @@
         <translation>Redimensionnement</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Show shortcut names</source>
-        <translation>Afficher les noms des raccourcis</translation>
-    </message>
-    <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>Shown</source>
         <translation>Affichés</translation>
     </message>
@@ -500,29 +634,29 @@
         <translation>Noms des icônes</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>Icon order</source>
         <translation>Ordre des icônes</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+235"/>
+        <location line="+228"/>
         <source>Panel colour</source>
         <translation>Couleur du panneau</translation>
     </message>
     <message>
-        <location line="-231"/>
+        <location line="-224"/>
         <source>Same as the panel</source>
         <translation>Comme le panneau</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+236"/>
+        <location line="+229"/>
         <source>Title bar colour</source>
         <translation>Couleur de la barre de titre</translation>
     </message>
     <message>
-        <location line="-231"/>
+        <location line="-224"/>
         <source>Automatic (fits the names)</source>
         <translation>Automatique (selon les noms)</translation>
     </message>
@@ -619,7 +753,7 @@
         <translation>Supprimer le modèle « %1 » ? Les zones gardent leur apparence.</translation>
     </message>
     <message>
-        <location line="+206"/>
+        <location line="+190"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
     </message>
@@ -1575,7 +1709,7 @@
 <context>
     <name>starfish::ui::FenceView</name>
     <message>
-        <location filename="../ui/fence_view.cpp" line="+363"/>
+        <location filename="../ui/fence_view.cpp" line="+370"/>
         <location line="+179"/>
         <location line="+230"/>
         <source>Fence</source>
@@ -1587,7 +1721,7 @@
         <translation>zone vide -- aucune icône pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+760"/>
+        <location line="+771"/>
         <source>Not found: %1</source>
         <translation>Introuvable : %1</translation>
     </message>
@@ -1612,7 +1746,7 @@
         <translation>relâchez pour la remettre sur le bureau</translation>
     </message>
     <message>
-        <location line="+241"/>
+        <location line="+246"/>
         <source>Button</source>
         <translation>Bouton</translation>
     </message>

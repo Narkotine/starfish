@@ -104,3 +104,18 @@ first frame. A per-bouton Appearance checkbox, "Show shortcut names" /
 independent of Settings), can hide them always. With names off, the ring
 layout uses a zero label height so cells are shorter; the rules are unchanged
 (even spacing from the top, concentric rings, no overlap).
+
+
+## Appearance (session 110)
+
+A Bouton's "Appearance..." menu opens a dedicated dialog
+(`createButtonAppearanceDialog` / `buttonAppearanceDialog`), not the classic
+zone one. It holds only settings that apply to a Bouton (material, opacity,
+effect, background colour, hover, border, icon size, show shortcut names).
+Zone-only controls (title bar, roll-up, grid flow, cell width, templates,
+corner radius) stay on the classic dialog, which no longer shows bouton-only
+options. Future shape-specific options should be added to the matching dialog
+so the two stay specialised.
+
+Label fade-in after expand is a visual-only `widgetTick` (the hosted surface
+is an image; `update()` / `paintEvent` do not reach the desktop).

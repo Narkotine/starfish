@@ -4757,6 +4757,158 @@ int runUiProbe(QApplication& app)
                   : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 110: after expand, labels must fade in on the desktop blit with
+    // the pointer still inside. The s109 probe only watched buttonLabelsPainted()
+    // (the fade timer can raise opacity via update() on a shown widget). In
+    // product, the hosted surface is an image: update() never reaches the
+    // desktop until widgetTick / contentChanged. A synthetic enter and then
+    // *no* leave, click or grab is the real case; before the fix, widgetTick
+    // stayed silent after the animation and this check failed.
+    {
+        const auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Shortcut %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        QStringList notes;
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("Fade"), QPoint(600, 400));
+        ui::FenceView* v = box.view(id);
+        bool ok = v != nullptr;
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(4, QStringLiteral("s110fade")));
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+            const QPoint mid = v->rect().center();
+            QEnterEvent enter(QPointF(mid), QPointF(mid), QPointF(v->mapToGlobal(mid)));
+            QApplication::sendEvent(v, &enter);
+            int ticks = 0;
+            QObject::connect(v, &ui::FenceView::widgetTick, v, [&] { ++ticks; });
+            box.setFenceRolledUp(id, false);
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+            const int ticksAtEnd = ticks;
+            // No leave, no click, no grab: only the event loop, like a still cursor.
+            clock.restart();
+            while (v->buttonLabelOpacity() < 0.99 && clock.elapsed() < 500)
+                wait(16);
+            const qreal opacity = v->buttonLabelOpacity();
+            const int fadeTicks = ticks - ticksAtEnd;
+            ok = !box.fenceAnimating(id) && v->buttonLabelsPainted()
+                 && opacity >= 0.99 && fadeTicks >= 3;
+            if (!ok)
+                notes << QStringLiteral("painted %1 opacity %2 ticks during fade %3 (at end %4)")
+                             .arg(v->buttonLabelsPainted())
+                             .arg(opacity, 0, 'f', 2)
+                             .arg(fadeTicks)
+                             .arg(ticksAtEnd);
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: labels fade in after expand with the pointer still inside (session 110)"),
+              ok,
+              notes.isEmpty() ? QStringLiteral("widgetTick during fade, opacity 1, no further pointer events")
+                              : notes.join(QLatin1Char(' ')));
+    }
+
+    // Session 110: Apparence... on a Bouton opens the Bouton dialog; a classic
+    // zone keeps the zone dialog. Bouton-only controls stay out of the zone one.
+    {
+        QStringList notes;
+        ui::FenceContainer box;
+        const QString bid = box.createButton(QStringLiteral("Look"), QPoint(500, 400));
+        const QString zid = box.createFence(QStringLiteral("Zone"), QRect(40, 40, 320, 240));
+        bool boutonDlg = false, zoneDlg = false, roundTrip = false;
+        std::unique_ptr<QDialog> bd(ui::createFenceAppearanceDialog(&box, bid, nullptr));
+        std::unique_ptr<QDialog> zd(ui::createFenceAppearanceDialog(&box, zid, nullptr));
+        if (!bd || !zd) {
+            notes << QStringLiteral("missing dialog");
+        } else {
+            if (offscreen) {
+                bd->setAttribute(Qt::WA_DontShowOnScreen);
+                zd->setAttribute(Qt::WA_DontShowOnScreen);
+            }
+            const bool bName = bd->objectName() == QLatin1String("buttonAppearanceDialog");
+            const bool zName = zd->objectName() == QLatin1String("fenceAppearanceDialog");
+            const QString bTitle = bd->windowTitle();
+            const bool bTitleOk = (bTitle.contains(QStringLiteral("Bouton"), Qt::CaseInsensitive)
+                                   || bTitle.contains(QStringLiteral("Button"), Qt::CaseInsensitive))
+                                  && !bTitle.contains(QStringLiteral("fence"), Qt::CaseInsensitive);
+            auto* names = bd->findChild<QCheckBox*>(QStringLiteral("showShortcutNames"));
+            auto* icon = bd->findChild<QComboBox*>(QStringLiteral("iconSize"));
+            auto* colour = bd->findChild<QPushButton*>(QStringLiteral("panelColour"));
+            auto* trans = bd->findChild<QSlider*>(QStringLiteral("transparencySlider"));
+            auto* border = bd->findChild<QComboBox*>(QStringLiteral("borderWidth"));
+            auto* material = bd->findChild<QComboBox*>(QStringLiteral("material"));
+            const bool boutonHas = names && icon && colour && trans && border && material;
+            const bool boutonLacksZone = !bd->findChild<QCheckBox*>(QStringLiteral("titleBarShown"))
+                                         && !bd->findChild<QComboBox*>(QStringLiteral("rollToward"))
+                                         && !bd->findChild<QComboBox*>(QStringLiteral("titleSide"))
+                                         && !bd->findChild<QComboBox*>(QStringLiteral("showLabels"))
+                                         && !bd->findChild<QComboBox*>(QStringLiteral("iconFlow"))
+                                         && !bd->findChild<QComboBox*>(QStringLiteral("snapToCells"));
+            const bool zoneHas = zd->findChild<QCheckBox*>(QStringLiteral("titleBarShown"))
+                                 && zd->findChild<QComboBox*>(QStringLiteral("showLabels"))
+                                 && zd->findChild<QComboBox*>(QStringLiteral("rollToward"));
+            const bool zoneLacksBouton = !zd->findChild<QCheckBox*>(QStringLiteral("showShortcutNames"))
+                                         && !zd->findChild<QComboBox*>(QStringLiteral("iconSize"));
+            boutonDlg = bName && bTitleOk && boutonHas && boutonLacksZone;
+            zoneDlg = zName && zoneHas && zoneLacksBouton;
+            if (!boutonDlg)
+                notes << QStringLiteral("bouton dlg name %1 title \"%2\" has %3 lacks-zone %4")
+                             .arg(bName).arg(bTitle).arg(boutonHas).arg(boutonLacksZone);
+            if (!zoneDlg)
+                notes << QStringLiteral("zone dlg name %1 has %2 lacks-bouton %3")
+                             .arg(zName).arg(zoneHas).arg(zoneLacksBouton);
+
+            // Round-trip: toggle names off and pick a larger icon, save/load.
+            if (names && icon) {
+                if (!names->isChecked())
+                    names->setChecked(true);
+                names->setChecked(false);
+                const int i64 = icon->findData(64);
+                if (i64 >= 0)
+                    icon->setCurrentIndex(i64);
+                const core::Layout dumped = box.toLayout();
+                const QByteArray json = core::JsonStore::toJson(dumped);
+                ui::FenceContainer loaded;
+                const auto parsed = core::JsonStore::fromJson(json);
+                if (!parsed) {
+                    notes << QStringLiteral("reload failed");
+                } else {
+                    loaded.applyLayout(*parsed);
+                    QString lid;
+                    for (const QString& fid : loaded.fenceIds())
+                        if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
+                            lid = fid;
+                    const core::FenceStyle st = loaded.fenceStyle(lid);
+                    roundTrip = st.showLabels == QLatin1String("off") && st.iconSize == 64;
+                    if (!roundTrip)
+                        notes << QStringLiteral("reload showLabels \"%1\" icon %2")
+                                     .arg(st.showLabels).arg(st.iconSize);
+                }
+            }
+            bd->hide();
+            zd->hide();
+        }
+        check(QStringLiteral("Bouton and zone Appearance dialogs stay separate, settings persist (session 110)"),
+              boutonDlg && zoneDlg && roundTrip,
+              notes.isEmpty() ? QStringLiteral("bouton dialog, zone dialog, showLabels/iconSize saved")
+                              : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {
