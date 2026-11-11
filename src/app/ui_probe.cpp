@@ -5741,6 +5741,299 @@ int runUiProbe(QApplication& app)
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }
 
+
+    // Session 114: after a collapse, the hosted desktop blit must show the
+    // closed frame, not the fully-open one. The widget's internal progress
+    // flag is not enough -- FenceContainer::frame(id) is the last renderFence
+    // image, which is what the desktop actually shows. No further events
+    // (no extra renderFence, no progress override) after the animation ends.
+    {
+        QStringList notes;
+        auto lumaAt = [](const QImage& im, QPoint pt) {
+            if (im.isNull() || im.width() <= 0 || im.height() <= 0)
+                return 255;
+            const QImage src = im.convertToFormat(QImage::Format_ARGB32);
+            const int x = qBound(0, pt.x(), src.width() - 1);
+            const int y = qBound(0, pt.y(), src.height() - 1);
+            const QRgb px = src.pixel(x, y);
+            return (qRed(px) + qGreen(px) + qBlue(px)) / 3;
+        };
+        auto meanAbs = [](const QImage& a, const QImage& b) -> qreal {
+            if (a.isNull() || b.isNull() || a.size() != b.size())
+                return 999.0;
+            const QImage aa = a.convertToFormat(QImage::Format_ARGB32);
+            const QImage bb = b.convertToFormat(QImage::Format_ARGB32);
+            qint64 total = 0;
+            const int n = aa.width() * aa.height();
+            if (n <= 0)
+                return 999.0;
+            for (int y = 0; y < aa.height(); ++y) {
+                const auto* pa = reinterpret_cast<const QRgb*>(aa.constScanLine(y));
+                const auto* pb = reinterpret_cast<const QRgb*>(bb.constScanLine(y));
+                for (int x = 0; x < aa.width(); ++x) {
+                    total += qAbs(qRed(pa[x]) - qRed(pb[x]))
+                           + qAbs(qGreen(pa[x]) - qGreen(pb[x]))
+                           + qAbs(qBlue(pa[x]) - qBlue(pb[x]))
+                           + qAbs(qAlpha(pa[x]) - qAlpha(pb[x]));
+                }
+            }
+            return total / 4.0 / n;
+        };
+        auto dummyItems = [](int n, const QString& tag) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::%1/item%2").arg(tag).arg(i);
+                it.name = QStringLiteral("Item %1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        auto armReveal = [&](ui::FenceContainer& box, const QString& id, const QString& tag) -> ui::FenceView* {
+            ui::FenceView* v = box.view(id);
+            if (!v)
+                return nullptr;
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            v->setItems(dummyItems(6, tag));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            return v;
+        };
+        auto waitAnim = [](ui::FenceContainer& box, const QString& id) {
+            QElapsedTimer clock;
+            clock.start();
+            while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                wait(8);
+        };
+
+        bool birthClosed = false, loadedClosed = false, openedOk = false;
+        bool afterClosed = false, matchesClosed = false, appearanceClosed = false;
+
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("S114"), QPoint(640, 400));
+        ui::FenceView* v = armReveal(box, id, QStringLiteral("s114"));
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            v->show();
+            wait(40);
+            // Fresh create is collapsed. The hosted frame after load/create
+            // must already be the closed iris, with no animation involved.
+            const QImage birth = box.frame(id).copy();
+            const QVector<QPointF> centres = v->buttonItemCenters();
+            const QPoint iconAt = centres.isEmpty() ? QPoint(v->width() / 2, v->height() / 2)
+                                                    : centres.first().toPoint();
+            const int birthLuma = lumaAt(birth, iconAt);
+            birthClosed = !birth.isNull() && birthLuma < 40;
+            if (!birthClosed)
+                notes << QStringLiteral("fresh-load blit not closed luma %1").arg(birthLuma);
+
+            // JSON reload of a collapsed Reveal bouton also blits closed.
+            {
+                const core::Layout dumped = box.toLayout();
+                const QByteArray json = core::JsonStore::toJson(dumped);
+                ui::FenceContainer loaded;
+                const auto parsed = core::JsonStore::fromJson(json);
+                if (!parsed) {
+                    notes << QStringLiteral("reload failed");
+                } else {
+                    loaded.applyLayout(*parsed);
+                    QString lid;
+                    for (const QString& fid : loaded.fenceIds())
+                        if (ui::zone_shape::isButton(loaded.fenceStyle(fid).shape))
+                            lid = fid;
+                    ui::FenceView* lv = loaded.view(lid);
+                    if (lv && offscreen)
+                        lv->setAttribute(Qt::WA_DontShowOnScreen);
+                    const QImage lim = loaded.frame(lid).copy();
+                    QPoint lAt = iconAt;
+                    if (lv) {
+                        const QVector<QPointF> lc = lv->buttonItemCenters();
+                        if (!lc.isEmpty())
+                            lAt = lc.first().toPoint();
+                    }
+                    const int lLuma = lumaAt(lim, lAt);
+                    loadedClosed = !lim.isNull() && lLuma < 40;
+                    if (!loadedClosed)
+                        notes << QStringLiteral("reloaded blit not closed luma %1").arg(lLuma);
+                }
+            }
+
+            // Apparence change on a collapsed bouton must keep the closed frame.
+            {
+                core::FenceStyle st = box.fenceStyle(id);
+                st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
+                box.setFenceStyle(id, st);
+                wait(20);
+                const int aLuma = lumaAt(box.frame(id), iconAt);
+                appearanceClosed = aLuma < 40;
+                if (!appearanceClosed)
+                    notes << QStringLiteral("after Apparence blit not closed luma %1").arg(aLuma);
+            }
+
+            // Expand, then collapse, then read the hosted image with no
+            // further events -- no override, no forced renderFence.
+            box.setFenceRolledUp(id, false);
+            waitAnim(box, id);
+            const QImage opened = box.frame(id).copy();
+            const int openLuma = lumaAt(opened, iconAt);
+            openedOk = !opened.isNull() && openLuma > birthLuma + 20 && !box.fenceAnimating(id);
+            if (!openedOk)
+                notes << QStringLiteral("expand blit not open luma %1 birth %2 anim %3")
+                             .arg(openLuma).arg(birthLuma).arg(box.fenceAnimating(id));
+
+            box.setFenceRolledUp(id, true);
+            waitAnim(box, id);
+            const QImage after = box.frame(id).copy(); // no further events
+            const int afterLuma = lumaAt(after, iconAt);
+            afterClosed = !after.isNull() && afterLuma < 40;
+            const qreal vsBirth = meanAbs(after, birth);
+            const qreal vsOpen = meanAbs(after, opened);
+            matchesClosed = afterClosed && vsBirth < 8.0 && vsOpen > 12.0;
+            if (!matchesClosed)
+                notes << QStringLiteral("after collapse hosted luma %1 vsBirth %2 vsOpen %3")
+                             .arg(afterLuma).arg(vsBirth, 0, 'f', 2).arg(vsOpen, 0, 'f', 2);
+
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: after collapse the hosted blit equals the closed frame; fresh-load collapsed is closed (session 114)"),
+              birthClosed && loadedClosed && openedOk && afterClosed && matchesClosed && appearanceClosed,
+              notes.isEmpty() ? QStringLiteral("hosted frame closed at rest, after collapse, on load and after Apparence")
+                              : notes.join(QLatin1Char(' ')));
+    }
+
+
+    {
+        // PrintWindow shots of a dummy Reveal bouton with 6 dummy icons, at
+        // progress 0 / 0.33 / 0.66 / 1, plus the hosted blit after a real
+        // collapse left at rest (no further events).
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s114"));
+        QDir().mkpath(outDir);
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("S114Shot"), QPoint(300, 300));
+        ui::FenceView* v = box.view(id);
+        bool ok = v != nullptr;
+        const auto dummyItems = [](int n) {
+            QList<core::DesktopItem> items;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem it;
+                it.path = QStringLiteral("::s114shot/item%1").arg(i);
+                it.name = QStringLiteral("S%1").arg(i + 1);
+                items << it;
+            }
+            return items;
+        };
+        if (v) {
+            v->setAttribute(Qt::WA_DontShowOnScreen, false);
+            v->setItems(dummyItems(6));
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
+            st.buttonSkinLayer = QString::fromUtf8(ui::zone_shape::kButtonSkinLayerFront);
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.showLabels = QStringLiteral("off");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint) & ~Qt::WindowDoesNotAcceptFocus);
+            v->show();
+            wait(80);
+            const int side = qMax(160, qMin(v->width(), v->height()));
+            auto snap = [&](const QString& name, qreal progress) {
+                v->setButtonOpenProgressOverride(progress);
+                v->resize(side, side);
+                v->setFixedSize(side, side);
+                v->move(80, 80);
+                v->update();
+                wait(50);
+                QApplication::processEvents();
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ old = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, old);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = v->grab().toImage();
+                const QString path = outDir + QLatin1Char('/') + name;
+                const bool saved = !img.isNull() && img.save(path, "PNG");
+                if (!saved)
+                    notes << QStringLiteral("failed %1").arg(name);
+                return saved && !img.isNull();
+            };
+            const bool s0 = snap(QStringLiteral("progress_0.png"), 0.0);
+            const bool s33 = snap(QStringLiteral("progress_0.33.png"), 0.33);
+            const bool s66 = snap(QStringLiteral("progress_0.66.png"), 0.66);
+            const bool s1 = snap(QStringLiteral("progress_1.png"), 1.0);
+
+            // After collapse at rest: expand, collapse, no further events,
+            // save the hosted renderFence image (what the desktop shows).
+            v->setButtonOpenProgressOverride(-1);
+            v->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+            box.syncButtonSize(id);
+            wait(20);
+            box.setFenceRolledUp(id, false);
+            {
+                QElapsedTimer clock;
+                clock.start();
+                while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                    wait(8);
+            }
+            box.setFenceRolledUp(id, true);
+            {
+                QElapsedTimer clock;
+                clock.start();
+                while (box.fenceAnimating(id) && clock.elapsed() < 1500)
+                    wait(8);
+            }
+            const QImage hosted = box.frame(id);
+            const QString restPath = outDir + QStringLiteral("/after_collapse_at_rest.png");
+            const bool rest = !hosted.isNull() && hosted.save(restPath, "PNG");
+            if (!rest)
+                notes << QStringLiteral("failed after_collapse_at_rest.png");
+            ok = s0 && s33 && s66 && s1 && rest;
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: PrintWindow Reveal shots at 0 / 0.33 / 0.66 / 1 plus after collapse at rest (session 114)"),
+              ok,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

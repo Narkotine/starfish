@@ -201,4 +201,21 @@ the full disc while closed; icons are clickable only once fully open.
 Hover/click opening rules, the durable anchor, and lock behaviour are
 unchanged. Progress is still 0..1 from the host (no skin clock).
 
+## Rest progress and pinwheel blades (session 114)
+
+At rest, `buttonOpenProgress` is 0 when the bouton is collapsed and 1 when
+it is expanded, including just after a roll ends, on load, and after an
+Appearance change. End-of-roll applies visible geometry (rest
+`rolledUp` / `rolling` flags) *before* clearing the progress override, so
+the `widgetTick` → `renderFence` blit uses the rest frame. Clearing the
+override first painted the open frame while the view was still rolling;
+in Reveal, T-077 then skipped a second blit because the size was unchanged.
+
+Blade edges (procedural Diaphragm and the demo GIF) are no longer full
+chords of the disc. Each of the 12 blades is one antialiased white cubic
+from the rim, inward in a pinwheel, ending at the next side's tangent
+point (arriving along that side). Lines do not cross the aperture or each
+other. Closed: a tight swirl to a pinpoint. Open: short stubs near the
+rim around a large 12-gon. Perfect 12-fold symmetry is asserted by
+`tools/make_shutter_gif.py`.
 

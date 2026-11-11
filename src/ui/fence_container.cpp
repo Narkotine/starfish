@@ -1014,9 +1014,13 @@ void FenceContainer::finishRollAnimation(FenceWindow& fence)
         fence.rollAnimation->stop();
     fence.animating = false;
     fence.animatedVisible = QRect();
+    // Session 114: rest flags first, then drop the override. Clearing the
+    // override first emitted widgetTick -> renderFence while the view was
+    // still rolling, so Reveal painted progress 1 (the open frame). T-077
+    // then skipped a second blit because the size had not changed.
+    applyVisibleGeometry(fence);
     if (fence.view)
         fence.view->setButtonOpenProgressOverride(-1);
-    applyVisibleGeometry(fence);
     settleButtonHover(fence);
 }
 
@@ -1061,9 +1065,9 @@ void FenceContainer::animateRollFrom(FenceWindow& fence, const QRect& from)
     const bool revealHold = zone_shape::isButton(fence.style.shape) && buttonUsesReveal(fence)
         && from.isValid();
     if (!m_animateRoll || !from.isValid() || (from == to && !revealHold)) {
+        applyVisibleGeometry(fence);
         if (fence.view)
             fence.view->setButtonOpenProgressOverride(-1);
-        applyVisibleGeometry(fence);
         return;
     }
     if (!fence.rollAnimation) {
@@ -1145,9 +1149,9 @@ void FenceContainer::stepRoll(const QString& id)
     f->rollAnimation->stop();
     f->animating = false;
     f->animatedVisible = QRect();
+    applyVisibleGeometry(*f); // session 114: rest flags before the hosted blit
     if (f->view)
         f->view->setButtonOpenProgressOverride(-1);
-    applyVisibleGeometry(*f);
     settleButtonHover(*f);
     f->rollApplies << (f->rollClock.nsecsElapsed() - now) / 1e6;
     fineTimer(false);

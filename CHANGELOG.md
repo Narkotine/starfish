@@ -8,6 +8,7 @@
 ## Non publié
 
 ### Correctifs
+- Bouton : une fois refermé (Dévoilement, Diaphragme ou Obturateur), l'image sur le bureau montrait la vue toute ouverte. En fin d'animation, la progression était effacée avant que l'état au repos soit appliqué, et un disque de même taille n'était pas redessiné. Corrigé : au repos refermé, c'est la vue fermée ; au repos ouvert, la vue ouverte ; idem au chargement et après un changement d'Apparence.
 - Bouton : plus de titre dessiné sur le disque (replié ou au survol) ; le nom reste enregistré pour les menus.
 - Bouton : les noms des raccourcis apparaissent tout seuls dès la fin de l'ouverture (plus besoin de sortir le curseur ou de cliquer) ; le fondu redessine la surface hébergée à chaque image.
 - Bouton : les noms des raccourcis restent cachés pendant l'ouverture et le repli (plus d'ellipse « … » qui change à chaque image) ; ils n'apparaissent qu'une fois le disque entièrement ouvert, avec le texte déjà coupé à la taille finale, et un court fondu. Option par bouton (Apparence…, « Afficher les noms des raccourcis », activée par défaut) pour ne jamais les afficher.
@@ -18,6 +19,7 @@
 - Bouton : le disque replié ne glisse plus au bord de l’écran (l’ancre reste fixe ; le cercle déployé est seulement décalé pour tenir dans l’écran, puis y revient) ; l’animation reste un cercle (plus d’ellipse) ; un Bouton verrouillé ne bouge pas, y compris quand le curseur est sur le bord.
 
 ### Nouveautés
+- **Diaphragme / Obturateur (démo)** : les 12 lames montrent chacune une arête blanche, en pinwheel, du bord du disque jusqu'à l'ouverture (tangente au 12-gone), sans traverser l'orifice ni se croiser. Fermé : tourbillon serré vers un point ; ouvert : courts segments près du bord autour d'un grand 12-gone.
 - **Habillage du bouton** : un GIF animé, dont les images suivent l'ouverture (pas d'horloge propre : l'image est choisie d'après la progression). « Simple », « Obturateur (démo) » (diaphragme 12 lames, fourni), « Diaphragme » (dessiné à la volée, plus net à toute taille) ou « GIF animé… » (fichier *.gif, chemin mémorisé par bouton ; fichier manquant → Simple). « Position de l'image » : derrière ou devant les icônes (devant, les icônes restent cliquables une fois ouvert).
 - **Ouverture du bouton** : « Agrandissement » (le disque grandit, comme avant) ou « Dévoilement » (le bouton occupe déjà sa taille ouverte ; les icônes restent en place et sont dévoilées par l'iris, devant). Choisir l'Obturateur (démo) ou le Diaphragme sélectionne Dévoilement et Devant les icônes (on peut encore changer). En Dévoilement, le diamètre est celui du disque entier (agrandi si les icônes le demandent) ; les icônes ne se cliquent qu'une fois l'iris entièrement ouvert.
 - **Apparence du bouton** : « Diamètre » du disque replié (48–256 px, pas de 8, par défaut ≈ 2× la taille des icônes) et « Nombre d'anneaux » (Automatique, ou 1 à 8). Un nombre fixe répartit plus d'icônes sur les anneaux extérieurs (proportionnel à la circonférence) et agrandit le rayon si besoin, sans chevauchement.

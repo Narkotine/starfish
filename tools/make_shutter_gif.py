@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate StarFish's built-in Bouton shutter GIF (session 113).
+"""Generate StarFish's built-in Bouton shutter GIF (session 114).
 
     python tools/make_shutter_gif.py
     python tools/make_shutter_gif.py --preview build/captures/shutter_preview
@@ -7,9 +7,11 @@
 
 An original twelve-blade camera diaphragm, 36 frames, 512x512, transparent
 outside the disc and in the growing regular-dodecagon aperture. Frame 0 is
-almost closed (a pinpoint aperture); the last frame is a black ring with
-faint blade lines at the rim. Blade edges are identical, evenly rotated,
-perfectly 12-fold symmetric (asserted). StarFish scrubs this GIF with the
+almost closed (a tight swirl to a pinpoint aperture); the last frame is a
+black ring with short pinwheel stubs around a large 12-gon. Each blade shows
+one edge: a white cubic from the rim, inward in a pinwheel, ending at the
+next side's tangent point (tangent to the aperture). Edges do not cross the opening or each other. Blade
+edges are identical, evenly rotated, perfectly 12-fold symmetric (asserted). StarFish scrubs this GIF with the
 Bouton's open progress (it does not play on a clock). No third-party
 artwork: geometry is drawn here.
 """
@@ -59,17 +61,42 @@ def regular_polygon(cx: float, cy: float, apothem: float, n: int, rotation: floa
     return verts
 
 
-def edge_chords(cx: float, cy: float, apothem: float, disc_r: float, n: int, rotation: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    """Each blade edge is the chord of the disc along the n-gon's supporting line."""
-    chords = []
-    half = math.sqrt(max(0.0, disc_r * disc_r - apothem * apothem))
+def _cubic(p0, p1, p2, p3, steps: int = 48) -> list[tuple[float, float]]:
+    pts: list[tuple[float, float]] = []
+    for i in range(steps + 1):
+        t = i / steps
+        u = 1.0 - t
+        x = u**3 * p0[0] + 3 * u**2 * t * p1[0] + 3 * u * t**2 * p2[0] + t**3 * p3[0]
+        y = u**3 * p0[1] + 3 * u**2 * t * p1[1] + 3 * u * t**2 * p2[1] + t**3 * p3[1]
+        pts.append((x, y))
+    return pts
+
+
+def pinwheel_edges(cx: float, cy: float, disc_r: float, apothem: float, n: int, rotation: float) -> list[list[tuple[float, float]]]:
+    """One visible edge per blade: a cubic from the rim, pinwheel-wise, ending
+    at the next side's tangent point and arriving along that side.
+
+    Curves terminate at the aperture and do not cross the opening or each
+    other. Full chords of the supporting lines used to form a star web.
+    """
+    edges: list[list[tuple[float, float]]] = []
     for i in range(n):
         ang = rotation + i * (2.0 * math.pi / n)
         nx, ny = math.cos(ang), math.sin(ang)
-        tx, ty = -ny, nx
-        mx, my = cx + apothem * nx, cy + apothem * ny
-        chords.append(((mx - tx * half, my - ty * half), (mx + tx * half, my + ty * half)))
-    return chords
+        ang2 = ang + 2.0 * math.pi / n
+        n2x, n2y = math.cos(ang2), math.sin(ang2)
+        p0 = (cx + disc_r * nx, cy + disc_r * ny)
+        p3 = (cx + apothem * n2x, cy + apothem * n2y)
+        chordx, chordy = p3[0] - p0[0], p3[1] - p0[1]
+        tx, ty = -n2y, n2x
+        if tx * chordx + ty * chordy > 0:
+            tx, ty = -tx, -ty
+        length = math.hypot(chordx, chordy)
+        p2 = (p3[0] + tx * length * 0.35, p3[1] + ty * length * 0.35)
+        p1 = (p0[0] + (-nx * 0.25 + (-ny) * 0.35) * length,
+              p0[1] + (-ny * 0.25 + nx * 0.35) * length)
+        edges.append(_cubic(p0, p1, p2, p3))
+    return edges
 
 
 def render_frame(size: int, progress: float, *, supersample: int = SCALE, rotation: float = 0.0) -> Image.Image:
@@ -97,10 +124,13 @@ def render_frame(size: int, progress: float, *, supersample: int = SCALE, rotati
     poly = regular_polygon(cx, cy, ap, BLADES, rotation)
     draw.polygon(poly, fill=(0, 0, 0, 0))
 
-    # Antialiased white blade edges (the n chords).
+    # Antialiased white aperture outline and pinwheel blade edges
+    # (cubic, rim -> next tangent point). Supersampled, then Lanczos.
     width = max(supersample, int(round(0.0046 * s)))
-    for a, b in edge_chords(cx, cy, ap, disc_r, BLADES, rotation):
-        draw.line([a, b], fill=(255, 255, 255, 235), width=width)
+    closed = poly + [poly[0]]
+    draw.line(closed, fill=(255, 255, 255, 235), width=width, joint="curve")
+    for pts in pinwheel_edges(cx, cy, disc_r, ap, BLADES, rotation):
+        draw.line(pts, fill=(255, 255, 255, 235), width=width)
 
     if supersample != 1:
         im = im.resize((size, size), Image.Resampling.LANCZOS)

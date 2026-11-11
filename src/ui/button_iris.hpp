@@ -75,17 +75,40 @@ inline void paintIrisDiaphragm(QPainter& painter, const QRectF& disc, qreal prog
     painter.setBrush(shade);
     painter.drawPath(blades);
 
-    const qreal half = qSqrt(qMax(qreal(0), R * R - ap * ap));
+    // One visible edge per blade: a cubic from the rim, inward in a
+    // pinwheel, ending at the next side's tangent point and arriving
+    // along that side (tangent to the aperture). Lines do not cross the
+    // opening or each other. Closed: a tight swirl to a pinpoint. Open:
+    // short edge stubs near the rim around a large 12-gon. (Full chords
+    // looked like a star web; straight radials, like spokes when closed.)
     const qreal penW = qMax(qreal(1), qreal(0.0046) * side);
     painter.setPen(QPen(QColor(255, 255, 255, 235), penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
+    painter.drawPolygon(poly);
     for (int i = 0; i < kIrisBlades; ++i) {
         const qreal ang = rot + i * (tau / qreal(kIrisBlades));
         const qreal nx = qCos(ang);
         const qreal ny = qSin(ang);
-        const QPointF mid(c.x() + ap * nx, c.y() + ap * ny);
-        const QPointF t(-ny * half, nx * half);
-        painter.drawLine(mid - t, mid + t);
+        const qreal ang2 = ang + tau / qreal(kIrisBlades);
+        const qreal n2x = qCos(ang2);
+        const qreal n2y = qSin(ang2);
+        const QPointF p0(c.x() + R * nx, c.y() + R * ny);
+        const QPointF p3(c.x() + ap * n2x, c.y() + ap * n2y);
+        const QPointF chord = p3 - p0;
+        qreal tx = -n2y;
+        qreal ty = n2x;
+        if (tx * chord.x() + ty * chord.y() > 0) {
+            tx = -tx;
+            ty = -ty;
+        }
+        const qreal L = qSqrt(chord.x() * chord.x() + chord.y() * chord.y());
+        const QPointF p2(p3.x() + tx * L * 0.35, p3.y() + ty * L * 0.35);
+        const QPointF p1(p0.x() + (-nx * 0.25 + (-ny) * 0.35) * L,
+                         p0.y() + (-ny * 0.25 + nx * 0.35) * L);
+        QPainterPath edge;
+        edge.moveTo(p0);
+        edge.cubicTo(p1, p2, p3);
+        painter.drawPath(edge);
     }
     painter.restore();
 }
