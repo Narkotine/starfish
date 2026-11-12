@@ -63,6 +63,9 @@ struct FenceWindow {
     // after a size change -- that rounded toward the top-left and drifted.
     QPoint buttonAnchor;
     bool hasButtonAnchor = false;
+    // Session 117: live diameter while a compact resize is in progress
+    // (0 = none). Not persisted; commit writes style.buttonDiameter.
+    int buttonDiameterPreview = 0;
     // Session 73: while rolling / unrolling, the rect shown (the stored rect and
     // `rolledUp` already say where it is going and are never animated).
     QRect animatedVisible;
@@ -470,6 +473,13 @@ public:
     bool beginButtonMoveMode(const QString& id);
     void endButtonMoveMode(const QString& id);
     bool buttonMoveMode(const QString& id) const;
+    bool beginButtonResizeMode(const QString& id);
+    void endButtonResizeMode(const QString& id);
+    bool buttonResizeMode(const QString& id) const;
+    QPoint buttonAnchor(const QString& id) const;
+    void previewButtonDiameter(const QString& id, int preferred);
+    void commitButtonDiameter(const QString& id, int preferred);
+    void cancelButtonDiameterPreview(const QString& id);
     QRect setFenceRect(const QString& id, const QRect& rect, bool snap = true);
 
     // --- rules (T-010, F-017 / F-018) ---------------------------------------

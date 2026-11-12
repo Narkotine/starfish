@@ -304,6 +304,10 @@ public:
     bool beginButtonMoveMode();
     void endButtonMoveMode();
     bool buttonMoveMode() const { return m_buttonMoveMode; }
+    // Session 117: widget-style resize of a Bouton (diameter only, compact).
+    bool beginButtonResizeMode();
+    void endButtonResizeMode();
+    bool buttonResizeMode() const { return m_buttonResizeMode; }
     QRect widgetResizeRect() const; // the outline, widget coordinates (the preview while pulled)
 
 public:
@@ -333,6 +337,13 @@ signals:
     void widgetResized(const QString& path, const QSize& span);
     void widgetResizeModeChanged(bool on);
     void buttonMoveModeChanged(bool on);
+    void buttonResizeModeChanged(bool on);
+    // Session 117: a grip pulled in bouton resize mode -- preferred diameter,
+    // already snapped to the Diamètre ladder. The container previews around
+    // the durable anchor; commit is true on release, false on cancel.
+    void buttonDiameterPreviewed(int preferred);
+    void buttonDiameterCommitted(int preferred);
+    void buttonResizeCancelled();
     // Session 107: Esc / timeout / click elsewhere during a move-mode drag
     // -- the container restores the rect it had when the gesture began.
     void geometryDragCancelled();
@@ -451,6 +462,11 @@ private:
     // Session 107: Bouton move mode (same idle length as the resize mode).
     bool m_buttonMoveMode = false;
     QTimer m_buttonMoveIdle;
+    bool m_buttonResizeMode = false;
+    QTimer m_buttonResizeIdle;
+    bool m_buttonResizeDragging = false;
+    int m_buttonResizeStartDiameter = 0;
+    int m_buttonResizePreviewDiameter = 0;
     int m_resizeEdges = 0;
     bool m_resizeDragging = false;
     QPoint m_resizeStart;

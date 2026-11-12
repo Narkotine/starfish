@@ -251,3 +251,21 @@ along `buttonOpenProgress()` (`core::mixOklab` in `src/core/color_mix.hpp`:
 endpoints exact, alpha lerped linearly and separately). The same colours drive
 the hosted frame fill, so the change is visible in Reveal where the skin does
 not cover the disc. Skins still paint on top.
+
+## Context menu and widget-style resize (session 117)
+
+A Bouton's right-click menu no longer carries zone-only entries: the Resize
+submenu (default / whole icons / free), title bar, hover unroll, sort, add a
+widget, and apply a template. It keeps Lock, Move button, Resize the button,
+Rename, Roll up/down, Appearance, and Remove this button (zones keep
+"Remove this fence"). A classic zone's menu is unchanged.
+
+Resize is the same short mode as a widget, adapted to a circle: opened from
+"Resize the button" / "Redimensionner le bouton", compact only, greyed when
+locked, eight accent grips, aspect locked (diameter only) around the durable
+`buttonAnchor`. Values are snapped to the 8 px ladder in the 48–256 px
+Diameter range and written to `buttonDiameter` so Appearance shows the new
+size; the ring layout is recomputed. Mid-drag preview does not rewrite the
+stored square (no autosave). Esc, a click elsewhere, or ~10 s idle ends the
+mode; a grip release stays in the mode, like a widget. No move cursor and no
+blocked icon clicks in normal use. No keyboard shortcut and no new tray entry.

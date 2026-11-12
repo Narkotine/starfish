@@ -6574,6 +6574,264 @@ int runUiProbe(QApplication& app)
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 117: a Bouton's right-click menu drops zone-only entries; classic
+    // zones keep them. Resize is the widget-style diameter mode, compact only.
+    {
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s117"));
+        QDir().mkpath(outDir);
+
+        auto countAny = [](const QList<ui::FenceMenu::Entry>& list, ui::FenceMenu::Action a) {
+            int n = 0;
+            for (const ui::FenceMenu::Entry& e : list) {
+                if (e.action == a)
+                    ++n;
+            }
+            return n;
+        };
+        ui::FenceMenu::State btnState;
+        btnState.isButton = true;
+        btnState.widgetKinds << QStringLiteral("Notes");
+        btnState.templates << QStringLiteral("Work");
+        const QList<ui::FenceMenu::Entry> btnEntries = ui::FenceMenu::entries(btnState);
+        const bool btnHasOwn = countAny(btnEntries, ui::FenceMenu::Action::MoveButton) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::ResizeButton) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::Appearance) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::ToggleRoll) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::Rename) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::ToggleLock) == 1
+            && countAny(btnEntries, ui::FenceMenu::Action::Remove) == 1;
+        const bool btnOmitsZone = countAny(btnEntries, ui::FenceMenu::Action::Resize) == 0
+            && countAny(btnEntries, ui::FenceMenu::Action::ToggleTitleBar) == 0
+            && countAny(btnEntries, ui::FenceMenu::Action::HoverUnroll) == 0
+            && countAny(btnEntries, ui::FenceMenu::Action::Sort) == 0
+            && countAny(btnEntries, ui::FenceMenu::Action::AddWidget) == 0
+            && countAny(btnEntries, ui::FenceMenu::Action::Template) == 0;
+        if (!btnHasOwn)
+            notes << QStringLiteral("bouton menu missing its own entries");
+        if (!btnOmitsZone)
+            notes << QStringLiteral("bouton menu still has zone-only entries");
+
+        ui::FenceMenu::State zoneState;
+        zoneState.widgetKinds << QStringLiteral("Notes");
+        zoneState.templates << QStringLiteral("Work");
+        const QList<ui::FenceMenu::Entry> zoneEntries = ui::FenceMenu::entries(zoneState);
+        const bool zoneKeeps = countAny(zoneEntries, ui::FenceMenu::Action::Resize) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::ToggleTitleBar) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::HoverUnroll) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::Sort) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::AddWidget) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::Template) == 1
+            && countAny(zoneEntries, ui::FenceMenu::Action::ResizeButton) == 0
+            && countAny(zoneEntries, ui::FenceMenu::Action::MoveButton) == 0;
+        if (!zoneKeeps)
+            notes << QStringLiteral("classic zone menu lost its entries");
+
+        ui::FenceContainer box;
+        box.setAnimateRoll(false);
+        const QPoint want(480, 360);
+        const QString id = box.createButton(QStringLiteral("S117Resize"), want);
+        ui::FenceView* v = box.view(id);
+        bool resizeOk = false;
+        bool lockedRefuses = false;
+        bool shotsOk = false;
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.hoverEffect = QStringLiteral("none");
+            st.buttonDiameter = 96;
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenGrow);
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->show();
+            wait(40);
+
+            const QPoint anchor0 = box.buttonAnchor(id);
+            box.renderFence(id);
+            const QRect vis0 = box.fenceVisibleRect(id);
+            const QImage host0 = box.frame(id);
+            const int side0 = qMin(vis0.width(), vis0.height());
+
+            const bool entered = box.beginButtonResizeMode(id);
+            if (!entered || !box.buttonResizeMode(id) || !v->rolledUp())
+                notes << QStringLiteral("resize mode not entered compact");
+            wait(30);
+            box.renderFence(id);
+            const QImage modeImg = box.frame(id);
+
+            // Pull the east grip outward so the diameter grows (96 -> ~160).
+            const QPoint mid = v->rect().center();
+            const int radius = qMax(1, qMin(v->width(), v->height()) / 2);
+            const QPoint east(mid.x() + radius, mid.y());
+            const QPoint eastFar(mid.x() + 80, mid.y());
+            const QPoint gEast = v->mapToGlobal(east);
+            const QPoint gFar = v->mapToGlobal(eastFar);
+            QMouseEvent press(QEvent::MouseButtonPress, east, east, gEast,
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &press);
+            QMouseEvent move(QEvent::MouseMove, eastFar, eastFar, gFar,
+                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &move);
+            wait(30);
+            QMouseEvent rel(QEvent::MouseButtonRelease, eastFar, eastFar, gFar,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &rel);
+            wait(40);
+            box.renderFence(id);
+
+            const QPoint anchor1 = box.buttonAnchor(id);
+            const QRect vis1 = box.fenceVisibleRect(id);
+            const QImage host1 = box.frame(id);
+            const int side1 = qMin(vis1.width(), vis1.height());
+            const int storedDiam = box.fenceStyle(id).buttonDiameter;
+            const bool centreHeld = anchor1 == anchor0
+                && qAbs(vis1.center().x() - vis0.center().x()) <= 1
+                && qAbs(vis1.center().y() - vis0.center().y()) <= 1;
+            const bool grew = side1 > side0 + 8 && storedDiam > 96
+                && !host1.isNull() && host1.width() > host0.width();
+            if (!centreHeld)
+                notes << QStringLiteral("centre moved %1,%2 -> %3,%4 vis %5,%6 -> %7,%8")
+                             .arg(anchor0.x()).arg(anchor0.y()).arg(anchor1.x()).arg(anchor1.y())
+                             .arg(vis0.center().x()).arg(vis0.center().y())
+                             .arg(vis1.center().x()).arg(vis1.center().y());
+            if (!grew)
+                notes << QStringLiteral("diameter did not grow vis %1->%2 stored %3 host %4->%5")
+                             .arg(side0).arg(side1).arg(storedDiam)
+                             .arg(host0.width()).arg(host1.width());
+            resizeOk = entered && centreHeld && grew && storedDiam == ui::zone_shape::buttonSnappedDiameter(storedDiam);
+
+            box.endButtonResizeMode(id);
+            box.setFenceLocked(id, true);
+            lockedRefuses = !box.beginButtonResizeMode(id) && !box.buttonResizeMode(id);
+            if (!lockedRefuses)
+                notes << QStringLiteral("locked bouton accepted resize mode");
+            box.setFenceLocked(id, false);
+
+            // PrintWindow: menu, resize-mode handles, after resize.
+            auto printWin = [](QWidget* w) -> QImage {
+                if (!w)
+                    return {};
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(w->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ oldBm = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, oldBm);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = w->grab().toImage();
+                return img;
+            };
+
+            // Reset to a known size, enter resize mode, shoot, then keep the
+            // already-resized disc for the "after" shot (re-apply 160 if needed).
+            st = box.fenceStyle(id);
+            st.buttonDiameter = 96;
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            box.setFenceRolledUp(id, true);
+            wait(20);
+            v->setAttribute(Qt::WA_DontShowOnScreen, false);
+            v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint) & ~Qt::WindowDoesNotAcceptFocus);
+            v->show();
+            v->move(80, 80);
+            wait(80);
+
+            QMenu menu;
+            for (const ui::FenceMenu::Entry& entry : ui::FenceMenu::entries(btnState)) {
+                if (entry.kind == ui::FenceMenu::Kind::Separator)
+                    menu.addSeparator();
+                else if (entry.kind == ui::FenceMenu::Kind::Action) {
+                    QAction* a = menu.addAction(entry.label);
+                    a->setEnabled(entry.enabled);
+                    a->setCheckable(entry.checkable);
+                    a->setChecked(entry.checked);
+                }
+            }
+            menu.popup(v->mapToGlobal(QPoint(v->width() + 8, 0)));
+            wait(80);
+            QApplication::processEvents();
+            const QImage menuImg = printWin(&menu);
+            const QString menuPath = outDir + QStringLiteral("/bouton_menu.png");
+            const bool menuSaved = !menuImg.isNull() && menuImg.save(menuPath, "PNG");
+            menu.close();
+            if (!menuSaved)
+                notes << QStringLiteral("failed bouton_menu.png");
+
+            box.beginButtonResizeMode(id);
+            // Keep the compact disc; do not force a larger widget size.
+            wait(80);
+            const QImage modeShot = printWin(v);
+            const QString modePath = outDir + QStringLiteral("/resize_mode.png");
+            const bool modeSaved = !modeShot.isNull() && modeShot.save(modePath, "PNG");
+            if (!modeSaved)
+                notes << QStringLiteral("failed resize_mode.png");
+
+            // Grow it for the after shot, then leave the mode.
+            const QPoint mid2 = v->rect().center();
+            const int radius2 = qMax(1, qMin(v->width(), v->height()) / 2);
+            const QPoint e2(mid2.x() + radius2, mid2.y());
+            const QPoint f2(mid2.x() + 88, mid2.y());
+            QMouseEvent p2(QEvent::MouseButtonPress, e2, e2, v->mapToGlobal(e2),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &p2);
+            QMouseEvent m2(QEvent::MouseMove, f2, f2, v->mapToGlobal(f2),
+                           Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &m2);
+            QMouseEvent r2(QEvent::MouseButtonRelease, f2, f2, v->mapToGlobal(f2),
+                           Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &r2);
+            wait(50);
+            box.endButtonResizeMode(id);
+            v->update();
+            wait(50);
+            const QImage afterShot = printWin(v);
+            const QString afterPath = outDir + QStringLiteral("/after_resize.png");
+            const bool afterSaved = !afterShot.isNull() && afterShot.save(afterPath, "PNG");
+            if (!afterSaved)
+                notes << QStringLiteral("failed after_resize.png");
+            shotsOk = menuSaved && modeSaved && afterSaved;
+            v->hide();
+        }
+
+        check(QStringLiteral("Bouton: context menu drops zone-only entries; zone menu unchanged (session 117)"),
+              btnHasOwn && btnOmitsZone && zoneKeeps,
+              notes.isEmpty() ? QStringLiteral("bouton menu pruned, zone menu intact")
+                              : notes.join(QLatin1Char(' ')));
+        check(QStringLiteral("Bouton: widget-style resize around a fixed centre, locked refuses (session 117)"),
+              resizeOk && lockedRefuses && shotsOk,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

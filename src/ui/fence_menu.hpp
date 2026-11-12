@@ -84,6 +84,7 @@ enum class Action {
     AddWidgetChoice,   // value: index into State::widgetKinds
     ToggleLock,        // session 94: lock / unlock the fence
     MoveButton,        // session 107: Bouton move mode (compact only)
+    ResizeButton,      // session 117: Bouton resize mode (compact, diameter only)
 };
 
 struct Entry {
@@ -365,12 +366,16 @@ inline QList<Entry> entries(const State& state)
         roll.label = state.rolledUp ? QCoreApplication::translate("FenceMenu", "Roll down")
                                     : QCoreApplication::translate("FenceMenu", "Roll up");
         out << lock << separator << roll;
-        if (state.isButton) { // session 107: visible, greyed -- never a silent absence
+        if (state.isButton) { // session 107/117: visible, greyed -- never a silent absence
             Entry move;
             move.action = Action::MoveButton;
             move.label = QCoreApplication::translate("FenceMenu", "Move button");
             move.enabled = false;
-            out << separator << move;
+            Entry resizeButton;
+            resizeButton.action = Action::ResizeButton;
+            resizeButton.label = QCoreApplication::translate("FenceMenu", "Resize the button");
+            resizeButton.enabled = false;
+            out << separator << move << resizeButton;
         }
         return out;
     }
@@ -378,12 +383,19 @@ inline QList<Entry> entries(const State& state)
     // Session 94 (t104u): the lock is the menu's first entry, locked or not.
     out << lock << separator;
 
-    if (state.isButton) { // session 107: explicit move mode, compact form only
+    if (state.isButton) {
+        // Session 107: explicit move mode, compact form only.
+        // Session 117: widget-style resize (diameter only), also compact.
         Entry move;
         move.action = Action::MoveButton;
         move.label = QCoreApplication::translate("FenceMenu", "Move button");
         move.enabled = !state.locked;
         out.append(move);
+        Entry resizeButton;
+        resizeButton.action = Action::ResizeButton;
+        resizeButton.label = QCoreApplication::translate("FenceMenu", "Resize the button");
+        resizeButton.enabled = !state.locked;
+        out.append(resizeButton);
     }
 
     Entry rename;
@@ -397,38 +409,42 @@ inline QList<Entry> entries(const State& state)
                                 : QCoreApplication::translate("FenceMenu", "Roll up");
     out.append(roll);
 
-    // Session 68 (the user asked for it here): the title bar, shown or not.
-    Entry titleBar;
-    titleBar.action = Action::ToggleTitleBar;
-    titleBar.label = QCoreApplication::translate("FenceMenu", "Show the title bar");
-    titleBar.checkable = true;
-    titleBar.checked = state.titleBarShown;
-    out.append(titleBar);
+    // Session 117: a Bouton has no title bar, no grid, no zone templates, and
+    // no free / whole-icon resize -- those stay on classic zones only.
+    if (!state.isButton) {
+        // Session 68 (the user asked for it here): the title bar, shown or not.
+        Entry titleBar;
+        titleBar.action = Action::ToggleTitleBar;
+        titleBar.label = QCoreApplication::translate("FenceMenu", "Show the title bar");
+        titleBar.checkable = true;
+        titleBar.checked = state.titleBarShown;
+        out.append(titleBar);
 
-    Entry hoverUnroll;
-    hoverUnroll.kind = Kind::Submenu;
-    hoverUnroll.action = Action::HoverUnroll;
-    hoverUnroll.label = QCoreApplication::translate("FenceMenu", "Unroll on hover");
-    out.append(hoverUnroll);
+        Entry hoverUnroll;
+        hoverUnroll.kind = Kind::Submenu;
+        hoverUnroll.action = Action::HoverUnroll;
+        hoverUnroll.label = QCoreApplication::translate("FenceMenu", "Unroll on hover");
+        out.append(hoverUnroll);
 
-    Entry sort;
-    sort.kind = Kind::Submenu;
-    sort.action = Action::Sort;
-    sort.label = QCoreApplication::translate("FenceMenu", "Sort by");
-    out.append(sort);
+        Entry sort;
+        sort.kind = Kind::Submenu;
+        sort.action = Action::Sort;
+        sort.label = QCoreApplication::translate("FenceMenu", "Sort by");
+        out.append(sort);
 
-    Entry resize; // session 76
-    resize.kind = Kind::Submenu;
-    resize.action = Action::Resize;
-    resize.label = QCoreApplication::translate("FenceMenu", "Resize");
-    out.append(resize);
+        Entry resize; // session 76
+        resize.kind = Kind::Submenu;
+        resize.action = Action::Resize;
+        resize.label = QCoreApplication::translate("FenceMenu", "Resize");
+        out.append(resize);
 
-    if (!state.widgetKinds.isEmpty()) { // session 79
-        Entry widget;
-        widget.kind = Kind::Submenu;
-        widget.action = Action::AddWidget;
-        widget.label = QCoreApplication::translate("FenceMenu", "Add a widget");
-        out.append(widget);
+        if (!state.widgetKinds.isEmpty()) { // session 79
+            Entry widget;
+            widget.kind = Kind::Submenu;
+            widget.action = Action::AddWidget;
+            widget.label = QCoreApplication::translate("FenceMenu", "Add a widget");
+            out.append(widget);
+        }
     }
 
     out.append(separator);
@@ -438,7 +454,7 @@ inline QList<Entry> entries(const State& state)
     appearance.label = QCoreApplication::translate("FenceMenu", "Appearance...");
     out.append(appearance);
 
-    if (!state.templates.isEmpty()) { // session 76: absent rather than empty
+    if (!state.isButton && !state.templates.isEmpty()) { // session 76: absent rather than empty
         Entry apply;
         apply.kind = Kind::Submenu;
         apply.action = Action::Template;
@@ -450,7 +466,9 @@ inline QList<Entry> entries(const State& state)
 
     Entry remove;
     remove.action = Action::Remove;
-    remove.label = QCoreApplication::translate("FenceMenu", "Remove this fence");
+    remove.label = state.isButton
+        ? QCoreApplication::translate("FenceMenu", "Remove this button")
+        : QCoreApplication::translate("FenceMenu", "Remove this fence");
     out.append(remove);
     return out;
 }

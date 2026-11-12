@@ -1046,6 +1046,14 @@
         <source>Remove this fence</source>
         <translation>Supprimer cette zone</translation>
     </message>
+    <message>
+        <source>Resize the button</source>
+        <translation>Redimensionner le bouton</translation>
+    </message>
+    <message>
+        <source>Remove this button</source>
+        <translation>Supprimer ce bouton</translation>
+    </message>
 </context>
 <context>
     <name>FenceTransparencyDialog</name>

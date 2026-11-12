@@ -39,6 +39,7 @@
 #include <QMenu>
 #include <QCursor>
 #include <QDir>
+#include <QLineF>
 #include <QWheelEvent>
 
 #if defined(_WIN32)
@@ -486,6 +487,7 @@ void FenceView::setLocked(bool locked)
     if (locked) {
         endWidgetResize(); // session 98
         endButtonMoveMode(); // session 107
+        endButtonResizeMode(); // session 117
     }
     setCursor(Qt::ArrowCursor);
     if (locked) {
@@ -963,6 +965,7 @@ bool FenceView::beginButtonMoveMode()
 {
     if (m_locked || !zone_shape::isButton(m_shape))
         return false;
+    endButtonResizeMode();
     if (m_buttonMoveMode)
         return true;
     if (!m_buttonMoveIdle.isSingleShot()) {
@@ -978,6 +981,49 @@ bool FenceView::beginButtonMoveMode()
     emit contentChanged();
     emit buttonMoveModeChanged(true);
     return true;
+}
+
+bool FenceView::beginButtonResizeMode()
+{
+    if (m_locked || !zone_shape::isButton(m_shape))
+        return false;
+    endButtonMoveMode();
+    if (m_buttonResizeMode)
+        return true;
+    if (!m_buttonResizeIdle.isSingleShot()) {
+        m_buttonResizeIdle.setSingleShot(true);
+        connect(&m_buttonResizeIdle, &QTimer::timeout, this, &FenceView::endButtonResizeMode);
+    }
+    m_buttonResizeMode = true;
+    m_buttonResizeDragging = false;
+    m_buttonResizeStartDiameter = zone_shape::buttonSnappedDiameter(qMax(1, width()));
+    m_buttonResizePreviewDiameter = m_buttonResizeStartDiameter;
+    setFocusPolicy(Qt::StrongFocus);
+    setFocus(Qt::OtherFocusReason);
+    setCursor(Qt::ArrowCursor);
+    m_buttonResizeIdle.start(widget_resize::kIdleMs);
+    update();
+    emit widgetTick();
+    emit buttonResizeModeChanged(true);
+    return true;
+}
+
+void FenceView::endButtonResizeMode()
+{
+    if (!m_buttonResizeMode)
+        return;
+    const bool dragging = m_buttonResizeDragging;
+    const int preview = m_buttonResizePreviewDiameter;
+    const int start = m_buttonResizeStartDiameter;
+    m_buttonResizeIdle.stop();
+    m_buttonResizeMode = false;
+    m_buttonResizeDragging = false;
+    setCursor(Qt::ArrowCursor);
+    update();
+    emit widgetTick();
+    if (dragging || preview != start)
+        emit buttonResizeCancelled();
+    emit buttonResizeModeChanged(false);
 }
 
 void FenceView::endButtonMoveMode()
@@ -1016,6 +1062,23 @@ void FenceView::mousePressEvent(QMouseEvent* event)
             return;
         }
         endWidgetResize();
+    }
+    if (m_buttonResizeMode && event->button() == Qt::LeftButton) {
+        const QRect disc = buttonDiscRect().toRect();
+        const int grip = widget_resize::circleGripAt(disc, event->pos(), 10);
+        if (grip) {
+            m_buttonResizeDragging = true;
+            m_buttonResizeStartDiameter = m_buttonResizePreviewDiameter > 0
+                ? m_buttonResizePreviewDiameter
+                : zone_shape::buttonSnappedDiameter(qMax(1, width()));
+            m_buttonResizeIdle.start(widget_resize::kIdleMs);
+            setCursor(widget_resize::cursorForCircleGrip(grip));
+            event->accept();
+            return;
+        }
+        endButtonResizeMode();
+        event->accept();
+        return;
     }
     if (m_buttonMoveMode && event->button() == Qt::LeftButton) {
         // Session 107: a click on the disc starts the drag (handle below);
@@ -1144,6 +1207,26 @@ void FenceView::mouseMoveEvent(QMouseEvent* event)
             return;
         }
     }
+    if (m_buttonResizeDragging) {
+        const QPoint c = rect().center();
+        const int raw = 2 * qMax(1, int(QLineF(c, event->pos()).length()));
+        const int next = zone_shape::buttonSnappedDiameter(raw);
+        m_buttonResizeIdle.start(widget_resize::kIdleMs);
+        if (next != m_buttonResizePreviewDiameter) {
+            m_buttonResizePreviewDiameter = next;
+            emit buttonDiameterPreviewed(next);
+            update();
+            emit widgetTick();
+        }
+        return;
+    }
+    if (m_buttonResizeMode && !(event->buttons() & Qt::LeftButton)) {
+        const int grip = widget_resize::circleGripAt(buttonDiscRect().toRect(), event->pos(), 10);
+        setCursor(widget_resize::cursorForCircleGrip(grip));
+        if (grip)
+            m_buttonResizeIdle.start(widget_resize::kIdleMs);
+        return;
+    }
     if (m_buttonMoveMode && !(event->buttons() & Qt::LeftButton))
         setCursor(Qt::SizeAllCursor);
     if (m_geometryDragging) {
@@ -1235,6 +1318,13 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
             emit widgetResized(path, span);
         return;
     }
+    if (m_buttonResizeDragging) { // session 117
+        m_buttonResizeDragging = false;
+        m_buttonResizeIdle.start(widget_resize::kIdleMs);
+        emit buttonDiameterCommitted(m_buttonResizePreviewDiameter);
+        m_buttonResizeStartDiameter = m_buttonResizePreviewDiameter;
+        return;
+    }
 
     if (m_geometryDragging) {
         // The container already applied every delta as it arrived; the release
@@ -1249,7 +1339,8 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
     }
     // Session 107: a left click on the compact disc still expands it (hover
     // also does). Not in move mode -- that click is a grab, not an unroll.
-    if (zone_shape::isButton(m_shape) && m_rolledUp && !m_buttonMoveMode && !m_locked
+    if (zone_shape::isButton(m_shape) && m_rolledUp && !m_buttonMoveMode && !m_buttonResizeMode
+        && !m_locked
         && zone_shape::buttonContainsPoint(rect(), event->pos())) {
         emit rollUpRequested(false);
         return;
@@ -2191,7 +2282,10 @@ void FenceView::paintButton(QPainter& painter)
     skin.paintBehind(painter, ctx);
     if (m_rolledUp && !buttonRevealMode()) {
         skin.paintFront(painter, ctx);
-        if (m_buttonMoveMode)
+        if (m_buttonResizeMode)
+            widget_resize::paintCircleResizeOutline(painter, circle.adjusted(1, 1, -1, -1),
+                                                    accentColor(), 1.0);
+        else if (m_buttonMoveMode)
             widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
                                               accentColor(), 1.0);
         return;
@@ -2234,7 +2328,10 @@ void FenceView::paintButton(QPainter& painter)
     }
     painter.restore();
     skin.paintFront(painter, ctx);
-    if (m_buttonMoveMode)
+    if (m_buttonResizeMode)
+        widget_resize::paintCircleResizeOutline(painter, circle.adjusted(1, 1, -1, -1),
+                                                accentColor(), 1.0);
+    else if (m_buttonMoveMode)
         widget_resize::paintCircleOutline(painter, circle.adjusted(1, 1, -1, -1),
                                           accentColor(), 1.0);
 }
@@ -2355,6 +2452,11 @@ void FenceView::keyPressEvent(QKeyEvent* event)
     }
     if (event->key() == Qt::Key_Escape && m_buttonMoveMode) { // session 107
         endButtonMoveMode();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && m_buttonResizeMode) { // session 117
+        endButtonResizeMode();
         event->accept();
         return;
     }

@@ -98,9 +98,14 @@ int buttonLabelHeightOf(const FenceWindow&)
     return 0;
 }
 
+int buttonPreferredDiameterOf(const FenceWindow& fence)
+{
+    return fence.buttonDiameterPreview > 0 ? fence.buttonDiameterPreview : fence.style.buttonDiameter;
+}
+
 int buttonCollapsedDiameterOf(const FenceWindow& fence)
 {
-    return zone_shape::buttonCollapsedDiameter(buttonIconSizeOf(fence), fence.style.buttonDiameter);
+    return zone_shape::buttonCollapsedDiameter(buttonIconSizeOf(fence), buttonPreferredDiameterOf(fence));
 }
 
 int buttonExpandedDiameterOf(const FenceWindow& fence, int count)
@@ -108,7 +113,7 @@ int buttonExpandedDiameterOf(const FenceWindow& fence, int count)
     return zone_shape::buttonExpandedDiameter(buttonIconSizeOf(fence), count,
                                               buttonLabelHeightOf(fence),
                                               fence.style.buttonRings,
-                                              fence.style.buttonDiameter);
+                                              buttonPreferredDiameterOf(fence));
 }
 
 bool buttonUsesReveal(const FenceWindow& fence)
@@ -122,7 +127,7 @@ int buttonStoredDiameterOf(const FenceWindow& fence, int count)
         return zone_shape::buttonRevealDiameter(buttonIconSizeOf(fence), count,
                                                 buttonLabelHeightOf(fence),
                                                 fence.style.buttonRings,
-                                                fence.style.buttonDiameter);
+                                                buttonPreferredDiameterOf(fence));
     }
     return buttonExpandedDiameterOf(fence, count);
 }
@@ -841,8 +846,8 @@ bool FenceContainer::fenceHoverUnrolls(const QString& id) const
     if (!fence)
         return false;
     const QString pref = fence->style.hoverUnroll;
-    if (fence->view && fence->view->buttonMoveMode()) // session 107
-        return false;
+    if (fence->view && (fence->view->buttonMoveMode() || fence->view->buttonResizeMode()))
+        return false; // session 107 / 117: no hover unroll in a short mode
     return pref == QLatin1String("on") || (pref.isEmpty() && m_hoverUnrollDefault);
 }
 
@@ -921,6 +926,15 @@ QRect FenceContainer::visibleRectOf(const FenceWindow& fence) const
     // snapped so logical * dpr maps back without sliding the centre.
     if (zone_shape::isButton(fence.style.shape)) {
         const QPoint anchor = buttonAnchorOf(fence);
+        // Session 117: a live resize preview must not rewrite the stored square.
+        if (fence.buttonDiameterPreview > 0) {
+            const int count = fence.view ? fence.view->items().size() : 0;
+            if (fence.rolledUp && !buttonUsesReveal(fence))
+                return buttonSquareFor(fence, anchor, buttonCollapsedDiameterOf(fence));
+            return zone_shape::buttonFitSquareOnScreen(
+                buttonSquareFor(fence, anchor, buttonStoredDiameterOf(fence, count)),
+                m_screens.clampRectFor(fence.rect));
+        }
         // Reveal: the closed footprint is already the full disc (session 113).
         if (fence.rolledUp && !buttonUsesReveal(fence))
             return buttonSquareFor(fence, anchor, buttonCollapsedDiameterOf(fence));
@@ -2489,6 +2503,12 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             setFenceRect(id, restore, /*snap=*/false);
         fence->dragStartRect = QRect();
     });
+    connect(view, &FenceView::buttonDiameterPreviewed, this,
+            [this, id](int preferred) { previewButtonDiameter(id, preferred); });
+    connect(view, &FenceView::buttonDiameterCommitted, this,
+            [this, id](int preferred) { commitButtonDiameter(id, preferred); });
+    connect(view, &FenceView::buttonResizeCancelled, this,
+            [this, id] { cancelButtonDiameterPreview(id); });
     connect(view, &FenceView::contentChanged, this,
             [this, id] { emit fenceContentChanged(id); });
     // ... and the hosted surface shows an *image*, so a content change has to
@@ -2881,11 +2901,114 @@ bool FenceContainer::buttonMoveMode(const QString& id) const
     return fence && fence->view && fence->view->buttonMoveMode();
 }
 
+bool FenceContainer::beginButtonResizeMode(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !fence->view || fence->locked
+        || !zone_shape::isButton(fence->style.shape))
+        return false;
+    for (FenceWindow& other : m_fences) {
+        if (!other.view)
+            continue;
+        if (other.id != id) {
+            if (other.view->buttonMoveMode())
+                other.view->endButtonMoveMode();
+            if (other.view->buttonResizeMode())
+                other.view->endButtonResizeMode();
+        }
+    }
+    if (fence->view->buttonMoveMode())
+        fence->view->endButtonMoveMode();
+    finishRollAnimation(*fence);
+    if (!fence->rolledUp)
+        setFenceRolledUp(id, true);
+    finishRollAnimation(*fence);
+    fence->buttonHoverWanted = false;
+    fence->hoverUnrolled = false;
+    ++fence->hoverSerial;
+    fence->buttonDiameterPreview = 0;
+    return fence->view->beginButtonResizeMode();
+}
+
+void FenceContainer::endButtonResizeMode(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (fence && fence->view)
+        fence->view->endButtonResizeMode();
+}
+
+bool FenceContainer::buttonResizeMode(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence && fence->view && fence->view->buttonResizeMode();
+}
+
+QPoint FenceContainer::buttonAnchor(const QString& id) const
+{
+    const FenceWindow* fence = find(id);
+    return fence ? buttonAnchorOf(*fence) : QPoint();
+}
+
+void FenceContainer::previewButtonDiameter(const QString& id, int preferred)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || fence->locked || !zone_shape::isButton(fence->style.shape))
+        return;
+    const int snapped = zone_shape::buttonSnappedDiameter(preferred);
+    if (fence->buttonDiameterPreview == snapped)
+        return;
+    fence->buttonDiameterPreview = snapped;
+    applyVisibleGeometry(*fence);
+    renderFence(id);
+}
+
+void FenceContainer::commitButtonDiameter(const QString& id, int preferred)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || fence->locked || !zone_shape::isButton(fence->style.shape))
+        return;
+    const int snapped = zone_shape::buttonSnappedDiameter(preferred);
+    const QPoint anchor = buttonAnchorOf(*fence);
+    fence->buttonDiameterPreview = 0;
+    if (fence->style.buttonDiameter == snapped) {
+        applyVisibleGeometry(*fence);
+        renderFence(id);
+        return;
+    }
+    core::FenceStyle style = fence->style;
+    style.buttonDiameter = snapped;
+    setFenceStyle(id, style);
+    // setFenceStyle re-applies the view; keep the anchor and rebuild rings.
+    FenceWindow* again = find(id);
+    if (!again)
+        return;
+    setButtonStored(*again, anchor, buttonStoredDiameterOf(*again, again->view ? again->view->items().size() : 0));
+    applyVisibleGeometry(*again);
+    emit fenceRectChanged(id, again->rect);
+    renderFence(id);
+}
+
+void FenceContainer::cancelButtonDiameterPreview(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (!fence)
+        return;
+    if (fence->buttonDiameterPreview <= 0)
+        return;
+    fence->buttonDiameterPreview = 0;
+    applyVisibleGeometry(*fence);
+    renderFence(id);
+}
+
 void FenceContainer::syncButtonSize(const QString& id)
 {
     FenceWindow* fence = find(id);
     if (!fence || !zone_shape::isButton(fence->style.shape) || fence->animating)
         return;
+    if (fence->buttonDiameterPreview > 0) {
+        applyVisibleGeometry(*fence);
+        return;
+    }
     const int count = fence->view ? fence->view->items().size() : 0;
     const int d = buttonStoredDiameterOf(*fence, count);
     const QPoint anchor = buttonAnchorOf(*fence);

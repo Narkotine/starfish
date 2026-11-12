@@ -12,6 +12,7 @@
 #include <QRect>
 #include <QSize>
 #include <QtGlobal>
+#include <cmath>
 
 #include "core/desktop_item.hpp"
 
@@ -109,6 +110,71 @@ inline void paintCircleOutline(QPainter& painter, const QRect& r, const QColor& 
     painter.setPen(QPen(accent, w));
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(QRectF(r).adjusted(w / 2, w / 2, -w / 2, -w / 2));
+    painter.restore();
+}
+
+// Session 117: eight grips on the rim; pulling any of them changes only the
+// diameter (the centre stays put). 1=E, then clockwise: 2=SE ... 8=NE.
+inline QPoint circleGripCenter(const QRect& r, int index)
+{
+    const QPoint c = r.center();
+    const int radius = qMax(1, qMin(r.width(), r.height()) / 2);
+    // index is 1..8; step is 45 degrees from east.
+    const double angle = (index - 1) * (3.14159265358979323846 / 4.0);
+    return QPoint(c.x() + qRound(radius * std::cos(angle)),
+                  c.y() + qRound(radius * std::sin(angle)));
+}
+
+inline int circleGripAt(const QRect& r, const QPoint& p, int margin)
+{
+    const int reach = qMax(6, margin);
+    int best = 0;
+    int bestDist = reach * reach + 1;
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint g = circleGripCenter(r, i);
+        const int dx = p.x() - g.x();
+        const int dy = p.y() - g.y();
+        const int dist = dx * dx + dy * dy;
+        if (dist <= reach * reach && dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+inline Qt::CursorShape cursorForCircleGrip(int index)
+{
+    switch (index) {
+    case 1: // E
+    case 5: // W
+        return Qt::SizeHorCursor;
+    case 3: // S
+    case 7: // N
+        return Qt::SizeVerCursor;
+    case 2: // SE
+    case 6: // NW
+        return Qt::SizeFDiagCursor;
+    case 4: // SW
+    case 8: // NE
+        return Qt::SizeBDiagCursor;
+    default:
+        return Qt::ArrowCursor;
+    }
+}
+
+inline void paintCircleResizeOutline(QPainter& painter, const QRect& r, const QColor& accent, qreal scale)
+{
+    paintCircleOutline(painter, r, accent, scale);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const int g = qMax(6, qRound(8 * scale));
+    painter.setPen(QPen(QColor(255, 255, 255), qMax(1.0, scale)));
+    painter.setBrush(accent);
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint c = circleGripCenter(r, i);
+        painter.drawRect(QRect(c.x() - g / 2, c.y() - g / 2, g, g));
+    }
     painter.restore();
 }
 

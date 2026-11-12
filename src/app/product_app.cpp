@@ -1471,6 +1471,9 @@ void ProductApp::runFenceMenuCommand(const QString& id, ui::FenceMenu::Action ac
     case ui::FenceMenu::Action::MoveButton: // session 107
         m_container->beginButtonMoveMode(id);
         break;
+    case ui::FenceMenu::Action::ResizeButton: // session 117
+        m_container->beginButtonResizeMode(id);
+        break;
     case ui::FenceMenu::Action::Rename:
         // Session 60: on the title itself, no dialog.
         startFenceTitleEdit(id);

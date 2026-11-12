@@ -30,6 +30,16 @@ class TestFenceMenu : public QObject
     Q_OBJECT
 
 private:
+    static int countAny(const QList<FenceMenu::Entry>& entries, FenceMenu::Action action)
+    {
+        int count = 0;
+        for (const FenceMenu::Entry& entry : entries) {
+            if (entry.action == action)
+                ++count;
+        }
+        return count;
+    }
+
     static int countOf(const QList<FenceMenu::Entry>& entries, FenceMenu::Action action)
     {
         int count = 0;
@@ -372,6 +382,54 @@ private slots:
         QCOMPARE(countOf(FenceMenu::entries(classic), FenceMenu::Action::MoveButton), 0);
         classic.locked = true;
         QCOMPARE(countOf(FenceMenu::entries(classic), FenceMenu::Action::MoveButton), 0);
+    }
+
+    void aBoutonMenuOmitsZoneOnlyEntriesAndKeepsItsOwn()
+    {
+        // Session 117: a Bouton must not offer free / whole-icon resize, the
+        // title bar, unroll-on-hover, sort, widgets or templates. A classic
+        // zone still has them. Resize the button is on the Bouton only.
+        FenceMenu::State button;
+        button.isButton = true;
+        button.widgetKinds << QStringLiteral("Notes");
+        button.templates << QStringLiteral("Work");
+        const QList<FenceMenu::Entry> unlocked = FenceMenu::entries(button);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::MoveButton), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::ResizeButton), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::Appearance), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::Rename), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::ToggleRoll), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::ToggleLock), 1);
+        QCOMPARE(countOf(unlocked, FenceMenu::Action::Remove), 1);
+        QCOMPARE(find(unlocked, FenceMenu::Action::Remove)->label,
+                 QStringLiteral("Remove this button"));
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::Resize), 0);
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::ToggleTitleBar), 0);
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::HoverUnroll), 0);
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::Sort), 0);
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::AddWidget), 0);
+        QCOMPARE(countAny(unlocked, FenceMenu::Action::Template), 0);
+
+        button.locked = true;
+        const QList<FenceMenu::Entry> locked = FenceMenu::entries(button);
+        QCOMPARE(countOf(locked, FenceMenu::Action::ResizeButton), 1);
+        QVERIFY(!find(locked, FenceMenu::Action::ResizeButton)->enabled);
+        QCOMPARE(countAny(locked, FenceMenu::Action::Resize), 0);
+
+        FenceMenu::State classic;
+        classic.widgetKinds << QStringLiteral("Notes");
+        classic.templates << QStringLiteral("Work");
+        const QList<FenceMenu::Entry> zone = FenceMenu::entries(classic);
+        QCOMPARE(countAny(zone, FenceMenu::Action::Resize), 1);
+        QCOMPARE(countAny(zone, FenceMenu::Action::ToggleTitleBar), 1);
+        QCOMPARE(countAny(zone, FenceMenu::Action::HoverUnroll), 1);
+        QCOMPARE(countAny(zone, FenceMenu::Action::Sort), 1);
+        QCOMPARE(countAny(zone, FenceMenu::Action::AddWidget), 1);
+        QCOMPARE(countAny(zone, FenceMenu::Action::Template), 1);
+        QCOMPARE(countOf(zone, FenceMenu::Action::ResizeButton), 0);
+        QCOMPARE(countOf(zone, FenceMenu::Action::MoveButton), 0);
+        QCOMPARE(find(zone, FenceMenu::Action::Remove)->label,
+                 QStringLiteral("Remove this fence"));
     }
 
     void theIconsEntryLivesInTheAppearanceDialogNow()

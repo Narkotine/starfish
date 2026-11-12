@@ -34,6 +34,15 @@ inline constexpr int kButtonDiameterMax = 256;
 inline constexpr int kButtonDiameterStep = 8;
 inline constexpr int kButtonRingMax = 8; // 0 in options = automatic
 
+inline int buttonSnappedDiameter(int preferred)
+{
+    const int clamped = qBound(kButtonDiameterMin, preferred, kButtonDiameterMax);
+    const int steps = qRound(double(clamped - kButtonDiameterMin) / double(kButtonDiameterStep));
+    return qBound(kButtonDiameterMin,
+                  kButtonDiameterMin + steps * kButtonDiameterStep,
+                  kButtonDiameterMax);
+}
+
 inline int buttonCollapsedDiameter(int iconSize, int preferred = 0)
 {
     const int fallback = qMax(48, iconSize * 2 + 8);
