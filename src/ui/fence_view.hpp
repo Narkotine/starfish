@@ -170,6 +170,11 @@ public:
     void setButtonOpenMode(const QString& mode);
     QString buttonOpenMode() const;
     bool buttonRevealMode() const;
+    // Session 116: per-state disc fill/border; paint mixes them along openProgress.
+    void setButtonStateColors(const QColor& fillCollapsed, const QColor& fillExpanded,
+                              const QColor& borderCollapsed, const QColor& borderExpanded);
+    QColor buttonPaintFill() const;
+    QColor buttonPaintBorder() const;
     int gridGap() const { return m_grid.gap(); }
     int gridPadding() const { return m_grid.padding(); }
     int labelHeight() const { return m_grid.labelHeight(); }
@@ -430,6 +435,10 @@ private:
     QColor m_titleBarColor;
     int m_borderWidth = 1;
     QColor m_borderColor = QColor(0x3B, 0x82, 0xF6);
+    QColor m_buttonFillCollapsed{0x1F, 0x29, 0x37};
+    QColor m_buttonFillExpanded{0x1F, 0x29, 0x37};
+    QColor m_buttonBorderCollapsed{0x3B, 0x82, 0xF6};
+    QColor m_buttonBorderExpanded{0x3B, 0x82, 0xF6};
     bool m_hoverHighlight = true;
     HoverEffect m_hoverEffect = HoverEffect::Lighter;
     bool m_hovered = false;

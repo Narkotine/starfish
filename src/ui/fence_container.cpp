@@ -1509,6 +1509,18 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     if (!border.isValid())
         border = QColor(0x3B, 0x82, 0xF6);
     fence.view->setBorder(fence.style.borderWidth >= 0 ? fence.style.borderWidth : m_defaultBorderWidth, border);
+    // Session 116: empty per-state colours fall back to the current panel / border.
+    const auto colourOr = [](const QString& value, const QColor& fallback) {
+        if (value.isEmpty())
+            return fallback;
+        const QColor parsed(value);
+        return parsed.isValid() ? parsed : fallback;
+    };
+    fence.view->setButtonStateColors(
+        colourOr(fence.style.buttonBackgroundCollapsed, panel),
+        colourOr(fence.style.buttonBackgroundExpanded, panel),
+        colourOr(fence.style.buttonBorderCollapsed, border),
+        colourOr(fence.style.buttonBorderExpanded, border));
     // Session 69: the fence's own hover effect, or the default (Settings:
     // on = lighter, off = none).
     const QString hover = fence.style.hoverEffect;
@@ -3230,7 +3242,9 @@ void FenceContainer::renderFence(const QString& id)
     // QImage::fill: QPainter's output on a premultiplied image is premultiplied
     // by construction, and a "premultiplied" frame whose RGB exceeds its alpha
     // composites as a bright artefact instead of as an invisible pixel.
-    const QColor panel = fence->view->panelColor();
+    QColor panel = fence->view->panelColor();
+    if (zone_shape::isButton(fence->style.shape))
+        panel = fence->view->buttonPaintFill();
     {
         QPainter painter(&frame);
         // The rect is the frame's *logical* extent -- the same conversion the

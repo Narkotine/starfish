@@ -198,6 +198,42 @@
         <source>GIF images (*.gif)</source>
         <translation>Images GIF (*.gif)</translation>
     </message>
+    <message>
+        <source>Colours by state</source>
+        <translation>Couleurs selon l'état</translation>
+    </message>
+    <message>
+        <source>Background (collapsed)</source>
+        <translation>Fond (replié)</translation>
+    </message>
+    <message>
+        <source>Border (collapsed)</source>
+        <translation>Contour (replié)</translation>
+    </message>
+    <message>
+        <source>Background (expanded)</source>
+        <translation>Fond (déployé)</translation>
+    </message>
+    <message>
+        <source>Border (expanded)</source>
+        <translation>Contour (déployé)</translation>
+    </message>
+    <message>
+        <source>Background colour (collapsed)</source>
+        <translation>Couleur de fond (replié)</translation>
+    </message>
+    <message>
+        <source>Border colour (collapsed)</source>
+        <translation>Couleur du contour (replié)</translation>
+    </message>
+    <message>
+        <source>Background colour (expanded)</source>
+        <translation>Couleur de fond (déployé)</translation>
+    </message>
+    <message>
+        <source>Border colour (expanded)</source>
+        <translation>Couleur du contour (déployé)</translation>
+    </message>
 </context>
 <context>
     <name>ContextMenuGlyphs</name>

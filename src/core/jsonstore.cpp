@@ -77,6 +77,14 @@ static QJsonObject styleToJson(const FenceStyle& s)
         o["buttonSkinLayer"] = s.buttonSkinLayer;
     if (s.buttonOpenMode == QLatin1String("reveal") || s.buttonOpenMode == QLatin1String("grow"))
         o["buttonOpenMode"] = s.buttonOpenMode;
+    if (!s.buttonBackgroundCollapsed.isEmpty())
+        o["buttonBackgroundCollapsed"] = s.buttonBackgroundCollapsed;
+    if (!s.buttonBackgroundExpanded.isEmpty())
+        o["buttonBackgroundExpanded"] = s.buttonBackgroundExpanded;
+    if (!s.buttonBorderCollapsed.isEmpty())
+        o["buttonBorderCollapsed"] = s.buttonBorderCollapsed;
+    if (!s.buttonBorderExpanded.isEmpty())
+        o["buttonBorderExpanded"] = s.buttonBorderExpanded;
     return o;
 }
 
@@ -163,6 +171,10 @@ static FenceStyle styleFromJson(const QJsonObject& o)
     s.buttonSkinPath = o["buttonSkinPath"].toString();
     s.buttonSkinLayer = o["buttonSkinLayer"].toString();
     s.buttonOpenMode = o["buttonOpenMode"].toString();
+    s.buttonBackgroundCollapsed = o["buttonBackgroundCollapsed"].toString();
+    s.buttonBackgroundExpanded = o["buttonBackgroundExpanded"].toString();
+    s.buttonBorderCollapsed = o["buttonBorderCollapsed"].toString();
+    s.buttonBorderExpanded = o["buttonBorderExpanded"].toString();
     // T-098: absent -> an opaque fence follows the default (which starts
     // opaque: nothing changes on screen), a translucent one keeps its own.
     if (o.contains("defaultOpacity")) {
@@ -384,7 +396,9 @@ const QStringList kStyleKeys{"background", "radius", "padding", "iconSize", "gap
                              "cellWidth", "effect", "titleAlign", "titleSide", "titleVertical" /* ignored since s103 */, "titleBarShape", "shape", "hoverEffect",
                              "hoverUnroll", "rollToward", "snapToCells", "showLabels", "iconFlow",
                              "buttonDiameter", "buttonRings",
-                             "buttonSkin", "buttonSkinPath", "buttonSkinLayer", "buttonOpenMode"};
+                             "buttonSkin", "buttonSkinPath", "buttonSkinLayer", "buttonOpenMode",
+                             "buttonBackgroundCollapsed", "buttonBackgroundExpanded",
+                             "buttonBorderCollapsed", "buttonBorderExpanded"};
 const QStringList kItemKeys{"kind", "path", "fileId", "target", "widget"};
 const QStringList kWidgetKeys{"type", "span", "settings"};
 const QStringList kRuleKeys{"id", "name", "match", "targetFence", "moveFiles"};

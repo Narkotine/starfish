@@ -1,4 +1,5 @@
 #include "ui/fence_view.hpp"
+#include "core/color_mix.hpp"
 #include "ui/fence_widgets.hpp"
 #include "ui/modern_menu.hpp"
 #include "ui/zone_shape.hpp"
@@ -1517,6 +1518,34 @@ void FenceView::setButtonOpenProgressOverride(qreal u)
     emit widgetTick(); // session 113: size-constant Reveal still has to redraw
 }
 
+void FenceView::setButtonStateColors(const QColor& fillCollapsed, const QColor& fillExpanded,
+                                     const QColor& borderCollapsed, const QColor& borderExpanded)
+{
+    m_buttonFillCollapsed = fillCollapsed.isValid() ? fillCollapsed : m_panelColor;
+    m_buttonFillExpanded = fillExpanded.isValid() ? fillExpanded : m_panelColor;
+    m_buttonBorderCollapsed = borderCollapsed.isValid() ? borderCollapsed : m_borderColor;
+    m_buttonBorderExpanded = borderExpanded.isValid() ? borderExpanded : m_borderColor;
+    update();
+}
+
+QColor FenceView::buttonPaintFill() const
+{
+    QColor fill = core::mixOklab(m_buttonFillCollapsed, m_buttonFillExpanded, buttonOpenProgress());
+    if (!fill.isValid())
+        fill = m_panelColor;
+    if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
+        fill = fill.lighter(112);
+    return fill;
+}
+
+QColor FenceView::buttonPaintBorder() const
+{
+    QColor border = core::mixOklab(m_buttonBorderCollapsed, m_buttonBorderExpanded, buttonOpenProgress());
+    if (!border.isValid())
+        border = m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6);
+    return border;
+}
+
 void FenceView::setButtonSkin(const QString& id, const QString& path, const QString& layer)
 {
     const QString skinId = (id == QLatin1String("plain")) ? QString() : id;
@@ -2139,9 +2168,7 @@ void FenceView::paintButton(QPainter& painter)
     const QRect circle = disc.toRect();
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    QColor fill = m_panelColor;
-    if (m_hovered && m_hoverEffect == HoverEffect::Lighter)
-        fill = fill.lighter(112);
+    const QColor fill = buttonPaintFill();
 
     // Session 111: the plain disc is the default ButtonSkin. A Bouton never
     // paints its zone title (the name stays on the model for menus).
@@ -2152,7 +2179,7 @@ void FenceView::paintButton(QPainter& painter)
     ctx.rolledUp = m_rolledUp;
     ctx.moveMode = m_buttonMoveMode;
     ctx.fill = fill;
-    ctx.border = m_borderColor.isValid() ? m_borderColor : QColor(0x3B, 0x82, 0xF6);
+    ctx.border = buttonPaintBorder();
     ctx.borderWidth = qMax(1, m_borderWidth);
     ctx.accent = accentColor();
     ctx.expandedSide = (buttonRevealMode() || m_buttonLayoutDiameter <= 0)

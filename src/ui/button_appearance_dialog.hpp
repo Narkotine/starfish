@@ -15,8 +15,10 @@
 #include <QStandardPaths>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QPointer>
 #include <QPushButton>
+#include <QWidget>
 #include <QSlider>
 #include <QVBoxLayout>
 #include <QSignalBlocker>
@@ -124,6 +126,61 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
     borderRow->addWidget(borderDefault);
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Border"), borderRow);
 
+    auto* stateBox = new QWidget(dialog);
+    stateBox->setObjectName(QStringLiteral("buttonStateColours"));
+    auto* stateForm = new QFormLayout(stateBox);
+    stateForm->setContentsMargins(0, 8, 0, 4);
+    stateForm->setHorizontalSpacing(12);
+    auto* stateHeading = new QLabel(
+        QCoreApplication::translate("ButtonAppearanceDialog", "Colours by state"), dialog);
+    stateHeading->setObjectName(QStringLiteral("buttonStateColoursHeading"));
+    stateForm->addRow(stateHeading);
+
+    auto* fillCollapsed = new QPushButton(dialog);
+    fillCollapsed->setObjectName(QStringLiteral("buttonBackgroundCollapsed"));
+    auto* fillCollapsedDefault = new QCheckBox(
+        QCoreApplication::translate("ButtonAppearanceDialog", "Default"), dialog);
+    fillCollapsedDefault->setObjectName(QStringLiteral("buttonBackgroundCollapsedDefault"));
+    auto* fillCollapsedRow = new QHBoxLayout;
+    fillCollapsedRow->addWidget(fillCollapsed, 1);
+    fillCollapsedRow->addWidget(fillCollapsedDefault);
+    stateForm->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Background (collapsed)"),
+                      fillCollapsedRow);
+
+    auto* borderCollapsed = new QPushButton(dialog);
+    borderCollapsed->setObjectName(QStringLiteral("buttonBorderCollapsed"));
+    auto* borderCollapsedDefault = new QCheckBox(
+        QCoreApplication::translate("ButtonAppearanceDialog", "Default"), dialog);
+    borderCollapsedDefault->setObjectName(QStringLiteral("buttonBorderCollapsedDefault"));
+    auto* borderCollapsedRow = new QHBoxLayout;
+    borderCollapsedRow->addWidget(borderCollapsed, 1);
+    borderCollapsedRow->addWidget(borderCollapsedDefault);
+    stateForm->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Border (collapsed)"),
+                      borderCollapsedRow);
+
+    auto* fillExpanded = new QPushButton(dialog);
+    fillExpanded->setObjectName(QStringLiteral("buttonBackgroundExpanded"));
+    auto* fillExpandedDefault = new QCheckBox(
+        QCoreApplication::translate("ButtonAppearanceDialog", "Default"), dialog);
+    fillExpandedDefault->setObjectName(QStringLiteral("buttonBackgroundExpandedDefault"));
+    auto* fillExpandedRow = new QHBoxLayout;
+    fillExpandedRow->addWidget(fillExpanded, 1);
+    fillExpandedRow->addWidget(fillExpandedDefault);
+    stateForm->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Background (expanded)"),
+                      fillExpandedRow);
+
+    auto* borderExpanded = new QPushButton(dialog);
+    borderExpanded->setObjectName(QStringLiteral("buttonBorderExpanded"));
+    auto* borderExpandedDefault = new QCheckBox(
+        QCoreApplication::translate("ButtonAppearanceDialog", "Default"), dialog);
+    borderExpandedDefault->setObjectName(QStringLiteral("buttonBorderExpandedDefault"));
+    auto* borderExpandedRow = new QHBoxLayout;
+    borderExpandedRow->addWidget(borderExpanded, 1);
+    borderExpandedRow->addWidget(borderExpandedDefault);
+    stateForm->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Border (expanded)"),
+                      borderExpandedRow);
+    form->addRow(stateBox);
+
     auto* iconSize = new QComboBox(dialog);
     iconSize->setObjectName(QStringLiteral("iconSize"));
     for (int px : {32, 40, 48, 64, 80, 96})
@@ -174,13 +231,17 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
 
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, panel, defaultPercent,
                     borderWidth, borderColour, borderDefault, effect, hoverCombo, iconSize,
-                    collapsedDiameter, ringCount, skinCombo, skinLayer, openMode] {
+                    collapsedDiameter, ringCount, skinCombo, skinLayer, openMode,
+                    fillCollapsed, fillCollapsedDefault, borderCollapsed, borderCollapsedDefault,
+                    fillExpanded, fillExpandedDefault, borderExpanded, borderExpandedDefault] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons),
             b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b16(iconSize),
             b18(collapsedDiameter), b19(ringCount),
-            b20(skinCombo), b21(skinLayer), b22(openMode);
+            b20(skinCombo), b21(skinLayer), b22(openMode),
+            b23(fillCollapsedDefault), b24(borderCollapsedDefault),
+            b25(fillExpandedDefault), b26(borderExpandedDefault);
         const core::FenceStyle style = safe->fenceStyle(id);
         const int at = material->findData(safe->fenceMaterial(id));
         material->setCurrentIndex(at >= 0 ? at : material->count() - 1);
@@ -199,6 +260,22 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         borderDefault->setChecked(style.borderColor.isEmpty());
         paintButtonAppearanceSwatch(borderColour, style.borderColor.isEmpty() ? safe->defaultBorderColor()
                                                                               : style.borderColor);
+        const QColor fallbackFill(style.background);
+        const QColor fallbackBorder = style.borderColor.isEmpty() ? QColor(safe->defaultBorderColor())
+                                                                  : QColor(style.borderColor);
+        const auto paintState = [](QPushButton* swatch, const QString& stored, const QColor& fallback) {
+            paintButtonAppearanceSwatch(swatch, stored.isEmpty()
+                ? fallback.name(QColor::HexArgb).toUpper()
+                : stored);
+        };
+        fillCollapsedDefault->setChecked(style.buttonBackgroundCollapsed.isEmpty());
+        paintState(fillCollapsed, style.buttonBackgroundCollapsed, fallbackFill);
+        borderCollapsedDefault->setChecked(style.buttonBorderCollapsed.isEmpty());
+        paintState(borderCollapsed, style.buttonBorderCollapsed, fallbackBorder);
+        fillExpandedDefault->setChecked(style.buttonBackgroundExpanded.isEmpty());
+        paintState(fillExpanded, style.buttonBackgroundExpanded, fallbackFill);
+        borderExpandedDefault->setChecked(style.buttonBorderExpanded.isEmpty());
+        paintState(borderExpanded, style.buttonBorderExpanded, fallbackBorder);
         effect->setCurrentIndex(qMax(0, effect->findData(style.effect)));
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
         const int iconPx = style.iconSize > 0 ? style.iconSize : 48;
@@ -363,6 +440,50 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         const QString fallback = safe ? safe->defaultBorderColor() : QString();
         restyle([same, fallback](core::FenceStyle& style) { style.borderColor = same ? QString() : fallback; });
     });
+
+    const auto connectStateColour = [safe, id, dialog, restyle](QPushButton* swatch, QCheckBox* defBox,
+                                                               const QString& title,
+                                                               QString core::FenceStyle::* field,
+                                                               bool fromBorder) {
+        QObject::connect(swatch, &QPushButton::clicked, dialog, [=] {
+            if (!safe)
+                return;
+            const core::FenceStyle style = safe->fenceStyle(id);
+            const QString stored = style.*field;
+            const QColor fallback = fromBorder
+                ? QColor(style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor)
+                : QColor(style.background);
+            const QColor picked = RecentColours::pick(
+                stored.isEmpty() ? fallback : QColor(stored),
+                title, dialog);
+            if (picked.isValid())
+                restyle([picked, field](core::FenceStyle& s) { s.*field = picked.name(QColor::HexArgb).toUpper(); });
+        });
+        QObject::connect(defBox, &QCheckBox::toggled, dialog, [=](bool useFallback) {
+            if (!safe)
+                return;
+            const core::FenceStyle style = safe->fenceStyle(id);
+            const QString fallback = fromBorder
+                ? (style.borderColor.isEmpty() ? safe->defaultBorderColor() : style.borderColor)
+                : style.background;
+            restyle([useFallback, fallback, field](core::FenceStyle& s) {
+                s.*field = useFallback ? QString() : fallback;
+            });
+        });
+    };
+    connectStateColour(fillCollapsed, fillCollapsedDefault,
+                       QCoreApplication::translate("ButtonAppearanceDialog", "Background colour (collapsed)"),
+                       &core::FenceStyle::buttonBackgroundCollapsed, false);
+    connectStateColour(borderCollapsed, borderCollapsedDefault,
+                       QCoreApplication::translate("ButtonAppearanceDialog", "Border colour (collapsed)"),
+                       &core::FenceStyle::buttonBorderCollapsed, true);
+    connectStateColour(fillExpanded, fillExpandedDefault,
+                       QCoreApplication::translate("ButtonAppearanceDialog", "Background colour (expanded)"),
+                       &core::FenceStyle::buttonBackgroundExpanded, false);
+    connectStateColour(borderExpanded, borderExpandedDefault,
+                       QCoreApplication::translate("ButtonAppearanceDialog", "Border colour (expanded)"),
+                       &core::FenceStyle::buttonBorderExpanded, true);
+
     QObject::connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     QObject::connect(dialog, &QDialog::rejected, dialog, [safe, id, before] {

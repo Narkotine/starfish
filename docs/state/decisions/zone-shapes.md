@@ -108,7 +108,8 @@ by classic zones). The shortcut name is shown as a tooltip on hover.
 A Bouton's "Appearance..." menu opens a dedicated dialog
 (`createButtonAppearanceDialog` / `buttonAppearanceDialog`), not the classic
 zone one. It holds only settings that apply to a Bouton (material, opacity,
-effect, background colour, hover, border, icon size). The names checkbox was retired in session 115.
+effect, background colour, hover, border, icon size, and since session 116
+per-state fill/border colours). The names checkbox was retired in session 115.
 Zone-only controls (title bar, roll-up, grid flow, cell width, templates,
 corner radius) stay on the classic dialog, which no longer shows bouton-only
 options. Future shape-specific options should be added to the matching dialog
@@ -237,3 +238,16 @@ geometry in that case, and `applyVisibleGeometry` re-blits when the widget
 is resized inside a frame that already has the new size (T-077 used to skip
 it), so a fresh-load or post-Appearance collapsed Reveal bouton already
 shows the full closed disc.
+
+## Collapsed and expanded colours (session 116)
+
+Optional style fields `buttonBackgroundCollapsed`, `buttonBackgroundExpanded`,
+`buttonBorderCollapsed`, `buttonBorderExpanded` (empty = fall back to the
+current background / border, so older documents look unchanged). The Appearance
+dialog exposes the four colours under « Couleurs selon l'état ».
+
+`FenceView::buttonPaintFill` / `buttonPaintBorder` mix the two states in OKLab
+along `buttonOpenProgress()` (`core::mixOklab` in `src/core/color_mix.hpp`:
+endpoints exact, alpha lerped linearly and separately). The same colours drive
+the hosted frame fill, so the change is visible in Reveal where the skin does
+not cover the disc. Skins still paint on top.

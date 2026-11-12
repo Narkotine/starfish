@@ -337,3 +337,11 @@ set_tests_properties(core_system_metrics PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${STARFISH_QT_PLUGINS};QT_FORCE_STDERR_LOGGING=1")
 # These two measure Segoe UI text: the real platform, but errors to stderr.
 set_tests_properties(ui_fence_widgets ui_icon_grid PROPERTIES ENVIRONMENT "QT_FORCE_STDERR_LOGGING=1")
+
+# Session 116: OKLab colour mix (header-only; endpoints, midpoint, alpha).
+add_executable(test_starfish_color_mix
+    test_color_mix.cpp
+)
+target_include_directories(test_starfish_color_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_color_mix PRIVATE Qt6::Gui Qt6::Test)
+add_test(NAME core_color_mix COMMAND test_starfish_color_mix)

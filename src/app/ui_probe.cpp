@@ -42,6 +42,8 @@
 #include "ui/context_menu_editor.hpp"
 #include "ui/drag_image.hpp"
 #include "ui/fence_container.hpp"
+#include "core/color_mix.hpp"
+#include "ui/button_appearance_dialog.hpp"
 #include "ui/button_iris.hpp"
 #include "ui/button_skin.hpp"
 #include "ui/fence_transparency_dialog.hpp"
@@ -6215,6 +6217,361 @@ int runUiProbe(QApplication& app)
               tipOk && clickLaunches && dragDoesNot && pulseOk && neverPainted,
               notes.isEmpty() ? QStringLiteral("tooltip, single click, no drag-launch, pulse via widgetTick")
                               : notes.join(QLatin1Char(' ')));
+    }
+
+    // Session 116: collapsed vs expanded fill/border colours, OKLab mix along
+    // openProgress, through the real renderFence / widgetTick path.
+    {
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s116"));
+        QDir().mkpath(outDir);
+        const QColor fillCollapsed(0x0B, 0x3A, 0x6B, 255);
+        const QColor fillExpanded(0xE0, 0x7A, 0x2B, 255);
+        const QColor borderCollapsed(255, 255, 255, 255);
+        const QColor borderExpanded(0x1A, 0x12, 0x0C, 255);
+        const QColor expectedMidFill = core::mixOklab(fillCollapsed, fillExpanded, 0.5);
+        const QColor expectedMidBorder = core::mixOklab(borderCollapsed, borderExpanded, 0.5);
+        const QColor srgbMidFill(qRound((fillCollapsed.red() + fillExpanded.red()) / 2.0),
+                                 qRound((fillCollapsed.green() + fillExpanded.green()) / 2.0),
+                                 qRound((fillCollapsed.blue() + fillExpanded.blue()) / 2.0));
+
+        auto channelDist = [](const QColor& a, const QColor& b) {
+            const int dr = a.red() - b.red();
+            const int dg = a.green() - b.green();
+            const int db = a.blue() - b.blue();
+            return std::sqrt(double(dr * dr + dg * dg + db * db));
+        };
+        auto meanFill = [](const QImage& im) -> QColor {
+            if (im.isNull() || im.width() < 8 || im.height() < 8)
+                return {};
+            const int cx = im.width() / 2;
+            const int cy = im.height() / 2;
+            const int extent = 4;
+            qint64 r = 0, g = 0, b = 0, n = 0;
+            for (int y = cy - extent; y <= cy + extent; ++y) {
+                for (int x = cx - extent; x <= cx + extent; ++x) {
+                    if (!im.valid(x, y))
+                        continue;
+                    const QColor c = im.pixelColor(x, y);
+                    r += c.red();
+                    g += c.green();
+                    b += c.blue();
+                    ++n;
+                }
+            }
+            if (n == 0)
+                return {};
+            return QColor(int(r / n), int(g / n), int(b / n));
+        };
+        auto meanBorder = [](const QImage& im) -> QColor {
+            if (im.isNull() || im.width() < 8 || im.height() < 8)
+                return {};
+            const int cx = im.width() / 2;
+            const int cy = im.height() / 2;
+            const int radius = qMin(im.width(), im.height()) / 2;
+            const int inset = qBound(1, qMax(2, radius / 40), 6);
+            const int sampleR = qMax(1, radius - inset);
+            qint64 r = 0, g = 0, b = 0, n = 0;
+            const QPoint pts[] = {
+                QPoint(cx + sampleR, cy),
+                QPoint(cx - sampleR, cy),
+                QPoint(cx, cy + sampleR),
+                QPoint(cx, cy - sampleR),
+            };
+            for (const QPoint& pt : pts) {
+                if (!im.valid(pt.x(), pt.y()))
+                    continue;
+                const QColor c = im.pixelColor(pt);
+                r += c.red();
+                g += c.green();
+                b += c.blue();
+                ++n;
+            }
+            if (n == 0)
+                return {};
+            return QColor(int(r / n), int(g / n), int(b / n));
+        };
+        auto checkPixels = [&](const char* tag, const QImage& im, const QColor& expectFill,
+                               const QColor& expectBorder, double fillTol, double borderTol) {
+            const QColor gotFill = meanFill(im);
+            const QColor gotBorder = meanBorder(im);
+            const double dFill = channelDist(gotFill, expectFill);
+            const double dBorder = channelDist(gotBorder, expectBorder);
+            bool ok = !gotFill.isValid() ? false : dFill <= fillTol;
+            if (!ok)
+                notes << QStringLiteral("%1 fill got %2,%3,%4 want %5,%6,%7 dist %8")
+                             .arg(QString::fromUtf8(tag))
+                             .arg(gotFill.red()).arg(gotFill.green()).arg(gotFill.blue())
+                             .arg(expectFill.red()).arg(expectFill.green()).arg(expectFill.blue())
+                             .arg(dFill, 0, 'f', 1);
+            if (!gotBorder.isValid() || dBorder > borderTol) {
+                ok = false;
+                notes << QStringLiteral("%1 border got %2,%3,%4 want %5,%6,%7 dist %8")
+                             .arg(QString::fromUtf8(tag))
+                             .arg(gotBorder.red()).arg(gotBorder.green()).arg(gotBorder.blue())
+                             .arg(expectBorder.red()).arg(expectBorder.green()).arg(expectBorder.blue())
+                             .arg(dBorder, 0, 'f', 1);
+            }
+            return ok;
+        };
+
+        ui::FenceContainer box;
+        box.setAnimateRoll(true);
+        const QString id = box.createButton(QStringLiteral("S116Colours"), QPoint(280, 280));
+        ui::FenceView* v = box.view(id);
+        bool revealOk = false;
+        bool growOk = false;
+        bool irisOpenOk = false;
+        bool styleRoundTrip = false;
+        bool fallbackOk = false;
+        bool dialogOk = false;
+        bool shotsOk = false;
+        if (!v) {
+            notes << QStringLiteral("no view");
+        } else {
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("off");
+            st.hoverEffect = QStringLiteral("none");
+            st.buttonSkin = QString(); // plain
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.showLabels = QStringLiteral("off");
+            st.borderWidth = 4;
+            st.buttonBackgroundCollapsed = fillCollapsed.name(QColor::HexArgb).toUpper();
+            st.buttonBackgroundExpanded = fillExpanded.name(QColor::HexArgb).toUpper();
+            st.buttonBorderCollapsed = borderCollapsed.name(QColor::HexArgb).toUpper();
+            st.buttonBorderExpanded = borderExpanded.name(QColor::HexArgb).toUpper();
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            const core::FenceStyle stored = box.fenceStyle(id);
+            styleRoundTrip = stored.buttonBackgroundCollapsed.compare(st.buttonBackgroundCollapsed, Qt::CaseInsensitive) == 0
+                && stored.buttonBackgroundExpanded.compare(st.buttonBackgroundExpanded, Qt::CaseInsensitive) == 0
+                && stored.buttonBorderCollapsed.compare(st.buttonBorderCollapsed, Qt::CaseInsensitive) == 0
+                && stored.buttonBorderExpanded.compare(st.buttonBorderExpanded, Qt::CaseInsensitive) == 0;
+            if (!styleRoundTrip)
+                notes << QStringLiteral("style fields did not round-trip");
+
+            v->show();
+            wait(40);
+            auto hostedAt = [&](qreal u) {
+                v->setButtonOpenProgressOverride(u);
+                v->update();
+                QApplication::processEvents();
+                wait(30);
+                return box.frame(id);
+            };
+            const QImage reveal0 = hostedAt(0.0);
+            const QImage revealMid = hostedAt(0.5);
+            const QImage reveal1 = hostedAt(1.0);
+            const bool r0 = checkPixels("reveal-0", reveal0, fillCollapsed, borderCollapsed, 18.0, 48.0);
+            const bool r1 = checkPixels("reveal-1", reveal1, fillExpanded, borderExpanded, 18.0, 48.0);
+            const bool rMid = checkPixels("reveal-0.5", revealMid, expectedMidFill, expectedMidBorder, 22.0, 55.0);
+            const QColor midGot = meanFill(revealMid);
+            const bool midNotEndpoint = midGot.isValid()
+                && channelDist(midGot, fillCollapsed) > 30.0
+                && channelDist(midGot, fillExpanded) > 30.0;
+            if (!midNotEndpoint)
+                notes << QStringLiteral("reveal mid fill too close to an endpoint");
+            const bool midIsOklab = midGot.isValid()
+                && channelDist(midGot, expectedMidFill) + 8.0 < channelDist(midGot, srgbMidFill);
+            if (!midIsOklab)
+                notes << QStringLiteral("reveal mid fill closer to sRGB lerp than OKLab");
+            revealOk = r0 && r1 && rMid && midNotEndpoint && midIsOklab;
+
+            // Grow + plain: the disc may stay at rest size; colours still follow openProgress.
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenGrow);
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            wait(20);
+            const QImage grow0 = hostedAt(0.0);
+            const QImage growMid = hostedAt(0.5);
+            const QImage grow1 = hostedAt(1.0);
+            growOk = checkPixels("grow-0", grow0, fillCollapsed, borderCollapsed, 18.0, 48.0)
+                && checkPixels("grow-1", grow1, fillExpanded, borderExpanded, 18.0, 48.0)
+                && checkPixels("grow-0.5", growMid, expectedMidFill, expectedMidBorder, 22.0, 55.0);
+            // Restore Reveal for iris + shots.
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            st.buttonSkin = QString::fromUtf8(ui::zone_shape::kButtonSkinDiaphragm);
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            wait(20);
+            const QImage irisOpen = hostedAt(1.0);
+            const QColor irisFill = meanFill(irisOpen);
+            irisOpenOk = irisFill.isValid() && channelDist(irisFill, fillExpanded) <= 22.0;
+            if (!irisOpenOk)
+                notes << QStringLiteral("diaphragm open fill got %1,%2,%3")
+                             .arg(irisFill.red()).arg(irisFill.green()).arg(irisFill.blue());
+
+            // Empty fields fall back to the current panel / border (old documents).
+            core::FenceStyle fallback = box.fenceStyle(id);
+            fallback.buttonSkin = QString();
+            fallback.buttonBackgroundCollapsed.clear();
+            fallback.buttonBackgroundExpanded.clear();
+            fallback.buttonBorderCollapsed.clear();
+            fallback.buttonBorderExpanded.clear();
+            fallback.background = QStringLiteral("#FF112233");
+            fallback.borderColor = QStringLiteral("#FFCCDDEE");
+            box.setFenceStyle(id, fallback);
+            box.syncButtonSize(id);
+            wait(20);
+            const QColor fbFill(0x11, 0x22, 0x33);
+            const QColor fbBorder(0xCC, 0xDD, 0xEE);
+            const QImage fb0 = hostedAt(0.0);
+            const QImage fb1 = hostedAt(1.0);
+            fallbackOk = checkPixels("fallback-0", fb0, fbFill, fbBorder, 18.0, 48.0)
+                && checkPixels("fallback-1", fb1, fbFill, fbBorder, 18.0, 48.0)
+                && channelDist(meanFill(fb0), meanFill(fb1)) < 8.0;
+            if (!fallbackOk)
+                notes << QStringLiteral("empty fields did not fall back to current colours");
+
+            // Apparence du bouton: the four state swatches exist and follow the style.
+            st.buttonSkin = QString();
+            st.buttonBackgroundCollapsed = fillCollapsed.name(QColor::HexArgb).toUpper();
+            st.buttonBackgroundExpanded = fillExpanded.name(QColor::HexArgb).toUpper();
+            st.buttonBorderCollapsed = borderCollapsed.name(QColor::HexArgb).toUpper();
+            st.buttonBorderExpanded = borderExpanded.name(QColor::HexArgb).toUpper();
+            box.setFenceStyle(id, st);
+            std::unique_ptr<QDialog> dlg(ui::createButtonAppearanceDialog(&box, id, nullptr));
+            if (!dlg) {
+                notes << QStringLiteral("no appearance dialog");
+            } else {
+                if (offscreen)
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                auto* fc = dlg->findChild<QPushButton*>(QStringLiteral("buttonBackgroundCollapsed"));
+                auto* fe = dlg->findChild<QPushButton*>(QStringLiteral("buttonBackgroundExpanded"));
+                auto* bc = dlg->findChild<QPushButton*>(QStringLiteral("buttonBorderCollapsed"));
+                auto* be = dlg->findChild<QPushButton*>(QStringLiteral("buttonBorderExpanded"));
+                auto* fcDef = dlg->findChild<QCheckBox*>(QStringLiteral("buttonBackgroundCollapsedDefault"));
+                auto* feDef = dlg->findChild<QCheckBox*>(QStringLiteral("buttonBackgroundExpandedDefault"));
+                auto* bcDef = dlg->findChild<QCheckBox*>(QStringLiteral("buttonBorderCollapsedDefault"));
+                auto* beDef = dlg->findChild<QCheckBox*>(QStringLiteral("buttonBorderExpandedDefault"));
+                auto* section = dlg->findChild<QWidget*>(QStringLiteral("buttonStateColours"));
+                dialogOk = fc && fe && bc && be && fcDef && feDef && bcDef && beDef && section
+                    && !fcDef->isChecked() && !feDef->isChecked()
+                    && !bcDef->isChecked() && !beDef->isChecked();
+                if (!dialogOk)
+                    notes << QStringLiteral("appearance dialog missing state colour controls");
+                dlg->setAttribute(Qt::WA_DontShowOnScreen, false);
+                dlg->show();
+                wait(80);
+                QApplication::processEvents();
+                if (section) {
+                    const QImage sectionImg = section->grab().toImage();
+                    const QString sectionPath = outDir + QStringLiteral("/appearance_state_colours.png");
+                    if (sectionImg.isNull() || !sectionImg.save(sectionPath, "PNG")) {
+                        notes << QStringLiteral("failed appearance_state_colours.png");
+                        dialogOk = false;
+                    }
+                }
+                QImage dlgImg;
+#if defined(_WIN32)
+                const HWND dlgHwnd = reinterpret_cast<HWND>(dlg->winId());
+                if (dlgHwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(dlgHwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(dlgHwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ old = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(dlgHwnd, mem, PW_RENDERFULLCONTENT);
+                        dlgImg = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, dlgImg.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, old);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(dlgHwnd, hdc);
+                    }
+                }
+#endif
+                if (dlgImg.isNull())
+                    dlgImg = dlg->grab().toImage();
+                const QString dlgPath = outDir + QStringLiteral("/appearance_dialog.png");
+                if (dlgImg.isNull() || !dlgImg.save(dlgPath, "PNG")) {
+                    notes << QStringLiteral("failed appearance_dialog.png");
+                    dialogOk = false;
+                }
+                dlg->hide();
+            }
+
+            // PrintWindow shots: Reveal + plain, distinct collapsed/expanded colours.
+            st.buttonSkin = QString();
+            st.buttonOpenMode = QString::fromUtf8(ui::zone_shape::kButtonOpenReveal);
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            v->setAttribute(Qt::WA_DontShowOnScreen, false);
+            v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint) & ~Qt::WindowDoesNotAcceptFocus);
+            v->show();
+            wait(80);
+            const int side = qMax(160, qMin(v->width(), v->height()));
+            auto snap = [&](const QString& name, qreal progress) {
+                v->setButtonOpenProgressOverride(progress);
+                v->resize(side, side);
+                v->setFixedSize(side, side);
+                v->move(80, 80);
+                v->update();
+                wait(50);
+                QApplication::processEvents();
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ oldBm = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, oldBm);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = v->grab().toImage();
+                const QString path = outDir + QLatin1Char('/') + name;
+                const bool saved = !img.isNull() && img.save(path, "PNG");
+                if (!saved)
+                    notes << QStringLiteral("failed %1").arg(name);
+                return saved && !img.isNull();
+            };
+            shotsOk = snap(QStringLiteral("progress_0.png"), 0.0)
+                && snap(QStringLiteral("progress_0.5.png"), 0.5)
+                && snap(QStringLiteral("progress_1.png"), 1.0);
+            v->hide();
+        }
+        check(QStringLiteral("Bouton: collapsed/expanded colours mix in OKLab along openProgress (session 116)"),
+              revealOk && growOk && irisOpenOk && styleRoundTrip && fallbackOk && dialogOk && shotsOk,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }
 
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),

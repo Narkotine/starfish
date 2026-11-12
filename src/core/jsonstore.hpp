@@ -111,6 +111,11 @@ struct FenceStyle {
     // Grow otherwise), "grow" = the disc expands, "reveal" = full-size disc,
     // the shutter opens in front. Written when explicitly set.
     QString buttonOpenMode;
+    // Session 116: per-state disc colours (empty = fall back to background / borderColor).
+    QString buttonBackgroundCollapsed;
+    QString buttonBackgroundExpanded;
+    QString buttonBorderCollapsed;
+    QString buttonBorderExpanded;
 };
 
 // An item displayed inside a fence: a desktop file or a folder portal.
