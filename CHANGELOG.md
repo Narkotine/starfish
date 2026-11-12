@@ -8,6 +8,7 @@
 ## Non publié
 
 ### Correctifs
+- Compilation MSVC (CI) : un identifiant `small` entrait en conflit avec une macro Windows (`small` = `char`), d'où des erreurs du type « QRect followed by 'char' ». Corrigé en le renommant (MinGW n'était pas affecté).
 - Bouton : en Dévoilement, un bouton déjà replié pouvait garder le petit widget compact centré dans le grand cadre (l'image hébergée n'était pas le disque fermé plein cadre tant qu'on n'avait pas ouvert puis refermé — visible après le retrait des noms sous les icônes, le carré enregistré ne changeait plus). Corrigé : la géométrie visible est toujours appliquée, et un changement de taille du widget redessine même si le cadre a déjà la bonne dimension.
 - Bouton : une fois refermé (Dévoilement, Diaphragme ou Obturateur), l'image sur le bureau montrait la vue toute ouverte. En fin d'animation, la progression était effacée avant que l'état au repos soit appliqué, et un disque de même taille n'était pas redessiné. Corrigé : au repos refermé, c'est la vue fermée ; au repos ouvert, la vue ouverte ; idem au chargement et après un changement d'Apparence.
 - Bouton : plus de titre dessiné sur le disque (replié ou au survol) ; le nom reste enregistré pour les menus.

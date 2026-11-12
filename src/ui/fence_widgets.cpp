@@ -339,8 +339,8 @@ void paintMetric(QPainter& painter, const QRect& rect, const core::DesktopItem& 
         const int labelHeight = inner.height() * 30 / 100;
         const QRect labelBox(inner.x(), inner.y(), inner.width(), labelHeight);
         const QRect valueBox(inner.x(), inner.y() + labelHeight, inner.width(), inner.height() - labelHeight);
-        QFont small = c.font;
-        drawText(painter, labelBox, label, fitted(small, label, labelBox.size(), 0.8), c);
+        QFont labelFont = c.font;
+        drawText(painter, labelBox, label, fitted(labelFont, label, labelBox.size(), 0.8), c);
         drawText(painter, valueBox, value, fitted(base, value, valueBox.size(), 0.78), c);
         return;
     }

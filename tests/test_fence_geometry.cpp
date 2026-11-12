@@ -425,8 +425,8 @@ void TestFenceGeometry::freeSpotStillAnswersWhenNothingFits()
     // A fence larger than the area: the first candidate, which the caller clamps.
     // (The area's edges are inclusive, so a fence exactly as large as the area does
     // *not* fit here -- the check is honest about which case it covers.)
-    const QRect small(0, 0, 100, 100);
-    QCOMPARE(FenceGeometry::freeSpot({}, kFence, small), QRect(0, 0, 320, 240));
+    const QRect tightArea(0, 0, 100, 100);
+    QCOMPARE(FenceGeometry::freeSpot({}, kFence, tightArea), QRect(0, 0, 320, 240));
 }
 
 void TestFenceGeometry::aMoveStopsAgainstAnotherFence()

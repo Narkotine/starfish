@@ -480,10 +480,13 @@ inline double buttonExpandEase(double t)
 inline QRect buttonVisibleRect(const QRect& stored, int iconSize, double progress,
                                int preferredDiameter = 0)
 {
-    const QRect small = buttonCollapsedRect(stored, iconSize, preferredDiameter);
+    // Not named `small`: Windows rpcndr.h defines that as `char`, which
+    // breaks this header on MSVC as soon as a translation unit includes
+    // the Win32 headers (CI). MinGW is more forgiving.
+    const QRect collapsed = buttonCollapsedRect(stored, iconSize, preferredDiameter);
     const double u = buttonExpandEase(progress);
     const QPoint c = stored.center();
-    const int side = qMax(1, int(qRound(small.width() + (stored.width() - small.width()) * u)));
+    const int side = qMax(1, int(qRound(collapsed.width() + (stored.width() - collapsed.width()) * u)));
     return QRect(c.x() - side / 2, c.y() - side / 2, side, side);
 }
 

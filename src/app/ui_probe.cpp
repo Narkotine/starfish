@@ -3567,8 +3567,8 @@ int runUiProbe(QApplication& app)
             born = ui::zone_shape::isButton(v->shape()) && v->rolledUp();
             visCollapsed = box.fenceRect(id); // stored
             // Visible collapsed size via geometry helper
-            const QRect small = ui::zone_shape::buttonCollapsedRect(box.fenceRect(id), 48);
-            collapsed = small.width() <= 48 * 2 + 16 && small.height() == small.width();
+            const QRect collapsedRect = ui::zone_shape::buttonCollapsedRect(box.fenceRect(id), 48);
+            collapsed = collapsedRect.width() <= 48 * 2 + 16 && collapsedRect.height() == collapsedRect.width();
             QList<core::DesktopItem> items;
             for (int i = 0; i < 5; ++i) {
                 core::DesktopItem it;

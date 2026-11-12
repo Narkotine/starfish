@@ -104,14 +104,14 @@ void TestDesktopItem::sortsByTypeFoldersFirst()
 
 void TestDesktopItem::sortsBySize()
 {
-    DesktopItem small = makeItem(QStringLiteral("small.bin"));
-    small.sizeBytes = 10;
+    DesktopItem smallItem = makeItem(QStringLiteral("small.bin"));
+    smallItem.sizeBytes = 10;
     DesktopItem big = makeItem(QStringLiteral("big.bin"));
     big.sizeBytes = 4096;
     DesktopItem unknown = makeItem(QStringLiteral("folder"));
     unknown.sizeBytes = -1; // folders and unreadable entries
 
-    QList<DesktopItem> items{big, unknown, small};
+    QList<DesktopItem> items{big, unknown, smallItem};
     sortForDisplay(items, QStringLiteral("size"), true);
     QCOMPARE(namesOf(items),
              QStringList({QStringLiteral("folder"), QStringLiteral("small.bin"),
