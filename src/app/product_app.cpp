@@ -269,6 +269,7 @@ bool ProductApp::start(const Options& options, QString* error)
         const QSettings settings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat);
         m_container->setHoverHighlight(settings.value(QStringLiteral("fenceHoverHighlight"), true).toBool());
         m_container->setHoverUnrollDefault(settings.value(QStringLiteral("fenceHoverUnroll"), false).toBool());
+        m_container->setSingleClickDefault(settings.value(QStringLiteral("shortcutSingleClick"), false).toBool());
         m_container->setRollOppositeDefault(settings.value(QStringLiteral("fenceRollOpposite"), false).toBool());
         m_container->setAnimateRoll(settings.value(QStringLiteral("fenceRollAnimated"), true).toBool());
         m_container->setRollSpeed(settings.value(QStringLiteral("fenceRollSpeed"),
@@ -675,6 +676,12 @@ void ProductApp::wireSettings()
     });
     connect(m_settings, &ui::SettingsDialog::snapToCellsToggled, this, [saveSwitch](bool on) {
         saveSwitch(QStringLiteral("fenceSnapToCells"), on, &ui::FenceContainer::setSnapToCellsDefault);
+    });
+    connect(m_settings, &ui::SettingsDialog::singleClickToggled, this, [this](bool on) {
+        QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
+            .setValue(QStringLiteral("shortcutSingleClick"), on);
+        if (m_container)
+            m_container->setSingleClickDefault(on);
     });
     connect(m_settings, &ui::SettingsDialog::hoverUnrollToggled, this, [this](bool on) {
         QSettings(QStringLiteral("HKEY_CURRENT_USER\\Software\\StarFish"), QSettings::NativeFormat)
@@ -2069,6 +2076,7 @@ void ProductApp::refreshStatus()
         m_settings->setHoverHighlight(m_container->hoverHighlight());
         m_settings->setDesktopDoubleClickHides(m_doubleClickHides);
         m_settings->setHoverUnroll(m_container->hoverUnrollDefault());
+        m_settings->setSingleClick(m_container->singleClickDefault());
         m_settings->setRollOpposite(m_container->rollOppositeDefault());
         m_settings->setRollAnimated(m_container->animateRoll());
         m_settings->setSnapToCells(m_container->snapToCellsDefault());

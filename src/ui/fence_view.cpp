@@ -1434,9 +1434,9 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
     }
 
     // A press that never crossed the drag threshold is just a click.
-    // Session 115: on an open bouton, a single left click launches (a drag
-    // above the system threshold is not a launch -- it was handled above).
-    const int clickIndex = (zone_shape::isButton(m_shape) && !m_rolledUp && !m_rolling)
+    // Session 115/119: launch on release when single-click is on (boutons
+    // default to on). A drag above the system threshold is not a launch.
+    const int clickIndex = (m_singleClickLaunch && !m_rolledUp && !m_rolling)
                                ? itemAt(event->pos())
                                : -1;
     m_dragOriginIndex = -1;
@@ -1471,9 +1471,9 @@ void FenceView::mouseDoubleClickEvent(QMouseEvent* event)
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
-    // Session 115: a bouton icon already launched on the first click; a
-    // second click of a double-click must not launch again.
-    if (zone_shape::isButton(m_shape)) {
+    // Session 115/119: if a single click already launched, the second click
+    // of a double-click must not launch again.
+    if (m_singleClickLaunch) {
         event->accept();
         return;
     }

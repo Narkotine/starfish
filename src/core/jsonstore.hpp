@@ -90,6 +90,10 @@ struct FenceStyle {
     QString snapToCells;
     QString iconFlow;   // session 76: "" (Settings) or an IconLayout::flowKeys() key
     QString showLabels; // session 76: "" (Settings) | "on" | "off" -- icon names (classic zones). Boutons ignore it (session 115); kept for layout.json compatibility.
+    // Session 119: launch a shortcut on left-button release. "" inherits
+    // (Settings default for classic zones and the desktop; a Bouton with an
+    // empty value is on, matching session 115). "on" / "off" override it.
+    QString singleClick;
     // Session 101 (T-095): "" classic rectangle + title-bar roll-up, "button" =
     // circular Bouton. Unknown values are kept and drawn as classic until known.
     QString shape;

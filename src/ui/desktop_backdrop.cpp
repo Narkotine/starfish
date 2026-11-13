@@ -6,7 +6,9 @@
 #include "ui/modern_menu.hpp"
 #include "ui/widget_resize.hpp"
 
+#include <QApplication>
 #include <QGuiApplication>
+#include <QLineF>
 #include <windows.h>
 
 #include <QColor>
@@ -973,6 +975,7 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
         m_pressedIcon = (mouse->button() == Qt::LeftButton && iconIndex >= 0)
                             ? m_cells.at(iconIndex).item.path
                             : QString();
+        m_singleClickJustActivated = false;
         result = m_gesture.press(screen, button, onIcon);
         break;
     case QEvent::MouseMove:
@@ -980,8 +983,23 @@ bool DesktopBackdrop::handleMouse(QMouseEvent* mouse)
         break;
     case QEvent::MouseButtonRelease:
         result = m_gesture.release(screen, button);
+        // Session 119: launch on release when single-click is on, if this was
+        // not a drag and the pointer stayed within the system threshold.
+        if (m_singleClickLaunch && mouse->button() == Qt::LeftButton && !m_pressedIcon.isEmpty()
+            && result.action != BackdropGesture::Action::IconDrag
+            && result.action != BackdropGesture::Action::IconDrop
+            && m_marquee.isNull()
+            && QLineF(m_iconPressPoint, screen).length() < QApplication::startDragDistance()) {
+            result.action = BackdropGesture::Action::IconActivate;
+            result.point = screen;
+            m_singleClickJustActivated = true;
+        }
         break;
     case QEvent::MouseButtonDblClick:
+        if (m_singleClickLaunch && m_singleClickJustActivated) {
+            m_singleClickJustActivated = false;
+            return true;
+        }
         result = m_gesture.doubleClick(screen, onIcon);
         break;
     default:

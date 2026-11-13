@@ -281,3 +281,25 @@ idle timeout now restore a compact disc (iris closed), reset the hover
 machine, and do not immediately unroll under the pointer. The next hover
 opens and recollapses as usual. The same release is ignored after leaving
 move mode the same way.
+
+## Single-click launch: default and overrides (session 119)
+
+A global default lives in Settings → Fences (shortcutSingleClick in
+QSettings, off by default) as « Lancer les raccourcis en un clic ».
+Each zone and each bouton can override it in Appearance (Hériter / Oui / Non,
+style field singleClick: " / on / off). Missing or unknown values
+load as inherit, so older documents stay unchanged. The StarFish-drawn desktop
+follows the global default only (no separate desktop override).
+
+Resolution (core::resolvedSingleClickLaunch): on / off win; empty
+inherits — boutons resolve to on (createButton also writes on, so the
+session 115 behaviour stays the default), zones and the desktop resolve to the
+global default (off until the user turns it on).
+
+Launch fires on left-button release if the pointer has not moved past
+QApplication::startDragDistance() and no drag started; press+move still
+starts drag-and-drop. When single-click is on, a following double-click is
+ignored so it does not launch twice; the bouton click pulse still runs on
+release. When it is off, zones and the desktop keep today's double-click
+launch. Selection is unchanged (press still selects; Ctrl toggle and
+rubber-band still work). A plain click can select and then launch on release.

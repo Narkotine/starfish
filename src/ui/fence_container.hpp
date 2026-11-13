@@ -284,6 +284,8 @@ public:
     // fence's style.hoverUnroll overrides it) and rolls back up after it leaves.
     void setHoverUnrollDefault(bool on) { m_hoverUnrollDefault = on; }
     bool hoverUnrollDefault() const { return m_hoverUnrollDefault; }
+    void setSingleClickDefault(bool on); // session 119
+    bool singleClickDefault() const { return m_singleClickDefault; }
     bool fenceHoverUnrolls(const QString& id) const;
     bool fenceHoverUnrolled(const QString& id) const;
     static constexpr int kHoverUnrollDelayMs = 250;
@@ -801,6 +803,7 @@ private:
     QString m_defaultBorderColor = QStringLiteral("#FF3B82F6");
     bool m_hoverHighlight = true;
     bool m_hoverUnrollDefault = false;
+    bool m_singleClickDefault = false; // session 119: zones and the desktop
     bool m_rollOppositeDefault = false;
     bool m_animateRoll = false; // the product turns it on (Settings); off headless
     RollStats m_lastRollStats;  // session 95

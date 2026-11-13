@@ -109,6 +109,13 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
     hoverCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Glow"), QStringLiteral("glow"));
     form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "On hover"), hoverCombo);
 
+    auto* clickCombo = new QComboBox(dialog);
+    clickCombo->setObjectName(QStringLiteral("singleClickLaunch"));
+    clickCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Inherit (Settings)"), QString());
+    clickCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Yes"), QStringLiteral("on"));
+    clickCombo->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "No"), QStringLiteral("off"));
+    form->addRow(QCoreApplication::translate("ButtonAppearanceDialog", "Launch with a single click"), clickCombo);
+
     auto* borderWidth = new QComboBox(dialog);
     borderWidth->setObjectName(QStringLiteral("borderWidth"));
     borderWidth->addItem(QCoreApplication::translate("ButtonAppearanceDialog", "Default (%1 px)")
@@ -230,14 +237,14 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
     layout->addWidget(buttons);
 
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, panel, defaultPercent,
-                    borderWidth, borderColour, borderDefault, effect, hoverCombo, iconSize,
+                    borderWidth, borderColour, borderDefault, effect, hoverCombo, clickCombo, iconSize,
                     collapsedDiameter, ringCount, skinCombo, skinLayer, openMode,
                     fillCollapsed, fillCollapsedDefault, borderCollapsed, borderCollapsedDefault,
                     fillExpanded, fillExpandedDefault, borderExpanded, borderExpandedDefault] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons),
-            b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b16(iconSize),
+            b7(borderWidth), b8(borderDefault), b10(effect), b15(hoverCombo), b15b(clickCombo), b16(iconSize),
             b18(collapsedDiameter), b19(ringCount),
             b20(skinCombo), b21(skinLayer), b22(openMode),
             b23(fillCollapsedDefault), b24(borderCollapsedDefault),
@@ -278,6 +285,7 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
         paintState(borderExpanded, style.buttonBorderExpanded, fallbackBorder);
         effect->setCurrentIndex(qMax(0, effect->findData(style.effect)));
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
+        clickCombo->setCurrentIndex(qMax(0, clickCombo->findData(style.singleClick)));
         const int iconPx = style.iconSize > 0 ? style.iconSize : 48;
         int ic = iconSize->findData(iconPx);
         if (ic < 0) {
@@ -356,6 +364,10 @@ inline QDialog* createButtonAppearanceDialog(FenceContainer* container, const QS
                                                   dialog);
         if (picked.isValid())
             restyle([&picked](core::FenceStyle& style) { style.background = picked.name(QColor::HexArgb).toUpper(); });
+    });
+    QObject::connect(clickCombo, &QComboBox::currentIndexChanged, dialog, [clickCombo, restyle](int) {
+        const QString chosen = clickCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.singleClick = chosen; });
     });
     QObject::connect(hoverCombo, &QComboBox::currentIndexChanged, dialog, [hoverCombo, restyle](int) {
         const QString chosen = hoverCombo->currentData().toString();

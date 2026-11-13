@@ -234,6 +234,22 @@
         <source>Border colour (expanded)</source>
         <translation>Couleur du contour (déployé)</translation>
     </message>
+    <message>
+        <source>Inherit (Settings)</source>
+        <translation>Hériter (Réglages)</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Oui</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>Non</translation>
+    </message>
+    <message>
+        <source>Launch with a single click</source>
+        <translation>Lancer en un clic</translation>
+    </message>
 </context>
 <context>
     <name>ContextMenuGlyphs</name>
@@ -851,6 +867,22 @@
         <location line="+190"/>
         <source>Border colour</source>
         <translation>Couleur de bordure</translation>
+    </message>
+    <message>
+        <source>Inherit (Settings)</source>
+        <translation>Hériter (Réglages)</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Oui</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>Non</translation>
+    </message>
+    <message>
+        <source>Launch with a single click</source>
+        <translation>Lancer en un clic</translation>
     </message>
 </context>
 <context>
@@ -2299,6 +2331,14 @@
         <location line="+7"/>
         <source>Remove every zone and widget</source>
         <translation>Retirer toutes les zones et tous les widgets</translation>
+    </message>
+    <message>
+        <source>Launch shortcuts with a single click</source>
+        <translation>Lancer les raccourcis en un clic</translation>
+    </message>
+    <message>
+        <source>On: a shortcut opens when you release the left button, if you have not dragged it. This is the default for zones and for the StarFish desktop. A zone or a button can choose otherwise in Appearance. Buttons default to on.</source>
+        <translation>Activé : un raccourci s&apos;ouvre au relâchement du clic gauche, si vous n&apos;avez pas glissé l&apos;icône. C&apos;est le défaut pour les zones et pour le bureau StarFish. Chaque zone ou bouton peut choisir autrement dans Apparence. Les boutons sont activés par défaut.</translation>
     </message>
 </context>
 <context>

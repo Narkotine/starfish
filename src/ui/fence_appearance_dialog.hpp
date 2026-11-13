@@ -184,6 +184,12 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Shown"), QStringLiteral("on"));
     labelsCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Hidden"), QStringLiteral("off"));
     form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Icon names"), labelsCombo);
+    auto* clickCombo = new QComboBox(dialog);
+    clickCombo->setObjectName(QStringLiteral("singleClickLaunch"));
+    clickCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Inherit (Settings)"), QString());
+    clickCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Yes"), QStringLiteral("on"));
+    clickCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "No"), QStringLiteral("off"));
+    form->addRow(QCoreApplication::translate("FenceAppearanceDialog", "Launch with a single click"), clickCombo);
     auto* flowCombo = new QComboBox(dialog);
     flowCombo->setObjectName(QStringLiteral("iconFlow"));
     flowCombo->addItem(QCoreApplication::translate("FenceAppearanceDialog", "Default (Settings)"), QString());
@@ -320,7 +326,7 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     // Every control shows what the fence *is* -- read back after each change,
     // since the material, the transparency and the panel colour are one alpha.
     auto refresh = [safe, id, material, useDefault, slider, fadeIcons, radius, panel, bar, sameAsPanel,
-                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, flowCombo] {
+                    defaultPercent, borderWidth, borderColour, borderDefault, cell, effect, titleBar, titleAlign, titleSide, titleShape, hoverCombo, rollCombo, snapCombo, labelsCombo, clickCombo, flowCombo] {
         if (!safe || !safe->fenceIds().contains(id))
             return;
         const QSignalBlocker b1(material), b2(useDefault), b3(slider), b4(fadeIcons), b5(radius), b6(sameAsPanel),
@@ -360,9 +366,10 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
         titleShape->setEnabled(style.titleBar);
         hoverCombo->setCurrentIndex(qMax(0, hoverCombo->findData(style.hoverEffect)));
         {
-            const QSignalBlocker r(rollCombo), n(snapCombo), l(labelsCombo), f(flowCombo);
+            const QSignalBlocker r(rollCombo), n(snapCombo), l(labelsCombo), k(clickCombo), f(flowCombo);
             flowCombo->setCurrentIndex(qMax(0, flowCombo->findData(style.iconFlow)));
             labelsCombo->setCurrentIndex(qMax(0, labelsCombo->findData(style.showLabels)));
+            clickCombo->setCurrentIndex(qMax(0, clickCombo->findData(style.singleClick)));
             rollCombo->setCurrentIndex(qMax(0, rollCombo->findData(style.rollToward)));
             snapCombo->setCurrentIndex(qMax(0, snapCombo->findData(style.snapToCells)));
         }
@@ -466,6 +473,10 @@ inline QDialog* createFenceAppearanceDialog(FenceContainer* container, const QSt
     QObject::connect(labelsCombo, &QComboBox::currentIndexChanged, dialog, [labelsCombo, restyle](int) {
         const QString chosen = labelsCombo->currentData().toString();
         restyle([chosen](core::FenceStyle& style) { style.showLabels = chosen; });
+    });
+    QObject::connect(clickCombo, &QComboBox::currentIndexChanged, dialog, [clickCombo, restyle](int) {
+        const QString chosen = clickCombo->currentData().toString();
+        restyle([chosen](core::FenceStyle& style) { style.singleClick = chosen; });
     });
     QObject::connect(snapCombo, &QComboBox::currentIndexChanged, dialog, [snapCombo, restyle](int) {
         const QString chosen = snapCombo->currentData().toString();

@@ -403,6 +403,11 @@ QWidget* SettingsDialog::buildFences()
     toggle(m_showLabels, "showLabelsSwitch", true, &SettingsDialog::showLabelsToggled, QChar(0xE8D2),
            tr("Show the icons' names in fences"),
            tr("Off: icons only, the name on hover. A fence can choose for itself (Appearance)."));
+    toggle(m_singleClick, "singleClickSwitch", false, &SettingsDialog::singleClickToggled, QChar(0xE8A7),
+           tr("Launch shortcuts with a single click"),
+           tr("On: a shortcut opens when you release the left button, if you have not dragged it. "
+              "This is the default for zones and for the StarFish desktop. A zone or a button can "
+              "choose otherwise in Appearance. Buttons default to on."));
     m_iconFlow = new QComboBox; // session 76
     m_iconFlow->setObjectName(QStringLiteral("iconFlowCombo"));
     for (int f = 0; f < IconLayout::flowKeys().size(); ++f)
@@ -737,6 +742,13 @@ void SettingsDialog::setHoverUnroll(bool on)
 {
     m_updating = true;
     m_hoverUnroll->setChecked(on);
+    m_updating = false;
+}
+
+void SettingsDialog::setSingleClick(bool on)
+{
+    m_updating = true;
+    m_singleClick->setChecked(on);
     m_updating = false;
 }
 

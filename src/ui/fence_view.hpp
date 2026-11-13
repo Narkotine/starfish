@@ -262,6 +262,8 @@ public:
     // (rename / roll) off while the fence's Appearance dialog is open; how many
     // icons the fence is too small to show (the "+N" badge opens them).
     void setLabelsShown(bool shown);
+    void setSingleClickLaunch(bool on) { m_singleClickLaunch = on; } // session 119
+    bool singleClickLaunch() const { return m_singleClickLaunch; }
     void setIconFlow(int flow); // IconLayout::Flow bits
     // Session 79: ms until the widgets' next change is drawn (-1: none due).
     int widgetTickInterval() const;
@@ -455,6 +457,7 @@ private:
     bool m_hovered = false;
     bool m_titleLocked = false; // session 76
     bool m_locked = false;      // session 94
+    bool m_singleClickLaunch = false; // session 119: effective, already resolved
     QTimer m_widgetTimer;       // session 79
     // Session 98: resize mode.
     QString m_resizePath;

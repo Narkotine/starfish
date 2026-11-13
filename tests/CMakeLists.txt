@@ -345,3 +345,10 @@ add_executable(test_starfish_color_mix
 target_include_directories(test_starfish_color_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_starfish_color_mix PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME core_color_mix COMMAND test_starfish_color_mix)
+
+add_executable(test_starfish_single_click
+    test_single_click.cpp
+)
+target_include_directories(test_starfish_single_click PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_starfish_single_click PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME core_single_click COMMAND test_starfish_single_click)

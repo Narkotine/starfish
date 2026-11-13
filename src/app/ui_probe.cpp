@@ -7089,6 +7089,258 @@ int runUiProbe(QApplication& app)
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 119: single-click launch -- Settings default, per-zone / per-bouton
+    // override, launch on release, drag does not launch, no double launch.
+    {
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s118_119"));
+        QDir().mkpath(outDir);
+        bool launchOk = false;
+        bool shotsOk = false;
+
+        auto sendPressMoveRelease = [](QWidget* w, const QPoint& from, const QPoint& to, bool move) {
+            const QPoint gFrom = w->mapToGlobal(from);
+            QMouseEvent press(QEvent::MouseButtonPress, from, from, gFrom,
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(w, &press);
+            if (move) {
+                QMouseEvent mv(QEvent::MouseMove, to, to, w->mapToGlobal(to),
+                               Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(w, &mv);
+            }
+            const QPoint end = move ? to : from;
+            QMouseEvent rel(QEvent::MouseButtonRelease, end, end, w->mapToGlobal(end),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(w, &rel);
+        };
+        auto addDummy = [](ui::FenceView* v, int n) {
+            QList<core::DesktopItem> tiles;
+            for (int i = 0; i < n; ++i) {
+                core::DesktopItem item;
+                item.path = QStringLiteral("::s119/%1").arg(i);
+                item.name = QStringLiteral("S119-%1").arg(i);
+                tiles.append(item);
+            }
+            v->addDroppedItems(tiles);
+        };
+
+        ui::FenceContainer box;
+        box.setAnimateRoll(false);
+        box.setSingleClickDefault(false);
+        const QString zid = box.createFence(QStringLiteral("S119Zone"), QRect(40, 40, 360, 260));
+        ui::FenceView* zv = box.view(zid);
+        const QString bid = box.createButton(QStringLiteral("S119Btn"), QPoint(700, 400));
+        ui::FenceView* bv = box.view(bid);
+        if (!zv || !bv) {
+            notes << QStringLiteral("no views");
+        } else {
+            if (offscreen) {
+                zv->setAttribute(Qt::WA_DontShowOnScreen);
+                bv->setAttribute(Qt::WA_DontShowOnScreen);
+            }
+            addDummy(zv, 4);
+            addDummy(bv, 4);
+            box.setFenceRolledUp(bid, false);
+            zv->show();
+            bv->show();
+            wait(40);
+
+            const bool inherit = !zv->singleClickLaunch() && bv->singleClickLaunch()
+                && box.fenceStyle(bid).singleClick == QLatin1String("on");
+            if (!inherit)
+                notes << QStringLiteral("inherit: zone %1 bouton %2 stored %3")
+                             .arg(zv->singleClickLaunch())
+                             .arg(bv->singleClickLaunch())
+                             .arg(box.fenceStyle(bid).singleClick);
+
+            int zoneLaunched = 0;
+            QObject::connect(zv, &ui::FenceView::itemActivated, zv, [&](int) { ++zoneLaunched; });
+            int btnLaunched = 0;
+            QObject::connect(bv, &ui::FenceView::itemActivated, bv, [&](int) { ++btnLaunched; });
+
+            const QPoint zIcon = zv->tileRects().value(0).isEmpty()
+                ? zv->rect().center()
+                : zv->tileRects().value(0).center();
+            sendPressMoveRelease(zv, zIcon, zIcon, false);
+            wait(20);
+            const bool zoneOffNoLaunch = (zoneLaunched == 0);
+            if (!zoneOffNoLaunch)
+                notes << QStringLiteral("zone launched while single-click off");
+
+            core::FenceStyle zs = box.fenceStyle(zid);
+            zs.singleClick = QStringLiteral("on");
+            box.setFenceStyle(zid, zs);
+            if (!zv->singleClickLaunch())
+                notes << QStringLiteral("zone override on not applied");
+            sendPressMoveRelease(zv, zIcon, zIcon, false);
+            wait(20);
+            const bool zoneOnLaunch = (zoneLaunched == 1);
+            if (!zoneOnLaunch)
+                notes << QStringLiteral("zone release did not launch, count %1").arg(zoneLaunched);
+
+            const int drag = QApplication::startDragDistance() + 8;
+            sendPressMoveRelease(zv, zIcon, zIcon + QPoint(drag, 0), true);
+            wait(20);
+            const bool zoneDragNoLaunch = (zoneLaunched == 1);
+            if (!zoneDragNoLaunch)
+                notes << QStringLiteral("zone drag launched, count %1").arg(zoneLaunched);
+
+            QMouseEvent dbl(QEvent::MouseButtonDblClick, zIcon, zIcon, zv->mapToGlobal(zIcon),
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(zv, &dbl);
+            wait(20);
+            const bool zoneNoDouble = (zoneLaunched == 1);
+            if (!zoneNoDouble)
+                notes << QStringLiteral("zone double-click launched twice, count %1").arg(zoneLaunched);
+
+            // Bouton defaults to on: a release launches; a drag does not.
+            const QPoint bIcon = bv->tileRects().value(0).isEmpty()
+                ? bv->rect().center()
+                : bv->tileRects().value(0).center();
+            sendPressMoveRelease(bv, bIcon, bIcon, false);
+            wait(20);
+            const bool btnLaunch = (btnLaunched == 1);
+            if (!btnLaunch)
+                notes << QStringLiteral("bouton release did not launch, count %1").arg(btnLaunched);
+            sendPressMoveRelease(bv, bIcon, bIcon + QPoint(drag, 0), true);
+            wait(20);
+            const bool btnDragNoLaunch = (btnLaunched == 1);
+            if (!btnDragNoLaunch)
+                notes << QStringLiteral("bouton drag launched, count %1").arg(btnLaunched);
+
+            // Override off: release does not launch, double-click does.
+            core::FenceStyle bs = box.fenceStyle(bid);
+            bs.singleClick = QStringLiteral("off");
+            box.setFenceStyle(bid, bs);
+            if (bv->singleClickLaunch())
+                notes << QStringLiteral("bouton override off not applied");
+            sendPressMoveRelease(bv, bIcon, bIcon, false);
+            wait(20);
+            const int afterOffClick = btnLaunched;
+            QMouseEvent bdbl(QEvent::MouseButtonDblClick, bIcon, bIcon, bv->mapToGlobal(bIcon),
+                             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(bv, &bdbl);
+            wait(20);
+            const bool btnOff = (afterOffClick == 1) && (btnLaunched == 2);
+            if (!btnOff)
+                notes << QStringLiteral("bouton off: after click %1 after dbl %2").arg(afterOffClick).arg(btnLaunched);
+
+            // Global default on, empty zone override: zone follows.
+            zs.singleClick = QString();
+            box.setFenceStyle(zid, zs);
+            box.setSingleClickDefault(true);
+            const bool follows = zv->singleClickLaunch();
+            if (!follows)
+                notes << QStringLiteral("zone did not follow Settings default on");
+
+            launchOk = inherit && zoneOffNoLaunch && zoneOnLaunch && zoneDragNoLaunch && zoneNoDouble
+                && btnLaunch && btnDragNoLaunch && btnOff && follows;
+
+            // PrintWindow: Settings, zone Appearance, bouton Appearance.
+            auto printWin = [](QWidget* w) -> QImage {
+                if (!w)
+                    return {};
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(w->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ oldBm = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, oldBm);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = w->grab().toImage();
+                return img;
+            };
+
+            ui::SettingsDialog settings;
+            settings.setSingleClick(true);
+            settings.showPage(ui::SettingsDialog::Fences);
+            settings.setAttribute(Qt::WA_DontShowOnScreen, false);
+            settings.show();
+            settings.move(40, 40);
+            wait(80);
+            auto* sw = settings.findChild<QWidget*>(QStringLiteral("singleClickSwitch"));
+            if (sw) {
+                for (QWidget* ancestor = sw->parentWidget(); ancestor; ancestor = ancestor->parentWidget()) {
+                    if (auto* area = qobject_cast<QScrollArea*>(ancestor)) {
+                        area->ensureWidgetVisible(sw, 0, 16);
+                        break;
+                    }
+                }
+            }
+            wait(80);
+            const QImage settingsShot = printWin(&settings);
+            const QString settingsPath = outDir + QStringLiteral("/settings_single_click.png");
+            const bool settingsSaved = !settingsShot.isNull() && settingsShot.save(settingsPath, "PNG");
+            settings.close();
+            if (!settingsSaved || !sw)
+                notes << QStringLiteral("settings shot/switch %1 %2").arg(settingsSaved).arg(sw != nullptr);
+
+            QDialog* zoneDlg = ui::createFenceAppearanceDialog(&box, zid);
+            zoneDlg->setAttribute(Qt::WA_DontShowOnScreen, false);
+            zoneDlg->show();
+            zoneDlg->move(40, 40);
+            wait(80);
+            const QImage zoneShot = printWin(zoneDlg);
+            const QString zonePath = outDir + QStringLiteral("/zone_appearance_single_click.png");
+            const bool zoneSaved = !zoneShot.isNull() && zoneShot.save(zonePath, "PNG");
+            auto* zcombo = zoneDlg->findChild<QComboBox*>(QStringLiteral("singleClickLaunch"));
+            zoneDlg->reject();
+            delete zoneDlg;
+            if (!zoneSaved || !zcombo)
+                notes << QStringLiteral("zone appearance shot/combo %1 %2").arg(zoneSaved).arg(zcombo != nullptr);
+
+            bs.singleClick = QStringLiteral("on");
+            box.setFenceStyle(bid, bs);
+            QDialog* btnDlg = ui::createButtonAppearanceDialog(&box, bid);
+            btnDlg->setAttribute(Qt::WA_DontShowOnScreen, false);
+            btnDlg->show();
+            btnDlg->move(40, 40);
+            wait(80);
+            const QImage btnShot = printWin(btnDlg);
+            const QString btnPath = outDir + QStringLiteral("/bouton_appearance_single_click.png");
+            const bool btnSaved = !btnShot.isNull() && btnShot.save(btnPath, "PNG");
+            auto* bcombo = btnDlg->findChild<QComboBox*>(QStringLiteral("singleClickLaunch"));
+            btnDlg->reject();
+            delete btnDlg;
+            if (!btnSaved || !bcombo)
+                notes << QStringLiteral("bouton appearance shot/combo %1 %2").arg(btnSaved).arg(bcombo != nullptr);
+
+            shotsOk = settingsSaved && sw && zoneSaved && zcombo && btnSaved && bcombo;
+            zv->hide();
+            bv->hide();
+        }
+
+        check(QStringLiteral("Single-click launch: release launches, drag does not, inheritance (session 119)"),
+              launchOk && shotsOk,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

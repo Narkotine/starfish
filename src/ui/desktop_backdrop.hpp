@@ -172,6 +172,9 @@ public:
     // together with setEnabled(true).
     void setGestureEnabled(bool enabled);
     bool gestureEnabled() const { return m_gestures; }
+    // Session 119: the StarFish desktop follows the Settings default.
+    void setSingleClickLaunch(bool on) { m_singleClickLaunch = on; }
+    bool singleClickLaunch() const { return m_singleClickLaunch; }
     // The drag threshold and the smallest fence a draw may produce. The caller
     // passes the container's own minimum so the gesture and the container cannot
     // disagree about what a fence is.
@@ -429,6 +432,8 @@ private:
     QRect m_dropTarget;
     QStringList m_marqueeBase;
     QPoint m_iconPressPoint;
+    bool m_singleClickLaunch = false;
+    bool m_singleClickJustActivated = false;
     std::function<void*(quintptr)> m_dropFactory;
     RenderStats m_stats;
     QElapsedTimer m_pendingSince; // a gesture move not yet on screen

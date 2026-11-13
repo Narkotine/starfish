@@ -54,6 +54,7 @@ public:
     void setHoverHighlight(bool on);
     void setDesktopDoubleClickHides(bool on); // session 69
     void setHoverUnroll(bool on);             // session 71
+    void setSingleClick(bool on);             // session 119
     void setRollOpposite(bool on);            // session 73
     void setRollAnimated(bool on);            // session 73
     void setSnapToCells(bool on);             // session 73
@@ -92,6 +93,7 @@ signals:
     void hoverHighlightToggled(bool on);
     void desktopDoubleClickHidesToggled(bool on); // session 69
     void hoverUnrollToggled(bool on);             // session 71
+    void singleClickToggled(bool on);             // session 119
     void rollOppositeToggled(bool on);            // session 73
     void rollAnimatedToggled(bool on);            // session 73
     void snapToCellsToggled(bool on);             // session 73
@@ -140,6 +142,7 @@ private:
     QCheckBox* m_hover = nullptr;
     QCheckBox* m_doubleClickHides = nullptr;
     QCheckBox* m_hoverUnroll = nullptr;
+    QCheckBox* m_singleClick = nullptr; // session 119
     QCheckBox* m_rollOpposite = nullptr;
     QCheckBox* m_rollAnimated = nullptr;
     QCheckBox* m_snapToCells = nullptr;

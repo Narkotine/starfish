@@ -1,4 +1,5 @@
 #include "ui/fence_container.hpp"
+#include "core/single_click.hpp"
 #include "ui/zone_shape.hpp"
 #include "ui/button_skin.hpp"
 #include "ui/fence_widgets.hpp"
@@ -1562,6 +1563,8 @@ void FenceContainer::applyStyleToView(FenceWindow& fence)
     else
         fence.view->setLabelsShown(fence.style.showLabels == QLatin1String("on")
                                    || (fence.style.showLabels.isEmpty() && m_showLabelsDefault));
+    fence.view->setSingleClickLaunch(core::resolvedSingleClickLaunch(
+        fence.style.singleClick, zone_shape::isButton(fence.style.shape), m_singleClickDefault));
     fence.view->setIconFlow(fence.style.iconFlow.isEmpty() ? m_iconFlowDefault
                                                            : IconLayout::flowFromKey(fence.style.iconFlow));
 }
@@ -1588,6 +1591,15 @@ void FenceContainer::setShowLabelsDefault(bool on)
     m_showLabelsDefault = on;
     for (FenceWindow& fence : m_fences)
         applyStyleToView(fence);
+}
+
+void FenceContainer::setSingleClickDefault(bool on)
+{
+    m_singleClickDefault = on;
+    for (FenceWindow& fence : m_fences)
+        applyStyleToView(fence);
+    if (m_backdrop)
+        m_backdrop->setSingleClickLaunch(on);
 }
 
 bool FenceContainer::addWidget(const QString& id, const core::DesktopItem& widget)
@@ -2205,6 +2217,7 @@ QString FenceContainer::createButton(const QString& title, const QPoint& center)
     fence->style.shape = QStringLiteral("button");
     fence->style.titleBar = false;
     fence->style.hoverUnroll = QStringLiteral("on"); // expand under the pointer
+    fence->style.singleClick = QStringLiteral("on"); // session 119: boutons stay single-click
     fence->rolledUp = true;
     if (fence->view) {
         fence->view->setShape(fence->style.shape);
