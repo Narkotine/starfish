@@ -467,6 +467,8 @@ private:
     bool m_buttonResizeDragging = false;
     int m_buttonResizeStartDiameter = 0;
     int m_buttonResizePreviewDiameter = 0;
+    // Session 118: a press that leaves resize/move mode must not unroll on release.
+    bool m_skipButtonUnrollOnRelease = false;
     int m_resizeEdges = 0;
     bool m_resizeDragging = false;
     QPoint m_resizeStart;

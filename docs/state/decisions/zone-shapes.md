@@ -269,3 +269,15 @@ size; the ring layout is recomputed. Mid-drag preview does not rewrite the
 stored square (no autosave). Esc, a click elsewhere, or ~10 s idle ends the
 mode; a grip release stays in the mode, like a widget. No move cursor and no
 blocked icon clicks in normal use. No keyboard shortcut and no new tray entry.
+
+## Resize mode leaves the Bouton compact (session 118)
+
+Entering resize still collapses first. Leaving it with a click on the disc
+(not a grip) used to end the mode on press, then the matching release was
+read as a compact click-to-open: `rolledUp` became false without
+`hoverUnrolled`, so hover-leave did not recollapse (clear on Diaphragm /
+Reveal, where the diameter does not change). Esc, a click elsewhere, or the
+idle timeout now restore a compact disc (iris closed), reset the hover
+machine, and do not immediately unroll under the pointer. The next hover
+opens and recollapses as usual. The same release is ignored after leaving
+move mode the same way.

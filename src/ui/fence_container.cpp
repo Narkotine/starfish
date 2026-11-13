@@ -2509,6 +2509,14 @@ QString FenceContainer::addFence(const QString& requestedId, const QString& titl
             [this, id](int preferred) { commitButtonDiameter(id, preferred); });
     connect(view, &FenceView::buttonResizeCancelled, this,
             [this, id] { cancelButtonDiameterPreview(id); });
+    connect(view, &FenceView::buttonResizeModeChanged, this, [this, id](bool on) {
+        if (!on)
+            restoreButtonAfterShortMode(id);
+    });
+    connect(view, &FenceView::buttonMoveModeChanged, this, [this, id](bool on) {
+        if (!on)
+            restoreButtonAfterShortMode(id);
+    });
     connect(view, &FenceView::contentChanged, this,
             [this, id] { emit fenceContentChanged(id); });
     // ... and the hosted surface shows an *image*, so a content change has to
@@ -2935,6 +2943,29 @@ void FenceContainer::endButtonResizeMode(const QString& id)
     FenceWindow* fence = find(id);
     if (fence && fence->view)
         fence->view->endButtonResizeMode();
+}
+
+void FenceContainer::restoreButtonAfterShortMode(const QString& id)
+{
+    FenceWindow* fence = find(id);
+    if (!fence || !zone_shape::isButton(fence->style.shape))
+        return;
+    if (fence->view && (fence->view->buttonResizeMode() || fence->view->buttonMoveMode()))
+        return;
+    finishRollAnimation(*fence);
+    fence->buttonHoverWanted = false;
+    fence->hoverUnrolled = false;
+    ++fence->hoverSerial;
+    fence->buttonDiameterPreview = 0;
+    if (!fence->rolledUp)
+        setFenceRolledUp(id, true);
+    finishRollAnimation(*fence);
+    if (fence->view)
+        fence->view->setButtonOpenProgressOverride(-1);
+    applyVisibleGeometry(*fence);
+    renderFence(id);
+    // Do not settleButtonHover: the pointer may still be on the disc. The next
+    // enter/leave cycle is what opens and recollapses it (session 118).
 }
 
 bool FenceContainer::buttonResizeMode(const QString& id) const

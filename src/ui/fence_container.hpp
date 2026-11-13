@@ -817,6 +817,8 @@ private:
     void onFenceHover(const QString& id, bool hovered);
     void hoverReroll(const QString& id, int serial);
     void settleButtonHover(FenceWindow& fence);
+    // Session 118: after resize/move mode, stay compact and reset the hover machine.
+    void restoreButtonAfterShortMode(const QString& id);
     QPoint buttonAnchorOf(const FenceWindow& fence) const;
     void setButtonStored(FenceWindow& fence, QPoint anchor, int diameter);
     QRect buttonSquareFor(const FenceWindow& fence, QPoint anchor, int diameter) const;

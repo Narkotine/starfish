@@ -6832,6 +6832,263 @@ int runUiProbe(QApplication& app)
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
     }
 
+    // Session 118: after resize mode a Bouton must stay compact, and hover
+    // must open then recollapse it (Grow and Reveal, plain and Diaphragm).
+    {
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s118_119"));
+        QDir().mkpath(outDir);
+        bool allOk = true;
+        bool shotOk = false;
+
+        auto sendClick = [](ui::FenceView* v, const QPoint& local) {
+            const QPoint g = v->mapToGlobal(local);
+            QMouseEvent press(QEvent::MouseButtonPress, local, local, g,
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &press);
+            QMouseEvent rel(QEvent::MouseButtonRelease, local, local, g,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &rel);
+        };
+        auto sendEnterLeave = [](ui::FenceView* v, bool enter) {
+            const QPoint mid = v->rect().center();
+            if (enter) {
+                QEnterEvent ev(QPointF(mid), QPointF(mid), QPointF(v->mapToGlobal(mid)));
+                QCoreApplication::sendEvent(v, &ev);
+            } else {
+                QEvent ev(QEvent::Leave);
+                QCoreApplication::sendEvent(v, &ev);
+            }
+        };
+        auto visuallyCompact = [](ui::FenceContainer& box, const QString& id, ui::FenceView* v) {
+            if (!v)
+                return false;
+            box.renderFence(id);
+            return v->rolledUp() && !box.fenceHoverUnrolled(id)
+                && v->buttonOpenProgress() < qreal(0.05) && !box.frame(id).isNull();
+        };
+        auto isCompact = [&](ui::FenceContainer& box, const QString& id, ui::FenceView* v) {
+            return visuallyCompact(box, id, v) && !box.buttonResizeMode(id);
+        };
+        auto isExpanded = [](ui::FenceContainer& box, const QString& id, ui::FenceView* v) {
+            if (!v)
+                return false;
+            box.renderFence(id);
+            return !v->rolledUp() && v->buttonOpenProgress() > qreal(0.95) && !box.frame(id).isNull();
+        };
+
+        struct Case {
+            const char* name;
+            const char* skin;
+            const char* openMode;
+            bool startExpanded;
+            const char* exitHow; // "click", "esc", "idle"
+            bool takeShot;
+        };
+        const Case cases[] = {
+            {"diaphragm reveal from open, click", ui::zone_shape::kButtonSkinDiaphragm, ui::zone_shape::kButtonOpenReveal, true, "click", true},
+            {"diaphragm reveal from compact, click", ui::zone_shape::kButtonSkinDiaphragm, ui::zone_shape::kButtonOpenReveal, false, "click", false},
+            {"plain grow from open, click", ui::zone_shape::kButtonSkinPlain, ui::zone_shape::kButtonOpenGrow, true, "click", false},
+            {"plain grow from compact, click", ui::zone_shape::kButtonSkinPlain, ui::zone_shape::kButtonOpenGrow, false, "click", false},
+            {"diaphragm grow from open, click", ui::zone_shape::kButtonSkinDiaphragm, ui::zone_shape::kButtonOpenGrow, true, "click", false},
+            {"plain reveal from open, click", ui::zone_shape::kButtonSkinPlain, ui::zone_shape::kButtonOpenReveal, true, "click", false},
+            {"diaphragm reveal from open, Esc", ui::zone_shape::kButtonSkinDiaphragm, ui::zone_shape::kButtonOpenReveal, true, "esc", false},
+            {"diaphragm reveal from open, idle", ui::zone_shape::kButtonSkinDiaphragm, ui::zone_shape::kButtonOpenReveal, true, "idle", false},
+        };
+
+        for (const Case& c : cases) {
+            ui::FenceContainer box;
+            box.setAnimateRoll(false);
+            const QString id = box.createButton(QStringLiteral("S118"), QPoint(500, 400));
+            ui::FenceView* v = box.view(id);
+            if (!v) {
+                notes << QStringLiteral("%1: no view").arg(QString::fromUtf8(c.name));
+                allOk = false;
+                continue;
+            }
+            if (offscreen)
+                v->setAttribute(Qt::WA_DontShowOnScreen);
+            core::FenceStyle st = box.fenceStyle(id);
+            st.hoverUnroll = QStringLiteral("on");
+            st.hoverEffect = QStringLiteral("none");
+            st.buttonDiameter = 96;
+            st.buttonOpenMode = QString::fromUtf8(c.openMode);
+            st.buttonSkin = QString::fromUtf8(c.skin);
+            st.buttonSkinLayer = QStringLiteral("front");
+            box.setFenceStyle(id, st);
+            box.syncButtonSize(id);
+            // A few dummy tiles so Grow actually enlarges when opened.
+            QList<core::DesktopItem> tiles;
+            for (int i = 0; i < 6; ++i) {
+                core::DesktopItem item;
+                item.path = QStringLiteral("::s118/%1").arg(i);
+                item.name = QStringLiteral("S118-%1").arg(i);
+                tiles.append(item);
+            }
+            v->addDroppedItems(tiles);
+            box.syncButtonSize(id);
+            v->show();
+            wait(30);
+            if (c.startExpanded)
+                box.setFenceRolledUp(id, false);
+            else
+                box.setFenceRolledUp(id, true);
+            wait(40);
+            box.renderFence(id);
+
+            if (c.startExpanded && isCompact(box, id, v)) {
+                notes << QStringLiteral("%1: failed to start expanded").arg(QString::fromUtf8(c.name));
+                allOk = false;
+            }
+
+            const bool entered = box.beginButtonResizeMode(id);
+            wait(40);
+            box.renderFence(id);
+            const bool compactInMode = entered && box.buttonResizeMode(id) && visuallyCompact(box, id, v);
+            if (!compactInMode) {
+                notes << QStringLiteral("%1: resize mode not compact (rolled %2 progress %3 hover %4 mode %5)")
+                             .arg(QString::fromUtf8(c.name))
+                             .arg(v->rolledUp())
+                             .arg(v->buttonOpenProgress(), 0, 'f', 2)
+                             .arg(box.fenceHoverUnrolled(id))
+                             .arg(box.buttonResizeMode(id));
+                allOk = false;
+            }
+
+            // Pull the east grip so the diameter changes (96 -> ~160).
+            const QPoint mid = v->rect().center();
+            const int radius = qMax(1, qMin(v->width(), v->height()) / 2);
+            const QPoint east(mid.x() + radius, mid.y());
+            const QPoint eastFar(mid.x() + 80, mid.y());
+            QMouseEvent press(QEvent::MouseButtonPress, east, east, v->mapToGlobal(east),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &press);
+            QMouseEvent move(QEvent::MouseMove, eastFar, eastFar, v->mapToGlobal(eastFar),
+                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &move);
+            wait(20);
+            QMouseEvent rel(QEvent::MouseButtonRelease, eastFar, eastFar, v->mapToGlobal(eastFar),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(v, &rel);
+            wait(30);
+            box.renderFence(id);
+            const bool stillInMode = box.buttonResizeMode(id);
+            const bool stillCompact = isCompact(box, id, v) || (stillInMode && v->rolledUp()
+                                                                && v->buttonOpenProgress() < qreal(0.05));
+            if (!stillInMode || !stillCompact) {
+                notes << QStringLiteral("%1: after pull, mode %2 compact %3 progress %4")
+                             .arg(QString::fromUtf8(c.name))
+                             .arg(stillInMode)
+                             .arg(v->rolledUp())
+                             .arg(v->buttonOpenProgress(), 0, 'f', 2);
+                allOk = false;
+            }
+
+            if (QLatin1String(c.exitHow) == QLatin1String("click")) {
+                sendClick(v, mid); // centre = not a grip: ends the mode
+            } else if (QLatin1String(c.exitHow) == QLatin1String("esc")) {
+                QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QCoreApplication::sendEvent(v, &esc);
+            } else {
+                wait(ui::widget_resize::kIdleMs + 400);
+            }
+            wait(40);
+            box.renderFence(id);
+
+            const bool compactAfter = isCompact(box, id, v);
+            if (!compactAfter) {
+                notes << QStringLiteral("%1: not compact after %2 (rolled %3 progress %4 hover %5 mode %6)")
+                             .arg(QString::fromUtf8(c.name), QString::fromUtf8(c.exitHow))
+                             .arg(v->rolledUp())
+                             .arg(v->buttonOpenProgress(), 0, 'f', 2)
+                             .arg(box.fenceHoverUnrolled(id))
+                             .arg(box.buttonResizeMode(id));
+                allOk = false;
+            }
+
+            // Hover must open, then leave must recollapse, without using the menu.
+            sendEnterLeave(v, true);
+            wait(ui::FenceContainer::kHoverUnrollDelayMs + 150);
+            box.renderFence(id);
+            const bool opened = isExpanded(box, id, v) && box.fenceHoverUnrolled(id);
+            if (!opened) {
+                notes << QStringLiteral("%1: hover did not open (rolled %2 progress %3 hover %4)")
+                             .arg(QString::fromUtf8(c.name))
+                             .arg(v->rolledUp())
+                             .arg(v->buttonOpenProgress(), 0, 'f', 2)
+                             .arg(box.fenceHoverUnrolled(id));
+                allOk = false;
+            }
+            sendEnterLeave(v, false);
+            wait(ui::FenceContainer::kHoverRerollDelayMs + 150);
+            box.renderFence(id);
+            const bool recollapsed = isCompact(box, id, v);
+            if (!recollapsed) {
+                notes << QStringLiteral("%1: hover leave did not recollapse (rolled %2 progress %3 hover %4)")
+                             .arg(QString::fromUtf8(c.name))
+                             .arg(v->rolledUp())
+                             .arg(v->buttonOpenProgress(), 0, 'f', 2)
+                             .arg(box.fenceHoverUnrolled(id));
+                allOk = false;
+            }
+
+            if (c.takeShot && compactAfter && recollapsed) {
+                v->setAttribute(Qt::WA_DontShowOnScreen, false);
+                v->setWindowFlags((v->windowFlags() | Qt::Tool | Qt::FramelessWindowHint)
+                                  & ~Qt::WindowDoesNotAcceptFocus);
+                v->show();
+                v->move(80, 80);
+                wait(80);
+                box.renderFence(id);
+                QImage img;
+#if defined(_WIN32)
+                const HWND hwnd = reinterpret_cast<HWND>(v->winId());
+                if (hwnd) {
+                    RECT rc{};
+                    if (::GetWindowRect(hwnd, &rc)) {
+                        const int wpx = qMax(1, int(rc.right - rc.left));
+                        const int hpx = qMax(1, int(rc.bottom - rc.top));
+                        HDC hdc = ::GetDC(hwnd);
+                        HDC mem = ::CreateCompatibleDC(hdc);
+                        HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                        HGDIOBJ oldBm = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                        ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                        img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                        BITMAPINFO bmi{};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = wpx;
+                        bmi.bmiHeader.biHeight = -hpx;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+                        ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                        ::SelectObject(mem, oldBm);
+                        ::DeleteObject(bm);
+                        ::DeleteDC(mem);
+                        ::ReleaseDC(hwnd, hdc);
+                    }
+                }
+#endif
+                if (img.isNull())
+                    img = v->grab().toImage();
+                const QString path = outDir + QStringLiteral("/after_resize_collapsed.png");
+                shotOk = !img.isNull() && img.save(path, "PNG");
+                if (!shotOk)
+                    notes << QStringLiteral("failed after_resize_collapsed.png");
+            }
+            v->hide();
+        }
+        if (!shotOk && notes.filter(QStringLiteral("after_resize_collapsed")).isEmpty())
+            notes << QStringLiteral("no after-resize collapsed shot");
+
+        check(QStringLiteral("Bouton: stays compact after resize, hover recollapses (session 118)"),
+              allOk && shotOk,
+              notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),
     // the setting is in Settings > Fences. Side by side for the eye.
     {

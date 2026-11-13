@@ -1077,6 +1077,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
             return;
         }
         endButtonResizeMode();
+        m_skipButtonUnrollOnRelease = true;
         event->accept();
         return;
     }
@@ -1085,6 +1086,7 @@ void FenceView::mousePressEvent(QMouseEvent* event)
         // a click elsewhere ends the mode, like the widget resize mode.
         if (handleAt(event->pos()) == FenceHandle::None) {
             endButtonMoveMode();
+            m_skipButtonUnrollOnRelease = true;
             event->accept();
             return;
         }
@@ -1335,6 +1337,13 @@ void FenceView::mouseReleaseEvent(QMouseEvent* event)
         emit geometryDragFinished();
         if (m_buttonMoveMode) // session 107: a drop ends the move mode
             endButtonMoveMode();
+        return;
+    }
+    // Session 118: ending resize/move mode with a press on the disc used to
+    // unroll on the matching release (mode already off, compact click-to-open).
+    if (m_skipButtonUnrollOnRelease) {
+        m_skipButtonUnrollOnRelease = false;
+        event->accept();
         return;
     }
     // Session 107: a left click on the compact disc still expands it (hover
