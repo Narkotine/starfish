@@ -34,6 +34,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <QTextCursor>
 #include <QImageReader>
 #include <QMovie>
 #include <QTransform>
@@ -76,6 +77,7 @@
 #include "ui/fence_menu.hpp"
 #include "ui/splash_screen.hpp"
 #include "ui/fence_widgets.hpp"
+#include "ui/note_editor.hpp"
 #include "ui/system_monitor.hpp"
 #include "ui/widget_settings_dialog.hpp"
 #include "core/system_metrics.hpp"
@@ -7339,6 +7341,185 @@ int runUiProbe(QApplication& app)
         check(QStringLiteral("Single-click launch: release launches, drag does not, inheritance (session 119)"),
               launchOk && shotsOk,
               notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+    }
+
+    // Session 120: Notes widget -- tabs in the hosted card match the editor.
+    {
+        QStringList notes;
+        const QString outDir = QDir::temp().filePath(QStringLiteral("starfish_s120"));
+        QDir().mkpath(outDir);
+        const QString sample = QStringLiteral("Nom\tPrenom\tVille\nAda\tLovelace\tLondres\nA\t\tC");
+
+        auto printWin = [](QWidget* w) -> QImage {
+            if (!w)
+                return {};
+            QImage img;
+#if defined(_WIN32)
+            const HWND hwnd = reinterpret_cast<HWND>(w->winId());
+            if (hwnd) {
+                RECT rc{};
+                if (::GetWindowRect(hwnd, &rc)) {
+                    const int wpx = qMax(1, int(rc.right - rc.left));
+                    const int hpx = qMax(1, int(rc.bottom - rc.top));
+                    HDC hdc = ::GetDC(hwnd);
+                    HDC mem = ::CreateCompatibleDC(hdc);
+                    HBITMAP bm = ::CreateCompatibleBitmap(hdc, wpx, hpx);
+                    HGDIOBJ oldBm = ::SelectObject(mem, bm);
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 2
+#endif
+                    ::PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
+                    img = QImage(wpx, hpx, QImage::Format_ARGB32_Premultiplied);
+                    BITMAPINFO bmi{};
+                    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bmi.bmiHeader.biWidth = wpx;
+                    bmi.bmiHeader.biHeight = -hpx;
+                    bmi.bmiHeader.biPlanes = 1;
+                    bmi.bmiHeader.biBitCount = 32;
+                    bmi.bmiHeader.biCompression = BI_RGB;
+                    ::GetDIBits(mem, bm, 0, hpx, img.bits(), &bmi, DIB_RGB_COLORS);
+                    ::SelectObject(mem, oldBm);
+                    ::DeleteObject(bm);
+                    ::DeleteDC(mem);
+                    ::ReleaseDC(hwnd, hdc);
+                }
+            }
+#endif
+            if (img.isNull())
+                img = w->grab().toImage();
+            return img;
+        };
+
+        ui::FenceContainer box;
+        const QString fid = box.createFence(QStringLiteral("S120Notes"), QRect(40, 40, 440, 280));
+        core::DesktopItem note = ui::widgets::create(QStringLiteral("notes"));
+        note.span = QSize(4, 3);
+        note = ui::widgets::withNoteText(note, sample);
+        const bool added = box.addWidget(fid, note);
+        ui::FenceView* view = box.view(fid);
+        if (!view || !added) {
+            notes << QStringLiteral("no fence or widget");
+            check(QStringLiteral("Notes: tabs in the hosted card match the editor (session 120)"),
+                  false, notes.join(QLatin1Char(' ')));
+        } else {
+            if (offscreen)
+                view->setAttribute(Qt::WA_DontShowOnScreen);
+            view->show();
+            wait(40);
+            box.renderFence(fid);
+            const QImage hosted = box.frame(fid);
+            const QRect cell = view->itemRectOf(note.path);
+            const QMargins pad = ui::widgets::noteContentMargins();
+            const QRect inner = cell.adjusted(pad.left(), pad.top(), -pad.right(), -pad.bottom());
+            const QFont font = ui::widgets::noteFont();
+            const QFontMetrics metrics(font);
+            const int maxLines = qMax(1, inner.height() / qMax(1, metrics.lineSpacing()));
+            const int prenomAt = sample.indexOf(QStringLiteral("Prenom"));
+            const qreal glyphX = ui::widgets::noteGlyphX(sample, font, inner.width(), maxLines, prenomAt);
+            const int expectX = inner.x() + qRound(glyphX);
+            const int lineY = inner.y() + metrics.ascent() / 2;
+            const int spaceX = inner.x() + metrics.horizontalAdvance(QStringLiteral("Nom "));
+            // Fail-before: a tab drawn as a space would put Prenom near spaceX,
+            // not at the 80 px stop.
+            const bool stopIsNotSpace = qAbs(expectX - spaceX) > 20 && qRound(glyphX) == 80;
+
+            auto inkAt = [&](const QImage& img, int x, int y) -> int {
+                if (img.isNull() || x < 0 || y < 0 || x >= img.width() || y >= img.height())
+                    return 0;
+                int best = 0;
+                for (int dy = -3; dy <= 3; ++dy) {
+                    const int yy = y + dy;
+                    if (yy < 0 || yy >= img.height())
+                        continue;
+                    const QRgb p = img.pixel(x, yy);
+                    best = qMax(best, qMax(qRed(p), qMax(qGreen(p), qBlue(p))));
+                }
+                return best;
+            };
+            // First ink of the second column, around the expected tab stop on
+            // the hosted frame (the same blit that reaches the desktop).
+            int hostedInk = -1;
+            if (!hosted.isNull() && inner.intersects(QRect(QPoint(0, 0), hosted.size()))) {
+                const int y = qBound(0, lineY, hosted.height() - 1);
+                const int from = qMax(inner.x(), expectX - 6);
+                const int to = qMin(inner.right(), expectX + 10);
+                for (int x = from; x <= to; ++x) {
+                    if (inkAt(hosted, x, y) > 80) {
+                        hostedInk = x;
+                        break;
+                    }
+                }
+            }
+            const bool hostedOk = !hosted.isNull() && hostedInk >= 0 && qAbs(hostedInk - expectX) <= 4;
+            if (!hostedOk)
+                notes << QStringLiteral("hosted ink %1 expect %2 space %3 glyph %4 cell %5x%6")
+                             .arg(hostedInk)
+                             .arg(expectX)
+                             .arg(spaceX)
+                             .arg(glyphX)
+                             .arg(cell.width())
+                             .arg(cell.height());
+
+            // Editor: same cell size, cursor of Prenom vs the card helper.
+            ui::NoteEditor noteEdit(sample, [](const QString&) {}, [] {});
+            noteEdit.setFixedSize(cell.size());
+            noteEdit.setAttribute(Qt::WA_DontShowOnScreen, offscreen);
+            noteEdit.show();
+            wait(30);
+            QTextCursor cur(noteEdit.document());
+            cur.setPosition(prenomAt);
+            const int editorX = noteEdit.cursorRect(cur).x();
+            const bool editorOk = qAbs(qreal(editorX) - glyphX) <= 2.0;
+            if (!editorOk)
+                notes << QStringLiteral("editor x %1 helper %2").arg(editorX).arg(glyphX);
+
+            // PrintWindow of a visible window showing the card painted through
+            // widgets::paint (the same path renderFence uses). A FenceView has
+            // no usable HWND of its own: it is a hosted blit on the desktop.
+            const QSize cardSize = cell.isEmpty() ? QSize(360, 220) : cell.size();
+            QImage card(cardSize, QImage::Format_ARGB32_Premultiplied);
+            card.fill(QColor(0x1F, 0x29, 0x37));
+            {
+                QPainter painter(&card);
+                ui::widgets::PaintContext ctx;
+                ctx.text = QColor(0xE5, 0xE7, 0xEB);
+                ctx.shadow = false;
+                ctx.font = ui::widgets::noteFont();
+                ui::widgets::paint(painter, card.rect(), note, ctx);
+            }
+            QLabel displayWin;
+            displayWin.setWindowTitle(QStringLiteral("StarFish"));
+            displayWin.setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
+            displayWin.setAttribute(Qt::WA_DontShowOnScreen, false);
+            displayWin.setPixmap(QPixmap::fromImage(card));
+            displayWin.setFixedSize(cardSize);
+            displayWin.move(40, 40);
+            displayWin.show();
+            displayWin.raise();
+            wait(80);
+            const QImage displayShot = printWin(&displayWin);
+            const QString displayPath = outDir + QStringLiteral("/notes_display_tabs.png");
+            const bool displaySaved = !displayShot.isNull() && displayShot.save(displayPath, "PNG");
+            displayWin.hide();
+
+            noteEdit.setAttribute(Qt::WA_DontShowOnScreen, false);
+            noteEdit.setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
+            noteEdit.setWindowTitle(QStringLiteral("StarFish"));
+            noteEdit.show();
+            noteEdit.move(40, 40);
+            noteEdit.raise();
+            wait(80);
+            const QImage editShot = printWin(&noteEdit);
+            const QString editPath = outDir + QStringLiteral("/notes_edit_tabs.png");
+            const bool editSaved = !editShot.isNull() && editShot.save(editPath, "PNG");
+            noteEdit.hide();
+            if (!displaySaved || !editSaved)
+                notes << QStringLiteral("shots display %1 edit %2").arg(displaySaved).arg(editSaved);
+
+            check(QStringLiteral("Notes: tabs in the hosted card match the editor (session 120)"),
+                  stopIsNotSpace && hostedOk && editorOk && displaySaved && editSaved,
+                  notes.isEmpty() ? outDir : notes.join(QLatin1Char(' ')));
+        }
     }
 
     // Session 99: the drop menu is the desktop menu's code (buildModernMenu),

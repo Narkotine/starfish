@@ -8,6 +8,7 @@
 ## Non publié
 
 ### Correctifs
+- Widget Notes : hors édition, une tabulation s'affichait comme un simple espace, alors que l'éditeur montrait des colonnes. Corrigé : la carte utilise les mêmes tabulations (arrêts à 80 px), la même police (Segoe UI 10), le même retour à la ligne et les mêmes marges que l'éditeur. La touche Tab insère une tabulation (elle ne quitte plus la note) ; Échap, un clic ailleurs ou Ctrl+Entrée ferment toujours l'éditeur.
 - Bouton : après « Redimensionner le bouton », un clic sur le disque (pour quitter le mode) le redéployait, et le survol ne le refermait plus — surtout visible en Dévoilement / Diaphragme, où le diamètre ne change pas. Il fallait l'enrouler par le menu. Corrigé : le mode reste toujours sur le disque compact (iris fermé) ; en quittant (Échap, clic ailleurs, inactivité), le bouton reste replié et le survol rouvre puis referme à nouveau.
 - Compilation MSVC (CI) : un identifiant `small` entrait en conflit avec une macro Windows (`small` = `char`), d'où des erreurs du type « QRect followed by 'char' ». Corrigé en le renommant (MinGW n'était pas affecté).
 - Bouton : en Dévoilement, un bouton déjà replié pouvait garder le petit widget compact centré dans le grand cadre (l'image hébergée n'était pas le disque fermé plein cadre tant qu'on n'avait pas ouvert puis refermé — visible après le retrait des noms sous les icônes, le carré enregistré ne changeait plus). Corrigé : la géométrie visible est toujours appliquée, et un changement de taille du widget redessine même si le cadre a déjà la bonne dimension.

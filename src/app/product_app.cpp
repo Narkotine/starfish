@@ -3413,12 +3413,18 @@ void ProductApp::startWidgetEdit(const QString& fenceId, const QString& path)
         ui::widgets::noteText(widget), [this](const QString& text) { applyWidgetText(text); },
         [this] { finishWidgetEdit(true); });
     edit->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    edit->setFont(QFont(QStringLiteral("Segoe UI"), 10));
-    // The fence's own colours: this editor *is* the note, not a white box
-    // flashing over the desktop (the rename box is Explorer's; this one is ours).
+    // Font, tab stops and padding come from NoteEditor (session 120), so the
+    // card and the editor share them. Colours stay here: this overlay *is* the
+    // note, not a white box flashing over the desktop.
+    const QMargins pad = ui::widgets::noteContentMargins();
     edit->setStyleSheet(QStringLiteral(
         "QPlainTextEdit { background: #1F2937; color: #E5E7EB; border: 1px solid #3B82F6; "
-        "selection-background-color: #3B82F6; selection-color: #FFFFFF; padding: 4px; }"));
+        "selection-background-color: #3B82F6; selection-color: #FFFFFF; "
+        "padding: %1px %2px %3px %4px; }")
+                            .arg(pad.top())
+                            .arg(pad.right())
+                            .arg(pad.bottom())
+                            .arg(pad.left()));
     // The cell is in physical pixels; a Qt window is placed in logical ones.
     const ui::DesktopBackdrop* backdrop = m_container ? m_container->backdrop() : nullptr;
     const ui::ScreenInfo* primary = backdrop ? backdrop->screens().primary() : nullptr;

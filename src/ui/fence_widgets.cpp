@@ -7,8 +7,11 @@
 #include <QFontMetrics>
 #include <QLocale>
 #include <QPainterPath>
+#include <QTextLayout>
+#include <QTextLine>
+#include <QTextOption>
 #include <QUuid>
-
+#include <QVector>
 #include "core/i18n.hpp"
 
 namespace starfish::ui::widgets {
@@ -110,31 +113,37 @@ void paintNotes(QPainter& painter, const QRect& rect, const core::DesktopItem& i
     painter.setBrush(QColor(0, 0, 0, 0x30));
     painter.drawRoundedRect(QRectF(card).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6);
 
-    const QRect inner = card.adjusted(8, 6, -8, -6);
+    const QMargins pad = noteContentMargins();
+    const QRect inner = rect.adjusted(pad.left(), pad.top(), -pad.right(), -pad.bottom());
     if (inner.width() <= 0 || inner.height() <= 0)
         return;
-    QFont font = c.font;
-    font.setWeight(QFont::Normal);
-    font.setPixelSize(qBound(10, qMin(14, inner.height() / 6), 14));
+    // Session 120: the card uses the same font, tab stops and wrap as the
+    // editor. QPainter::drawText without a QTextOption used to treat a tab as a
+    // plain space, so columns lined up while typing and collapsed on leaving.
+    const QFont font = noteFont();
     const QFontMetrics metrics(font);
     const int lineHeight = qMax(1, metrics.lineSpacing());
     const QString text = noteText(item).trimmed();
     const bool empty = text.isEmpty();
     const QStringList lines =
         noteLines(empty ? notePlaceholder() : text, font, inner.width(), qMax(1, inner.height() / lineHeight));
+    QTextOption opt;
+    opt.setTabStopDistance(noteTabStopDistance());
+    opt.setWrapMode(QTextOption::NoWrap);
+    opt.setAlignment(Qt::AlignLeft | Qt::AlignTop);
     painter.setFont(font);
     int top = inner.top();
     for (const QString& line : lines) {
-        const QRect box(inner.x(), top, inner.width(), lineHeight);
+        const QRectF box(inner.x(), top, inner.width(), lineHeight);
         if (c.shadow) {
             painter.setPen(QColor(0, 0, 0, 0x90));
-            painter.drawText(box.translated(1, 1), Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, line);
+            painter.drawText(box.translated(1, 1), line, opt);
         }
         QColor colour = c.text;
         if (empty)
             colour.setAlpha(0x90); // the hint is not the note
         painter.setPen(colour);
-        painter.drawText(box, Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, line);
+        painter.drawText(box, line, opt);
         top += lineHeight;
     }
 }
@@ -559,132 +568,209 @@ QString notePlaceholder()
     return QCoreApplication::translate("FenceWidgets", "Double-click to write");
 }
 
-QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines, bool* elided)
+
+QFont noteFont()
 {
+    return QFont(QStringLiteral("Segoe UI"), 10);
+}
+
+qreal noteTabStopDistance()
+{
+    // Qt's QTextOption / QPlainTextEdit default, set explicitly so the card and
+    // the editor cannot drift apart.
+    return 80.0;
+}
+
+QMargins noteContentMargins()
+{
+    // card inset (2) + inner padding (8, 6), the same inset the editor applies
+    // as stylesheet padding with a zero document margin.
+    return QMargins(10, 8, 10, 8);
+}
+
+namespace {
+
+QTextOption noteOption(QTextOption::WrapMode wrap)
+{
+    QTextOption opt;
+    opt.setTabStopDistance(noteTabStopDistance());
+    opt.setWrapMode(wrap);
+    opt.setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    return opt;
+}
+
+// Width of a single unwrapped run, with tabs expanded.
+qreal noteRunWidth(const QString& run, const QFont& font)
+{
+    if (run.isEmpty())
+        return 0.0;
+    QTextLayout layout(run, font);
+    layout.setTextOption(noteOption(QTextOption::NoWrap));
+    layout.beginLayout();
+    QTextLine line = layout.createLine();
+    if (!line.isValid()) {
+        layout.endLayout();
+        return 0.0;
+    }
+    line.setLineWidth(1.0e7);
+    const qreal width = line.naturalTextWidth();
+    layout.endLayout();
+    return width;
+}
+
+QString elideNoteLine(const QString& line, const QFont& font, int width)
+{
+    const QString ellipsis(QChar(0x2026));
+    if (noteRunWidth(line, font) <= width)
+        return line;
+    if (noteRunWidth(ellipsis, font) > width)
+        return ellipsis;
+    int lo = 0;
+    int hi = int(line.size());
+    while (lo + 1 < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        if (noteRunWidth(line.left(mid) + ellipsis, font) <= width)
+            lo = mid;
+        else
+            hi = mid;
+    }
+    return line.left(qMax(0, lo)) + ellipsis;
+}
+
+struct LaidLine {
+    QString text;
+    int start = 0; // index in the original text
+};
+
+// Wrap `text` the way the card and the editor do (QTextLayout, same tab
+// stops). Only `maxLines` lines are ever produced, so a pasted wall of text
+// costs the card, not the document (session 83).
+QVector<LaidLine> layoutNoteLines(const QString& text, const QFont& font, int width, int maxLines, bool* elided)
+{
+    QVector<LaidLine> out;
     if (elided)
         *elided = false;
-    QStringList out;
     if (text.isEmpty() || width <= 0 || maxLines <= 0)
         return out;
-    const QFontMetrics metrics(font);
-    // Session 83: only the lines the card can show are ever built. A pasted wall
-    // of text used to be wrapped in full on *every* repaint of the fence -- and
-    // an over-wide word was cut by measuring every one of its prefixes, which is
-    // quadratic: 2 000 characters in one run measured 22 s, 20 000 never
-    // finished. The paint runs on the UI thread while the user types, so the
-    // product froze (and the note was never saved: the auto-save never got its
-    // turn). Stopping at `maxLines` makes a huge note cost exactly what a short
-    // one does, and the ellipsis says the rest is still there and still saved.
+
     bool more = false;
-
-    // Does `word` certainly stick out of `width`? Measured on a *bounded window*
-    // of characters, never on the whole run: shaping a 100 000-character string
-    // to answer "does it fit" is what cost a second per repaint.
-    const auto tooWide = [&metrics, width](const QString& word) {
-        const int size = int(word.size());
-        int window = qBound(64, width, 4096); // characters probed at once
-        while (window < size) {
-            if (metrics.horizontalAdvance(word.left(window)) > width)
-                return true;
-            window *= 4; // only narrow characters (a wall of 'i') get this far
-        }
-        return metrics.horizontalAdvance(word) > width;
-    };
-
-    // How many characters of `word` fit `width`, by bisection over the prefixes
-    // that can possibly fit: measuring every prefix is the quadratic scan that
-    // froze the product.
-    const auto fittingPrefix = [&metrics, width](const QString& word) {
-        const auto fits = [&](int count) { return metrics.horizontalAdvance(word.left(count)) <= width; };
-        const int size = int(word.size());
-        int lo = 0;  // known to fit
-        int hi = 1;  // first prefix that does not
-        while (hi < size && fits(hi)) {
-            lo = hi;
-            hi *= 2;
-        }
-        if (hi > size)
-            hi = size;
-        if (lo == 0 && !fits(1))
-            return 1; // not even one character fits: cut one anyway, so it ends
-        while (lo + 1 < hi) {
-            const int mid = lo + (hi - lo) / 2;
-            if (fits(mid))
-                lo = mid;
-            else
-                hi = mid;
-        }
-        return qBound(1, lo, qMax(1, size - 1)); // never 0, never all of it
-    };
-
-    // The user's own line breaks are kept: a note is written, not re-flowed
-    // away. Each paragraph is then wrapped on spaces, and a word wider than the
-    // card is cut by characters instead of sticking out of it.
+    int offset = 0;
     const QStringList paragraphs = text.split(QLatin1Char('\n'));
-    for (const QString& paragraph : paragraphs) {
+    for (int p = 0; p < paragraphs.size(); ++p) {
+        const QString& paragraph = paragraphs.at(p);
+        const int paragraphStart = offset;
+        offset += int(paragraph.size());
+        if (p + 1 < paragraphs.size())
+            ++offset; // the '\n'
+
         if (out.size() >= maxLines) {
-            // A blank paragraph has nothing to add to a card that is already
-            // full: it is only the text that would have shown that is "more".
             if (paragraph.trimmed().isEmpty())
                 continue;
             more = true;
             break;
         }
-        if (paragraph.trimmed().isEmpty()) {
-            out << QString();
+        if (paragraph.isEmpty()) {
+            LaidLine blank;
+            blank.start = paragraphStart;
+            out.push_back(blank);
             continue;
         }
-        QString line;
-        const QStringList words = paragraph.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-        for (const QString& word : words) {
-            const QString candidate = line.isEmpty() ? word : line + QLatin1Char(' ') + word;
-            if (!tooWide(candidate)) {
-                line = candidate;
-                continue;
-            }
-            if (!line.isEmpty()) {
-                out << line;
-                line.clear();
-                if (out.size() >= maxLines) {
-                    more = true; // this word and everything after it is left over
-                    break;
-                }
-            }
-            QString rest = word;
-            while (rest.size() > 1 && tooWide(rest)) {
-                const int cut = fittingPrefix(rest);
-                const bool roomLeft = out.size() + 1 < maxLines;
-                out << rest.left(cut);
-                rest = rest.mid(cut);
-                if (!roomLeft) {
-                    more = !rest.isEmpty();
-                    break;
-                }
-            }
-            if (more)
+
+        // Cap the engine's input: only the characters that can fill the card
+        // are laid out. A 200 000-character run used to freeze the UI thread.
+        const int charCap = qMax(64, maxLines * qMax(8, width));
+        const QString toLayout = paragraph.size() > charCap ? paragraph.left(charCap) : paragraph;
+        if (toLayout.size() < paragraph.size())
+            more = true;
+
+        QTextLayout layout(toLayout, font);
+        layout.setTextOption(noteOption(QTextOption::WrapAtWordBoundaryOrAnywhere));
+        layout.beginLayout();
+        qreal y = 0;
+        while (out.size() < maxLines) {
+            QTextLine line = layout.createLine();
+            if (!line.isValid())
                 break;
-            line = rest;
+            line.setLineWidth(width);
+            line.setPosition(QPointF(0, y));
+            y += line.height();
+            LaidLine laid;
+            laid.start = paragraphStart + line.textStart();
+            laid.text = toLayout.mid(line.textStart(), line.textLength());
+            // QTextLayout may include a trailing break; drop it from the card.
+            if (laid.text.endsWith(QLatin1Char('\n')))
+                laid.text.chop(1);
+            out.push_back(laid);
         }
-        if (more)
+        if (layout.createLine().isValid())
+            more = true;
+        layout.endLayout();
+        if (out.size() >= maxLines && more)
             break;
-        out << line;
     }
-    while (!out.isEmpty() && out.last().isEmpty())
+
+    while (!out.isEmpty() && out.last().text.isEmpty())
         out.removeLast();
     if (more || out.size() > maxLines) {
-        out = out.mid(0, maxLines);
+        if (out.size() > maxLines)
+            out = out.mid(0, maxLines);
         if (elided)
             *elided = true;
-        // The last line that fits says there was more, rather than the card
-        // ending mid-sentence with no sign of it. (A note whose first lines are
-        // blank keeps nothing at all: one ellipsis line beats an empty card.)
-        if (out.isEmpty())
-            out << metrics.elidedText(QString(QChar(0x2026)), Qt::ElideRight, width);
-        else
-            out.last() = metrics.elidedText(out.last() + QChar(0x2026), Qt::ElideRight, width);
+        if (out.isEmpty()) {
+            LaidLine ellipsis;
+            ellipsis.text = elideNoteLine(QString(QChar(0x2026)), font, width);
+            out.push_back(ellipsis);
+        } else {
+            out.last().text = elideNoteLine(out.last().text + QChar(0x2026), font, width);
+        }
     }
     return out;
 }
+
+} // namespace
+
+QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines, bool* elided)
+{
+    const QVector<LaidLine> laid = layoutNoteLines(text, font, width, maxLines, elided);
+    QStringList out;
+    out.reserve(laid.size());
+    for (const LaidLine& line : laid)
+        out << line.text;
+    return out;
+}
+
+qreal noteGlyphX(const QString& text, const QFont& font, int width, int maxLines, int index)
+{
+    if (index < 0 || index > int(text.size()))
+        return -1.0;
+    bool elided = false;
+    const QVector<LaidLine> laid = layoutNoteLines(text, font, width, maxLines, &elided);
+    for (const LaidLine& line : laid) {
+        const int rel = index - line.start;
+        if (rel < 0 || rel > int(line.text.size()))
+            continue;
+        // Elided last line may be shorter than the source slice; skip if the
+        // character itself was replaced by the ellipsis.
+        if (rel == int(line.text.size()) && index < int(text.size()) && !line.text.endsWith(QChar(0x2026)))
+            return noteRunWidth(line.text, font);
+        if (rel == int(line.text.size()))
+            return noteRunWidth(line.text, font);
+        QTextLayout layout(line.text, font);
+        layout.setTextOption(noteOption(QTextOption::NoWrap));
+        layout.beginLayout();
+        QTextLine tl = layout.createLine();
+        if (!tl.isValid()) {
+            layout.endLayout();
+            return -1.0;
+        }
+        tl.setLineWidth(1.0e7);
+        const qreal x = tl.cursorToX(rel);
+        layout.endLayout();
+        return x;
+    }
+    return -1.0;
+}
+
 
 void paint(QPainter& painter, const QRect& rect, const core::DesktopItem& item, const PaintContext& context)
 {

@@ -3,6 +3,7 @@
 #include <QFontMetrics>
 #include <QImage>
 #include <QPainter>
+#include <QTextCursor>
 
 #include "core/desktop_item.hpp"
 #include "ui/fence_widgets.hpp"
@@ -246,6 +247,65 @@ private slots:
         QCOMPARE(saves, 1);
         QVERIFY(!editor.flush()); // nothing new: no second write
         QCOMPARE(saves, 1);
+    }
+
+    // Session 120: a tab is a column stop, not a space. The card lays the
+    // same columns as the editor (shared font, wrap, tabStopDistance).
+    void noteTabsLineUpWithTheEditor()
+    {
+        const QString text = QStringLiteral("Nom\tPrenom\tVille\nAda\tLovelace\tLondres\nA\t\tC");
+        const QFont font = widgets::noteFont();
+        const QMargins pad = widgets::noteContentMargins();
+        const int cellW = 360;
+        const int cellH = 220;
+        const int width = cellW - pad.left() - pad.right();
+        const QFontMetrics metrics(font);
+        const int maxLines = qMax(1, (cellH - pad.top() - pad.bottom()) / qMax(1, metrics.lineSpacing()));
+
+        const qreal xPrenom = widgets::noteGlyphX(text, font, width, maxLines, text.indexOf(QStringLiteral("Prenom")));
+        const qreal xVille = widgets::noteGlyphX(text, font, width, maxLines, text.indexOf(QStringLiteral("Ville")));
+        const qreal xC = widgets::noteGlyphX(text, font, width, maxLines, text.indexOf(QLatin1Char('C')));
+        QVERIFY(xPrenom >= 0 && xVille >= 0 && xC >= 0);
+        // "Nom" is narrower than one stop: Prenom starts at the first stop (80),
+        // Ville at the second, and C after two tabs from "A" at 160.
+        QCOMPARE(qRound(xPrenom), 80);
+        QCOMPARE(qRound(xVille), 160);
+        QCOMPARE(qRound(xC), 160);
+        QVERIFY(xVille > xPrenom);
+
+        NoteEditor editor(text, [](const QString&) {}, [] {});
+        editor.setFixedSize(cellW, cellH);
+        editor.setAttribute(Qt::WA_DontShowOnScreen);
+        editor.show();
+        editor.document()->adjustSize();
+        QTest::qWait(20);
+
+        const auto editorX = [&](int index) -> qreal {
+            QTextCursor cur(editor.document());
+            cur.setPosition(index);
+            return editor.cursorRect(cur).x();
+        };
+        const qreal ePrenom = editorX(text.indexOf(QStringLiteral("Prenom")));
+        const qreal eVille = editorX(text.indexOf(QStringLiteral("Ville")));
+        const qreal eC = editorX(text.indexOf(QLatin1Char('C')));
+        QVERIFY2(qAbs(ePrenom - xPrenom) <= 2.0,
+                 qPrintable(QStringLiteral("Prenom card %1 editor %2").arg(xPrenom).arg(ePrenom)));
+        QVERIFY2(qAbs(eVille - xVille) <= 2.0,
+                 qPrintable(QStringLiteral("Ville card %1 editor %2").arg(xVille).arg(eVille)));
+        QVERIFY2(qAbs(eC - xC) <= 2.0,
+                 qPrintable(QStringLiteral("C card %1 editor %2").arg(xC).arg(eC)));
+    }
+
+    void tabKeyInsertsATabAndDoesNotLeave()
+    {
+        bool finished = false;
+        NoteEditor editor(QStringLiteral("A"), [](const QString&) {}, [&] { finished = true; });
+        editor.setAttribute(Qt::WA_DontShowOnScreen);
+        editor.show();
+        QTest::keyClick(&editor, Qt::Key_End);
+        QTest::keyClick(&editor, Qt::Key_Tab);
+        QVERIFY(!finished);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("A\t"));
     }
 
     void escapeLeavesAndCtrlEnterWrites()

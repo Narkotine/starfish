@@ -4,6 +4,7 @@
 #include <functional>
 #include <QFont>
 #include <QList>
+#include <QMargins>
 #include <QPainter>
 #include <QSize>
 #include <QString>
@@ -73,11 +74,23 @@ QString noteText(const core::DesktopItem& item);
 core::DesktopItem withNoteText(const core::DesktopItem& item, const QString& text);
 // What an empty note shows instead of nothing.
 QString notePlaceholder();
+// Session 120: typography shared with NoteEditor, so a tab in the card lands
+// on the same column as in the editor (same font, wrap, margins, tab stops).
+QFont noteFont();
+qreal noteTabStopDistance();
+// Padding from the widget / cell edge to the text (left, top, right, bottom).
+QMargins noteContentMargins();
+
 // `text` wrapped into at most `maxLines` lines for `width` px, the last one
 // elided on the right when something is left over (`elided` says so). Pure, so
-// the probe measures the same wrapping the paint does.
+// the probe measures the same wrapping the paint does. Tabs advance to the
+// same stops as NoteEditor (QTextLayout / QTextOption).
 QStringList noteLines(const QString& text, const QFont& font, int width, int maxLines,
                       bool* elided = nullptr);
+// Horizontal position, in px from the left of the laid-out text, of the
+// character at `index` (0-based in `text`). Negative if that character is not
+// on a visible line.
+qreal noteGlyphX(const QString& text, const QFont& font, int width, int maxLines, int index);
 
 // --- image (session 95) ---------------------------------------------------
 // settings: "path" (a local picture file), "fit" ("fit": whole picture; "fill":

@@ -1,7 +1,10 @@
 #include "ui/note_editor.hpp"
 
+#include "ui/fence_widgets.hpp"
+
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QTextOption>
 
 namespace starfish::ui {
 
@@ -13,7 +16,21 @@ NoteEditor::NoteEditor(const QString& text, std::function<void(const QString&)> 
     setFrameShape(QFrame::NoFrame);
     setLineWrapMode(QPlainTextEdit::WidgetWidth);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setTabChangesFocus(true); // Tab leaves the note, it does not indent it
+    // Session 120: Tab inserts a tab (a column separator), it does not leave
+    // the note. Escape, a click elsewhere, or Ctrl+Enter still close it.
+    setTabChangesFocus(false);
+    setFont(widgets::noteFont());
+    document()->setDocumentMargin(0);
+    QTextOption opt = document()->defaultTextOption();
+    opt.setTabStopDistance(widgets::noteTabStopDistance());
+    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    document()->setDefaultTextOption(opt);
+    const QMargins pad = widgets::noteContentMargins();
+    setStyleSheet(QStringLiteral("QPlainTextEdit { padding: %1px %2px %3px %4px; }")
+                      .arg(pad.top())
+                      .arg(pad.right())
+                      .arg(pad.bottom())
+                      .arg(pad.left()));
     m_timer.setSingleShot(true);
     m_timer.setInterval(kSaveDelayMs);
     connect(&m_timer, &QTimer::timeout, this, [this] { flush(); });
